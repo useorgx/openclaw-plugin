@@ -1,0 +1,73 @@
+{
+  "id": "orgx",
+  "name": "OrgX Integration",
+  "version": "1.0.0",
+  "description": "Connects Clawdbot to OrgX for agent orchestration, quality gates, and model routing",
+  "entry": "./dist/index.js",
+  "author": "OrgX Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orgx/orgx"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "capabilities": {
+    "tools": true,
+    "services": true,
+    "cli": true,
+    "http": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "OrgX API key for authentication"
+      },
+      "baseUrl": {
+        "type": "string",
+        "default": "https://www.useorgx.com",
+        "description": "OrgX API base URL"
+      },
+      "syncIntervalMs": {
+        "type": "number",
+        "default": 300000,
+        "description": "Background sync interval in milliseconds (default: 5 minutes)"
+      },
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable or disable the OrgX plugin"
+      },
+      "dashboardEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable the OrgX live dashboard at /orgx/live"
+      }
+    },
+    "required": []
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "OrgX API Key",
+      "sensitive": true,
+      "placeholder": "orgx_..."
+    },
+    "baseUrl": {
+      "label": "OrgX API Base URL",
+      "placeholder": "https://www.useorgx.com"
+    },
+    "syncIntervalMs": {
+      "label": "Sync Interval (ms)",
+      "placeholder": "300000"
+    },
+    "enabled": {
+      "label": "Enable Plugin"
+    },
+    "dashboardEnabled": {
+      "label": "Enable Live Dashboard"
+    }
+  }
+}

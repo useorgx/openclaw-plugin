@@ -1,0 +1,74 @@
+{
+  "name": "@useorgx/openclaw-plugin",
+  "version": "0.1.1",
+  "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    }
+  },
+  "openclaw": {
+    "plugin": true,
+    "entry": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "dashboard/dist/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "orgx",
+    "agent-orchestration",
+    "mcp",
+    "ai-agents",
+    "quality-gates",
+    "model-routing"
+  ],
+  "author": "OrgX Team <team@useorgx.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/useorgx/openclaw-plugin.git"
+  },
+  "homepage": "https://useorgx.com",
+  "bugs": {
+    "url": "https://github.com/useorgx/openclaw-plugin/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.1.0"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.30",
+    "typescript": "^5.9.3"
+  }
+}
