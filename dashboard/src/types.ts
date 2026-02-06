@@ -27,6 +27,18 @@ export interface LiveActivityItem {
   metadata?: Record<string, unknown>;
 }
 
+export interface LiveDecision {
+  id: string;
+  title: string;
+  context: string | null;
+  status: string;
+  agentName: string | null;
+  requestedAt: string | null;
+  updatedAt: string | null;
+  waitingMinutes: number;
+  metadata?: Record<string, unknown>;
+}
+
 export interface SessionTreeNode {
   id: string;
   parentId: string | null;
@@ -93,6 +105,7 @@ export interface LiveData {
   sessions: SessionTreeResponse;
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
+  decisions: LiveDecision[];
 }
 
 // -----------------------------------------------------------------------------

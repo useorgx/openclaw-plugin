@@ -12,6 +12,14 @@ interface AgentsChatsPanelProps {
 
 const MAX_VISIBLE_GROUPS = 120;
 const MAX_VISIBLE_CHILD_SESSIONS = 10;
+const ONLINE_STATUSES = new Set(['running', 'queued', 'pending', 'blocked']);
+const OFFLINE_DATE_FILTERS = [
+  { id: 'all', label: 'All offline', minutes: null },
+  { id: '24h', label: '24h', minutes: 24 * 60 },
+  { id: '3d', label: '3d', minutes: 3 * 24 * 60 },
+  { id: '7d', label: '7d', minutes: 7 * 24 * 60 },
+  { id: '30d', label: '30d', minutes: 30 * 24 * 60 },
+] as const;
 
 const statusColors: Record<string, string> = {
   running: colors.lime,
@@ -36,9 +44,11 @@ type AgentGroup = {
 };
 
 function sortByUpdated(a: SessionTreeNode, b: SessionTreeNode) {
+  const toEpoch = (value: string | null | undefined) =>
+    value ? new Date(value).getTime() : 0;
   return (
-    new Date(b.updatedAt ?? b.startedAt ?? 0).getTime() -
-    new Date(a.updatedAt ?? a.startedAt ?? 0).getTime()
+    toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt) -
+    toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt)
   );
 }
 
@@ -48,8 +58,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   onSelectSession,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [offlineDateFilter, setOfflineDateFilter] =
+    useState<(typeof OFFLINE_DATE_FILTERS)[number]['id']>('all');
 
-  const { agents, hiddenGroupCount } = useMemo(() => {
+  const { agents, hiddenGroupCount, filteredOutByDate } = useMemo(() => {
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
@@ -77,11 +89,43 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       sortByUpdated(a.latest, b.latest)
     );
 
+    const selectedWindow =
+      OFFLINE_DATE_FILTERS.find((item) => item.id === offlineDateFilter) ??
+      OFFLINE_DATE_FILTERS[0];
+    const cutoffEpoch =
+      selectedWindow.minutes === null
+        ? null
+        : Date.now() - selectedWindow.minutes * 60_000;
+    const toEpoch = (value: string | null | undefined) =>
+      value ? new Date(value).getTime() : 0;
+
+    const filteredGroups = sortedGroups.filter((group) => {
+      if (cutoffEpoch === null) return true;
+
+      const latest = group.latest;
+      if (ONLINE_STATUSES.has(latest.status)) return true;
+
+      const latestEpoch = toEpoch(latest.updatedAt ?? latest.lastEventAt ?? latest.startedAt);
+      return latestEpoch >= cutoffEpoch;
+    });
+
+    const filteredOutByDate =
+      cutoffEpoch === null
+        ? 0
+        : sortedGroups.filter((group) => {
+            if (ONLINE_STATUSES.has(group.latest.status)) return false;
+            const latestEpoch = toEpoch(
+              group.latest.updatedAt ?? group.latest.lastEventAt ?? group.latest.startedAt
+            );
+            return latestEpoch < cutoffEpoch;
+          }).length;
+
     return {
-      agents: sortedGroups.slice(0, MAX_VISIBLE_GROUPS),
-      hiddenGroupCount: Math.max(0, sortedGroups.length - MAX_VISIBLE_GROUPS),
+      agents: filteredGroups.slice(0, MAX_VISIBLE_GROUPS),
+      hiddenGroupCount: Math.max(0, filteredGroups.length - MAX_VISIBLE_GROUPS),
+      filteredOutByDate,
     };
-  }, [sessions.nodes]);
+  }, [offlineDateFilter, sessions.nodes]);
 
   const toggleCollapse = (id: string) => {
     setCollapsed((prev) => {
@@ -102,13 +146,36 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           <h2 className="text-[13px] font-semibold text-white">Agents / Chats</h2>
           <p className="text-[10px] text-white/45">Grouped by agent identity</p>
         </div>
-        <span className="chip">{sessions.nodes.length} sessions</span>
+        <div className="flex items-center gap-2">
+          <label htmlFor="offline-date-filter" className="text-[10px] text-white/45">
+            Offline
+          </label>
+          <select
+            id="offline-date-filter"
+            value={offlineDateFilter}
+            onChange={(event) =>
+              setOfflineDateFilter(
+                event.target.value as (typeof OFFLINE_DATE_FILTERS)[number]['id']
+              )
+            }
+            className="rounded-md border border-white/[0.1] bg-black/30 px-1.5 py-1 text-[10px] text-white/75 focus:outline-none focus:ring-1 focus:ring-white/30"
+          >
+            {OFFLINE_DATE_FILTERS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="chip">{sessions.nodes.length} sessions</span>
+        </div>
       </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {agents.length === 0 && (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-[11px] text-white/45">
-            No active chats yet.
+            {filteredOutByDate > 0
+              ? 'No sessions match the selected offline date filter.'
+              : 'No active chats yet.'}
           </div>
         )}
 
@@ -241,6 +308,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         {hiddenGroupCount > 0 && (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] text-white/45">
             Showing {MAX_VISIBLE_GROUPS} most recent agent groups ({hiddenGroupCount} older groups omitted).
+          </div>
+        )}
+
+        {filteredOutByDate > 0 && (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] text-white/45">
+            {filteredOutByDate} offline group{filteredOutByDate === 1 ? '' : 's'} hidden by date filter.
           </div>
         )}
       </div>

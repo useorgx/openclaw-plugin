@@ -16,7 +16,7 @@ import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { OrgXClient } from "./api.js";
-import type { OrgXConfig, OrgSnapshot } from "./types.js";
+import type { OrgXConfig, OrgSnapshot, Entity } from "./types.js";
 import {
   formatStatus,
   formatAgents,
@@ -147,6 +147,118 @@ function sendIndexHtml(res: PluginResponse): void {
   }
 }
 
+function parseJsonBody(body: unknown): Record<string, unknown> {
+  if (!body) return {};
+  if (typeof body === "string") {
+    try {
+      const parsed = JSON.parse(body);
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (Buffer.isBuffer(body)) {
+    try {
+      const parsed = JSON.parse(body.toString("utf8"));
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof body === "object") {
+    return body as Record<string, unknown>;
+  }
+  return {};
+}
+
+function pickString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function toIsoString(value: string | null): string | null {
+  if (!value) return null;
+  const epoch = Date.parse(value);
+  if (!Number.isFinite(epoch)) return null;
+  return new Date(epoch).toISOString();
+}
+
+function mapDecisionEntity(entity: Entity) {
+  const record = entity as Record<string, unknown>;
+  const requestedAt = toIsoString(
+    pickString(record, [
+      "requestedAt",
+      "requested_at",
+      "createdAt",
+      "created_at",
+      "updatedAt",
+      "updated_at",
+    ])
+  );
+  const updatedAt = toIsoString(
+    pickString(record, ["updatedAt", "updated_at", "createdAt", "created_at"])
+  );
+
+  const waitingMinutesFromEntity = pickNumber(record, [
+    "waitingMinutes",
+    "waiting_minutes",
+    "ageMinutes",
+    "age_minutes",
+  ]);
+  const waitingMinutes =
+    waitingMinutesFromEntity ??
+    (requestedAt
+      ? Math.max(0, Math.floor((Date.now() - Date.parse(requestedAt)) / 60_000))
+      : 0);
+
+  return {
+    id: String(record.id ?? ""),
+    title: pickString(record, ["title", "name"]) ?? "Decision",
+    context: pickString(record, ["context", "summary", "description", "details"]),
+    status: pickString(record, ["status", "decision_status"]) ?? "pending",
+    agentName: pickString(record, [
+      "agentName",
+      "agent_name",
+      "requestedBy",
+      "requested_by",
+      "ownerName",
+      "owner_name",
+      "assignee",
+      "createdBy",
+      "created_by",
+    ]),
+    requestedAt,
+    updatedAt,
+    waitingMinutes,
+    metadata: record,
+  };
+}
+
 // =============================================================================
 // Factory
 // =============================================================================
@@ -184,6 +296,62 @@ export function createHttpHandler(
 
     // ── API endpoints ──────────────────────────────────────────────────────
     if (url.startsWith("/orgx/api/")) {
+      const route = url.replace("/orgx/api/", "").replace(/\/+$/, "");
+      const decisionApproveMatch = route.match(
+        /^live\/decisions\/([^/]+)\/approve$/
+      );
+
+      if (
+        method === "POST" &&
+        (route === "live/decisions/approve" || decisionApproveMatch)
+      ) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const action = payload.action === "reject" ? "reject" : "approve";
+          const note =
+            typeof payload.note === "string" && payload.note.trim().length > 0
+              ? payload.note.trim()
+              : undefined;
+
+          const ids = decisionApproveMatch
+            ? [decodeURIComponent(decisionApproveMatch[1])]
+            : Array.isArray(payload.ids)
+              ? payload.ids
+                  .filter((id): id is string => typeof id === "string")
+                  .map((id) => id.trim())
+                  .filter(Boolean)
+              : [];
+
+          if (ids.length === 0) {
+            sendJson(res, 400, {
+              error: "Decision IDs are required.",
+              expected: {
+                route: "/orgx/api/live/decisions/approve",
+                body: { ids: ["decision-id"], action: "approve|reject" },
+              },
+            });
+            return true;
+          }
+
+          const results = await client.bulkDecideDecisions(ids, action, note);
+          const updated = results.filter((result) => result.ok).length;
+          const failed = results.length - updated;
+
+          sendJson(res, failed > 0 ? 207 : 200, {
+            action,
+            requested: ids.length,
+            updated,
+            failed,
+            results,
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
       if (method !== "GET") {
         res.writeHead(405, {
           "Content-Type": "text/plain",
@@ -192,8 +360,6 @@ export function createHttpHandler(
         res.end("Method Not Allowed");
         return true;
       }
-
-      const route = url.replace("/orgx/api/", "").replace(/\/+$/, "");
 
       switch (route) {
         case "status": {
@@ -308,6 +474,32 @@ export function createHttpHandler(
           return true;
         }
 
+        case "live/decisions": {
+          try {
+            const status = searchParams.get("status") ?? "pending";
+            const limit = searchParams.get("limit")
+              ? Number(searchParams.get("limit"))
+              : 100;
+            const data = await client.getLiveDecisions({
+              status,
+              limit: Number.isFinite(limit) ? limit : 100,
+            });
+            const decisions = data.decisions
+              .map(mapDecisionEntity)
+              .sort((a, b) => b.waitingMinutes - a.waitingMinutes);
+
+            sendJson(res, 200, {
+              decisions,
+              total: data.total,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
         case "handoffs": {
           try {
             const data = await client.getHandoffs();
@@ -333,10 +525,28 @@ export function createHttpHandler(
               headers: {
                 Authorization: `Bearer ${config.apiKey}`,
                 Accept: "text/event-stream",
+                ...(config.userId
+                  ? { "X-Orgx-User-Id": config.userId }
+                  : {}),
               },
             });
 
-            res.writeHead(upstream.status, {
+            const contentType =
+              upstream.headers.get("content-type")?.toLowerCase() ?? "";
+            if (!upstream.ok || !contentType.includes("text/event-stream")) {
+              const bodyPreview = (await upstream.text().catch(() => ""))
+                .replace(/\s+/g, " ")
+                .slice(0, 300);
+              sendJson(res, upstream.ok ? 502 : upstream.status, {
+                error: "Live stream endpoint unavailable",
+                status: upstream.status,
+                contentType,
+                preview: bodyPreview || null,
+              });
+              return true;
+            }
+
+            res.writeHead(200, {
               "Content-Type": "text/event-stream; charset=utf-8",
               "Cache-Control": "no-cache, no-transform",
               Connection: "keep-alive",

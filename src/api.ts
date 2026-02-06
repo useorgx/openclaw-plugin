@@ -23,6 +23,15 @@ import type {
 const REQUEST_TIMEOUT_MS = 10_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 
+export type DecisionAction = "approve" | "reject";
+
+export interface DecisionActionResult {
+  id: string;
+  ok: boolean;
+  entity?: Entity;
+  error?: string;
+}
+
 export class OrgXClient {
   private apiKey: string;
   private baseUrl: string;
@@ -264,5 +273,67 @@ export class OrgXClient {
 
   async getHandoffs(): Promise<{ handoffs: HandoffSummary[] }> {
     return this.get(`/api/client/handoffs`);
+  }
+
+  async getLiveDecisions(params?: { status?: string; limit?: number }): Promise<{ decisions: Entity[]; total: number }> {
+    const response = await this.listEntities("decision", {
+      status: params?.status,
+      limit: params?.limit,
+    });
+    const decisions = Array.isArray(response.data) ? response.data : [];
+    return {
+      decisions,
+      total: response.pagination?.total ?? decisions.length,
+    };
+  }
+
+  async decideDecision(id: string, action: DecisionAction, note?: string): Promise<Entity> {
+    const resolvedStatus = action === "approve" ? "approved" : "rejected";
+    const resolvedAt = new Date().toISOString();
+
+    try {
+      return await this.updateEntity("decision", id, {
+        status: resolvedStatus,
+        resolution: resolvedStatus,
+        resolved_at: resolvedAt,
+        decided_at: resolvedAt,
+        decided_by: this.userId || undefined,
+        note: note ?? undefined,
+      });
+    } catch {
+      // Fallback for backends that only support generic "resolved" status.
+      return this.updateEntity("decision", id, {
+        status: "resolved",
+        decision_status: resolvedStatus,
+        resolution: resolvedStatus,
+        resolved_at: resolvedAt,
+        decided_at: resolvedAt,
+        note: note ?? undefined,
+      });
+    }
+  }
+
+  async bulkDecideDecisions(
+    ids: string[],
+    action: DecisionAction,
+    note?: string
+  ): Promise<DecisionActionResult[]> {
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    const results: DecisionActionResult[] = [];
+
+    for (const id of uniqueIds) {
+      try {
+        const entity = await this.decideDecision(id, action, note);
+        results.push({ id, ok: true, entity });
+      } catch (err: unknown) {
+        results.push({
+          id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return results;
   }
 }

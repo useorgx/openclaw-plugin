@@ -155,5 +155,17 @@ export const createMockData = (): LiveData => {
         ],
       },
     ],
+    decisions: [
+      {
+        id: 'decision-1',
+        title: 'Approve dashboard copy update',
+        context: 'Marketing requested a copy refresh before final launch. Confirm wording changes.',
+        status: 'pending',
+        agentName: 'Mark',
+        requestedAt: minusMinutes(22),
+        updatedAt: minusMinutes(2),
+        waitingMinutes: 22,
+      },
+    ],
   };
 };

@@ -6,6 +6,7 @@ import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { SessionInspector } from '@/components/sessions/SessionInspector';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { HandoffPanel } from '@/components/handoffs/HandoffPanel';
+import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
@@ -29,7 +30,9 @@ function StatTile({ label, value }: { label: string; value: string | number }) {
 }
 
 export function App() {
-  const { data, isLoading, error, refetch } = useLiveData({ useMock: false });
+  const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
+    useMock: false,
+  });
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const clearSelectedSession = useCallback(() => {
     setSelectedSessionId(null);
@@ -138,10 +141,11 @@ export function App() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
           <StatTile label="Sessions" value={data.sessions.nodes.length} />
           <StatTile label="Active" value={activeSessionCount} />
           <StatTile label="Blocked" value={blockedCount} />
+          <StatTile label="Pending Decisions" value={data.decisions.length} />
           <StatTile label="Open Handoffs" value={data.handoffs.length} />
         </div>
 
@@ -170,6 +174,11 @@ export function App() {
         </section>
 
         <section className="flex min-h-0 flex-col gap-3 lg:col-span-3">
+          <DecisionQueue
+            decisions={data.decisions}
+            onApproveDecision={approveDecision}
+            onApproveAll={approveAllDecisions}
+          />
           <SessionInspector session={selectedSession} activity={data.activity} />
           <HandoffPanel handoffs={data.handoffs} />
         </section>
