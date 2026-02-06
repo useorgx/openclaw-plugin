@@ -18,12 +18,16 @@ import type {
   LiveActivityItem,
   SessionTreeResponse,
   HandoffSummary,
+  CheckpointSummary,
+  RestoreRequest,
+  DelegationPreflightResult,
 } from "./types.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 
 export type DecisionAction = "approve" | "reject";
+export type RunAction = "pause" | "resume" | "cancel" | "rollback";
 
 export interface DecisionActionResult {
   id: string;
@@ -158,7 +162,31 @@ export class OrgXClient {
   // ===========================================================================
 
   async syncMemory(payload: SyncPayload): Promise<SyncResponse> {
-    return this.post<SyncResponse>("/api/client/sync", payload);
+    const response = await this.post<{ ok?: boolean; data?: SyncResponse } | SyncResponse>(
+      "/api/client/sync",
+      payload
+    );
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as SyncResponse;
+  }
+
+  async delegationPreflight(payload: {
+    intent: string;
+    acceptanceCriteria?: string[];
+    constraints?: string[];
+    domains?: string[];
+  }): Promise<{ ok: boolean; data: DelegationPreflightResult }> {
+    return this.post<{ ok: boolean; data: DelegationPreflightResult }>(
+      "/api/client/delegation/preflight",
+      payload
+    );
   }
 
   // ===========================================================================
@@ -273,6 +301,62 @@ export class OrgXClient {
 
   async getHandoffs(): Promise<{ handoffs: HandoffSummary[] }> {
     return this.get(`/api/client/handoffs`);
+  }
+
+  async runAction(
+    runId: string,
+    action: RunAction,
+    payload?: { checkpointId?: string; reason?: string }
+  ): Promise<{
+    ok: boolean;
+    data: {
+      runId: string;
+      action: RunAction;
+      status: string;
+      checkpointId?: string;
+    };
+  }> {
+    const encodedRunId = encodeURIComponent(runId);
+    const encodedAction = encodeURIComponent(action);
+    return this.post(
+      `/api/client/runs/${encodedRunId}/actions/${encodedAction}`,
+      payload ?? {}
+    );
+  }
+
+  async listRunCheckpoints(
+    runId: string
+  ): Promise<{ ok: boolean; data: CheckpointSummary[] }> {
+    const encodedRunId = encodeURIComponent(runId);
+    return this.get(`/api/client/runs/${encodedRunId}/checkpoints`);
+  }
+
+  async createRunCheckpoint(
+    runId: string,
+    payload?: { reason?: string; payload?: Record<string, unknown> }
+  ): Promise<{ ok: boolean; data: CheckpointSummary }> {
+    const encodedRunId = encodeURIComponent(runId);
+    return this.post(`/api/client/runs/${encodedRunId}/checkpoints`, payload ?? {});
+  }
+
+  async restoreRunCheckpoint(
+    runId: string,
+    request: RestoreRequest
+  ): Promise<{
+    ok: boolean;
+    data: {
+      runId: string;
+      action: RunAction;
+      status: string;
+      checkpointId?: string;
+    };
+  }> {
+    const encodedRunId = encodeURIComponent(runId);
+    const encodedCheckpointId = encodeURIComponent(request.checkpointId);
+    return this.post(
+      `/api/client/runs/${encodedRunId}/checkpoints/${encodedCheckpointId}/restore`,
+      { reason: request.reason }
+    );
   }
 
   async getLiveDecisions(params?: { status?: string; limit?: number }): Promise<{ decisions: Entity[]; total: number }> {

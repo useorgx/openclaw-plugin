@@ -306,6 +306,215 @@ export default function register(api: PluginAPI): void {
     { optional: true }
   );
 
+  // --- orgx_delegation_preflight ---
+  api.registerTool(
+    {
+      name: "orgx_delegation_preflight",
+      description:
+        "Run delegation preflight to score scope quality, estimate ETA/cost, and suggest a split before autonomous execution.",
+      parameters: {
+        type: "object",
+        properties: {
+          intent: {
+            type: "string",
+            description: "Task intent in natural language",
+          },
+          acceptanceCriteria: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional acceptance criteria to reduce ambiguity",
+          },
+          constraints: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional constraints (deadline, stack, policy)",
+          },
+          domains: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional preferred owner domains",
+          },
+        },
+        required: ["intent"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          intent: string;
+          acceptanceCriteria?: string[];
+          constraints?: string[];
+          domains?: string[];
+        } = { intent: "" }
+      ) {
+        try {
+          const result = await client.delegationPreflight({
+            intent: params.intent,
+            acceptanceCriteria: Array.isArray(params.acceptanceCriteria)
+              ? params.acceptanceCriteria.filter(
+                  (item): item is string => typeof item === "string"
+                )
+              : undefined,
+            constraints: Array.isArray(params.constraints)
+              ? params.constraints.filter(
+                  (item): item is string => typeof item === "string"
+                )
+              : undefined,
+            domains: Array.isArray(params.domains)
+              ? params.domains.filter(
+                  (item): item is string => typeof item === "string"
+                )
+              : undefined,
+          });
+          return json("Delegation preflight:", result.data ?? result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Delegation preflight failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_run_action ---
+  api.registerTool(
+    {
+      name: "orgx_run_action",
+      description:
+        "Apply a control action to a run: pause, resume, cancel, or rollback (rollback requires checkpointId).",
+      parameters: {
+        type: "object",
+        properties: {
+          runId: {
+            type: "string",
+            description: "Run UUID",
+          },
+          action: {
+            type: "string",
+            enum: ["pause", "resume", "cancel", "rollback"],
+            description: "Control action",
+          },
+          checkpointId: {
+            type: "string",
+            description: "Checkpoint UUID (required for rollback)",
+          },
+          reason: {
+            type: "string",
+            description: "Optional reason for audit trail",
+          },
+        },
+        required: ["runId", "action"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          runId: string;
+          action: "pause" | "resume" | "cancel" | "rollback";
+          checkpointId?: string;
+          reason?: string;
+        } = { runId: "", action: "pause" }
+      ) {
+        try {
+          if (params.action === "rollback" && !params.checkpointId) {
+            return text("❌ rollback requires checkpointId");
+          }
+          const result = await client.runAction(params.runId, params.action, {
+            checkpointId: params.checkpointId,
+            reason: params.reason,
+          });
+          return json("Run action applied:", result.data ?? result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Run action failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_checkpoints_list ---
+  api.registerTool(
+    {
+      name: "orgx_checkpoints_list",
+      description: "List checkpoints for a run.",
+      parameters: {
+        type: "object",
+        properties: {
+          runId: {
+            type: "string",
+            description: "Run UUID",
+          },
+        },
+        required: ["runId"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { runId: string } = { runId: "" }
+      ) {
+        try {
+          const result = await client.listRunCheckpoints(params.runId);
+          return json("Run checkpoints:", result.data ?? result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Failed to list checkpoints: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_checkpoint_restore ---
+  api.registerTool(
+    {
+      name: "orgx_checkpoint_restore",
+      description: "Restore a run to a specific checkpoint.",
+      parameters: {
+        type: "object",
+        properties: {
+          runId: {
+            type: "string",
+            description: "Run UUID",
+          },
+          checkpointId: {
+            type: "string",
+            description: "Checkpoint UUID",
+          },
+          reason: {
+            type: "string",
+            description: "Optional restoration reason",
+          },
+        },
+        required: ["runId", "checkpointId"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { runId: string; checkpointId: string; reason?: string } = {
+          runId: "",
+          checkpointId: "",
+        }
+      ) {
+        try {
+          const result = await client.restoreRunCheckpoint(params.runId, {
+            checkpointId: params.checkpointId,
+            reason: params.reason,
+          });
+          return json("Checkpoint restored:", result.data ?? result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Checkpoint restore failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_spawn_check ---
   api.registerTool(
     {

@@ -81,12 +81,19 @@ export interface SyncPayload {
   memory?: string;
   /** Today's session log */
   dailyLog?: string;
+  /** Workspace state for local↔cloud handoff continuity */
+  workspaceState?: HandoffWorkspaceState;
   /** Decisions made this session */
   decisions?: Array<{
     id: string;
     action: "approved" | "rejected";
     note?: string;
   }>;
+  /** Optional sync cursor from client */
+  memoryCursor?: {
+    lastSyncEventId?: string;
+    lastAppliedHandoffId?: string;
+  };
 }
 
 export interface SyncResponse {
@@ -114,8 +121,87 @@ export interface SyncResponse {
   qualityStats: QualityStats[];
   /** Model routing policy */
   modelPolicy: ModelRoutingPolicy;
+  /** Workspace state echo and server-side handoff status */
+  workspaceState: HandoffWorkspaceState;
+  /** Sync cursor for incremental sync */
+  memoryCursor: {
+    lastSyncEventId: string | null;
+    lastAppliedHandoffId: string | null;
+  };
   /** Server timestamp */
   syncedAt: string;
+}
+
+// =============================================================================
+// RUN PHASES + HANDOFF CONTINUITY
+// =============================================================================
+
+export type RunPhase =
+  | 'intent'
+  | 'execution'
+  | 'blocked'
+  | 'review'
+  | 'handoff'
+  | 'completed';
+
+export interface HandoffWorkspaceState {
+  git?: {
+    branch?: string | null;
+    headSha?: string | null;
+    dirtyFiles?: string[];
+    untrackedFilesCount?: number;
+  };
+  handoff?: {
+    pendingHandoffIds?: string[];
+    lastAppliedHandoffId?: string | null;
+  };
+  memoryCursor?: {
+    lastSyncEventId?: string | null;
+  };
+}
+
+// =============================================================================
+// CHECKPOINTS + RESTORE
+// =============================================================================
+
+export interface CheckpointSummary {
+  id: string;
+  runId: string;
+  createdAt: string;
+  tokenCount: number;
+  stepId?: string | null;
+  summary?: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface RestoreRequest {
+  checkpointId: string;
+  reason?: string;
+}
+
+// =============================================================================
+// DELEGATION PREFLIGHT
+// =============================================================================
+
+export interface DelegationPreflightResult {
+  scope_quality: 'strong' | 'workable' | 'ambiguous';
+  ambiguities: string[];
+  eta_range: {
+    min_minutes: number;
+    max_minutes: number;
+    confidence: number;
+  };
+  cost_estimate: {
+    min_usd: number;
+    max_usd: number;
+    basis: 'heuristic';
+  };
+  recommended_split: Array<{
+    id: string;
+    title: string;
+    owner_domain: string;
+    acceptance_criteria: string[];
+  }>;
 }
 
 // =============================================================================
@@ -238,6 +324,12 @@ export interface LiveActivityItem {
   runId: string | null;
   initiativeId: string | null;
   timestamp: string;
+  phase?: RunPhase | null;
+  state?: string | null;
+  kind?: string | null;
+  summary?: string | null;
+  decisionRequired?: boolean;
+  costDelta?: number | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -259,6 +351,12 @@ export interface SessionTreeNode {
   lastEventAt: string | null;
   lastEventSummary: string | null;
   blockers: string[];
+  phase?: RunPhase | null;
+  state?: string | null;
+  eta?: string | null;
+  cost?: number | null;
+  checkpointCount?: number | null;
+  blockerReason?: string | null;
 }
 
 export interface SessionTreeEdge {

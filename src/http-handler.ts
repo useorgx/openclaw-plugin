@@ -9,6 +9,10 @@
  *   /orgx/api/activity   → activity feed
  *   /orgx/api/initiatives → initiative data
  *   /orgx/api/onboarding → onboarding / config state
+ *   /orgx/api/delegation/preflight → delegation preflight
+ *   /orgx/api/runs/:id/checkpoints → list/create checkpoints
+ *   /orgx/api/runs/:id/checkpoints/:checkpointId/restore → restore checkpoint
+ *   /orgx/api/runs/:id/actions/:action → run control action
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -300,6 +304,12 @@ export function createHttpHandler(
       const decisionApproveMatch = route.match(
         /^live\/decisions\/([^/]+)\/approve$/
       );
+      const runActionMatch = route.match(/^runs\/([^/]+)\/actions\/([^/]+)$/);
+      const runCheckpointsMatch = route.match(/^runs\/([^/]+)\/checkpoints$/);
+      const runCheckpointRestoreMatch = route.match(
+        /^runs\/([^/]+)\/checkpoints\/([^/]+)\/restore$/
+      );
+      const isDelegationPreflight = route === "delegation/preflight";
 
       if (
         method === "POST" &&
@@ -352,7 +362,111 @@ export function createHttpHandler(
         return true;
       }
 
-      if (method !== "GET") {
+      if (method === "POST" && isDelegationPreflight) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const intent = pickString(payload, ["intent"]);
+          if (!intent) {
+            sendJson(res, 400, { error: "intent is required" });
+            return true;
+          }
+
+          const toStringArray = (value: unknown): string[] | undefined =>
+            Array.isArray(value)
+              ? value.filter((entry): entry is string => typeof entry === "string")
+              : undefined;
+
+          const data = await client.delegationPreflight({
+            intent,
+            acceptanceCriteria: toStringArray(payload.acceptanceCriteria),
+            constraints: toStringArray(payload.constraints),
+            domains: toStringArray(payload.domains),
+          });
+
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (runCheckpointsMatch && method === "POST") {
+        try {
+          const runId = decodeURIComponent(runCheckpointsMatch[1]);
+          const payload = parseJsonBody(req.body);
+          const reason = pickString(payload, ["reason"]) ?? undefined;
+          const rawPayload = payload.payload;
+          const checkpointPayload =
+            rawPayload && typeof rawPayload === "object" && !Array.isArray(rawPayload)
+              ? (rawPayload as Record<string, unknown>)
+              : undefined;
+
+          const data = await client.createRunCheckpoint(runId, {
+            reason,
+            payload: checkpointPayload,
+          });
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (runCheckpointRestoreMatch && method === "POST") {
+        try {
+          const runId = decodeURIComponent(runCheckpointRestoreMatch[1]);
+          const checkpointId = decodeURIComponent(runCheckpointRestoreMatch[2]);
+          const payload = parseJsonBody(req.body);
+          const reason = pickString(payload, ["reason"]) ?? undefined;
+          const data = await client.restoreRunCheckpoint(runId, {
+            checkpointId,
+            reason,
+          });
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (runActionMatch && method === "POST") {
+        try {
+          const runId = decodeURIComponent(runActionMatch[1]);
+          const action = decodeURIComponent(runActionMatch[2]) as
+            | "pause"
+            | "resume"
+            | "cancel"
+            | "rollback";
+          const payload = parseJsonBody(req.body);
+          const checkpointId = pickString(payload, ["checkpointId", "checkpoint_id"]);
+          const reason = pickString(payload, ["reason"]);
+
+          const data = await client.runAction(runId, action, {
+            checkpointId: checkpointId ?? undefined,
+            reason: reason ?? undefined,
+          });
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (
+        method !== "GET" &&
+        !(runCheckpointsMatch && method === "POST") &&
+        !(runCheckpointRestoreMatch && method === "POST") &&
+        !(runActionMatch && method === "POST") &&
+        !(isDelegationPreflight && method === "POST")
+      ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
           ...CORS_HEADERS,
@@ -577,9 +691,33 @@ export function createHttpHandler(
           return true;
         }
 
-        default:
+        case "delegation/preflight": {
+          sendJson(res, 405, { error: "Use POST /orgx/api/delegation/preflight" });
+          return true;
+        }
+
+        default: {
+          if (runCheckpointsMatch) {
+            try {
+              const runId = decodeURIComponent(runCheckpointsMatch[1]);
+              const data = await client.listRunCheckpoints(runId);
+              sendJson(res, 200, data);
+            } catch (err: unknown) {
+              sendJson(res, 500, {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+            return true;
+          }
+
+          if (runActionMatch || runCheckpointRestoreMatch) {
+            sendJson(res, 405, { error: "Use POST for this endpoint" });
+            return true;
+          }
+
           sendJson(res, 404, { error: "Unknown API endpoint" });
           return true;
+        }
       }
     }
 

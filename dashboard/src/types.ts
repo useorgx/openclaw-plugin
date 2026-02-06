@@ -1,5 +1,13 @@
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
 
+export type RunPhase =
+  | 'intent'
+  | 'execution'
+  | 'blocked'
+  | 'review'
+  | 'handoff'
+  | 'completed';
+
 export type LiveActivityType =
   | 'run_started'
   | 'run_completed'
@@ -24,6 +32,12 @@ export interface LiveActivityItem {
   runId: string | null;
   initiativeId: string | null;
   timestamp: string;
+  phase?: RunPhase | null;
+  state?: string | null;
+  kind?: string | null;
+  summary?: string | null;
+  decisionRequired?: boolean;
+  costDelta?: number | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -57,6 +71,12 @@ export interface SessionTreeNode {
   lastEventAt: string | null;
   lastEventSummary: string | null;
   blockers: string[];
+  phase?: RunPhase | null;
+  state?: string | null;
+  eta?: string | null;
+  cost?: number | null;
+  checkpointCount?: number | null;
+  blockerReason?: string | null;
 }
 
 export interface SessionTreeEdge {
