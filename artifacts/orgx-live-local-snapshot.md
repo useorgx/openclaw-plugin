@@ -1,0 +1,278 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: OrgX Live
+        - generic [ref=e12]: Reconnecting
+      - button "Share" [ref=e13] [cursor=pointer]:
+        - img [ref=e14]
+        - generic [ref=e17]: Share
+  - generic [ref=e18]:
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - img [ref=e24]
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - generic [ref=e29]: No decisions pending
+            - generic [ref=e30]: All clear for now—agents are unblocked.
+          - generic [ref=e31]:
+            - generic [ref=e34]: New approvals will surface here when needed.
+            - generic [ref=e37]: You will get a ping when an agent requests input.
+      - button "Review decision log" [ref=e38] [cursor=pointer]
+    - generic [ref=e40]:
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - generic [ref=e133]: Agents
+          - generic [ref=e137]: "1"
+        - generic [ref=e45]:
+          - generic [ref=e138]:
+            - generic [ref=e139]: Online
+            - button "5 533acc33 anthropic/claude-sonnet-4.5 Idle" [ref=e140] [cursor=pointer]:
+              - generic [ref=e141]:
+                - generic [ref=e142]: "5"
+                - 'generic "Online Last active: 16m ago Model: anthropic/claude-sonnet-4.5" [ref=e451]'
+              - generic [ref=e146]:
+                - generic [ref=e147]:
+                  - generic [ref=e148]: 533acc33
+                  - generic [ref=e149]: anthropic/claude-sonnet-4.5
+                - paragraph [ref=e150]: Idle
+          - generic [ref=e151]:
+            - generic [ref=e152]: Offline
+            - button "0 04aff2ff claude-opus-4-5 Idle" [ref=e153] [cursor=pointer]:
+              - generic [ref=e154]:
+                - generic [ref=e155]: "0"
+                - 'generic "Offline Last active: 5h ago Model: claude-opus-4-5" [ref=e157]'
+              - generic [ref=e159]:
+                - generic [ref=e160]:
+                  - generic [ref=e161]: 04aff2ff
+                  - generic [ref=e162]: claude-opus-4-5
+                - paragraph [ref=e163]: Idle
+            - button "E eb66f33f claude-opus-4-5 Idle" [ref=e164] [cursor=pointer]:
+              - generic [ref=e165]:
+                - generic [ref=e166]: E
+                - 'generic "Offline Last active: 13h ago Model: claude-opus-4-5" [ref=e168]'
+              - generic [ref=e170]:
+                - generic [ref=e171]:
+                  - generic [ref=e172]: eb66f33f
+                  - generic [ref=e173]: claude-opus-4-5
+                - paragraph [ref=e174]: Idle
+            - button "2 207597d1 anthropic/claude-sonnet-4.5 Idle" [ref=e175] [cursor=pointer]:
+              - generic [ref=e176]:
+                - generic [ref=e177]: "2"
+                - 'generic "Offline Last active: 18h ago Model: anthropic/claude-sonnet-4.5" [ref=e179]'
+              - generic [ref=e181]:
+                - generic [ref=e182]:
+                  - generic [ref=e183]: 207597d1
+                  - generic [ref=e184]: anthropic/claude-sonnet-4.5
+                - paragraph [ref=e185]: Idle
+            - button "0 0edbc992 claude-opus-4-5 Idle" [ref=e186] [cursor=pointer]:
+              - generic [ref=e187]:
+                - generic [ref=e188]: "0"
+                - 'generic "Offline Last active: 18h ago Model: claude-opus-4-5" [ref=e190]'
+              - generic [ref=e192]:
+                - generic [ref=e193]:
+                  - generic [ref=e194]: 0edbc992
+                  - generic [ref=e195]: claude-opus-4-5
+                - paragraph [ref=e196]: Idle
+            - button "D d58f14ac claude-opus-4-5 Idle" [ref=e197] [cursor=pointer]:
+              - generic [ref=e198]:
+                - generic [ref=e199]: D
+                - 'generic "Offline Last active: 1d ago Model: claude-opus-4-5" [ref=e201]'
+              - generic [ref=e203]:
+                - generic [ref=e204]:
+                  - generic [ref=e205]: d58f14ac
+                  - generic [ref=e206]: claude-opus-4-5
+                - paragraph [ref=e207]: Idle
+            - button "7 70396680 claude-opus-4-5 Idle" [ref=e208] [cursor=pointer]:
+              - generic [ref=e209]:
+                - generic [ref=e210]: "7"
+                - 'generic "Offline Last active: 1d ago Model: claude-opus-4-5" [ref=e212]'
+              - generic [ref=e214]:
+                - generic [ref=e215]:
+                  - generic [ref=e216]: "70396680"
+                  - generic [ref=e217]: claude-opus-4-5
+                - paragraph [ref=e218]: Idle
+            - button "0 03c994b4 claude-opus-4-5 Idle" [ref=e219] [cursor=pointer]:
+              - generic [ref=e220]:
+                - generic [ref=e221]: "0"
+                - 'generic "Offline Last active: 1d ago Model: claude-opus-4-5" [ref=e223]'
+              - generic [ref=e225]:
+                - generic [ref=e226]:
+                  - generic [ref=e227]: 03c994b4
+                  - generic [ref=e228]: claude-opus-4-5
+                - paragraph [ref=e229]: Idle
+            - button "C c3960156 claude-opus-4-5 Idle" [ref=e230] [cursor=pointer]:
+              - generic [ref=e231]:
+                - generic [ref=e232]: C
+                - 'generic "Offline Last active: 2d ago Model: claude-opus-4-5" [ref=e234]'
+              - generic [ref=e236]:
+                - generic [ref=e237]:
+                  - generic [ref=e238]: c3960156
+                  - generic [ref=e239]: claude-opus-4-5
+                - paragraph [ref=e240]: Idle
+            - button "2 28a3c7cf claude-opus-4-5 Idle" [ref=e241] [cursor=pointer]:
+              - generic [ref=e242]:
+                - generic [ref=e243]: "2"
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e245]'
+              - generic [ref=e247]:
+                - generic [ref=e248]:
+                  - generic [ref=e249]: 28a3c7cf
+                  - generic [ref=e250]: claude-opus-4-5
+                - paragraph [ref=e251]: Idle
+            - button "4 48c25704 claude-opus-4-5 Idle" [ref=e252] [cursor=pointer]:
+              - generic [ref=e253]:
+                - generic [ref=e254]: "4"
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e256]'
+              - generic [ref=e258]:
+                - generic [ref=e259]:
+                  - generic [ref=e260]: 48c25704
+                  - generic [ref=e261]: claude-opus-4-5
+                - paragraph [ref=e262]: Idle
+            - button "5 59f81485 anthropic/claude-sonnet-4 Idle" [ref=e263] [cursor=pointer]:
+              - generic [ref=e264]:
+                - generic [ref=e265]: "5"
+                - 'generic "Offline Last active: 3d ago Model: anthropic/claude-sonnet-4" [ref=e267]'
+              - generic [ref=e269]:
+                - generic [ref=e270]:
+                  - generic [ref=e271]: 59f81485
+                  - generic [ref=e272]: anthropic/claude-sonnet-4
+                - paragraph [ref=e273]: Idle
+            - button "B b8dafd33 claude-opus-4-5 Idle" [ref=e274] [cursor=pointer]:
+              - generic [ref=e275]:
+                - generic [ref=e276]: B
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e278]'
+              - generic [ref=e280]:
+                - generic [ref=e281]:
+                  - generic [ref=e282]: b8dafd33
+                  - generic [ref=e283]: claude-opus-4-5
+                - paragraph [ref=e284]: Idle
+            - button "7 76e077aa claude-opus-4-5 Idle" [ref=e285] [cursor=pointer]:
+              - generic [ref=e286]:
+                - generic [ref=e287]: "7"
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e289]'
+              - generic [ref=e291]:
+                - generic [ref=e292]:
+                  - generic [ref=e293]: 76e077aa
+                  - generic [ref=e294]: claude-opus-4-5
+                - paragraph [ref=e295]: Idle
+            - button "3 37b3034b claude-opus-4-5 Idle" [ref=e296] [cursor=pointer]:
+              - generic [ref=e297]:
+                - generic [ref=e298]: "3"
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e300]'
+              - generic [ref=e302]:
+                - generic [ref=e303]:
+                  - generic [ref=e304]: 37b3034b
+                  - generic [ref=e305]: claude-opus-4-5
+                - paragraph [ref=e306]: Idle
+            - button "D d1394639 claude-opus-4-5 Idle" [ref=e307] [cursor=pointer]:
+              - generic [ref=e308]:
+                - generic [ref=e309]: D
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e311]'
+              - generic [ref=e313]:
+                - generic [ref=e314]:
+                  - generic [ref=e315]: d1394639
+                  - generic [ref=e316]: claude-opus-4-5
+                - paragraph [ref=e317]: Idle
+            - button "D d82e70a2 claude-opus-4-5 Idle" [ref=e318] [cursor=pointer]:
+              - generic [ref=e319]:
+                - generic [ref=e320]: D
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e322]'
+              - generic [ref=e324]:
+                - generic [ref=e325]:
+                  - generic [ref=e326]: d82e70a2
+                  - generic [ref=e327]: claude-opus-4-5
+                - paragraph [ref=e328]: Idle
+            - button "F fresh-te claude-opus-4-5 Idle" [ref=e329] [cursor=pointer]:
+              - generic [ref=e330]:
+                - generic [ref=e331]: F
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e333]'
+              - generic [ref=e335]:
+                - generic [ref=e336]:
+                  - generic [ref=e337]: fresh-te
+                  - generic [ref=e338]: claude-opus-4-5
+                - paragraph [ref=e339]: Idle
+            - button "T test-aut claude-opus-4-5 Idle" [ref=e340] [cursor=pointer]:
+              - generic [ref=e341]:
+                - generic [ref=e342]: T
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e344]'
+              - generic [ref=e346]:
+                - generic [ref=e347]:
+                  - generic [ref=e348]: test-aut
+                  - generic [ref=e349]: claude-opus-4-5
+                - paragraph [ref=e350]: Idle
+            - button "B b8e1aab7 claude-opus-4-5 Idle" [ref=e351] [cursor=pointer]:
+              - generic [ref=e352]:
+                - generic [ref=e353]: B
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e355]'
+              - generic [ref=e357]:
+                - generic [ref=e358]:
+                  - generic [ref=e359]: b8e1aab7
+                  - generic [ref=e360]: claude-opus-4-5
+                - paragraph [ref=e361]: Idle
+            - button "1 18cef2ca claude-opus-4-5 Idle" [ref=e362] [cursor=pointer]:
+              - generic [ref=e363]:
+                - generic [ref=e364]: "1"
+                - 'generic "Offline Last active: 3d ago Model: claude-opus-4-5" [ref=e366]'
+              - generic [ref=e368]:
+                - generic [ref=e369]:
+                  - generic [ref=e370]: 18cef2ca
+                  - generic [ref=e371]: claude-opus-4-5
+                - paragraph [ref=e372]: Idle
+            - button "B b68d7817 claude-opus-4-5 Idle" [ref=e373] [cursor=pointer]:
+              - generic [ref=e374]:
+                - generic [ref=e375]: B
+                - 'generic "Offline Last active: 4d ago Model: claude-opus-4-5" [ref=e377]'
+              - generic [ref=e379]:
+                - generic [ref=e380]:
+                  - generic [ref=e381]: b68d7817
+                  - generic [ref=e382]: claude-opus-4-5
+                - paragraph [ref=e383]: Idle
+            - button "6 6b8d88fa claude-opus-4-5 Idle" [ref=e384] [cursor=pointer]:
+              - generic [ref=e385]:
+                - generic [ref=e386]: "6"
+                - 'generic "Offline Last active: 5d ago Model: claude-opus-4-5" [ref=e388]'
+              - generic [ref=e390]:
+                - generic [ref=e391]:
+                  - generic [ref=e392]: 6b8d88fa
+                  - generic [ref=e393]: claude-opus-4-5
+                - paragraph [ref=e394]: Idle
+            - button "7 72b7739b claude-opus-4-5 Idle" [ref=e395] [cursor=pointer]:
+              - generic [ref=e396]:
+                - generic [ref=e397]: "7"
+                - 'generic "Offline Last active: 6d ago Model: claude-opus-4-5" [ref=e399]'
+              - generic [ref=e401]:
+                - generic [ref=e402]:
+                  - generic [ref=e403]: 72b7739b
+                  - generic [ref=e404]: claude-opus-4-5
+                - paragraph [ref=e405]: Idle
+            - button "E e1ac8e95 claude-opus-4-5 Idle" [ref=e406] [cursor=pointer]:
+              - generic [ref=e407]:
+                - generic [ref=e408]: E
+                - 'generic "Offline Last active: 7d ago Model: claude-opus-4-5" [ref=e410]'
+              - generic [ref=e412]:
+                - generic [ref=e413]:
+                  - generic [ref=e414]: e1ac8e95
+                  - generic [ref=e415]: claude-opus-4-5
+                - paragraph [ref=e416]: Idle
+      - generic [ref=e68]:
+        - generic [ref=e69]: Activity
+        - generic [ref=e452]:
+          - img [ref=e456]
+          - generic [ref=e458]:
+            - generic [ref=e459]: No activity yet
+            - generic [ref=e460]: Once agents start working, updates land here live.
+          - button "Refresh activity" [ref=e461] [cursor=pointer]
+          - generic [ref=e462]:
+            - generic [ref=e465]: Connect GitHub, Linear, or Slack for instant signals.
+            - generic [ref=e468]: Run a task to populate the stream with artifacts.
+      - generic [ref=e105]:
+        - generic [ref=e106]: Initiatives
+        - generic [ref=e469]:
+          - img [ref=e473]
+          - generic [ref=e475]:
+            - generic [ref=e476]: No initiatives yet
+            - generic [ref=e477]: Create a goal so teams can align on outcomes.
+          - button "Create initiative" [ref=e478] [cursor=pointer]
+          - generic [ref=e479]:
+            - generic [ref=e482]: Templates help define owners, scope, and timelines fast.
+            - generic [ref=e485]: Pin top initiatives to keep teams aligned.

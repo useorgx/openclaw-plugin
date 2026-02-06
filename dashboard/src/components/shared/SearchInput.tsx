@@ -6,11 +6,12 @@ interface SearchInputProps {
 
 export function SearchInput({ value, onChange, placeholder }: SearchInputProps) {
   return (
-    <div className="relative">
+    <label className="relative block">
+      <span className="sr-only">{placeholder}</span>
       <svg
-        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30"
-        width="12"
-        height="12"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/35"
+        width="13"
+        height="13"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -26,8 +27,8 @@ export function SearchInput({ value, onChange, placeholder }: SearchInputProps) 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[11px] text-white placeholder:text-white/30 focus:outline-none focus:border-white/[0.12] transition-colors"
+        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-3 text-[12px] text-white placeholder:text-white/35 transition-all focus:border-white/20 focus:bg-white/[0.05] focus:outline-none"
       />
-    </div>
+    </label>
   );
 }

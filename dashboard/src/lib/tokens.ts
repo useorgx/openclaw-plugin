@@ -1,20 +1,29 @@
 export const colors = {
-  lime: '#c8e64a',
-  teal: '#7dd3c0',
-  iris: '#818cf8',
-  amber: '#f59e0b',
-  red: '#ef4444',
-  background: '#080808',
-  cardBg: '#0f0f0f',
-  cardBorder: 'rgba(255, 255, 255, 0.06)',
+  // OrgX brand system (aligned with useorgx.com + mcp.useorgx.com)
+  lime: '#BFFF00',
+  teal: '#14B8A6',
+  cyan: '#0AD4C4',
+  iris: '#7C7CFF',
+
+  amber: '#F5B700',
+  red: '#FF6B88',
+
+  background: '#02040A',
+  cardBg: '#08090D',
+  cardBgElevated: '#0C0E14',
+  cardBorder: 'rgba(255, 255, 255, 0.08)',
+  cardBorderStrong: 'rgba(255, 255, 255, 0.12)',
+
+  text: '#F2F7FF',
+  textMuted: '#8F9AB7',
 } as const;
 
 export const agentColors: Record<string, string> = {
-  Pace: '#818cf8',
-  Eli: '#c8e64a',
-  Dana: '#f472b6',
-  Mark: '#fb923c',
-  System: '#7dd3c0',
+  Pace: '#7C7CFF',
+  Eli: '#BFFF00',
+  Dana: '#FF00D4',
+  Mark: '#F5B700',
+  System: '#14B8A6',
 };
 
 export function getAgentColor(name: string): string {

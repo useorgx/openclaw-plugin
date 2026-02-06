@@ -166,8 +166,9 @@ export function createHttpHandler(
   ): Promise<boolean> {
     const method = (req.method ?? "GET").toUpperCase();
     const rawUrl = req.url ?? "/";
-    // Strip query string for routing
-    const url = rawUrl.split("?")[0];
+    const [path, queryString] = rawUrl.split("?", 2);
+    const url = path;
+    const searchParams = new URLSearchParams(queryString ?? "");
 
     // Only handle /orgx paths — return false for everything else
     if (!url.startsWith("/orgx")) {
@@ -228,6 +229,143 @@ export function createHttpHandler(
             getOnboardingState(config, dashboardEnabled)
           );
           return true;
+
+        case "live/sessions": {
+          try {
+            const initiative = searchParams.get("initiative");
+            const limit = searchParams.get("limit")
+              ? Number(searchParams.get("limit"))
+              : undefined;
+            const data = await client.getLiveSessions({
+              initiative,
+              limit: Number.isFinite(limit) ? limit : undefined,
+            });
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
+        case "live/activity": {
+          try {
+            const run = searchParams.get("run");
+            const limit = searchParams.get("limit")
+              ? Number(searchParams.get("limit"))
+              : undefined;
+            const since = searchParams.get("since");
+            const data = await client.getLiveActivity({
+              run,
+              since,
+              limit: Number.isFinite(limit) ? limit : undefined,
+            });
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
+        case "live/agents": {
+          try {
+            const initiative = searchParams.get("initiative");
+            const includeIdleRaw = searchParams.get("include_idle");
+            const includeIdle =
+              includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
+            const data = await client.getLiveAgents({
+              initiative,
+              includeIdle,
+            });
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
+        case "live/initiatives": {
+          try {
+            const id = searchParams.get("id");
+            const limit = searchParams.get("limit")
+              ? Number(searchParams.get("limit"))
+              : undefined;
+            const data = await client.getLiveInitiatives({
+              id,
+              limit: Number.isFinite(limit) ? limit : undefined,
+            });
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
+        case "handoffs": {
+          try {
+            const data = await client.getHandoffs();
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
+
+        case "live/stream": {
+          const write = res.write?.bind(res);
+          if (!write) {
+            sendJson(res, 501, { error: "Streaming not supported" });
+            return true;
+          }
+          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
+          try {
+            const upstream = await fetch(target, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${config.apiKey}`,
+                Accept: "text/event-stream",
+              },
+            });
+
+            res.writeHead(upstream.status, {
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+              ...CORS_HEADERS,
+            });
+
+            if (!upstream.body) {
+              res.end();
+              return true;
+            }
+
+            const reader = upstream.body.getReader();
+            const pump = async () => {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value) write(Buffer.from(value));
+              }
+              res.end();
+            };
+
+            void pump();
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
 
         default:
           sendJson(res, 404, { error: "Unknown API endpoint" });

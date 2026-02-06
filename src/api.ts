@@ -15,6 +15,9 @@ import type {
   QualityScore,
   Entity,
   EntityListFilters,
+  LiveActivityItem,
+  SessionTreeResponse,
+  HandoffSummary,
 } from "./types.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -96,6 +99,16 @@ export class OrgXClient {
 
   private patch<T>(path: string, body?: unknown): Promise<T> {
     return this.request<T>("PATCH", path, body);
+  }
+
+  private buildQuery(params: Record<string, string | number | boolean | null | undefined>): string {
+    const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null);
+    if (entries.length === 0) return "";
+    const search = new URLSearchParams();
+    for (const [key, value] of entries) {
+      search.set(key, String(value));
+    }
+    return `?${search.toString()}`;
   }
 
   // ===========================================================================
@@ -210,5 +223,46 @@ export class OrgXClient {
     if (filters?.status) params.set("status", filters.status);
     if (filters?.limit) params.set("limit", String(filters.limit));
     return this.get(`/api/entities?${params.toString()}`);
+  }
+
+  // ===========================================================================
+  // Live Sessions + Activity + Handoffs
+  // ===========================================================================
+
+  async getLiveSessions(params?: { limit?: number; initiative?: string | null }): Promise<SessionTreeResponse> {
+    const query = this.buildQuery({
+      limit: params?.limit,
+      initiative: params?.initiative ?? null,
+    });
+    return this.get(`/api/client/live/sessions${query}`);
+  }
+
+  async getLiveActivity(params?: { limit?: number; run?: string | null; since?: string | null }): Promise<{ activities: LiveActivityItem[]; total: number }> {
+    const query = this.buildQuery({
+      limit: params?.limit,
+      run: params?.run ?? null,
+      since: params?.since ?? null,
+    });
+    return this.get(`/api/client/live/activity${query}`);
+  }
+
+  async getLiveAgents(params?: { initiative?: string | null; includeIdle?: boolean }): Promise<{ agents: unknown[]; summary: Record<string, number> }> {
+    const query = this.buildQuery({
+      initiative: params?.initiative ?? null,
+      include_idle: params?.includeIdle ?? undefined,
+    });
+    return this.get(`/api/client/live/agents${query}`);
+  }
+
+  async getLiveInitiatives(params?: { id?: string | null; limit?: number }): Promise<{ initiatives: unknown[]; total: number }> {
+    const query = this.buildQuery({
+      id: params?.id ?? null,
+      limit: params?.limit ?? null,
+    });
+    return this.get(`/api/client/live/initiatives${query}`);
+  }
+
+  async getHandoffs(): Promise<{ handoffs: HandoffSummary[] }> {
+    return this.get(`/api/client/handoffs`);
   }
 }

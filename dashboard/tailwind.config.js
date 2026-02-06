@@ -4,26 +4,23 @@ export default {
   theme: {
     extend: {
       colors: {
-        lime: '#c8e64a',
-        teal: '#7dd3c0',
-        iris: '#818cf8',
+        lime: '#BFFF00',
+        teal: '#14B8A6',
+        cyan: '#0AD4C4',
+        iris: '#7C7CFF',
         surface: {
-          0: '#080808',
-          1: '#0f0f0f',
-          2: '#1a1a1f',
-          3: '#232329',
+          0: '#02040A',
+          1: '#08090D',
+          2: '#0C0E14',
+          3: '#10141E',
         },
       },
       fontFamily: {
-        sans: [
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'system-ui',
-          'SF Pro Text',
-          'Inter',
-          'sans-serif',
-        ],
-        mono: ['SF Mono', 'Fira Code', 'Consolas', 'monospace'],
+        sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      boxShadow: {
+        card: '0 12px 34px rgba(0,0,0,0.35)',
       },
     },
   },

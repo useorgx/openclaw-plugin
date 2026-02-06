@@ -8,19 +8,20 @@ interface PremiumCardProps {
 
 export function PremiumCard({ children, className = '' }: PremiumCardProps) {
   return (
-    <div
+    <section
       className={cn(
-        'group relative overflow-hidden rounded-xl',
-        'shadow-[0_4px_24px_rgba(0,0,0,0.3)]',
+        'group relative overflow-hidden rounded-2xl',
+        'glass-panel soft-shadow hover-lift',
         className
       )}
       style={{
         backgroundColor: colors.cardBg,
-        border: `1px solid ${colors.cardBorder}`,
+        borderColor: colors.cardBorder,
       }}
     >
-      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: 'radial-gradient(circle at 18% 0%, rgba(191,255,0,0.09), transparent 46%)' }} />
       {children}
-    </div>
+    </section>
   );
 }

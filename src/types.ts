@@ -209,3 +209,94 @@ export interface EntityListFilters {
   limit?: number;
   [key: string]: unknown;
 }
+
+// =============================================================================
+// LIVE SESSION GRAPH + HANDOFFS
+// =============================================================================
+
+export type LiveActivityType =
+  | 'run_started'
+  | 'run_completed'
+  | 'run_failed'
+  | 'artifact_created'
+  | 'decision_requested'
+  | 'decision_resolved'
+  | 'handoff_requested'
+  | 'handoff_claimed'
+  | 'handoff_fulfilled'
+  | 'blocker_created'
+  | 'milestone_completed'
+  | 'delegation';
+
+export interface LiveActivityItem {
+  id: string;
+  type: LiveActivityType;
+  title: string;
+  description: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  runId: string | null;
+  initiativeId: string | null;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SessionTreeNode {
+  id: string;
+  parentId: string | null;
+  runId: string;
+  title: string;
+  agentId: string | null;
+  agentName: string | null;
+  status: string;
+  progress: number | null;
+  initiativeId: string | null;
+  workstreamId: string | null;
+  groupId: string;
+  groupLabel: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+  lastEventAt: string | null;
+  lastEventSummary: string | null;
+  blockers: string[];
+}
+
+export interface SessionTreeEdge {
+  parentId: string;
+  childId: string;
+}
+
+export interface SessionTreeGroup {
+  id: string;
+  label: string;
+  status: string | null;
+}
+
+export interface SessionTreeResponse {
+  nodes: SessionTreeNode[];
+  edges: SessionTreeEdge[];
+  groups: SessionTreeGroup[];
+}
+
+export interface HandoffEvent {
+  id: string;
+  handoffId: string;
+  eventType: string;
+  actorType: string | null;
+  actorId: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface HandoffSummary {
+  id: string;
+  title: string;
+  status: string;
+  priority: string | null;
+  summary: string | null;
+  currentActorType: string | null;
+  currentActorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events: HandoffEvent[];
+}

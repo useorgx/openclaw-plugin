@@ -52,7 +52,8 @@ The plugin registers these tools for your agents:
 
 ### 📊 Live Dashboard
 
-Access the OrgX command center at `http://localhost:18789/orgx/live` (or your gateway URL).
+Access the OrgX command center at `http://127.0.0.1:18789/orgx/live` (or your gateway URL).
+The Vite dev server (`http://localhost:5173`) is only for local preview; the installed plugin runs on the OpenClaw port (18789).
 
 Shows:
 - Active initiatives with progress
@@ -106,6 +107,10 @@ When the plugin is loaded, these HTTP endpoints are available:
 | `GET /orgx/api/activity` | Activity feed |
 | `GET /orgx/api/initiatives` | Initiative data |
 | `GET /orgx/api/onboarding` | Config/setup state |
+| `GET /orgx/api/live/sessions` | Live session tree |
+| `GET /orgx/api/live/activity` | Live activity feed |
+| `GET /orgx/api/live/stream` | Live SSE stream |
+| `GET /orgx/api/handoffs` | Handoff summaries |
 
 ## Requirements
 
