@@ -10,6 +10,7 @@ import { createMockData } from '@/data/mockData';
 import { formatRelativeTime } from '@/lib/time';
 
 interface UseLiveDataOptions {
+  enabled?: boolean;
   pollInterval?: number;
   useMock?: boolean;
   maxSessions?: number;
@@ -599,6 +600,7 @@ function buildLiveData(
 
 export function useLiveData(options: UseLiveDataOptions = {}) {
   const {
+    enabled = true,
     pollInterval = DEFAULT_POLL_INTERVAL,
     useMock = false,
     maxSessions = DEFAULT_MAX_SESSIONS,
@@ -651,6 +653,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   );
 
   const fetchSnapshot = useCallback(async () => {
+    if (!enabled) {
+      setData((prev) =>
+        prev.connection === 'disconnected' ? prev : { ...prev, connection: 'disconnected' }
+      );
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     if (inFlightSnapshotRef.current) {
       return inFlightSnapshotRef.current;
     }
@@ -732,6 +743,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     return request;
   }, [
     applySnapshot,
+    enabled,
     maxActivityItems,
     maxDecisions,
     maxHandoffs,
@@ -840,6 +852,13 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   }, [applyDecisionMutation, data.decisions]);
 
   useEffect(() => {
+    if (!enabled) {
+      setPollingEnabled(false);
+      setIsLoading(false);
+      setError(null);
+      return undefined;
+    }
+
     if (useMock) {
       fetchSnapshot();
       return undefined;
@@ -1043,6 +1062,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   }, [
     applySnapshot,
     batchWindowMs,
+    enabled,
     fetchSnapshot,
     maxActivityItems,
     maxDecisions,
@@ -1052,6 +1072,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   ]);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     if (useMock) return undefined;
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (!pollingEnabled) return undefined;
@@ -1061,7 +1082,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetchSnapshot, pollInterval, pollingEnabled, useMock]);
+  }, [enabled, fetchSnapshot, pollInterval, pollingEnabled, useMock]);
 
   return {
     data,

@@ -5,7 +5,7 @@
  * expect, and exposes an onboarding check (is the API key configured?).
  */
 
-import type { OrgXConfig, OrgSnapshot } from "./types.js";
+import type { OnboardingState, OrgSnapshot } from "./types.js";
 
 // =============================================================================
 // Response shapes consumed by the dashboard
@@ -45,12 +45,6 @@ export interface DashboardInitiative {
   status: string;
   progress: number | null;
   workstreams: string[];
-}
-
-export interface OnboardingState {
-  hasApiKey: boolean;
-  baseUrl: string;
-  dashboardEnabled: boolean;
 }
 
 // =============================================================================
@@ -161,13 +155,8 @@ export function formatInitiatives(
   }));
 }
 
-export function getOnboardingState(
-  config: OrgXConfig,
-  dashboardEnabled: boolean
-): OnboardingState {
+export function getOnboardingState(state: OnboardingState): OnboardingState {
   return {
-    hasApiKey: !!config.apiKey,
-    baseUrl: config.baseUrl,
-    dashboardEnabled,
+    ...state,
   };
 }

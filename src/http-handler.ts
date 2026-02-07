@@ -20,7 +20,12 @@ import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { OrgXClient } from "./api.js";
-import type { OrgXConfig, OrgSnapshot, Entity } from "./types.js";
+import type {
+  OnboardingState,
+  OrgXConfig,
+  OrgSnapshot,
+  Entity,
+} from "./types.js";
 import {
   formatStatus,
   formatAgents,
@@ -45,6 +50,27 @@ interface PluginResponse {
   writeHead(status: number, headers?: Record<string, string>): void;
   end(body?: string | Buffer): void;
   write?(chunk: string | Buffer): void;
+}
+
+interface OnboardingController {
+  getState: () => OnboardingState;
+  startPairing: (input: {
+    openclawVersion?: string;
+    platform?: string;
+    deviceName?: string;
+  }) => Promise<{
+    pairingId: string;
+    connectUrl: string;
+    expiresAt: string;
+    pollIntervalMs: number;
+    state: OnboardingState;
+  }>;
+  getStatus: () => Promise<OnboardingState>;
+  submitManualKey: (input: {
+    apiKey: string;
+    userId?: string;
+  }) => Promise<OnboardingState>;
+  disconnect: () => Promise<OnboardingState>;
 }
 
 // =============================================================================
@@ -270,7 +296,8 @@ function mapDecisionEntity(entity: Entity) {
 export function createHttpHandler(
   config: OrgXConfig,
   client: OrgXClient,
-  getSnapshot: () => OrgSnapshot | null
+  getSnapshot: () => OrgSnapshot | null,
+  onboarding: OnboardingController
 ) {
   const dashboardEnabled =
     (config as OrgXConfig & { dashboardEnabled?: boolean }).dashboardEnabled ??
@@ -311,6 +338,102 @@ export function createHttpHandler(
       );
       const isDelegationPreflight = route === "delegation/preflight";
       const isEntitiesRoute = route === "entities";
+      const isOnboardingStartRoute = route === "onboarding/start";
+      const isOnboardingStatusRoute = route === "onboarding/status";
+      const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
+      const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
+
+      if (method === "POST" && isOnboardingStartRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const started = await onboarding.startPairing({
+            openclawVersion:
+              pickString(payload, ["openclawVersion", "openclaw_version"]) ??
+              undefined,
+            platform: pickString(payload, ["platform"]) ?? undefined,
+            deviceName: pickString(payload, ["deviceName", "device_name"]) ?? undefined,
+          });
+          sendJson(res, 200, {
+            ok: true,
+            data: {
+              pairingId: started.pairingId,
+              connectUrl: started.connectUrl,
+              expiresAt: started.expiresAt,
+              pollIntervalMs: started.pollIntervalMs,
+              state: getOnboardingState(started.state),
+            },
+          });
+        } catch (err: unknown) {
+          sendJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (method === "GET" && isOnboardingStatusRoute) {
+        try {
+          const state = await onboarding.getStatus();
+          sendJson(res, 200, {
+            ok: true,
+            data: getOnboardingState(state),
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isOnboardingManualKeyRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const apiKey = pickString(payload, ["apiKey", "api_key"]);
+          if (!apiKey) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "apiKey is required",
+            });
+            return true;
+          }
+
+          const userId = pickString(payload, ["userId", "user_id"]) ?? undefined;
+          const state = await onboarding.submitManualKey({
+            apiKey,
+            userId,
+          });
+
+          sendJson(res, 200, {
+            ok: true,
+            data: getOnboardingState(state),
+          });
+        } catch (err: unknown) {
+          sendJson(res, 400, {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isOnboardingDisconnectRoute) {
+        try {
+          const state = await onboarding.disconnect();
+          sendJson(res, 200, {
+            ok: true,
+            data: getOnboardingState(state),
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return true;
+      }
 
       if (
         method === "POST" &&
@@ -467,7 +590,10 @@ export function createHttpHandler(
         !(runCheckpointRestoreMatch && method === "POST") &&
         !(runActionMatch && method === "POST") &&
         !(isDelegationPreflight && method === "POST") &&
-        !(isEntitiesRoute && method === "POST")
+        !(isEntitiesRoute && method === "POST") &&
+        !(isOnboardingStartRoute && method === "POST") &&
+        !(isOnboardingManualKeyRoute && method === "POST") &&
+        !(isOnboardingDisconnectRoute && method === "POST")
       ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
@@ -505,11 +631,7 @@ export function createHttpHandler(
           return true;
 
         case "onboarding":
-          sendJson(
-            res,
-            200,
-            getOnboardingState(config, dashboardEnabled)
-          );
+          sendJson(res, 200, getOnboardingState(await onboarding.getStatus()));
           return true;
 
         case "entities": {

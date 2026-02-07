@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLiveData } from '@/hooks/useLiveData';
+import { useOnboarding } from '@/hooks/useOnboarding';
 import { colors } from '@/lib/tokens';
 import type { Initiative, SessionTreeNode } from '@/types';
+import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { Badge } from '@/components/shared/Badge';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { SessionInspector } from '@/components/sessions/SessionInspector';
@@ -46,6 +48,27 @@ function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number 
     toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt) -
     toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt)
   );
+}
+
+export function App() {
+  const onboarding = useOnboarding();
+
+  if (onboarding.showGate) {
+    return (
+      <OnboardingGate
+        state={onboarding.state}
+        isLoading={onboarding.isLoading}
+        isStarting={onboarding.isStarting}
+        isSubmittingManual={onboarding.isSubmittingManual}
+        onRefresh={onboarding.refreshStatus}
+        onStartPairing={onboarding.startPairing}
+        onSubmitManualKey={onboarding.submitManualKey}
+        onUseManualKey={onboarding.setManualMode}
+      />
+    );
+  }
+
+  return <DashboardShell />;
 }
 
 function inferCategory(name: string): string {
@@ -105,9 +128,10 @@ function OrgXLogo() {
   );
 }
 
-export function App() {
+function DashboardShell() {
   const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
     useMock: false,
+    enabled: true,
   });
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);

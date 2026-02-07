@@ -47,6 +47,22 @@ export class OrgXClient {
     this.userId = userId || "";
   }
 
+  setCredentials(input: { apiKey?: string; userId?: string; baseUrl?: string }) {
+    if (typeof input.apiKey === "string") {
+      this.apiKey = input.apiKey;
+    }
+    if (typeof input.userId === "string") {
+      this.userId = input.userId;
+    }
+    if (typeof input.baseUrl === "string" && input.baseUrl.trim().length > 0) {
+      this.baseUrl = input.baseUrl.replace(/\/+$/, "");
+    }
+  }
+
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
   // ===========================================================================
   // HTTP helpers
   // ===========================================================================

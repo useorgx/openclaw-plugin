@@ -22,6 +22,39 @@ export interface OrgXConfig {
   enabled: boolean;
 }
 
+export type OnboardingStatus =
+  | 'idle'
+  | 'starting'
+  | 'awaiting_browser_auth'
+  | 'pairing'
+  | 'connected'
+  | 'error'
+  | 'manual_key';
+
+export type OnboardingNextAction =
+  | 'connect'
+  | 'wait_for_browser'
+  | 'open_dashboard'
+  | 'enter_manual_key'
+  | 'retry'
+  | 'reconnect';
+
+export interface OnboardingState {
+  status: OnboardingStatus;
+  hasApiKey: boolean;
+  connectionVerified: boolean;
+  workspaceName: string | null;
+  lastError: string | null;
+  nextAction: OnboardingNextAction;
+  docsUrl: string;
+  keySource: 'config' | 'environment' | 'persisted' | 'legacy-dev' | 'none';
+  installationId: string | null;
+  connectUrl: string | null;
+  pairingId: string | null;
+  expiresAt: string | null;
+  pollIntervalMs: number | null;
+}
+
 // =============================================================================
 // ORG SNAPSHOT
 // =============================================================================
