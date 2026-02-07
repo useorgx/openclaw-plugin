@@ -62,40 +62,40 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
           <div>
             <div className="flex flex-wrap items-center gap-1.5">
               <span
-                className={`rounded-full border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] ${badge.className}`}
+                className={`rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] ${badge.className}`}
               >
                 {badge.text}
               </span>
-              <span className="rounded-full border border-white/[0.16] bg-white/[0.03] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-white/60">
+              <span className="rounded-full border border-white/[0.16] bg-white/[0.03] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] text-white/60">
                 {initiative.category ?? 'Program'}
               </span>
             </div>
             <h4 className="mt-1 text-[13px] font-semibold text-white">{initiative.name}</h4>
           </div>
         </div>
-        <span className="text-[10px] text-white/45">{initiative.health}%</span>
+        <span className="text-[12px] text-white/45" style={{ fontVariantNumeric: 'tabular-nums' }}>{initiative.health}%</span>
       </div>
 
       {initiative.description && (
-        <p className="mb-2 text-[10px] text-white/65">{initiative.description}</p>
+        <p className="mb-2 line-clamp-2 text-[11px] text-white/65">{initiative.description}</p>
       )}
 
       {phases.length > 0 && (
         <PhaseProgress phases={phases} currentPhase={currentPhase} health={initiative.health} />
       )}
 
-      <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-[9px] uppercase tracking-[0.08em]">
-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-1.5 py-1">
+      <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-[10px] uppercase tracking-[0.08em]">
+        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
           <p className="text-white/35">Live Streams</p>
-          <p className="text-[10px] font-semibold text-white">{initiative.activeAgents}</p>
+          <p className="text-[12px] font-semibold text-white">{initiative.activeAgents}</p>
         </div>
-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-1.5 py-1">
+        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
           <p className="text-white/35">Total Streams</p>
-          <p className="text-[10px] font-semibold text-white">{initiative.totalAgents}</p>
+          <p className="text-[12px] font-semibold text-white">{initiative.totalAgents}</p>
         </div>
-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-1.5 py-1">
+        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
           <p className="text-white/35">Workstreams</p>
-          <p className="text-[10px] font-semibold text-white">{workstreamCount}</p>
+          <p className="text-[12px] font-semibold text-white">{workstreamCount}</p>
         </div>
       </div>
     </button>

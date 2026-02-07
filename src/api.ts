@@ -25,6 +25,7 @@ import type {
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
+const DECISION_MUTATION_CONCURRENCY = 6;
 
 export type DecisionAction = "approve" | "reject";
 export type RunAction = "pause" | "resume" | "cancel" | "rollback";
@@ -95,8 +96,18 @@ export class OrgXClient {
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
+        let detail = "";
+        if (text) {
+          try {
+            const parsed = JSON.parse(text) as Record<string, unknown>;
+            const msg = parsed.message ?? parsed.error;
+            detail = typeof msg === "string" ? msg : text.slice(0, 200);
+          } catch {
+            detail = text.slice(0, 200);
+          }
+        }
         throw new Error(
-          `OrgX API ${method} ${path}: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 200)}` : ""}`
+          `${response.status} ${response.statusText}${detail ? `: ${detail}` : ""}`
         );
       }
 
@@ -419,21 +430,36 @@ export class OrgXClient {
     note?: string
   ): Promise<DecisionActionResult[]> {
     const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
-    const results: DecisionActionResult[] = [];
+    const results: DecisionActionResult[] = new Array(uniqueIds.length);
 
-    for (const id of uniqueIds) {
-      try {
-        const entity = await this.decideDecision(id, action, note);
-        results.push({ id, ok: true, entity });
-      } catch (err: unknown) {
-        results.push({
-          id,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= uniqueIds.length) {
+          return;
+        }
+
+        const id = uniqueIds[index];
+        try {
+          const entity = await this.decideDecision(id, action, note);
+          results[index] = { id, ok: true, entity };
+        } catch (err: unknown) {
+          results[index] = {
+            id,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       }
-    }
+    };
 
+    const concurrency = Math.min(
+      DECISION_MUTATION_CONCURRENCY,
+      Math.max(1, uniqueIds.length)
+    );
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
     return results;
   }
 }
