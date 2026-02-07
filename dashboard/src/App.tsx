@@ -2,14 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { colors } from '@/lib/tokens';
-import type { Initiative, SessionTreeNode } from '@/types';
+import type { Initiative, OnboardingState, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { Badge } from '@/components/shared/Badge';
+import { Modal } from '@/components/shared/Modal';
+import { MobileTabBar } from '@/components/shared/MobileTabBar';
+import type { MobileTab } from '@/components/shared/MobileTabBar';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { SessionInspector } from '@/components/sessions/SessionInspector';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
+import { PremiumCard } from '@/components/shared/PremiumCard';
 
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
@@ -64,11 +68,17 @@ export function App() {
         onStartPairing={onboarding.startPairing}
         onSubmitManualKey={onboarding.submitManualKey}
         onUseManualKey={onboarding.setManualMode}
+        onSkip={onboarding.skipGate}
       />
     );
   }
 
-  return <DashboardShell />;
+  return (
+    <DashboardShell
+      onboardingState={onboarding.state}
+      onReconnect={onboarding.resumeGate}
+    />
+  );
 }
 
 function inferCategory(name: string): string {
@@ -97,11 +107,11 @@ function StatTile({
 }) {
   return (
     <div
-      className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2"
+      className="min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
       style={accent ? { borderTopColor: `${accent}50`, borderTopWidth: 2 } : undefined}
     >
-      <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">{label}</p>
-      <p className="mt-0.5 text-[12px] font-semibold" style={{ color: accent ?? '#fff' }}>
+      <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">{label}</p>
+      <p className="mt-0.5 text-[16px] font-semibold" style={{ color: accent ?? '#fff', fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </p>
     </div>
@@ -128,16 +138,51 @@ function OrgXLogo() {
   );
 }
 
-function DashboardShell() {
+type EntityModalState = {
+  type: 'initiative' | 'workstream';
+  initiativeId?: string | null;
+} | null;
+
+function DashboardShell({
+  onboardingState,
+  onReconnect,
+}: {
+  onboardingState: OnboardingState;
+  onReconnect?: () => void;
+}) {
+  const shouldAttemptDecisions = onboardingState.hasApiKey && onboardingState.connectionVerified;
+
   const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
     useMock: false,
     enabled: true,
+    enableDecisions: shouldAttemptDecisions,
   });
+  const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions' | 'session'>('initiatives');
 
-  const clearSelectedSession = useCallback(() => {
-    setSelectedSessionId(null);
+  // Entity creation modal state
+  const [entityModal, setEntityModal] = useState<EntityModalState>(null);
+  const [entityName, setEntityName] = useState('');
+  const [entityCreating, setEntityCreating] = useState(false);
+
+  const openEntityModal = useCallback((type: 'initiative' | 'workstream', initiativeId?: string | null) => {
+    setEntityModal({ type, initiativeId });
+    setEntityName('');
+    setEntityCreating(false);
+  }, []);
+
+  const closeEntityModal = useCallback(() => {
+    setEntityModal(null);
+    setEntityName('');
+    setEntityCreating(false);
+  }, []);
+
+  const clearActivitySessionFilter = useCallback(() => {
+    setActivityFilterSessionId(null);
   }, []);
 
   useEffect(() => {
@@ -159,6 +204,24 @@ function DashboardShell() {
       setSelectedSessionId(firstSessionId);
     }
   }, [data.sessions.nodes, selectedSessionId]);
+
+  useEffect(() => {
+    if (!activityFilterSessionId) return;
+    const stillExists = data.sessions.nodes.some((node) => node.id === activityFilterSessionId);
+    if (!stillExists) {
+      setActivityFilterSessionId(null);
+    }
+  }, [activityFilterSessionId, data.sessions.nodes]);
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setActivityFilterSessionId(sessionId);
+  }, []);
+
+  const selectedActivitySession = useMemo(
+    () => data.sessions.nodes.find((n) => n.id === activityFilterSessionId) ?? null,
+    [activityFilterSessionId, data.sessions.nodes]
+  );
 
   useEffect(() => {
     if (!opsNotice) return undefined;
@@ -231,7 +294,9 @@ function DashboardShell() {
       }
 
       if (node.workstreamId) {
-        existing.workstreams.set(node.workstreamId, node.workstreamId);
+        const groupMatch = data.sessions.groups.find(g => g.id === node.workstreamId);
+        const wsName = groupMatch?.label?.trim() || node.workstreamId;
+        existing.workstreams.set(node.workstreamId, wsName);
       }
 
       existing.latestEpoch = Math.max(
@@ -298,7 +363,37 @@ function DashboardShell() {
       if (aPriority !== bPriority) return aPriority - bPriority;
       return b.health - a.health;
     });
-  }, [data.sessions.nodes]);
+  }, [data.sessions.nodes, data.sessions.groups]);
+
+  const selectedActivitySessionLabel = useMemo(() => {
+    if (!selectedActivitySession) return null;
+
+    const agentName = selectedActivitySession.agentName;
+    const title = selectedActivitySession.title;
+
+    // Try agent name first
+    if (agentName) {
+      // Find latest activity summary for this session
+      const latestActivity = data.activity.find(
+        (a) => a.runId === selectedActivitySession.runId && a.summary?.trim()
+      );
+      if (latestActivity?.summary) {
+        const truncated = latestActivity.summary.trim().length > 40
+          ? latestActivity.summary.trim().slice(0, 40) + '…'
+          : latestActivity.summary.trim();
+        return `${agentName}: ${truncated}`;
+      }
+      return agentName;
+    }
+
+    // Strip protocol prefixes from title
+    if (title) {
+      const stripped = title.replace(/^(telegram|slack|discord|whatsapp|email|sms):/, '').trim();
+      if (stripped.length > 0) return stripped;
+    }
+
+    return title ?? null;
+  }, [data.activity, selectedActivitySession]);
 
   const continueHighestPriority = useCallback(async () => {
     if (data.sessions.nodes.length === 0) {
@@ -308,6 +403,7 @@ function DashboardShell() {
 
     const target = [...data.sessions.nodes].sort(compareSessionPriority)[0];
     setSelectedSessionId(target.id);
+    setActivityFilterSessionId(target.id);
 
     if (['blocked', 'pending', 'queued'].includes(target.status)) {
       try {
@@ -328,6 +424,7 @@ function DashboardShell() {
   const dispatchSession = useCallback(
     async (session: SessionTreeNode) => {
       setSelectedSessionId(session.id);
+      setActivityFilterSessionId(session.id);
 
       if (!['running', 'completed', 'archived'].includes(session.status)) {
         try {
@@ -347,26 +444,26 @@ function DashboardShell() {
     [refetch]
   );
 
-  const createEntity = useCallback(
-    async (type: 'initiative' | 'workstream', initiativeId?: string | null) => {
-      const title = window.prompt(
-        type === 'initiative'
-          ? 'Name the new initiative'
-          : 'Name the new workstream'
-      );
-      if (!title || title.trim().length === 0) return;
+  const confirmCreateEntity = useCallback(async () => {
+    if (!entityModal || entityName.trim().length === 0 || entityCreating) return;
 
+    setEntityCreating(true);
+    const type = entityModal.type;
+    const title = entityName.trim();
+
+    try {
       const payload: Record<string, unknown> = {
         type,
-        title: title.trim(),
+        title,
         status: 'active',
       };
 
       if (type === 'workstream') {
         const parentInitiative =
-          initiativeId ?? selectedSession?.initiativeId ?? initiatives[0]?.id ?? null;
+          entityModal.initiativeId ?? selectedSession?.initiativeId ?? initiatives[0]?.id ?? null;
         if (!parentInitiative) {
           setOpsNotice('Select an initiative first to start a workstream.');
+          setEntityCreating(false);
           return;
         }
         payload.initiative_id = parentInitiative;
@@ -386,29 +483,24 @@ function DashboardShell() {
         throw new Error(payloadError?.error ?? `Failed to create ${type}.`);
       }
 
-      setOpsNotice(`Created ${type}: ${title.trim()}`);
+      setOpsNotice(`Created ${type}: ${title}`);
+      closeEntityModal();
       await refetch();
-    },
-    [initiatives, refetch, selectedSession?.initiativeId]
-  );
-
-  const startInitiative = useCallback(async () => {
-    try {
-      await createEntity('initiative');
     } catch (err) {
-      setOpsNotice(err instanceof Error ? err.message : 'Failed to create initiative.');
+      setOpsNotice(err instanceof Error ? err.message : `Failed to create ${type}.`);
+      setEntityCreating(false);
     }
-  }, [createEntity]);
+  }, [closeEntityModal, entityCreating, entityModal, entityName, initiatives, refetch, selectedSession?.initiativeId]);
+
+  const startInitiative = useCallback(() => {
+    openEntityModal('initiative');
+  }, [openEntityModal]);
 
   const startWorkstream = useCallback(
-    async (initiativeId?: string | null) => {
-      try {
-        await createEntity('workstream', initiativeId);
-      } catch (err) {
-        setOpsNotice(err instanceof Error ? err.message : 'Failed to create workstream.');
-      }
+    (initiativeId?: string | null) => {
+      openEntityModal('workstream', initiativeId);
     },
-    [createEntity]
+    [openEntityModal]
   );
 
   const startWorkstreamFromSelection = useCallback(() => {
@@ -422,6 +514,7 @@ function DashboardShell() {
         .sort(compareSessionPriority)[0];
       if (candidate) {
         setSelectedSessionId(candidate.id);
+        setActivityFilterSessionId(candidate.id);
         setOpsNotice(`Focused initiative: ${initiative.name}`);
       }
     },
@@ -430,16 +523,37 @@ function DashboardShell() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: colors.background }}>
-        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-5 py-4 text-sm text-white/65">
-          Loading live workspace...
+      <div className="flex min-h-screen flex-col lg:h-screen" style={{ backgroundColor: colors.background }}>
+        <div className="border-b border-white/[0.06] px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="shimmer-skeleton h-6 w-6 rounded-lg" />
+            <div className="shimmer-skeleton h-5 w-28 rounded-md" />
+            <div className="shimmer-skeleton h-5 w-14 rounded-full" />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="shimmer-skeleton h-14 rounded-xl" />
+            ))}
+          </div>
+        </div>
+        <div className="grid flex-1 grid-cols-1 gap-4 p-4 sm:p-5 lg:grid-cols-12">
+          <div className="shimmer-skeleton min-h-[240px] rounded-2xl lg:col-span-3" />
+          <div className="shimmer-skeleton min-h-[240px] rounded-2xl lg:col-span-6" />
+          <div className="flex flex-col gap-4 lg:col-span-3">
+            <div className="shimmer-skeleton h-40 rounded-2xl" />
+            <div className="shimmer-skeleton h-48 rounded-2xl" />
+            <div className="shimmer-skeleton flex-1 rounded-2xl" style={{ minHeight: 160 }} />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col" style={{ backgroundColor: colors.background }}>
+    <div
+      className="relative flex min-h-screen flex-col lg:h-screen lg:min-h-0 lg:overflow-hidden"
+      style={{ backgroundColor: colors.background }}
+    >
       {(import.meta.env.DEV || (typeof window !== 'undefined' && window.location.port === '5173')) && (
         <div className="absolute left-1/2 top-4 z-30 -translate-x-1/2">
           <div className="rounded-full border border-white/[0.12] bg-white/[0.06] px-4 py-2 text-[11px] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
@@ -475,14 +589,14 @@ function DashboardShell() {
             <h1 className="text-[18px] font-semibold tracking-tight text-white">
               OrgX<span className="ml-1.5 text-white/50">Live</span>
             </h1>
-            <Badge color={CONNECTION_COLOR[data.connection]}>
+            <Badge color={CONNECTION_COLOR[data.connection]} pulse={data.connection === 'connected'}>
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
           </div>
 
           <div className="flex items-center gap-2.5">
             {data.lastActivity && (
-              <span className="hidden text-[11px] text-white/45 sm:inline">
+              <span className="hidden text-[12px] text-white/45 sm:inline">
                 Last activity: {data.lastActivity}
               </span>
             )}
@@ -490,13 +604,13 @@ function DashboardShell() {
               href="https://mcp.useorgx.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden rounded-lg border border-white/[0.1] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80 sm:inline-flex"
+              className="hidden rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80 sm:inline-flex"
             >
               Docs
             </a>
             <button
               onClick={refetch}
-              className="group flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/80 transition-colors hover:bg-white/[0.07]"
+              className="group flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/80 transition-colors hover:bg-white/[0.07]"
               title="Refresh data"
             >
               <svg
@@ -524,66 +638,219 @@ function DashboardShell() {
           <StatTile label="Blocked" value={blockedCount} accent={blockedCount > 0 ? colors.red : undefined} />
           <StatTile
             label="Pending Decisions"
-            value={data.decisions.length}
-            accent={data.decisions.length > 0 ? colors.amber : undefined}
+            value={decisionsVisible ? data.decisions.length : 0}
+            accent={decisionsVisible && data.decisions.length > 0 ? colors.amber : undefined}
           />
           <StatTile label="Open Handoffs" value={data.handoffs.length} accent={data.handoffs.length > 0 ? colors.iris : undefined} />
         </div>
 
         {opsNotice && (
-          <div className="mt-2 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[11px] text-white/75">
+          <div className="mt-2 rounded-lg border border-[#BFFF00]/20 bg-white/[0.04] px-3 py-2 text-[12px] text-white/75">
             {opsNotice}
           </div>
         )}
 
         {error && (
-          <div className="mt-2 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+          <div className="mt-2 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-[12px] text-red-200">
             Live stream degraded: {error}
           </div>
         )}
       </header>
 
-      <main className="relative z-10 grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-12">
-        <section className="min-h-0 lg:col-span-3">
+      <main className="relative z-10 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto pb-20 p-4 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
+        <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
           <AgentsChatsPanel
             sessions={data.sessions}
             activity={data.activity}
             selectedSessionId={selectedSessionId}
-            onSelectSession={setSelectedSessionId}
+            onSelectSession={handleSelectSession}
+            onReconnect={onReconnect}
           />
         </section>
 
-        <section className="min-h-0 lg:col-span-6">
+        <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
           <ActivityTimeline
             activity={data.activity}
             sessions={data.sessions.nodes}
-            selectedRunId={selectedSession?.runId ?? null}
-            onClearSelection={clearSelectedSession}
+            selectedRunIds={
+              selectedActivitySession
+                ? [selectedActivitySession.runId, selectedActivitySession.id]
+                : []
+            }
+            selectedSessionLabel={selectedActivitySessionLabel}
+            onClearSelection={clearActivitySessionFilter}
           />
         </section>
 
-        <section className="flex min-h-0 flex-col gap-3 lg:col-span-3">
-          <DecisionQueue
-            decisions={data.decisions}
-            onApproveDecision={approveDecision}
-            onApproveAll={approveAllDecisions}
-          />
-          <SessionInspector
-            session={selectedSession}
-            activity={data.activity}
-            onContinueHighestPriority={continueHighestPriority}
-            onDispatchSession={dispatchSession}
-            onStartInitiative={startInitiative}
-            onStartWorkstream={startWorkstream}
-          />
-          <InitiativePanel
-            initiatives={initiatives}
-            onInitiativeClick={handleInitiativeClick}
-            onCreateInitiative={startInitiative}
-            onCreateWorkstream={startWorkstreamFromSelection}
-          />
+        <section className={`flex min-h-0 flex-col gap-2 lg:col-span-3 lg:gap-2 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
+          {/* Initiatives — collapsible accordion panel */}
+          <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
+            {expandedRightPanel === 'initiatives' ? (
+              <InitiativePanel
+                initiatives={initiatives}
+                onInitiativeClick={handleInitiativeClick}
+                onCreateInitiative={startInitiative}
+                onCreateWorkstream={startWorkstreamFromSelection}
+              />
+            ) : (
+              <PremiumCard className="card-enter">
+                <button
+                  onClick={() => setExpandedRightPanel('initiatives')}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                >
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[14px] font-semibold text-white">Initiatives</h2>
+                    {initiatives.length > 0 && (
+                      <span className="chip text-[10px]">{initiatives.length}</span>
+                    )}
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+              </PremiumCard>
+            )}
+          </div>
+
+          {/* Decisions — collapsible accordion panel */}
+          <div className={`min-h-0 ${expandedRightPanel === 'decisions' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
+            {expandedRightPanel === 'decisions' ? (
+              decisionsVisible ? (
+                <DecisionQueue
+                  decisions={data.decisions}
+                  onApproveDecision={approveDecision}
+                  onApproveAll={approveAllDecisions}
+                />
+              ) : (
+                <PremiumCard className="flex h-full min-h-[220px] flex-col card-enter">
+                  <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
+                    <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
+                    <p className="text-[12px] text-white/45">
+                      OrgX is not connected. Pending decision data is hidden in local-only mode.
+                    </p>
+                  </div>
+                  <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
+                    <p className="text-[12px] text-white/45">Connect OrgX to review and approve live decisions.</p>
+                    {onReconnect && (
+                      <button onClick={onReconnect}
+                        className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20">
+                        Connect OrgX
+                      </button>
+                    )}
+                  </div>
+                </PremiumCard>
+              )
+            ) : (
+              <PremiumCard className="card-enter">
+                <button
+                  onClick={() => setExpandedRightPanel('decisions')}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                >
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
+                    {decisionsVisible && data.decisions.length > 0 && (
+                      <span className="chip text-[10px]" style={{ borderColor: `${colors.amber}44`, color: colors.amber }}>
+                        {data.decisions.length}
+                      </span>
+                    )}
+                    {!decisionsVisible && (
+                      <span className="text-[10px] text-white/30">disconnected</span>
+                    )}
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+              </PremiumCard>
+            )}
+          </div>
+
+          {/* Session Detail — collapsible accordion panel */}
+          <div className={`min-h-0 ${expandedRightPanel === 'session' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
+            {expandedRightPanel === 'session' ? (
+              <SessionInspector
+                session={selectedSession}
+                activity={data.activity}
+                initiatives={initiatives}
+                onContinueHighestPriority={continueHighestPriority}
+                onDispatchSession={dispatchSession}
+                onStartInitiative={startInitiative}
+                onStartWorkstream={startWorkstream}
+              />
+            ) : (
+              <PremiumCard className="card-enter">
+                <button
+                  onClick={() => setExpandedRightPanel('session')}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+                >
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[14px] font-semibold text-white">Session Detail</h2>
+                    {selectedSession && (
+                      <span className="chip text-[10px] uppercase">{selectedSession.status}</span>
+                    )}
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+              </PremiumCard>
+            )}
+          </div>
         </section>
       </main>
+
+      <MobileTabBar
+        activeTab={mobileTab}
+        onTabChange={setMobileTab}
+        pendingDecisionCount={decisionsVisible ? data.decisions.length : 0}
+      />
+
+      <Modal
+        open={entityModal !== null}
+        onClose={closeEntityModal}
+        maxWidth="max-w-sm"
+      >
+        <div className="px-5 pt-5 pb-1">
+          <h3 className="text-[15px] font-semibold text-white">
+            {entityModal?.type === 'workstream' ? 'New Workstream' : 'New Initiative'}
+          </h3>
+          <p className="mt-1 text-[12px] text-white/45">
+            {entityModal?.type === 'workstream'
+              ? 'Create a new workstream under the selected initiative.'
+              : 'Create a new initiative to organize your work.'}
+          </p>
+        </div>
+        <div className="px-5 py-3">
+          <label className="mb-1.5 block text-[11px] uppercase tracking-[0.1em] text-white/45">
+            Name
+          </label>
+          <input
+            value={entityName}
+            onChange={(e) => setEntityName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') confirmCreateEntity();
+            }}
+            autoFocus
+            placeholder={entityModal?.type === 'workstream' ? 'e.g. User Onboarding Flow' : 'e.g. Q1 Product Launch'}
+            className="w-full rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
+          />
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
+          <button
+            onClick={closeEntityModal}
+            className="rounded-md px-3 py-1.5 text-[12px] text-white/60 transition-colors hover:text-white"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={confirmCreateEntity}
+            disabled={entityName.trim().length === 0 || entityCreating}
+            className="rounded-md border border-lime/25 bg-lime/10 px-4 py-1.5 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+          >
+            {entityCreating ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -18,10 +18,10 @@ export function DecisionModal({
 
   return (
     <Modal open={!!decision} onClose={onClose} maxWidth="max-w-md">
-      <div className="px-6 py-4 border-b border-white/[0.06]">
+      <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-400/10"
             style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)' }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -33,23 +33,23 @@ export function DecisionModal({
             <h3 className="text-sm font-medium text-white">
               {decision.title}
             </h3>
-            <span className="text-[11px] text-white/40">
+            <span className="text-[11px] text-white/45">
               {decision.agent} · Waiting {decision.waitingMinutes}m
             </span>
           </div>
         </div>
       </div>
 
-      <div className="px-6 py-4">
-        <p className="text-[13px] text-white/60 leading-relaxed">
+      <div className="max-h-[52vh] overflow-y-auto px-5 py-4 sm:px-6">
+        <p className="text-[13px] leading-relaxed text-white/70">
           {decision.context}
         </p>
       </div>
 
-      <div className="px-6 py-4 flex justify-end gap-3 border-t border-white/[0.06]">
+      <div className="flex justify-end gap-2.5 border-t border-white/[0.06] px-5 py-3.5 sm:px-6">
         <button
           onClick={onClose}
-          className="px-4 py-2 rounded-lg text-[12px] font-medium text-white/50 hover:text-white hover:bg-white/[0.04] transition-colors"
+          className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-2 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
         >
           Later
         </button>
@@ -61,10 +61,10 @@ export function DecisionModal({
               onClose();
             }}
             className={cn(
-              'px-4 py-2 rounded-lg text-[12px] font-medium transition-colors',
+              'rounded-lg px-3.5 py-2 text-[12px] font-medium transition-colors',
               opt.action === 'approve'
                 ? 'text-black'
-                : 'bg-white/[0.06] text-white hover:bg-white/[0.1]'
+                : 'border border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.1]'
             )}
             style={
               opt.action === 'approve'

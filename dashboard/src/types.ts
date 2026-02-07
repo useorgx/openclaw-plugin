@@ -165,6 +165,27 @@ export interface LiveData {
   decisions: LiveDecision[];
 }
 
+export interface LiveSnapshotAgent {
+  id: string;
+  name: string | null;
+  status: string;
+  currentTask: string | null;
+  runId: string | null;
+  initiativeId: string | null;
+  startedAt: string | null;
+  blockers?: unknown;
+}
+
+export interface LiveSnapshotResponse {
+  sessions: SessionTreeResponse;
+  activity: LiveActivityItem[];
+  handoffs: HandoffSummary[];
+  decisions: LiveDecision[];
+  agents: LiveSnapshotAgent[];
+  generatedAt: string;
+  degraded?: string[];
+}
+
 // -----------------------------------------------------------------------------
 // Legacy dashboard types (kept for compatibility with existing components)
 // -----------------------------------------------------------------------------

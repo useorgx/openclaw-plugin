@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Initiative } from '@/types';
+import { colors } from '@/lib/tokens';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { InitiativeCard } from './InitiativeCard';
@@ -48,11 +49,11 @@ export function InitiativePanel({
   };
 
   return (
-    <PremiumCard className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-shrink-0 space-y-2 border-b border-white/[0.06] px-4 py-3">
+    <PremiumCard className="flex h-full min-h-0 flex-1 flex-col card-enter">
+      <div className="flex-shrink-0 space-y-2 border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between">
-          <span className="text-[13px] font-semibold text-white">Initiatives</span>
-          <span className="text-[10px] text-white/35">{initiatives.length}</span>
+          <span className="text-[14px] font-semibold text-white">Initiatives</span>
+          <span className="text-[12px] text-white/35">{initiatives.length}</span>
         </div>
 
         <SearchInput
@@ -68,14 +69,14 @@ export function InitiativePanel({
           <button
             onClick={() => invokeAction('initiative', onCreateInitiative)}
             disabled={!onCreateInitiative || busyAction !== null}
-            className="rounded-md border border-lime/25 bg-lime/10 px-2 py-1 text-[10px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            className="rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
           >
             {busyAction === 'initiative' ? 'Creating…' : 'Start initiative'}
           </button>
           <button
             onClick={() => invokeAction('workstream', onCreateWorkstream)}
             disabled={!onCreateWorkstream || busyAction !== null}
-            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2 py-1 text-[10px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
           >
             {busyAction === 'workstream' ? 'Creating…' : 'Start workstream'}
           </button>
@@ -84,10 +85,24 @@ export function InitiativePanel({
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {paginated.length === 0 && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-center">
-            <p className="text-[11px] text-white/45">
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-white/25"
+            >
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+            </svg>
+            <p className="text-[12px] text-white/45">
               {initiatives.length === 0
-                ? 'No active initiatives yet.'
+                ? 'No active initiatives yet. Start one above.'
                 : 'No initiatives match this search.'}
             </p>
           </div>
@@ -103,12 +118,12 @@ export function InitiativePanel({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex-shrink-0 border-t border-white/[0.06] px-4 py-2">
+        <div className="flex-shrink-0 border-t border-white/[0.06] px-4 py-2.5">
           <div className="flex items-center justify-between">
             <button
               onClick={() => setPage(Math.max(0, safePage - 1))}
               disabled={safePage === 0}
-              className="rounded p-1 text-white/45 transition-colors hover:text-white disabled:opacity-30"
+              className="rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
             >
               <svg
                 width="14"
@@ -121,13 +136,27 @@ export function InitiativePanel({
                 <path d="m15 18-6-6 6-6" />
               </svg>
             </button>
-            <span className="text-[10px] text-white/45">
-              {safePage + 1} / {totalPages}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {Array.from({ length: totalPages }).map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setPage(i)}
+                  aria-label={`Page ${i + 1}`}
+                  className="rounded-full p-0.5 transition-colors"
+                >
+                  <span
+                    className="block h-1.5 w-1.5 rounded-full transition-colors"
+                    style={{
+                      backgroundColor: i === safePage ? colors.lime : 'rgba(255,255,255,0.25)',
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
               disabled={safePage >= totalPages - 1}
-              className="rounded p-1 text-white/45 transition-colors hover:text-white disabled:opacity-30"
+              className="rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
             >
               <svg
                 width="14"

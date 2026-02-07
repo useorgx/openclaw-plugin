@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { OnboardingState } from '@/types';
 
 const DEFAULT_DOCS_URL = 'https://orgx.mintlify.site/guides/openclaw-plugin-setup';
 const DEFAULT_POLL_MS = 1500;
+const ONBOARDING_SKIP_STORAGE_KEY = 'orgx.onboarding.skip';
 
 const DEFAULT_STATE: OnboardingState = {
   status: 'idle',
@@ -27,13 +28,19 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+function extractError(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return undefined;
+}
+
 async function readJson<T>(request: Promise<Response>): Promise<ApiResponse<T>> {
   const response = await request;
   const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
   if (!response.ok) {
     return {
       ok: false,
-      error: payload?.error ?? `Request failed (${response.status})`,
+      error: extractError(payload?.error) ?? `Request failed (${response.status})`,
     };
   }
   return payload ?? {};
@@ -44,6 +51,11 @@ export function useOnboarding() {
   const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const pairingWindowRef = useRef<Window | null>(null);
+  const [isGateSkipped, setIsGateSkipped] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(ONBOARDING_SKIP_STORAGE_KEY) === '1';
+  });
 
   const refreshStatus = useCallback(async (): Promise<OnboardingState> => {
     const payload = await readJson<OnboardingState>(
@@ -103,7 +115,34 @@ export function useOnboarding() {
     };
   }, [state.pollIntervalMs, state.status]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isGateSkipped) {
+      window.localStorage.setItem(ONBOARDING_SKIP_STORAGE_KEY, '1');
+      return;
+    }
+    window.localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY);
+  }, [isGateSkipped]);
+
+  const openPairingWindow = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const win = window.open('', '_blank');
+      if (!win) return null;
+      win.opener = null;
+      win.document.title = 'Connecting to OrgX…';
+      win.document.body.innerHTML =
+        '<div style="font-family:system-ui,-apple-system,sans-serif;padding:20px;color:#111">Connecting to OrgX...</div>';
+      return win;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const startPairing = useCallback(async () => {
+    const pairingWindow = openPairingWindow();
+    pairingWindowRef.current = pairingWindow;
+
     setIsStarting(true);
     try {
       const payload = await readJson<{
@@ -124,6 +163,9 @@ export function useOnboarding() {
       );
 
       if (!payload.ok || !payload.data?.state) {
+        if (pairingWindow && !pairingWindow.closed) {
+          pairingWindow.close();
+        }
         const message = payload.error ?? 'Could not start pairing';
         setState((previous) => ({
           ...previous,
@@ -136,12 +178,36 @@ export function useOnboarding() {
 
       setState(payload.data.state);
       if (payload.data.connectUrl) {
-        window.open(payload.data.connectUrl, '_blank', 'noopener,noreferrer');
+        const targetWindow = pairingWindowRef.current;
+        let opened = false;
+
+        if (targetWindow && !targetWindow.closed) {
+          try {
+            targetWindow.location.href = payload.data.connectUrl;
+            opened = true;
+          } catch {
+            opened = false;
+          }
+        }
+
+        if (!opened) {
+          const fallback = window.open(payload.data.connectUrl, '_blank', 'noopener,noreferrer');
+          opened = Boolean(fallback);
+        }
+
+        if (!opened) {
+          setState((previous) => ({
+            ...previous,
+            lastError: 'Popup was blocked. Use "Approve in browser" below.',
+            nextAction: 'open_browser',
+          }));
+        }
       }
     } finally {
+      pairingWindowRef.current = null;
       setIsStarting(false);
     }
-  }, []);
+  }, [openPairingWindow]);
 
   const submitManualKey = useCallback(
     async (apiKey: string, userId?: string) => {
@@ -198,10 +264,10 @@ export function useOnboarding() {
     return fallback;
   }, []);
 
-  const showGate = useMemo(
-    () => !(state.hasApiKey && state.connectionVerified && state.status === 'connected'),
-    [state.connectionVerified, state.hasApiKey, state.status]
-  );
+  const showGate = useMemo(() => {
+    if (isGateSkipped) return false;
+    return !(state.hasApiKey && state.connectionVerified && state.status === 'connected');
+  }, [isGateSkipped, state.connectionVerified, state.hasApiKey, state.status]);
 
   return {
     state,
@@ -213,6 +279,8 @@ export function useOnboarding() {
     startPairing,
     submitManualKey,
     disconnect,
+    skipGate: () => setIsGateSkipped(true),
+    resumeGate: () => setIsGateSkipped(false),
     setManualMode: () =>
       setState((previous) => ({
         ...previous,

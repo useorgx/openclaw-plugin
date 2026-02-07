@@ -330,6 +330,21 @@ export default function register(api: PluginAPI): void {
     });
   }
 
+  function isAuthRequiredError(result: { status: number; error: string }): boolean {
+    if (result.status !== 401) {
+      return false;
+    }
+    return /auth|unauthorized|token/i.test(result.error);
+  }
+
+  function buildManualKeyConnectUrl(): string {
+    try {
+      return new URL("/settings/api", baseApiUrl).toString();
+    } catch {
+      return "https://www.useorgx.com/settings/api";
+    }
+  }
+
   async function fetchOrgxJson<T>(
     method: "GET" | "POST",
     path: string,
@@ -345,17 +360,25 @@ export default function register(api: PluginAPI): void {
       });
 
       const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; data?: T; error?: string }
+        | { ok?: boolean; data?: T; error?: unknown; message?: string }
         | null;
 
       if (!response.ok) {
-        return {
-          ok: false,
-          status: response.status,
-          error:
-            payload?.error ||
-            `OrgX request failed (${response.status})`,
-        };
+        const rawError = payload?.error ?? payload?.message;
+        let errorMessage: string;
+        if (typeof rawError === "string") {
+          errorMessage = rawError;
+        } else if (
+          rawError &&
+          typeof rawError === "object" &&
+          "message" in rawError &&
+          typeof (rawError as Record<string, unknown>).message === "string"
+        ) {
+          errorMessage = (rawError as Record<string, unknown>).message as string;
+        } else {
+          errorMessage = `OrgX request failed (${response.status})`;
+        }
+        return { ok: false, status: response.status, error: errorMessage };
       }
 
       if (payload?.data !== undefined) {
@@ -409,42 +432,67 @@ export default function register(api: PluginAPI): void {
   // 1. Background Sync Service
   // ---------------------------------------------------------------------------
 
-  let syncTimer: ReturnType<typeof setInterval> | null = null;
+  let syncTimer: ReturnType<typeof setTimeout> | null = null;
+  let syncInFlight: Promise<void> | null = null;
+  let syncServiceRunning = false;
 
   async function doSync(): Promise<void> {
-    if (!config.apiKey) {
-      updateOnboardingState({
-        status: "idle",
-        hasApiKey: false,
-        connectionVerified: false,
-        nextAction: "connect",
-      });
+    if (syncInFlight) {
+      return syncInFlight;
+    }
+
+    syncInFlight = (async () => {
+      if (!config.apiKey) {
+        updateOnboardingState({
+          status: "idle",
+          hasApiKey: false,
+          connectionVerified: false,
+          nextAction: "connect",
+        });
+        return;
+      }
+
+      try {
+        cachedSnapshot = await client.getOrgSnapshot();
+        lastSnapshotAt = Date.now();
+        updateOnboardingState({
+          status: "connected",
+          hasApiKey: true,
+          connectionVerified: true,
+          lastError: null,
+          nextAction: "open_dashboard",
+        });
+        api.log?.debug?.("[orgx] Sync OK");
+      } catch (err: unknown) {
+        updateOnboardingState({
+          status: "error",
+          hasApiKey: true,
+          connectionVerified: false,
+          lastError: toErrorMessage(err),
+          nextAction: "reconnect",
+        });
+        api.log?.warn?.(
+          `[orgx] Sync failed: ${err instanceof Error ? err.message : err}`
+        );
+      }
+    })();
+
+    try {
+      await syncInFlight;
+    } finally {
+      syncInFlight = null;
+    }
+  }
+
+  function scheduleNextSync() {
+    if (!syncServiceRunning) {
       return;
     }
 
-    try {
-      cachedSnapshot = await client.getOrgSnapshot();
-      lastSnapshotAt = Date.now();
-      updateOnboardingState({
-        status: "connected",
-        hasApiKey: true,
-        connectionVerified: true,
-        lastError: null,
-        nextAction: "open_dashboard",
-      });
-      api.log?.debug?.("[orgx] Sync OK");
-    } catch (err: unknown) {
-      updateOnboardingState({
-        status: "error",
-        hasApiKey: true,
-        connectionVerified: false,
-        lastError: toErrorMessage(err),
-        nextAction: "reconnect",
-      });
-      api.log?.warn?.(
-        `[orgx] Sync failed: ${err instanceof Error ? err.message : err}`
-      );
-    }
+    syncTimer = setTimeout(async () => {
+      await doSync();
+      scheduleNextSync();
+    }, config.syncIntervalMs);
   }
 
   async function startPairing(input: {
@@ -479,6 +527,29 @@ export default function register(api: PluginAPI): void {
     });
 
     if (!started.ok) {
+      if (isAuthRequiredError(started)) {
+        clearPairingState();
+        const manualConnectUrl = buildManualKeyConnectUrl();
+        const state = updateOnboardingState({
+          status: "manual_key",
+          hasApiKey: Boolean(config.apiKey),
+          connectionVerified: false,
+          lastError: null,
+          nextAction: "enter_manual_key",
+          connectUrl: manualConnectUrl,
+          pairingId: null,
+          expiresAt: null,
+          pollIntervalMs: null,
+        });
+        return {
+          pairingId: "manual_key",
+          connectUrl: manualConnectUrl,
+          expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+          pollIntervalMs: 1_500,
+          state,
+        };
+      }
+
       const message = `Pairing start failed: ${started.error}`;
       updateOnboardingState({
         status: "error",
@@ -704,14 +775,16 @@ export default function register(api: PluginAPI): void {
   api.registerService({
     id: "orgx-sync",
     start: async () => {
+      syncServiceRunning = true;
       api.log?.info?.("[orgx] Starting sync service", {
         interval: config.syncIntervalMs,
       });
       await doSync();
-      syncTimer = setInterval(doSync, config.syncIntervalMs);
+      scheduleNextSync();
     },
     stop: async () => {
-      if (syncTimer) clearInterval(syncTimer);
+      syncServiceRunning = false;
+      if (syncTimer) clearTimeout(syncTimer);
       syncTimer = null;
     },
   });

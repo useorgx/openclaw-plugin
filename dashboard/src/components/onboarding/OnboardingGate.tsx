@@ -1,6 +1,7 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { ExplainerPanel } from '@/components/onboarding/ExplainerPanel';
 import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
-import type { OnboardingState } from '@/types';
+import type { OnboardingState, OnboardingStatus } from '@/types';
 
 interface OnboardingGateProps {
   state: OnboardingState;
@@ -11,26 +12,55 @@ interface OnboardingGateProps {
   onStartPairing: () => Promise<void>;
   onSubmitManualKey: (apiKey: string, userId?: string) => Promise<unknown>;
   onUseManualKey: () => void;
+  onSkip: () => void;
 }
 
-function statusLabel(state: OnboardingState): string {
-  switch (state.status) {
+/* ── Status helpers ────────────────────────────────────────────────── */
+
+function statusLabel(status: OnboardingStatus): string {
+  switch (status) {
     case 'starting':
-      return 'Starting secure pairing session...';
+      return 'Starting secure session...';
     case 'awaiting_browser_auth':
-      return 'Open the browser tab and approve access.';
+      return 'Waiting for browser approval...';
     case 'pairing':
-      return 'Waiting for confirmation from useorgx.com...';
+      return 'Confirming connection...';
     case 'manual_key':
-      return 'Use manual key fallback';
+      return 'Manual key entry';
     case 'connected':
       return 'Connected';
     case 'error':
       return 'Connection issue';
     default:
-      return 'Connect OrgX to continue';
+      return 'Ready to connect';
   }
 }
+
+type DotState = 'idle' | 'active' | 'error';
+
+function dotState(status: OnboardingStatus): DotState {
+  if (status === 'awaiting_browser_auth' || status === 'pairing' || status === 'starting') return 'active';
+  if (status === 'error') return 'error';
+  if (status === 'connected') return 'active';
+  return 'idle';
+}
+
+const dotStyle: Record<DotState, string> = {
+  idle: 'bg-white/40',
+  active: 'bg-[#BFFF00]',
+  error: 'bg-red-400',
+};
+
+/* ── Animation ─────────────────────────────────────────────────────── */
+
+const pageTransition = {
+  initial: { opacity: 0, y: 14, scale: 0.985 },
+  animate: { opacity: 1, y: 0, scale: 1 },
+  exit: { opacity: 0, y: -8, scale: 0.985 },
+  transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
+};
+
+/* ── Component ─────────────────────────────────────────────────────── */
 
 export function OnboardingGate({
   state,
@@ -41,78 +71,119 @@ export function OnboardingGate({
   onStartPairing,
   onSubmitManualKey,
   onUseManualKey,
+  onSkip,
 }: OnboardingGateProps) {
   const showManual = state.status === 'manual_key';
   const showPairingState = state.status === 'awaiting_browser_auth' || state.status === 'pairing';
+  const dot = dotState(state.status);
+  const isPulsing = dot === 'active' && state.status !== 'connected';
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center px-4 py-8" style={{ backgroundColor: '#05070f' }}>
-      <div className="pointer-events-none absolute inset-0">
-        <div className="ambient-orb orb-lime" style={{ width: 440, height: 440, top: -180, left: -140 }} />
-        <div className="ambient-orb orb-teal" style={{ width: 520, height: 520, bottom: -220, right: -150 }} />
+    <div
+      className="relative flex min-h-screen items-center justify-center px-4 py-10 sm:py-16"
+      style={{ backgroundColor: '#02040A' }}
+    >
+      {/* Background atmosphere */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="ambient-orb orb-lime" style={{ width: 500, height: 500, top: -200, left: -160 }} />
+        <div className="ambient-orb orb-teal" style={{ width: 560, height: 560, bottom: -240, right: -170 }} />
+        <div className="ambient-orb orb-iris" style={{ width: 340, height: 340, bottom: '20%', left: '50%', animationDelay: '3s' }} />
         <div className="grain-overlay absolute inset-0" />
       </div>
 
-      <div className="relative z-10 w-full max-w-3xl space-y-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.45 }}
+        className="relative z-10 w-full max-w-lg"
+      >
         {isLoading ? (
-          <div className="rounded-2xl border border-white/[0.12] bg-white/[0.04] p-6 text-sm text-white/70">
-            Loading onboarding state...
+          /* ── Loading skeleton ─────────────────────────────────── */
+          <div className="glass-panel rounded-2xl p-6 sm:p-8">
+            <div className="shimmer-skeleton h-7 w-28 rounded-lg" />
+            <div className="shimmer-skeleton mt-5 h-8 w-3/4 rounded-lg" />
+            <div className="shimmer-skeleton mt-3 h-4 w-2/3 rounded-lg" />
+            <div className="mt-7 grid grid-cols-3 gap-2.5">
+              <div className="shimmer-skeleton h-24 rounded-xl" />
+              <div className="shimmer-skeleton h-24 rounded-xl" />
+              <div className="shimmer-skeleton h-24 rounded-xl" />
+            </div>
+            <div className="shimmer-skeleton mt-7 h-10 w-36 rounded-full" />
           </div>
-        ) : null}
-
-        {!showManual ? (
-          <ExplainerPanel
-            state={state}
-            isStarting={isStarting}
-            onConnect={() => {
-              void onStartPairing();
-            }}
-            onUseManualKey={onUseManualKey}
-          />
         ) : (
-          <ManualKeyPanel
-            isSubmitting={isSubmittingManual}
-            onSubmit={onSubmitManualKey}
-            onBack={() => {
-              void onRefresh();
-            }}
-          />
+          /* ── Content ─────────────────────────────────────────── */
+          <AnimatePresence mode="wait">
+            {!showManual ? (
+              <motion.div key="explainer" {...pageTransition}>
+                <ExplainerPanel
+                  state={state}
+                  isStarting={isStarting}
+                  onConnect={() => { void onStartPairing(); }}
+                  onUseManualKey={onUseManualKey}
+                  onContinueWithoutOrgX={onSkip}
+                />
+              </motion.div>
+            ) : (
+              <motion.div key="manual" {...pageTransition}>
+                <ManualKeyPanel
+                  isSubmitting={isSubmittingManual}
+                  onSubmit={onSubmitManualKey}
+                  onBack={() => { void onRefresh(); }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         )}
 
-        <section className="rounded-2xl border border-white/[0.12] bg-white/[0.04] p-4 text-sm text-white/75">
-          <p className="font-medium text-white">{statusLabel(state)}</p>
-          {state.workspaceName ? (
-            <p className="mt-1 text-xs text-[#BFFF00]/80">Workspace: {state.workspaceName}</p>
-          ) : null}
-          {state.expiresAt ? (
-            <p className="mt-1 text-xs text-white/55">
-              Pairing expires: {new Date(state.expiresAt).toLocaleTimeString()}
-            </p>
-          ) : null}
+        {/* ── Floating status pill ─────────────────────────────── */}
+        {!isLoading && (showPairingState || state.status === 'connected') && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ delay: 0.15, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2 w-2">
+                {isPulsing && (
+                  <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${dotStyle[dot]} opacity-40`} />
+                )}
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${dotStyle[dot]}`} />
+              </span>
+              <span className="text-[13px] text-white/60">{statusLabel(state.status)}</span>
+              {state.workspaceName && (
+                <span className="chip">{state.workspaceName}</span>
+              )}
+            </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2.5">
-            {state.connectUrl && showPairingState ? (
-              <a
-                href={state.connectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full border border-[#BFFF00]/50 bg-[#BFFF00]/10 px-3 py-1.5 text-xs text-[#D8FFA1] transition hover:bg-[#BFFF00]/20"
+            <div className="flex items-center gap-2">
+              {state.expiresAt && (
+                <span className="text-[11px] text-white/30">
+                  {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              {state.connectUrl && showPairingState && (
+                <a
+                  href={state.connectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/[0.05] px-3 py-1 text-[11px] font-medium text-[#D8FFA1] transition hover:bg-[#BFFF00]/[0.1]"
+                >
+                  Approve in browser
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => { void onRefresh(); }}
+                className="rounded-full border border-white/[0.08] px-2.5 py-1 text-[11px] text-white/40 transition hover:bg-white/[0.04] hover:text-white/60"
               >
-                Open connect page
-              </a>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                void onRefresh();
-              }}
-              className="rounded-full border border-white/[0.2] bg-white/[0.02] px-3 py-1.5 text-xs text-white/75 transition hover:bg-white/[0.08]"
-            >
-              Refresh status
-            </button>
-          </div>
-        </section>
-      </div>
+                Refresh
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </motion.div>
     </div>
   );
 }

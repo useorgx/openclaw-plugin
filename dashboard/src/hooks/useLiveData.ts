@@ -3,6 +3,7 @@ import type {
   LiveData,
   LiveActivityItem,
   LiveDecision,
+  LiveSnapshotResponse,
   SessionTreeResponse,
   HandoffSummary,
 } from '@/types';
@@ -13,36 +14,12 @@ interface UseLiveDataOptions {
   enabled?: boolean;
   pollInterval?: number;
   useMock?: boolean;
+  enableDecisions?: boolean;
   maxSessions?: number;
   maxActivityItems?: number;
   maxHandoffs?: number;
   maxDecisions?: number;
   batchWindowMs?: number;
-}
-
-interface LiveAgentsResponse {
-  agents?: Array<{
-    id: string;
-    name: string | null;
-    status: string;
-    currentTask: string | null;
-    runId: string | null;
-    initiativeId: string | null;
-    startedAt: string | null;
-    blockers?: unknown;
-  }>;
-}
-
-interface LiveActivityResponse {
-  activities?: LiveActivityItem[];
-}
-
-interface LiveHandoffsResponse {
-  handoffs?: HandoffSummary[];
-}
-
-interface LiveDecisionsResponse {
-  decisions?: LiveDecision[];
 }
 
 interface JsonFetchResult<T> {
@@ -66,7 +43,7 @@ interface DecisionMutationResponse {
 
 const DEFAULT_POLL_INTERVAL = 8000;
 const DEFAULT_MAX_SESSIONS = 320;
-const DEFAULT_MAX_ACTIVITY_ITEMS = 360;
+const DEFAULT_MAX_ACTIVITY_ITEMS = 600;
 const DEFAULT_MAX_HANDOFFS = 120;
 const DEFAULT_MAX_DECISIONS = 120;
 const DEFAULT_BATCH_WINDOW_MS = 90;
@@ -375,7 +352,7 @@ function coerceBlockers(value: unknown): string[] {
 
 function deriveSessionsFromFallbacks(
   activity: LiveActivityItem[],
-  agents: LiveAgentsResponse['agents'],
+  agents: LiveSnapshotResponse['agents'] | undefined,
   maxSessions: number
 ): SessionTreeResponse {
   const byRunId = new Map<string, SessionTreeResponse['nodes'][number]>();
@@ -603,6 +580,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     enabled = true,
     pollInterval = DEFAULT_POLL_INTERVAL,
     useMock = false,
+    enableDecisions = true,
     maxSessions = DEFAULT_MAX_SESSIONS,
     maxActivityItems = DEFAULT_MAX_ACTIVITY_ITEMS,
     maxHandoffs = DEFAULT_MAX_HANDOFFS,
@@ -674,41 +652,39 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     const request = (async () => {
       try {
-        const [sessionsRes, activityRes, handoffsRes, decisionsRes, agentsRes] = await Promise.all([
-          fetchJson<SessionTreeResponse>(`/orgx/api/live/sessions?limit=${maxSessions}`),
-          fetchJson<LiveActivityResponse>(`/orgx/api/live/activity?limit=${maxActivityItems}`),
-          fetchJson<LiveHandoffsResponse>('/orgx/api/handoffs'),
-          fetchJson<LiveDecisionsResponse>(`/orgx/api/live/decisions?status=pending&limit=${maxDecisions}`),
-          fetchJson<LiveAgentsResponse>('/orgx/api/live/agents?include_idle=true'),
-        ]);
+        const query = new URLSearchParams({
+          sessionsLimit: String(maxSessions),
+          activityLimit: String(maxActivityItems),
+          decisionsLimit: String(maxDecisions),
+          include_idle: 'true',
+        });
+        const snapshotRes = await fetchJson<LiveSnapshotResponse>(
+          `/orgx/api/live/snapshot?${query.toString()}`
+        );
 
-        const activity = normalizeActivity(
-          (activityRes.data?.activities ?? []) as LiveActivityItem[],
-          maxActivityItems
-        );
-        const handoffs = trimHandoffs(
-          (handoffsRes.data?.handoffs ?? []) as HandoffSummary[],
-          maxHandoffs
-        );
-        const decisions = normalizeDecisions(
-          (decisionsRes.data?.decisions ?? []) as LiveDecision[],
-          maxDecisions
-        );
-        const sessions = sessionsRes.ok && sessionsRes.data
-          ? trimSessions(sessionsRes.data, maxSessions)
-          : deriveSessionsFromFallbacks(
-              activity,
-              agentsRes.data?.agents,
-              maxSessions
-            );
+        if (!snapshotRes.ok || !snapshotRes.data) {
+          throw new Error(snapshotRes.error ?? 'Snapshot endpoint unavailable');
+        }
+
+        const snapshot = snapshotRes.data;
+        const activity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
+        const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
+        const decisions = enableDecisions && Array.isArray(snapshot.decisions)
+          ? snapshot.decisions
+          : [];
+        const sessions =
+          snapshot.sessions &&
+          Array.isArray(snapshot.sessions.nodes) &&
+          Array.isArray(snapshot.sessions.edges) &&
+          Array.isArray(snapshot.sessions.groups)
+            ? snapshot.sessions
+            : deriveSessionsFromFallbacks(activity, snapshot.agents, maxSessions);
 
         applySnapshot(sessions, activity, handoffs, decisions);
 
-        const degradedReasons: string[] = [];
-        if (!sessionsRes.ok) degradedReasons.push(`sessions unavailable (${sessionsRes.error})`);
-        if (!handoffsRes.ok) degradedReasons.push(`handoffs unavailable (${handoffsRes.error})`);
-        if (!decisionsRes.ok) degradedReasons.push(`decisions unavailable (${decisionsRes.error})`);
-        if (!agentsRes.ok) degradedReasons.push(`agent fallback unavailable (${agentsRes.error})`);
+        const degradedReasons = Array.isArray(snapshot.degraded)
+          ? snapshot.degraded
+          : [];
 
         if (degradedReasons.length > 0) {
           setError(`Partial live data: ${degradedReasons.join('; ')}`);
@@ -744,6 +720,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   }, [
     applySnapshot,
     enabled,
+    enableDecisions,
     maxActivityItems,
     maxDecisions,
     maxHandoffs,
@@ -753,6 +730,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
   const applyDecisionMutation = useCallback(
     async (decisionIds: string[], action: 'approve' | 'reject') => {
+      if (!enableDecisions) {
+        throw new Error('OrgX decisions are unavailable while disconnected.');
+      }
+
       const ids = Array.from(new Set(decisionIds.filter(Boolean)));
       if (ids.length === 0) {
         return { updated: 0, failed: 0 };
@@ -836,7 +817,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
       return { updated, failed };
     },
-    [maxActivityItems]
+    [enableDecisions, maxActivityItems]
   );
 
   const approveDecision = useCallback(
@@ -850,6 +831,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     const allDecisionIds = data.decisions.map((decision) => decision.id);
     return applyDecisionMutation(allDecisionIds, 'approve');
   }, [applyDecisionMutation, data.decisions]);
+
+  useEffect(() => {
+    if (enableDecisions) return;
+    setData((prev) => {
+      if (prev.decisions.length === 0) return prev;
+      return { ...prev, decisions: [] };
+    });
+  }, [enableDecisions]);
 
   useEffect(() => {
     if (!enabled) {
@@ -1007,7 +996,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sessions: payload.sessions,
           activity: payload.activity ?? [],
           handoffs: payload.handoffs ?? [],
-          decisions: payload.decisions ?? null,
+          decisions: enableDecisions ? payload.decisions ?? null : [],
         };
         scheduleFlush();
       } catch (err) {
@@ -1045,6 +1034,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     });
 
     eventSource.addEventListener('decision.updated', (event) => {
+      if (!enableDecisions) return;
       try {
         pendingDecisions = JSON.parse((event as MessageEvent).data) as LiveDecision[];
         scheduleFlush();
@@ -1063,6 +1053,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     applySnapshot,
     batchWindowMs,
     enabled,
+    enableDecisions,
     fetchSnapshot,
     maxActivityItems,
     maxDecisions,

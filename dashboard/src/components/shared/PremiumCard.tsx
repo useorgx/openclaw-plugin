@@ -20,7 +20,7 @@ export function PremiumCard({ children, className = '' }: PremiumCardProps) {
       }}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent" />
-      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: 'radial-gradient(circle at 18% 0%, rgba(191,255,0,0.09), transparent 46%)' }} />
+      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: 'radial-gradient(circle at 18% 0%, rgba(191,255,0,0.06), transparent 46%)' }} />
       {children}
     </section>
   );

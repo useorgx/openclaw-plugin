@@ -25,6 +25,9 @@ import type {
   OrgXConfig,
   OrgSnapshot,
   Entity,
+  LiveActivityItem,
+  SessionTreeResponse,
+  HandoffSummary,
 } from "./types.js";
 import {
   formatStatus,
@@ -33,6 +36,23 @@ import {
   formatInitiatives,
   getOnboardingState,
 } from "./dashboard-api.js";
+import {
+  loadLocalOpenClawSnapshot,
+  toLocalLiveActivity,
+  toLocalLiveAgents,
+  toLocalLiveInitiatives,
+  toLocalSessionTree,
+} from "./local-openclaw.js";
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function safeErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return "Unexpected error";
+}
 
 // =============================================================================
 // Types — mirrors the Node http.IncomingMessage / http.ServerResponse pattern
@@ -44,12 +64,17 @@ interface PluginRequest {
   url?: string;
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
+  once?: (event: string, listener: (...args: unknown[]) => void) => void;
 }
 
 interface PluginResponse {
   writeHead(status: number, headers?: Record<string, string>): void;
   end(body?: string | Buffer): void;
-  write?(chunk: string | Buffer): void;
+  write?(chunk: string | Buffer): boolean | void;
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
+  once?: (event: string, listener: (...args: unknown[]) => void) => void;
+  writableEnded?: boolean;
 }
 
 interface OnboardingController {
@@ -108,6 +133,8 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
 
 // =============================================================================
 // Resolve the dashboard/dist/ directory relative to this file
@@ -289,6 +316,13 @@ function mapDecisionEntity(entity: Entity) {
   };
 }
 
+function parsePositiveInt(raw: string | null, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.floor(parsed));
+}
+
 // =============================================================================
 // Factory
 // =============================================================================
@@ -366,7 +400,7 @@ export function createHttpHandler(
         } catch (err: unknown) {
           sendJson(res, 400, {
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -382,7 +416,7 @@ export function createHttpHandler(
         } catch (err: unknown) {
           sendJson(res, 500, {
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -413,7 +447,7 @@ export function createHttpHandler(
         } catch (err: unknown) {
           sendJson(res, 400, {
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -429,7 +463,7 @@ export function createHttpHandler(
         } catch (err: unknown) {
           sendJson(res, 500, {
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -480,7 +514,7 @@ export function createHttpHandler(
           });
         } catch (err: unknown) {
           sendJson(res, 500, {
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -510,7 +544,7 @@ export function createHttpHandler(
           sendJson(res, 200, data);
         } catch (err: unknown) {
           sendJson(res, 500, {
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -534,7 +568,7 @@ export function createHttpHandler(
           sendJson(res, 200, data);
         } catch (err: unknown) {
           sendJson(res, 500, {
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -553,7 +587,7 @@ export function createHttpHandler(
           sendJson(res, 200, data);
         } catch (err: unknown) {
           sendJson(res, 500, {
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -578,7 +612,7 @@ export function createHttpHandler(
           sendJson(res, 200, data);
         } catch (err: unknown) {
           sendJson(res, 500, {
-            error: err instanceof Error ? err.message : String(err),
+            error: safeErrorMessage(err),
           });
         }
         return true;
@@ -655,7 +689,7 @@ export function createHttpHandler(
               sendJson(res, 201, { ok: true, entity });
             } catch (err: unknown) {
               sendJson(res, 500, {
-                error: err instanceof Error ? err.message : String(err),
+                error: safeErrorMessage(err),
               });
             }
             return true;
@@ -681,12 +715,205 @@ export function createHttpHandler(
             sendJson(res, 200, data);
           } catch (err: unknown) {
             sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
+              error: safeErrorMessage(err),
             });
           }
           return true;
         }
 
+        case "live/snapshot": {
+          const sessionsLimit = parsePositiveInt(
+            searchParams.get("sessionsLimit") ?? searchParams.get("sessions_limit"),
+            320
+          );
+          const activityLimit = parsePositiveInt(
+            searchParams.get("activityLimit") ?? searchParams.get("activity_limit"),
+            600
+          );
+          const decisionsLimit = parsePositiveInt(
+            searchParams.get("decisionsLimit") ?? searchParams.get("decisions_limit"),
+            120
+          );
+          const initiative = searchParams.get("initiative");
+          const run = searchParams.get("run");
+          const since = searchParams.get("since");
+          const decisionStatus = searchParams.get("status") ?? "pending";
+          const includeIdleRaw = searchParams.get("include_idle");
+          const includeIdle =
+            includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
+
+          let localSnapshot:
+            | Awaited<ReturnType<typeof loadLocalOpenClawSnapshot>>
+            | null = null;
+          const ensureLocalSnapshot = async (minimumLimit: number) => {
+            if (!localSnapshot || localSnapshot.sessions.length < minimumLimit) {
+              localSnapshot = await loadLocalOpenClawSnapshot(minimumLimit);
+            }
+            return localSnapshot;
+          };
+
+          const settled = await Promise.allSettled([
+            client.getLiveSessions({
+              initiative,
+              limit: sessionsLimit,
+            }),
+            client.getLiveActivity({
+              run,
+              since,
+              limit: activityLimit,
+            }),
+            client.getHandoffs(),
+            client.getLiveDecisions({
+              status: decisionStatus,
+              limit: decisionsLimit,
+            }),
+            client.getLiveAgents({
+              initiative,
+              includeIdle,
+            }),
+          ]);
+
+          const degraded: string[] = [];
+
+          // sessions
+          let sessions: SessionTreeResponse = {
+            nodes: [],
+            edges: [],
+            groups: [],
+          };
+          const sessionsResult = settled[0];
+          if (sessionsResult.status === "fulfilled") {
+            sessions = sessionsResult.value;
+          } else {
+            degraded.push(`sessions unavailable (${safeErrorMessage(sessionsResult.reason)})`);
+            try {
+              let local = toLocalSessionTree(
+                await ensureLocalSnapshot(Math.max(sessionsLimit, 200)),
+                sessionsLimit
+              );
+
+              if (initiative && initiative.trim().length > 0) {
+                const filteredNodes = local.nodes.filter(
+                  (node) => node.initiativeId === initiative || node.groupId === initiative
+                );
+                const filteredIds = new Set(filteredNodes.map((node) => node.id));
+                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+
+                local = {
+                  nodes: filteredNodes,
+                  edges: local.edges.filter(
+                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
+                  ),
+                  groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
+                };
+              }
+
+              sessions = local;
+            } catch (localErr: unknown) {
+              degraded.push(`sessions local fallback failed (${safeErrorMessage(localErr)})`);
+            }
+          }
+
+          // activity
+          let activity: LiveActivityItem[] = [];
+          const activityResult = settled[1];
+          if (activityResult.status === "fulfilled") {
+            activity = Array.isArray(activityResult.value.activities)
+              ? activityResult.value.activities
+              : [];
+          } else {
+            degraded.push(`activity unavailable (${safeErrorMessage(activityResult.reason)})`);
+            try {
+              const local = await toLocalLiveActivity(
+                await ensureLocalSnapshot(Math.max(activityLimit, 240)),
+                Math.max(activityLimit, 240)
+              );
+              let filtered = local.activities;
+
+              if (run && run.trim().length > 0) {
+                filtered = filtered.filter((item) => item.runId === run);
+              }
+
+              if (since && since.trim().length > 0) {
+                const sinceEpoch = Date.parse(since);
+                if (Number.isFinite(sinceEpoch)) {
+                  filtered = filtered.filter(
+                    (item) => Date.parse(item.timestamp) >= sinceEpoch
+                  );
+                }
+              }
+
+              activity = filtered.slice(0, activityLimit);
+            } catch (localErr: unknown) {
+              degraded.push(`activity local fallback failed (${safeErrorMessage(localErr)})`);
+            }
+          }
+
+          // handoffs
+          let handoffs: HandoffSummary[] = [];
+          const handoffsResult = settled[2];
+          if (handoffsResult.status === "fulfilled") {
+            handoffs = Array.isArray(handoffsResult.value.handoffs)
+              ? handoffsResult.value.handoffs
+              : [];
+          } else {
+            degraded.push(`handoffs unavailable (${safeErrorMessage(handoffsResult.reason)})`);
+          }
+
+          // decisions
+          let decisions: Array<Record<string, unknown>> = [];
+          const decisionsResult = settled[3];
+          if (decisionsResult.status === "fulfilled") {
+            decisions = decisionsResult.value.decisions
+              .map(mapDecisionEntity)
+              .sort((a, b) => b.waitingMinutes - a.waitingMinutes) as Array<
+              Record<string, unknown>
+            >;
+          } else {
+            degraded.push(`decisions unavailable (${safeErrorMessage(decisionsResult.reason)})`);
+          }
+
+          // agents
+          let agents: Array<Record<string, unknown>> = [];
+          const agentsResult = settled[4];
+          if (agentsResult.status === "fulfilled") {
+            agents = Array.isArray(agentsResult.value.agents)
+              ? (agentsResult.value.agents as Array<Record<string, unknown>>)
+              : [];
+          } else {
+            degraded.push(`agents unavailable (${safeErrorMessage(agentsResult.reason)})`);
+            try {
+              const local = toLocalLiveAgents(
+                await ensureLocalSnapshot(Math.max(sessionsLimit, 240))
+              );
+              let localAgents = local.agents;
+              if (initiative && initiative.trim().length > 0) {
+                localAgents = localAgents.filter(
+                  (agent) => agent.initiativeId === initiative
+                );
+              }
+              if (includeIdle === false) {
+                localAgents = localAgents.filter((agent) => agent.status !== "idle");
+              }
+              agents = localAgents as Array<Record<string, unknown>>;
+            } catch (localErr: unknown) {
+              degraded.push(`agents local fallback failed (${safeErrorMessage(localErr)})`);
+            }
+          }
+
+          sendJson(res, 200, {
+            sessions,
+            activity,
+            handoffs,
+            decisions,
+            agents,
+            generatedAt: new Date().toISOString(),
+            degraded: degraded.length > 0 ? degraded : undefined,
+          });
+          return true;
+        }
+
+        // Legacy endpoints retained for backwards compatibility.
         case "live/sessions": {
           try {
             const initiative = searchParams.get("initiative");
@@ -699,9 +926,41 @@ export function createHttpHandler(
             });
             sendJson(res, 200, data);
           } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            try {
+              const initiative = searchParams.get("initiative");
+              const limitRaw = searchParams.get("limit")
+                ? Number(searchParams.get("limit"))
+                : undefined;
+              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
+
+              let local = toLocalSessionTree(
+                await loadLocalOpenClawSnapshot(Math.max(limit, 200)),
+                limit
+              );
+
+              if (initiative && initiative.trim().length > 0) {
+                const filteredNodes = local.nodes.filter(
+                  (node) => node.initiativeId === initiative || node.groupId === initiative
+                );
+                const filteredIds = new Set(filteredNodes.map((node) => node.id));
+                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+
+                local = {
+                  nodes: filteredNodes,
+                  edges: local.edges.filter(
+                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
+                  ),
+                  groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
+                };
+              }
+
+              sendJson(res, 200, local);
+            } catch (localErr: unknown) {
+              sendJson(res, 500, {
+                error: safeErrorMessage(err),
+                localFallbackError: safeErrorMessage(localErr),
+              });
+            }
           }
           return true;
         }
@@ -720,9 +979,47 @@ export function createHttpHandler(
             });
             sendJson(res, 200, data);
           } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            try {
+              const run = searchParams.get("run");
+              const limitRaw = searchParams.get("limit")
+                ? Number(searchParams.get("limit"))
+                : undefined;
+              const since = searchParams.get("since");
+              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 240;
+
+              const localSnapshot = await loadLocalOpenClawSnapshot(Math.max(limit, 240));
+              let local = await toLocalLiveActivity(localSnapshot, Math.max(limit, 240));
+
+              if (run && run.trim().length > 0) {
+                local = {
+                  activities: local.activities.filter((item) => item.runId === run),
+                  total: local.activities.filter((item) => item.runId === run).length,
+                };
+              }
+
+              if (since && since.trim().length > 0) {
+                const sinceEpoch = Date.parse(since);
+                if (Number.isFinite(sinceEpoch)) {
+                  const filtered = local.activities.filter(
+                    (item) => Date.parse(item.timestamp) >= sinceEpoch
+                  );
+                  local = {
+                    activities: filtered,
+                    total: filtered.length,
+                  };
+                }
+              }
+
+              sendJson(res, 200, {
+                activities: local.activities.slice(0, limit),
+                total: local.total,
+              });
+            } catch (localErr: unknown) {
+              sendJson(res, 500, {
+                error: safeErrorMessage(err),
+                localFallbackError: safeErrorMessage(localErr),
+              });
+            }
           }
           return true;
         }
@@ -739,9 +1036,35 @@ export function createHttpHandler(
             });
             sendJson(res, 200, data);
           } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            try {
+              const initiative = searchParams.get("initiative");
+              const includeIdleRaw = searchParams.get("include_idle");
+              const includeIdle =
+                includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
+
+              const localSnapshot = await loadLocalOpenClawSnapshot(240);
+              const local = toLocalLiveAgents(localSnapshot);
+
+              let agents = local.agents;
+              if (initiative && initiative.trim().length > 0) {
+                agents = agents.filter((agent) => agent.initiativeId === initiative);
+              }
+              if (includeIdle === false) {
+                agents = agents.filter((agent) => agent.status !== "idle");
+              }
+
+              const summary = agents.reduce<Record<string, number>>((acc, agent) => {
+                acc[agent.status] = (acc[agent.status] ?? 0) + 1;
+                return acc;
+              }, {});
+
+              sendJson(res, 200, { agents, summary });
+            } catch (localErr: unknown) {
+              sendJson(res, 500, {
+                error: safeErrorMessage(err),
+                localFallbackError: safeErrorMessage(localErr),
+              });
+            }
           }
           return true;
         }
@@ -758,9 +1081,29 @@ export function createHttpHandler(
             });
             sendJson(res, 200, data);
           } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            try {
+              const id = searchParams.get("id");
+              const limitRaw = searchParams.get("limit")
+                ? Number(searchParams.get("limit"))
+                : undefined;
+              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
+
+              const local = toLocalLiveInitiatives(await loadLocalOpenClawSnapshot(240));
+              let initiatives = local.initiatives;
+              if (id && id.trim().length > 0) {
+                initiatives = initiatives.filter((item) => item.id === id);
+              }
+
+              sendJson(res, 200, {
+                initiatives: initiatives.slice(0, limit),
+                total: initiatives.length,
+              });
+            } catch (localErr: unknown) {
+              sendJson(res, 500, {
+                error: safeErrorMessage(err),
+                localFallbackError: safeErrorMessage(localErr),
+              });
+            }
           }
           return true;
         }
@@ -783,9 +1126,10 @@ export function createHttpHandler(
               decisions,
               total: data.total,
             });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
+          } catch {
+            sendJson(res, 200, {
+              decisions: [],
+              total: 0,
             });
           }
           return true;
@@ -795,10 +1139,8 @@ export function createHttpHandler(
           try {
             const data = await client.getHandoffs();
             sendJson(res, 200, data);
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+          } catch {
+            sendJson(res, 200, { handoffs: [] });
           }
           return true;
         }
@@ -810,6 +1152,39 @@ export function createHttpHandler(
             return true;
           }
           const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
+          const streamAbortController = new AbortController();
+          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+          let closed = false;
+          let streamOpened = false;
+          let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+          const clearIdleTimer = () => {
+            if (idleTimer) {
+              clearTimeout(idleTimer);
+              idleTimer = null;
+            }
+          };
+
+          const closeStream = () => {
+            if (closed) return;
+            closed = true;
+            clearIdleTimer();
+            streamAbortController.abort();
+            if (reader) {
+              void reader.cancel().catch(() => undefined);
+            }
+            if (streamOpened && !res.writableEnded) {
+              res.end();
+            }
+          };
+
+          const resetIdleTimer = () => {
+            clearIdleTimer();
+            idleTimer = setTimeout(() => {
+              closeStream();
+            }, STREAM_IDLE_TIMEOUT_MS);
+          };
+
           try {
             const upstream = await fetch(target, {
               method: "GET",
@@ -820,6 +1195,7 @@ export function createHttpHandler(
                   ? { "X-Orgx-User-Id": config.userId }
                   : {}),
               },
+              signal: streamAbortController.signal,
             });
 
             const contentType =
@@ -843,27 +1219,58 @@ export function createHttpHandler(
               Connection: "keep-alive",
               ...CORS_HEADERS,
             });
+            streamOpened = true;
 
             if (!upstream.body) {
-              res.end();
+              closeStream();
               return true;
             }
 
-            const reader = upstream.body.getReader();
-            const pump = async () => {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (value) write(Buffer.from(value));
+            req.on?.("close", closeStream);
+            req.on?.("aborted", closeStream);
+            res.on?.("close", closeStream);
+            res.on?.("finish", closeStream);
+
+            reader = upstream.body.getReader();
+            const streamReader = reader;
+            resetIdleTimer();
+
+            const waitForDrain = async (): Promise<void> => {
+              if (typeof res.once === "function") {
+                await new Promise<void>((resolve) => {
+                  res.once?.("drain", () => resolve());
+                });
               }
-              res.end();
+            };
+
+            const pump = async () => {
+              try {
+                while (!closed) {
+                  const { done, value } = await streamReader.read();
+                  if (done) break;
+                  if (!value || value.byteLength === 0) continue;
+
+                  resetIdleTimer();
+                  const accepted = write(Buffer.from(value));
+                  if (accepted === false) {
+                    await waitForDrain();
+                  }
+                }
+              } catch {
+                // Swallow pump errors; client disconnects are expected.
+              } finally {
+                closeStream();
+              }
             };
 
             void pump();
           } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: err instanceof Error ? err.message : String(err),
-            });
+            closeStream();
+            if (!streamOpened && !res.writableEnded) {
+              sendJson(res, 500, {
+                error: safeErrorMessage(err),
+              });
+            }
           }
           return true;
         }
@@ -881,7 +1288,7 @@ export function createHttpHandler(
               sendJson(res, 200, data);
             } catch (err: unknown) {
               sendJson(res, 500, {
-                error: err instanceof Error ? err.message : String(err),
+                error: safeErrorMessage(err),
               });
             }
             return true;

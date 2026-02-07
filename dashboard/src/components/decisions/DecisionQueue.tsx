@@ -178,13 +178,15 @@ export const DecisionQueue = memo(function DecisionQueue({
     }
   };
 
+  const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
+
   return (
-    <PremiumCard className="flex flex-col fade-in-up">
-      <div className="space-y-2 border-b border-white/[0.06] px-4 py-3">
+    <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+      <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="text-[13px] font-semibold text-white">Decisions</h2>
-            <p className="text-[10px] text-white/45">
+            <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
+            <p className="text-[12px] text-white/45">
               Select multiple items to bulk review and approve
             </p>
           </div>
@@ -192,7 +194,7 @@ export const DecisionQueue = memo(function DecisionQueue({
           <button
             onClick={handleApproveAll}
             disabled={sorted.length === 0 || isApprovingAll}
-            className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition-colors"
+            className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors"
             style={{
               backgroundColor:
                 sorted.length === 0 || isApprovingAll ? 'rgba(255,255,255,0.08)' : colors.lime,
@@ -207,29 +209,29 @@ export const DecisionQueue = memo(function DecisionQueue({
           <button
             onClick={toggleSelectAll}
             disabled={sorted.length === 0 || isApprovingAll}
-            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2 py-1 text-[10px] text-white/70 transition-colors hover:bg-white/[0.07] disabled:opacity-45"
+            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.07] disabled:opacity-45"
           >
             {allVisibleSelected ? 'Clear all' : 'Select all'}
           </button>
           <button
             onClick={handleApproveSelected}
             disabled={selectedCount === 0 || isApprovingAll}
-            className="rounded-md border border-lime/25 bg-lime/10 px-2 py-1 text-[10px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            className="rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
           >
             {isApprovingAll ? 'Approving…' : `Approve selected (${selectedCount})`}
           </button>
-          <span className="text-[10px] text-white/45">
+          <span className="text-[11px] text-white/45">
             {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}
           </span>
         </div>
       </div>
 
-      <div className="max-h-[28vh] space-y-2 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {sorted.length === 0 && (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
             <svg
-              width="20"
-              height="20"
+              width="24"
+              height="24"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -241,7 +243,7 @@ export const DecisionQueue = memo(function DecisionQueue({
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
-            <p className="text-[11px] text-white/45">No pending decisions.</p>
+            <p className="text-[12px] text-white/45">No pending decisions. All clear.</p>
           </div>
         )}
 
@@ -272,18 +274,18 @@ export const DecisionQueue = memo(function DecisionQueue({
                     checked={isSelected}
                     onChange={() => toggleSelect(decision.id)}
                     disabled={isApproving || isApprovingAll}
-                    className="mt-1 h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[12px] font-medium text-white">{decision.title}</p>
+                        <p className="text-[13px] font-medium text-white">{decision.title}</p>
                         {decision.context && (
-                          <p className="mt-1 line-clamp-2 text-[10px] text-white/55">
+                          <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
                             {decision.context}
                           </p>
                         )}
-                        <p className="mt-1.5 text-[9px] text-white/40">
+                        <p className="mt-1.5 text-[10px] text-white/40">
                           {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
                           {decision.requestedAt
                             ? ` · ${formatRelativeTime(decision.requestedAt)}`
@@ -294,7 +296,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                       <button
                         onClick={() => handleApproveOne(decision.id)}
                         disabled={isApproving || isApprovingAll}
-                        className="rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-[10px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
+                        className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
                       >
                         {isApproving ? 'Approving…' : 'Approve'}
                       </button>
@@ -308,7 +310,33 @@ export const DecisionQueue = memo(function DecisionQueue({
       </div>
 
       {notice && (
-        <div className="border-t border-white/[0.06] px-4 py-2 text-[10px] text-white/55">{notice}</div>
+        <div className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[12px] text-white/55">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={noticeIsSuccess ? 'text-lime' : 'text-amber-400'}
+          >
+            {noticeIsSuccess ? (
+              <>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </>
+            ) : (
+              <>
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                <line x1="12" x2="12" y1="9" y2="13" />
+                <line x1="12" x2="12.01" y1="17" y2="17" />
+              </>
+            )}
+          </svg>
+          {notice}
+        </div>
       )}
     </PremiumCard>
   );
