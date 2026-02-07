@@ -310,6 +310,7 @@ export function createHttpHandler(
         /^runs\/([^/]+)\/checkpoints\/([^/]+)\/restore$/
       );
       const isDelegationPreflight = route === "delegation/preflight";
+      const isEntitiesRoute = route === "entities";
 
       if (
         method === "POST" &&
@@ -465,7 +466,8 @@ export function createHttpHandler(
         !(runCheckpointsMatch && method === "POST") &&
         !(runCheckpointRestoreMatch && method === "POST") &&
         !(runActionMatch && method === "POST") &&
-        !(isDelegationPreflight && method === "POST")
+        !(isDelegationPreflight && method === "POST") &&
+        !(isEntitiesRoute && method === "POST")
       ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
@@ -509,6 +511,59 @@ export function createHttpHandler(
             getOnboardingState(config, dashboardEnabled)
           );
           return true;
+
+        case "entities": {
+          if (method === "POST") {
+            try {
+              const payload = parseJsonBody(req.body);
+              const type = pickString(payload, ["type"]);
+              const title = pickString(payload, ["title", "name"]);
+
+              if (!type || !title) {
+                sendJson(res, 400, {
+                  error: "Both 'type' and 'title' are required.",
+                });
+                return true;
+              }
+
+              const data = { ...payload, title };
+              delete (data as Record<string, unknown>).type;
+
+              const entity = await client.createEntity(type, data);
+              sendJson(res, 201, { ok: true, entity });
+            } catch (err: unknown) {
+              sendJson(res, 500, {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+            return true;
+          }
+
+          try {
+            const type = searchParams.get("type");
+            if (!type) {
+              sendJson(res, 400, {
+                error: "Query parameter 'type' is required for GET /entities.",
+              });
+              return true;
+            }
+
+            const status = searchParams.get("status") ?? undefined;
+            const limit = searchParams.get("limit")
+              ? Number(searchParams.get("limit"))
+              : undefined;
+            const data = await client.listEntities(type, {
+              status,
+              limit: Number.isFinite(limit) ? limit : undefined,
+            });
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return true;
+        }
 
         case "live/sessions": {
           try {
