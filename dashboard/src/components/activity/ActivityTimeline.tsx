@@ -1,10 +1,14 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
+import { humanizeText, humanizeModel } from '@/lib/humanize';
 import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+import { MarkdownText } from '@/components/shared/MarkdownText';
+import { Modal } from '@/components/shared/Modal';
+import { ThreadView } from './ThreadView';
 
 const itemVariants = {
   initial: { opacity: 0, y: 8, scale: 0.98 },
@@ -152,6 +156,38 @@ function dayLabel(dayKey: string): string {
   });
 }
 
+function bucketLabel(bucket: ActivityBucket): string {
+  if (bucket === 'artifact') return 'artifact';
+  if (bucket === 'decision') return 'decision';
+  return 'message';
+}
+
+function bucketColor(bucket: ActivityBucket): string {
+  if (bucket === 'artifact') return colors.cyan;
+  if (bucket === 'decision') return colors.amber;
+  return colors.teal;
+}
+
+function metadataToJson(metadata: Record<string, unknown> | undefined): string | null {
+  if (!metadata || Object.keys(metadata).length === 0) return null;
+  try {
+    return JSON.stringify(metadata, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function humanizeActivityBody(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const modelOnly = humanizeModel(trimmed);
+  if (modelOnly && modelOnly !== trimmed && /^[a-z0-9._/-]+$/i.test(trimmed)) {
+    return modelOnly;
+  }
+  return humanizeText(trimmed);
+}
+
 export const ActivityTimeline = memo(function ActivityTimeline({
   activity,
   sessions,
@@ -163,6 +199,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
 
   const runLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -277,16 +315,89 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }));
   }, [filtered, sortOrder]);
 
+  const activeIndex = useMemo(() => {
+    if (!activeItemId) return -1;
+    return filtered.findIndex((decorated) => decorated.item.id === activeItemId);
+  }, [activeItemId, filtered]);
+
+  const activeDecorated = activeIndex >= 0 ? filtered[activeIndex] : null;
+  const activeMetadataJson = useMemo(
+    () =>
+      metadataToJson(
+        (activeDecorated?.item.metadata as Record<string, unknown> | undefined) ?? undefined
+      ),
+    [activeDecorated]
+  );
+
+  const closeDetail = useCallback(() => {
+    setActiveItemId(null);
+  }, []);
+
+  const navigateDetail = useCallback(
+    (direction: 1 | -1) => {
+      if (filtered.length === 0) return;
+      const startIndex = activeIndex >= 0 ? activeIndex : 0;
+      const nextIndex = (startIndex + direction + filtered.length) % filtered.length;
+      setDetailDirection(direction);
+      setActiveItemId(filtered[nextIndex]?.item.id ?? null);
+    },
+    [activeIndex, filtered]
+  );
+
+  useEffect(() => {
+    if (!activeItemId) return;
+    if (activeIndex >= 0) return;
+    setActiveItemId(null);
+  }, [activeIndex, activeItemId]);
+
+  useEffect(() => {
+    if (!activeItemId) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        navigateDetail(1);
+      } else if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        navigateDetail(-1);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeItemId, navigateDetail]);
+
+  // Detect single-session thread mode
+  const isSingleSession = selectedRunIdSet.size === 1;
+  const singleRunId = isSingleSession ? [...selectedRunIdSet][0] : null;
+  const singleSession = singleRunId
+    ? sessions.find((s) => s.runId === singleRunId || s.id === singleRunId) ?? null
+    : null;
+  const singleSessionItems = useMemo(() => {
+    if (!isSingleSession) return [];
+    return decoratedActivity
+      .filter((d) => d.runId && selectedRunIdSet.has(d.runId))
+      .map((d) => d.item);
+  }, [isSingleSession, decoratedActivity, selectedRunIdSet]);
+
   const renderItem = (decorated: DecoratedActivityItem, index: number) => {
     const item = decorated.item;
     const color = typeColor[item.type] ?? colors.iris;
     const isRecent = sortOrder === 'newest' && index < 2;
     const bucket = decorated.bucket;
     const runId = decorated.runId;
-    const runLabel = runId ? runLabelById.get(runId) ?? runId : 'Workspace';
+    const runLabel = runId ? runLabelById.get(runId) ?? humanizeText(runId) : 'Workspace';
+
+    const displayTitle = humanizeText(item.title ?? '');
+    const displaySummary = humanizeActivityBody(item.summary);
+    const displayDesc = humanizeActivityBody(item.description);
+    const kindColor = bucketColor(bucket);
+    const kindLabel = bucketLabel(bucket);
+    const metadataJson = metadataToJson(item.metadata as Record<string, unknown> | undefined);
 
     return (
-      <motion.article
+      <motion.button
+        type="button"
         key={item.id}
         variants={itemVariants}
         initial="initial"
@@ -294,7 +405,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         exit="exit"
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         layout
-        className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
+        whileHover={{ y: -1.5, scale: 1.005 }}
+        whileTap={{ scale: 0.995 }}
+        onClick={() => {
+          setDetailDirection(1);
+          setActiveItemId(item.id);
+        }}
+        className="group w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45"
+        aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
       >
         <div className="flex items-start gap-2.5">
           <span
@@ -307,41 +425,31 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <p className="text-[13px] text-white/90">
-                <span className="font-semibold text-white">
-                  {item.agentName ?? 'System'}
-                </span>{' '}
-                {item.title}
+                {displayTitle}
               </p>
               <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
                 {labelForType(item.type)}
               </span>
             </div>
 
-            {(item.summary || item.description) && (
-              <p className="mt-1 text-[11px] leading-relaxed text-white/55">
-                {item.summary ?? item.description}
-              </p>
+            {(displaySummary || displayDesc) && (
+              <div className="mt-1 text-[11px] leading-relaxed text-white/55">
+                <MarkdownText
+                  mode="inline"
+                  text={displaySummary ?? displayDesc ?? ''}
+                />
+              </div>
             )}
 
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
               <span
                 className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
                 style={{
-                  borderColor:
-                    bucket === 'artifact'
-                      ? `${colors.cyan}66`
-                      : bucket === 'decision'
-                        ? `${colors.amber}66`
-                        : `${colors.teal}66`,
-                  color:
-                    bucket === 'artifact'
-                      ? colors.cyan
-                      : bucket === 'decision'
-                        ? colors.amber
-                        : colors.teal,
+                  borderColor: `${kindColor}66`,
+                  color: kindColor,
                 }}
               >
-                {bucket === 'artifact' ? 'artifact' : bucket === 'decision' ? 'decision' : 'message'}
+                {kindLabel}
               </span>
               <span className="rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/55">
                 {runLabel}
@@ -353,15 +461,34 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 })}
               </span>
               <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
+              {metadataJson && (
+                <span className="text-white/35">meta</span>
+              )}
+            </div>
+            <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-white/0 transition-colors group-hover:text-white/45">
+              <span>Open details</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
             </div>
           </div>
         </div>
-      </motion.article>
+      </motion.button>
     );
   };
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+      {/* Thread view for single-session selection */}
+      {isSingleSession && singleSessionItems.length > 0 ? (
+        <ThreadView
+          items={singleSessionItems}
+          session={singleSession}
+          agentName={singleSessionItems[0]?.agentName ?? null}
+          onBack={onClearSelection}
+        />
+      ) : (
+      <>
       <div className="border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -386,14 +513,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
           <div className="flex items-center gap-1.5">
             <button
+              type="button"
               onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
               className="rounded-md border border-white/[0.1] bg-white/[0.03] px-2 py-1 text-[10px] text-white/60 transition-colors hover:text-white"
+              aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
             >
-              {sortOrder === 'newest' ? 'New→Old' : 'Old→New'}
+              {sortOrder === 'newest' ? 'New\u2192Old' : 'Old\u2192New'}
             </button>
             <button
+              type="button"
               onClick={() => setCollapsed((prev) => !prev)}
               className="rounded-md border border-white/[0.1] bg-white/[0.03] px-2 py-1 text-[10px] text-white/55 transition-colors hover:text-white"
+              aria-pressed={collapsed}
             >
               {collapsed ? 'Expand' : 'Collapse'}
             </button>
@@ -419,13 +550,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search activity..."
               className="w-full rounded-lg border border-white/[0.1] bg-black/30 py-1.5 pl-9 pr-2 text-[12px] text-white/80 placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+              aria-label="Search activity"
             />
           </div>
-          <div className="flex flex-shrink-0 items-center gap-1">
+          <div className="flex flex-shrink-0 items-center gap-1" role="group" aria-label="Activity filters">
             {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => (
               <button
+                type="button"
                 key={filterId}
                 onClick={() => setActiveFilter(filterId)}
+                aria-pressed={activeFilter === filterId}
                 className={cn(
                   'rounded-full px-2 py-1 text-[10px] font-medium transition-all duration-200',
                   activeFilter === filterId
@@ -503,6 +637,146 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
         )}
       </div>
+      </>
+      )}
+
+      <Modal open={activeDecorated !== null} onClose={closeDetail} maxWidth="max-w-3xl">
+        {activeDecorated && (
+          <div className="relative flex h-full max-h-full flex-col sm:max-h-[86vh]">
+            <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
+
+            <div className="relative z-10 flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">Activity Detail</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{
+                      backgroundColor: bucketColor(activeDecorated.bucket),
+                      boxShadow: `0 0 16px ${bucketColor(activeDecorated.bucket)}77`,
+                    }}
+                  />
+                  <span className="text-[12px] text-white/70">
+                    {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigateDetail(-1)}
+                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                  aria-label="Previous activity item"
+                >
+                  ← Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateDetail(1)}
+                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                  aria-label="Next activity item"
+                >
+                  Next →
+                </button>
+                <button
+                  type="button"
+                  onClick={closeDetail}
+                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[11px] text-white/60 transition hover:bg-white/[0.1] hover:text-white/90"
+                  aria-label="Close activity detail"
+                >
+                  Esc
+                </button>
+              </div>
+            </div>
+
+            <div className="relative flex-1 overflow-hidden px-5 pb-5 pt-4 sm:px-6">
+              <AnimatePresence mode="wait" custom={detailDirection}>
+                <motion.section
+                  key={activeDecorated.item.id}
+                  custom={detailDirection}
+                  initial={{ opacity: 0, x: detailDirection * 44, scale: 0.985 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: detailDirection * -32, scale: 0.985 }}
+                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                  className="h-full overflow-y-auto pr-1"
+                >
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-[20px] font-semibold tracking-[-0.02em] text-white">
+                        {humanizeText(activeDecorated.item.title || labelForType(activeDecorated.item.type))}
+                      </h3>
+                      <p className="mt-1 text-[12px] text-white/45">
+                        {new Date(activeDecorated.item.timestamp).toLocaleString()} · {formatRelativeTime(activeDecorated.item.timestamp)}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                      <span
+                        className="rounded-full border px-2 py-0.5 uppercase tracking-[0.1em]"
+                        style={{
+                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
+                          color: bucketColor(activeDecorated.bucket),
+                        }}
+                      >
+                        {bucketLabel(activeDecorated.bucket)}
+                      </span>
+                      <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                        {labelForType(activeDecorated.item.type)}
+                      </span>
+                      {activeDecorated.item.agentName && (
+                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                          {activeDecorated.item.agentName}
+                        </span>
+                      )}
+                      {activeDecorated.runId && (
+                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                          {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
+                        </span>
+                      )}
+                    </div>
+
+                    {humanizeActivityBody(activeDecorated.item.summary) && (
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Summary</p>
+                        <MarkdownText
+                          mode="block"
+                          text={humanizeActivityBody(activeDecorated.item.summary) ?? ''}
+                          className="mt-1.5 text-[14px] leading-relaxed text-white/82"
+                        />
+                      </div>
+                    )}
+
+                    {humanizeActivityBody(activeDecorated.item.description) && (
+                      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Details</p>
+                        <MarkdownText
+                          mode="block"
+                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
+                          className="mt-1.5 text-[13px] leading-relaxed text-white/75"
+                        />
+                      </div>
+                    )}
+
+                    {activeMetadataJson && (
+                      <div className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Metadata</p>
+                        <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/65">
+                          {activeMetadataJson}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </motion.section>
+              </AnimatePresence>
+            </div>
+
+            <div className="border-t border-white/[0.06] px-5 py-2.5 text-[11px] text-white/40 sm:px-6">
+              Keyboard: ← previous · → next · Esc close
+            </div>
+          </div>
+        )}
+      </Modal>
     </PremiumCard>
   );
 });

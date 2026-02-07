@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 
 import type { LiveActivityItem, SessionTreeResponse } from "./types.js";
 
@@ -343,7 +343,7 @@ export function toLocalSessionTree(
 }
 
 // ---------------------------------------------------------------------------
-// JSONL message reading for rich activity feed
+// JSONL reading, turn grouping, and digest-based activity feed
 // ---------------------------------------------------------------------------
 
 interface JnlContentBlock {
@@ -360,6 +360,7 @@ interface JnlMessage {
   stopReason?: string;
   model?: string;
   errorMessage?: string;
+  usage?: { input?: number; output?: number; cost?: { total?: number } };
 }
 
 interface JnlEvent {
@@ -370,78 +371,102 @@ interface JnlEvent {
   message?: JnlMessage;
 }
 
-const JSONL_RECENT_WINDOW_MS = 7 * 24 * 60 * 60_000; // 7 days
-const MAX_MESSAGES_PER_SESSION = 50;
-const MAX_TOTAL_MESSAGES = 200;
+/** A "turn" groups consecutive JSONL events into one logical work unit. */
+export interface SessionTurn {
+  id: string;
+  userPrompt: string | null;
+  toolNames: string[];
+  assistantResponse: string | null;
+  errorMessage: string | null;
+  model: string | null;
+  timestamp: string;
+  endTimestamp: string;
+  costTotal: number;
+  eventCount: number;
+}
 
-function extractMessageText(
+/** Cached digest entry for a single turn. */
+interface DigestEntry {
+  turnId: string;
+  summary: string;
+}
+
+interface DigestCache {
+  sessionId: string;
+  updatedAtMs: number;
+  entries: DigestEntry[];
+}
+
+const JSONL_RECENT_WINDOW_MS = 7 * 24 * 60 * 60_000; // 7 days
+const MAX_TURNS_PER_SESSION = 30;
+const MAX_TOTAL_TURNS = 120;
+const MAX_RAW_EVENTS = 600; // Cap raw events read from JSONL
+
+// ---------------------------------------------------------------------------
+// Text extraction helpers
+// ---------------------------------------------------------------------------
+
+function extractText(
   content: string | JnlContentBlock[] | undefined,
   maxLen: number
 ): string {
   if (!content) return "";
-
   if (typeof content === "string") {
-    return content.length > maxLen ? content.slice(0, maxLen) + "…" : content;
+    return content.length > maxLen ? content.slice(0, maxLen) + "\u2026" : content;
   }
-
   if (!Array.isArray(content)) return "";
 
-  // Prefer text blocks first
   for (const block of content) {
     if (block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0) {
-      const text = block.text.trim();
-      return text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
+      const t = block.text.trim();
+      return t.length > maxLen ? t.slice(0, maxLen) + "\u2026" : t;
     }
   }
-
-  // Then tool_use blocks
   for (const block of content) {
     if (block.type === "tool_use" && typeof block.name === "string") {
       return `[tool: ${block.name}]`;
     }
   }
-
-  // Then tool_result blocks
   for (const block of content) {
     if (block.type === "tool_result") {
       const inner = block.content;
       if (typeof inner === "string") {
-        return inner.length > maxLen ? inner.slice(0, maxLen) + "…" : inner;
+        return inner.length > maxLen ? inner.slice(0, maxLen) + "\u2026" : inner;
       }
       if (Array.isArray(inner)) {
-        const textBlock = (inner as JnlContentBlock[]).find(
-          (b) => b.type === "text" && typeof b.text === "string"
-        );
-        if (textBlock?.text) {
-          const t = textBlock.text.trim();
-          return t.length > maxLen ? t.slice(0, maxLen) + "…" : t;
+        const tb = (inner as JnlContentBlock[]).find((b) => b.type === "text" && typeof b.text === "string");
+        if (tb?.text) {
+          const t = tb.text.trim();
+          return t.length > maxLen ? t.slice(0, maxLen) + "\u2026" : t;
         }
       }
       return "[tool result]";
     }
   }
-
   return "";
 }
 
-function findToolNames(content: string | JnlContentBlock[] | undefined): string[] {
+function collectToolNames(content: string | JnlContentBlock[] | undefined): string[] {
   if (!Array.isArray(content)) return [];
   return content
     .filter((b) => b.type === "tool_use" && typeof b.name === "string")
     .map((b) => b.name as string);
 }
 
-async function readSessionMessages(
+// ---------------------------------------------------------------------------
+// JSONL reading
+// ---------------------------------------------------------------------------
+
+async function readSessionEvents(
   session: LocalSession,
   baseDir: string,
   agentId: string,
-  limit: number
+  maxEvents: number
 ): Promise<JnlEvent[]> {
   if (!session.sessionId) return [];
 
   const jsonlPath = join(baseDir, "agents", agentId, "sessions", `${session.sessionId}.jsonl`);
 
-  // Quick existence/size check
   try {
     const info = await stat(jsonlPath);
     if (info.size === 0) return [];
@@ -451,92 +476,304 @@ async function readSessionMessages(
 
   try {
     const raw = await readFile(jsonlPath, "utf8");
-    const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+    const lines = raw.split("\n");
 
-    // Read from end (most recent first)
-    const messages: JnlEvent[] = [];
-    for (let i = lines.length - 1; i >= 0 && messages.length < limit; i--) {
+    // Read from end (most recent first), but only message events
+    const events: JnlEvent[] = [];
+    for (let i = lines.length - 1; i >= 0 && events.length < maxEvents; i--) {
+      const line = lines[i].trim();
+      if (line.length === 0) continue;
       try {
-        const event = JSON.parse(lines[i]) as JnlEvent;
-        if (event.type === "message" && event.message && event.timestamp) {
-          messages.push(event);
+        const evt = JSON.parse(line) as JnlEvent;
+        if (evt.type === "message" && evt.message && evt.timestamp) {
+          events.push(evt);
         }
       } catch {
-        // Skip malformed lines
+        // skip
       }
     }
 
-    return messages;
+    // Reverse so they're in chronological order for grouping
+    events.reverse();
+    return events;
   } catch {
     return [];
   }
 }
 
-function messageEventToActivity(
-  event: JnlEvent,
-  session: LocalSession,
-  index: number
-): LiveActivityItem | null {
-  const msg = event.message;
-  if (!msg) return null;
+// ---------------------------------------------------------------------------
+// Turn grouping
+// ---------------------------------------------------------------------------
 
-  const role = msg.role;
-  const timestamp = event.timestamp ?? session.updatedAt ?? new Date().toISOString();
-  const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
-  const modelInfo = msg.model ?? ([session.modelProvider, session.model].filter(Boolean).join("/") || null);
+function groupEventsIntoTurns(events: JnlEvent[], maxTurns: number): SessionTurn[] {
+  const turns: SessionTurn[] = [];
+  let current: {
+    id: string;
+    userPrompt: string | null;
+    toolNames: string[];
+    assistantTexts: string[];
+    errorMessage: string | null;
+    model: string | null;
+    timestamp: string;
+    endTimestamp: string;
+    costTotal: number;
+    eventCount: number;
+  } | null = null;
 
-  let type: LiveActivityItem["type"] = "delegation";
-  let title: string;
-  let summary: string;
-
-  if (role === "user") {
-    const text = extractMessageText(msg.content, 200);
-    title = `User: ${text || "(empty prompt)"}`;
-    summary = extractMessageText(msg.content, 400);
-  } else if (role === "assistant") {
-    if (msg.stopReason === "toolUse" || msg.stopReason === "tool_use") {
-      type = "artifact_created";
-      const tools = findToolNames(msg.content);
-      const toolLabel = tools.length > 0 ? tools.join(", ") : "tool";
-      title = `${agentLabel} used ${toolLabel}`;
-      summary = extractMessageText(msg.content, 400);
-    } else if (msg.stopReason === "error" || msg.errorMessage) {
-      type = "run_failed";
-      const errText = msg.errorMessage ?? extractMessageText(msg.content, 200);
-      title = `Error: ${errText || "Unknown error"}`;
-      summary = errText ?? "";
-    } else {
-      // Normal assistant response (stopReason: "stop" or "end_turn")
-      const text = extractMessageText(msg.content, 200);
-      title = `${agentLabel}: ${text || "(empty response)"}`;
-      summary = extractMessageText(msg.content, 400);
-    }
-  } else if (role === "toolResult" || role === "tool") {
-    const text = extractMessageText(msg.content, 200);
-    title = `Tool result: ${text || "(empty)"}`;
-    summary = extractMessageText(msg.content, 400);
-  } else {
-    return null;
+  function finalizeTurn() {
+    if (!current) return;
+    turns.push({
+      id: current.id,
+      userPrompt: current.userPrompt,
+      toolNames: [...new Set(current.toolNames)], // dedupe
+      assistantResponse: current.assistantTexts.length > 0
+        ? current.assistantTexts[current.assistantTexts.length - 1]
+        : null,
+      errorMessage: current.errorMessage,
+      model: current.model,
+      timestamp: current.timestamp,
+      endTimestamp: current.endTimestamp,
+      costTotal: current.costTotal,
+      eventCount: current.eventCount,
+    });
+    current = null;
   }
 
+  for (const evt of events) {
+    if (turns.length >= maxTurns) break;
+
+    const msg = evt.message;
+    if (!msg) continue;
+
+    const role = msg.role;
+    const ts = evt.timestamp ?? "";
+    const cost = msg.usage?.cost?.total ?? 0;
+
+    // A user message always starts a new turn
+    if (role === "user") {
+      finalizeTurn();
+      current = {
+        id: evt.id ?? `turn-${turns.length}`,
+        userPrompt: extractText(msg.content, 300),
+        toolNames: [],
+        assistantTexts: [],
+        errorMessage: null,
+        model: null,
+        timestamp: ts,
+        endTimestamp: ts,
+        costTotal: 0,
+        eventCount: 1,
+      };
+      continue;
+    }
+
+    // Ensure we have a current turn (auto-start for autonomous assistant messages)
+    if (!current) {
+      current = {
+        id: evt.id ?? `turn-${turns.length}`,
+        userPrompt: null,
+        toolNames: [],
+        assistantTexts: [],
+        errorMessage: null,
+        model: null,
+        timestamp: ts,
+        endTimestamp: ts,
+        costTotal: 0,
+        eventCount: 0,
+      };
+    }
+
+    current.endTimestamp = ts;
+    current.eventCount += 1;
+    current.costTotal += cost;
+
+    if (role === "assistant") {
+      current.model = msg.model ?? current.model;
+
+      // Collect tool names from this message
+      const tools = collectToolNames(msg.content);
+      current.toolNames.push(...tools);
+
+      // Check for error
+      if (msg.stopReason === "error" || msg.errorMessage) {
+        current.errorMessage = msg.errorMessage ?? extractText(msg.content, 200);
+      }
+
+      // Collect text response
+      const text = extractText(msg.content, 300);
+      if (text && !text.startsWith("[tool:")) {
+        current.assistantTexts.push(text);
+      }
+
+      // A completed assistant response (stop/end_turn) finalizes the turn
+      if (msg.stopReason === "stop" || msg.stopReason === "end_turn") {
+        finalizeTurn();
+      }
+    }
+
+    // Tool results just accumulate into the current turn
+    if (role === "toolResult" || role === "tool") {
+      // Nothing special — they're part of the current turn
+    }
+  }
+
+  // Finalize any in-progress turn
+  finalizeTurn();
+
+  return turns;
+}
+
+// ---------------------------------------------------------------------------
+// Rule-based turn summarization (fallback — LLM digest in Phase 1B)
+// ---------------------------------------------------------------------------
+
+function summarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
+  if (turn.errorMessage) {
+    const err = turn.errorMessage.length > 60
+      ? turn.errorMessage.slice(0, 60) + "\u2026"
+      : turn.errorMessage;
+    return `Error: ${err}`;
+  }
+
+  // If there are tool calls, describe what was done
+  if (turn.toolNames.length > 0) {
+    const uniqueTools = [...new Set(turn.toolNames)];
+    const toolStr = uniqueTools.length <= 3
+      ? uniqueTools.join(", ")
+      : `${uniqueTools.slice(0, 2).join(", ")} +${uniqueTools.length - 2} more`;
+
+    if (turn.assistantResponse) {
+      // Use the assistant's own response as summary if short enough
+      const resp = turn.assistantResponse;
+      if (resp.length <= 80) return resp;
+      return resp.slice(0, 77) + "\u2026";
+    }
+    return `Used ${toolStr}`;
+  }
+
+  // Text-only response
+  if (turn.assistantResponse) {
+    const resp = turn.assistantResponse;
+    if (resp.length <= 80) return resp;
+    return resp.slice(0, 77) + "\u2026";
+  }
+
+  if (turn.userPrompt) {
+    const prompt = turn.userPrompt;
+    if (prompt.length <= 70) return `User: ${prompt}`;
+    return `User: ${prompt.slice(0, 67)}\u2026`;
+  }
+
+  return "Activity";
+}
+
+// ---------------------------------------------------------------------------
+// Digest cache — stores summarized turn titles alongside JSONL
+// ---------------------------------------------------------------------------
+
+async function readDigestCache(
+  baseDir: string,
+  agentId: string,
+  sessionId: string
+): Promise<DigestCache | null> {
+  const cachePath = join(baseDir, "agents", agentId, "sessions", `${sessionId}.digest.json`);
+  try {
+    const raw = await readFile(cachePath, "utf8");
+    return JSON.parse(raw) as DigestCache;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDigestCache(
+  baseDir: string,
+  agentId: string,
+  sessionId: string,
+  cache: DigestCache
+): Promise<void> {
+  const cachePath = join(baseDir, "agents", agentId, "sessions", `${sessionId}.digest.json`);
+  try {
+    await writeFile(cachePath, JSON.stringify(cache), "utf8");
+  } catch {
+    // Non-critical — cache miss next time is fine
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Turn → LiveActivityItem mapping
+// ---------------------------------------------------------------------------
+
+function turnToActivity(
+  turn: SessionTurn,
+  session: LocalSession,
+  cachedSummary: string | null,
+  index: number
+): LiveActivityItem {
+  const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
+  const summary = cachedSummary ?? summarizeTurn(turn, agentLabel);
+
+  // Determine activity type
+  let type: LiveActivityItem["type"] = "delegation";
+  if (turn.errorMessage) {
+    type = "run_failed";
+  } else if (turn.toolNames.length > 0) {
+    type = "artifact_created";
+  }
+
+  // Build title
+  let title: string;
+  if (turn.userPrompt && turn.toolNames.length === 0 && !turn.assistantResponse) {
+    // Standalone user prompt
+    title = summary;
+  } else {
+    title = summary;
+  }
+
+  const modelAlias = humanizeModelShort(turn.model ?? session.model ?? null);
+
   return {
-    id: `local:msg:${event.id ?? `${session.key}:${index}`}`,
+    id: `local:turn:${turn.id}:${index}`,
     type,
     title,
-    description: modelInfo ? `${modelInfo}` : null,
+    description: modelAlias,
     agentId: session.agentId,
     agentName: session.agentName,
     runId: session.sessionId ?? session.key,
     initiativeId: session.agentId ? `agent:${session.agentId}` : null,
-    timestamp,
-    summary,
+    timestamp: turn.timestamp,
+    summary: turn.assistantResponse
+      ? turn.assistantResponse
+      : null,
     metadata: {
       source: "local_openclaw",
       sessionKey: session.key,
-      role,
+      turnId: turn.id,
+      toolNames: turn.toolNames.length > 0 ? turn.toolNames : undefined,
+      eventCount: turn.eventCount,
+      costTotal: turn.costTotal > 0 ? Math.round(turn.costTotal * 10000) / 10000 : undefined,
     },
   };
 }
+
+/** Quick model alias for descriptions */
+function humanizeModelShort(model: string | null): string | null {
+  if (!model) return null;
+  const lower = model.toLowerCase();
+  if (lower.includes("opus")) return "Opus";
+  if (lower.includes("sonnet")) return "Sonnet";
+  if (lower.includes("haiku")) return "Haiku";
+  if (lower.includes("kimi")) return "Kimi";
+  if (lower.includes("gemini")) return "Gemini";
+  if (lower.includes("gpt-4")) return "GPT-4";
+  if (lower.includes("qwen")) return "Qwen";
+  // Strip provider prefix for others
+  const parts = model.split("/");
+  return parts[parts.length - 1] ?? model;
+}
+
+// ---------------------------------------------------------------------------
+// Main activity builder (turn-based)
+// ---------------------------------------------------------------------------
 
 export async function toLocalLiveActivity(
   snapshot: LocalOpenClawSnapshot,
@@ -545,11 +782,9 @@ export async function toLocalLiveActivity(
   const baseDir = join(homedir(), ".openclaw");
   const nowMs = Date.now();
   const recentCutoff = nowMs - JSONL_RECENT_WINDOW_MS;
-  const totalCap = Math.min(limit, MAX_TOTAL_MESSAGES);
+  const totalCap = Math.min(limit, MAX_TOTAL_TURNS);
 
   const allActivities: LiveActivityItem[] = [];
-
-  // Determine agent ID for file paths (use first session's agentId or "main")
   const defaultAgentId =
     snapshot.sessions.find((s) => s.agentId)?.agentId ?? "main";
 
@@ -560,24 +795,57 @@ export async function toLocalLiveActivity(
     const isRecent = session.updatedAtMs >= recentCutoff;
 
     if (hasSessionFile && isRecent) {
-      // Read JSONL messages for recent sessions
       const agentId = session.agentId ?? defaultAgentId;
       const remaining = totalCap - allActivities.length;
-      const perSessionCap = Math.min(MAX_MESSAGES_PER_SESSION, remaining);
+      const perSessionCap = Math.min(MAX_TURNS_PER_SESSION, remaining);
 
-      const messages = await readSessionMessages(session, baseDir, agentId, perSessionCap);
+      // Read events and group into turns
+      const events = await readSessionEvents(session, baseDir, agentId, MAX_RAW_EVENTS);
+      const turns = groupEventsIntoTurns(events, perSessionCap);
 
-      for (let i = 0; i < messages.length; i++) {
-        const item = messageEventToActivity(messages[i], session, i);
-        if (item) allActivities.push(item);
+      if (turns.length === 0) {
+        allActivities.push(makeSessionSummaryItem(session));
+        continue;
       }
 
-      // If no messages found (e.g. empty/missing file), fall back to summary
-      if (messages.length === 0) {
-        allActivities.push(makeSessionSummaryItem(session));
+      // Check digest cache for pre-computed summaries
+      let cache = await readDigestCache(baseDir, agentId, session.sessionId!);
+      const cachedMap = new Map<string, string>();
+      if (cache) {
+        for (const entry of cache.entries) {
+          cachedMap.set(entry.turnId, entry.summary);
+        }
+      }
+
+      // Build activity items from turns (most recent first)
+      const newCacheEntries: DigestEntry[] = [];
+      for (let i = turns.length - 1; i >= 0 && allActivities.length < totalCap; i--) {
+        const turn = turns[i];
+        const cached = cachedMap.get(turn.id) ?? null;
+        const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
+        const fallbackSummary = cached ?? summarizeTurn(turn, agentLabel);
+
+        allActivities.push(turnToActivity(turn, session, fallbackSummary, i));
+
+        // Track for cache
+        if (!cached) {
+          newCacheEntries.push({ turnId: turn.id, summary: fallbackSummary });
+        }
+      }
+
+      // Update digest cache if we have new entries
+      if (newCacheEntries.length > 0) {
+        const updatedEntries = [
+          ...(cache?.entries ?? []),
+          ...newCacheEntries,
+        ];
+        await writeDigestCache(baseDir, agentId, session.sessionId!, {
+          sessionId: session.sessionId!,
+          updatedAtMs: nowMs,
+          entries: updatedEntries,
+        });
       }
     } else {
-      // Old session or no sessionId — use single summary event
       allActivities.push(makeSessionSummaryItem(session));
     }
   }
@@ -595,7 +863,9 @@ function makeSessionSummaryItem(session: LocalSession): LiveActivityItem {
       ? "run_started"
       : "delegation";
 
-  const modelInfo = [session.modelProvider, session.model].filter(Boolean).join("/");
+  const modelAlias = humanizeModelShort(
+    [session.modelProvider, session.model].filter(Boolean).join("/") || null
+  );
 
   return {
     id: `local:${session.key}:${session.updatedAtMs}`,
@@ -606,7 +876,7 @@ function makeSessionSummaryItem(session: LocalSession): LiveActivityItem {
         : type === "run_started"
           ? `Session active: ${session.displayName}`
           : `Session update: ${session.displayName}`,
-    description: modelInfo ? `Local OpenClaw session (${modelInfo})` : "Local OpenClaw session",
+    description: modelAlias ? `Local session (${modelAlias})` : "Local session",
     agentId: session.agentId,
     agentName: session.agentName,
     runId: session.sessionId ?? session.key,

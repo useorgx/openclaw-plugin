@@ -25,4 +25,9 @@ const manifest = JSON.parse(raw);
 // The dist manifest should point to files relative to dist/ (not dist/dist).
 manifest.entry = './index.js';
 
+// Skills live at package root (../skills relative to dist/).
+if (Array.isArray(manifest.skills)) {
+  manifest.skills = manifest.skills.map((s) => `../${s}`);
+}
+
 writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');

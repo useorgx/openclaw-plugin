@@ -53,14 +53,16 @@ const tabs: { id: MobileTab; label: string; icon: JSX.Element }[] = [
 
 export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 }: MobileTabBarProps) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#0a0a0f]/95 backdrop-blur-lg lg:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#0a0a0f]/95 backdrop-blur-lg lg:hidden" aria-label="Mobile sections">
       <div className="flex items-stretch">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
+              type="button"
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'relative flex flex-1 flex-col items-center gap-0.5 pb-1 pt-2 transition-colors',
                 isActive ? 'text-lime' : 'text-white/40 hover:text-white/60'

@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import type { OnboardingState } from '@/types';
+import orgxLogo from '@/assets/orgx-logo.png';
 
 interface ExplainerPanelProps {
   state: OnboardingState;
@@ -48,6 +49,13 @@ const features = [
   },
 ] as const;
 
+const ladderFlow = [
+  { label: 'Initiative', detail: 'Top-level outcome and owner context' },
+  { label: 'Workstream', detail: 'Major track that sequences execution' },
+  { label: 'Milestone', detail: 'Checkpoint that gates readiness' },
+  { label: 'Task', detail: 'Atomic action with dependencies and priority' },
+] as const;
+
 /* ── Animation variants ────────────────────────────────────────────── */
 
 const stagger = {
@@ -86,15 +94,7 @@ export function ExplainerPanel({
       <div className="px-6 pt-6 sm:px-8 sm:pt-8">
         {/* Logo row */}
         <motion.div variants={rise} className="flex items-center gap-2.5">
-          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="#BFFF00" fillOpacity="0.12" />
-            <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="#BFFF00" strokeOpacity="0.25" />
-            <path
-              d="M10 16C10 12.686 12.686 10 16 10C19.314 10 22 12.686 22 16C22 19.314 19.314 22 16 22C12.686 22 10 19.314 10 16Z"
-              stroke="#BFFF00" strokeWidth="1.8"
-            />
-            <path d="M12.5 12.5L19.5 19.5M19.5 12.5L12.5 19.5" stroke="#BFFF00" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
+          <img src={orgxLogo} alt="OrgX" className="h-7 w-7 rounded-lg object-contain" />
           <span className="text-[13px] font-semibold text-white/70">OrgX</span>
         </motion.div>
 
@@ -125,6 +125,28 @@ export function ExplainerPanel({
             <p className="mt-0.5 text-[12px] leading-snug text-white/40">{f.desc}</p>
           </motion.div>
         ))}
+      </motion.div>
+
+      <motion.div variants={rise} className="mt-4 mx-6 sm:mx-8 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <p className="text-[11px] uppercase tracking-[0.08em] text-white/38">How Work Ladders Up</p>
+        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+          {ladderFlow.map((item) => (
+            <div key={item.label} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
+              <p className="text-[12px] font-semibold text-white/85">{item.label}</p>
+              <p className="text-[11px] leading-relaxed text-white/45">{item.detail}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+          Mission Control maps dependencies between all four levels so you can stay high-level, then drill down instantly.
+        </p>
+      </motion.div>
+
+      <motion.div variants={rise} className="mt-3 mx-6 sm:mx-8 rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-4 py-3">
+        <p className="text-[11px] uppercase tracking-[0.08em] text-[#7EEDE1]">OpenClaw Integration</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-[#CFF8F3]">
+          OrgX syncs with your OpenClaw sessions so initiatives, workstreams, milestones, tasks, and assignment context stay aligned with live agent execution.
+        </p>
       </motion.div>
 
       {/* ── CTAs ────────────────────────────────────────────────── */}

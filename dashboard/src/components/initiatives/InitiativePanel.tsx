@@ -140,12 +140,13 @@ export function InitiativePanel({
               {Array.from({ length: totalPages }).map((_, i) => (
                 <button
                   key={i}
+                  type="button"
                   onClick={() => setPage(i)}
                   aria-label={`Page ${i + 1}`}
-                  className="rounded-full p-0.5 transition-colors"
+                  className="rounded-full p-1 transition-colors"
                 >
                   <span
-                    className="block h-1.5 w-1.5 rounded-full transition-colors"
+                    className="block h-2.5 w-2.5 rounded-full transition-colors"
                     style={{
                       backgroundColor: i === safePage ? colors.lime : 'rgba(255,255,255,0.25)',
                     }}

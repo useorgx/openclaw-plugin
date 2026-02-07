@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { getProviderInfo, type ProviderId } from '@/lib/providers';
+import orgxLogo from '@/assets/orgx-logo.png';
 
 interface ProviderLogoProps {
   provider: ProviderId;
@@ -64,15 +65,12 @@ function ProviderGlyph({ provider }: { provider: ProviderId }) {
       );
     case 'orgx':
       return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" fill="none" />
-          <path
-            d="M8.2 8.2 15.8 15.8M15.8 8.2 8.2 15.8"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
+        <img
+          src={orgxLogo}
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full rounded-[4px] object-contain"
+        />
       );
     default:
       return (

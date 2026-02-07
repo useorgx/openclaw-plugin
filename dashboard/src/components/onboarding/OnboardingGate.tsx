@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import { ExplainerPanel } from '@/components/onboarding/ExplainerPanel';
 import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
 import type { OnboardingState, OnboardingStatus } from '@/types';
@@ -11,6 +12,7 @@ interface OnboardingGateProps {
   onRefresh: () => Promise<unknown>;
   onStartPairing: () => Promise<void>;
   onSubmitManualKey: (apiKey: string, userId?: string) => Promise<unknown>;
+  onBackToPairing: () => void;
   onUseManualKey: () => void;
   onSkip: () => void;
 }
@@ -51,6 +53,8 @@ const dotStyle: Record<DotState, string> = {
   error: 'bg-red-400',
 };
 
+const MC_HINT_DISMISSED_KEY = 'orgx.onboarding.mc_hint.dismissed';
+
 /* ── Animation ─────────────────────────────────────────────────────── */
 
 const pageTransition = {
@@ -70,13 +74,30 @@ export function OnboardingGate({
   onRefresh,
   onStartPairing,
   onSubmitManualKey,
+  onBackToPairing,
   onUseManualKey,
   onSkip,
 }: OnboardingGateProps) {
+  const [dismissedMissionControlHint, setDismissedMissionControlHint] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(MC_HINT_DISMISSED_KEY) === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (dismissedMissionControlHint) {
+      window.localStorage.setItem(MC_HINT_DISMISSED_KEY, '1');
+    } else {
+      window.localStorage.removeItem(MC_HINT_DISMISSED_KEY);
+    }
+  }, [dismissedMissionControlHint]);
+
   const showManual = state.status === 'manual_key';
   const showPairingState = state.status === 'awaiting_browser_auth' || state.status === 'pairing';
   const dot = dotState(state.status);
   const isPulsing = dot === 'active' && state.status !== 'connected';
+  const showMissionControlHint =
+    state.status === 'connected' && !dismissedMissionControlHint;
 
   return (
     <div
@@ -128,7 +149,7 @@ export function OnboardingGate({
                 <ManualKeyPanel
                   isSubmitting={isSubmittingManual}
                   onSubmit={onSubmitManualKey}
-                  onBack={() => { void onRefresh(); }}
+                  onBack={onBackToPairing}
                 />
               </motion.div>
             )}
@@ -179,6 +200,37 @@ export function OnboardingGate({
                 className="rounded-full border border-white/[0.08] px-2.5 py-1 text-[11px] text-white/40 transition hover:bg-white/[0.04] hover:text-white/60"
               >
                 Refresh
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {showMissionControlHint && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+            className="mt-3 rounded-xl border border-[#7C7CFF]/25 bg-[#7C7CFF]/10 px-4 py-3"
+          >
+            <p className="text-[11px] uppercase tracking-[0.08em] text-[#CFCBFF]">
+              Mission Control Tip
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[#E6E4FF]">
+              Open Mission Control to see initiative → workstream → milestone → task flow with dependencies and recent todos in one expandable view.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <a
+                href="/orgx/live?view=mission-control"
+                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1 text-[11px] font-medium text-[#D8FFA1]"
+              >
+                Open Mission Control
+              </a>
+              <button
+                type="button"
+                onClick={() => setDismissedMissionControlHint(true)}
+                className="text-[11px] text-white/60 underline underline-offset-2"
+              >
+                Dismiss
               </button>
             </div>
           </motion.div>

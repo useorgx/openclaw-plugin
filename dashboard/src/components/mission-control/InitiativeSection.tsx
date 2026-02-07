@@ -1,0 +1,624 @@
+import { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import type {
+  Initiative,
+  InitiativeDetails,
+  MissionControlNode,
+  InitiativeWorkstream,
+  InitiativeMilestone,
+  InitiativeTask,
+} from '@/types';
+import {
+  initiativeStatusClass,
+  formatEntityStatus,
+  statusColor,
+} from '@/lib/entityStatusColors';
+import { formatDueBadge } from '@/lib/initiativeDate';
+import { Skeleton } from '@/components/shared/Skeleton';
+import { InferredAgentAvatars } from './AgentInference';
+import { useMissionControl } from './MissionControlContext';
+import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
+import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+import { EditModeToolbar } from './EditModeToolbar';
+import { DependencyMapPanel } from './DependencyMapPanel';
+import { HierarchyTreeTable } from './HierarchyTreeTable';
+import { RecentTodosRail } from './RecentTodosRail';
+
+interface InitiativeSectionProps {
+  initiative: Initiative;
+}
+
+function priorityFromLabel(value: string | null | undefined): {
+  priorityNum: number;
+  priorityLabel: string | null;
+} {
+  if (!value) return { priorityNum: 60, priorityLabel: null };
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'urgent' || normalized === 'p0') return { priorityNum: 10, priorityLabel: 'urgent' };
+  if (normalized === 'high' || normalized === 'p1') return { priorityNum: 25, priorityLabel: 'high' };
+  if (normalized === 'medium' || normalized === 'p2') return { priorityNum: 50, priorityLabel: 'medium' };
+  if (normalized === 'low' || normalized === 'p3' || normalized === 'p4') {
+    return { priorityNum: 75, priorityLabel: 'low' };
+  }
+
+  const numeric = Number(normalized.replace(/^p/, ''));
+  if (Number.isFinite(numeric)) {
+    const clamped = Math.max(1, Math.min(100, Math.round(numeric)));
+    return { priorityNum: clamped, priorityLabel: null };
+  }
+  return { priorityNum: 60, priorityLabel: null };
+}
+
+function buildLegacyGraphNodes(
+  initiative: Initiative,
+  details: InitiativeDetails
+): {
+  nodes: MissionControlNode[];
+  edges: Array<{ from: string; to: string; kind: 'depends_on' }>;
+  recentTodos: string[];
+} {
+  const initiativeNode: MissionControlNode = {
+    id: initiative.id,
+    type: 'initiative',
+    title: initiative.name,
+    status: initiative.rawStatus ?? initiative.status,
+    parentId: null,
+    initiativeId: initiative.id,
+    workstreamId: null,
+    milestoneId: null,
+    priorityNum: 60,
+    priorityLabel: null,
+    dependencyIds: [],
+    dueDate: initiative.targetDate ?? null,
+    etaEndAt: initiative.targetDate ?? null,
+    expectedDurationHours: 40,
+    assignedAgents: [],
+    updatedAt: initiative.updatedAt ?? initiative.createdAt ?? null,
+  };
+
+  const workstreamNodes: MissionControlNode[] = details.workstreams.map((workstream) => ({
+    id: workstream.id,
+    type: 'workstream',
+    title: workstream.name,
+    status: workstream.status,
+    parentId: initiative.id,
+    initiativeId: initiative.id,
+    workstreamId: workstream.id,
+    milestoneId: null,
+    priorityNum: 50,
+    priorityLabel: 'medium',
+    dependencyIds: [],
+    dueDate: null,
+    etaEndAt: null,
+    expectedDurationHours: 16,
+    assignedAgents: [],
+    updatedAt: workstream.createdAt,
+  }));
+
+  const workstreamIdSet = new Set(workstreamNodes.map((node) => node.id));
+  const milestoneNodes: MissionControlNode[] = details.milestones.map((milestone) => ({
+    id: milestone.id,
+    type: 'milestone',
+    title: milestone.title,
+    status: milestone.status,
+    parentId:
+      milestone.workstreamId && workstreamIdSet.has(milestone.workstreamId)
+        ? milestone.workstreamId
+        : initiative.id,
+    initiativeId: initiative.id,
+    workstreamId:
+      milestone.workstreamId && workstreamIdSet.has(milestone.workstreamId)
+        ? milestone.workstreamId
+        : null,
+    milestoneId: milestone.id,
+    priorityNum: 50,
+    priorityLabel: 'medium',
+    dependencyIds: [],
+    dueDate: milestone.dueDate,
+    etaEndAt: milestone.dueDate,
+    expectedDurationHours: 6,
+    assignedAgents: [],
+    updatedAt: milestone.createdAt,
+  }));
+
+  const milestoneIdSet = new Set(milestoneNodes.map((node) => node.id));
+  const taskNodes: MissionControlNode[] = details.tasks.map((task) => {
+    const priority = priorityFromLabel(task.priority);
+    const hasMilestone = task.milestoneId && milestoneIdSet.has(task.milestoneId);
+    const hasWorkstream = task.workstreamId && workstreamIdSet.has(task.workstreamId);
+    return {
+      id: task.id,
+      type: 'task',
+      title: task.title,
+      status: task.status,
+      parentId: hasMilestone ? task.milestoneId : hasWorkstream ? task.workstreamId : initiative.id,
+      initiativeId: initiative.id,
+      workstreamId: hasWorkstream ? task.workstreamId : null,
+      milestoneId: hasMilestone ? task.milestoneId : null,
+      priorityNum: priority.priorityNum,
+      priorityLabel: priority.priorityLabel,
+      dependencyIds: [],
+      dueDate: task.dueDate,
+      etaEndAt: task.dueDate,
+      expectedDurationHours: 2,
+      assignedAgents: [],
+      updatedAt: task.createdAt,
+    };
+  });
+
+  const recentTodos = taskNodes
+    .filter((task) =>
+      ['todo', 'not_started', 'planned', 'pending', 'backlog'].includes(
+        task.status.toLowerCase()
+      )
+    )
+    .sort((a, b) => {
+      const pr = a.priorityNum - b.priorityNum;
+      if (pr !== 0) return pr;
+      const aEta = a.etaEndAt ? Date.parse(a.etaEndAt) : Infinity;
+      const bEta = b.etaEndAt ? Date.parse(b.etaEndAt) : Infinity;
+      if (aEta !== bEta) return aEta - bEta;
+      const aEpoch = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+      const bEpoch = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+      return bEpoch - aEpoch;
+    })
+    .map((task) => task.id);
+
+  return {
+    nodes: [initiativeNode, ...workstreamNodes, ...milestoneNodes, ...taskNodes],
+    edges: [],
+    recentTodos,
+  };
+}
+
+function computeHighlightedPath(nodeId: string | null, nodes: MissionControlNode[]): Set<string> {
+  if (!nodeId) return new Set();
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const reverseDeps = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    for (const depId of node.dependencyIds) {
+      const dependents = reverseDeps.get(depId) ?? [];
+      dependents.push(node.id);
+      reverseDeps.set(depId, dependents);
+    }
+  }
+
+  const highlighted = new Set<string>();
+  const queue: string[] = [nodeId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift() as string;
+    if (highlighted.has(currentId)) continue;
+    highlighted.add(currentId);
+
+    const currentNode = byId.get(currentId);
+    if (!currentNode) continue;
+
+    for (const depId of currentNode.dependencyIds) {
+      if (!highlighted.has(depId)) queue.push(depId);
+    }
+    for (const dependentId of reverseDeps.get(currentId) ?? []) {
+      if (!highlighted.has(dependentId)) queue.push(dependentId);
+    }
+  }
+
+  return highlighted;
+}
+
+function toWorkstreamEntity(node: MissionControlNode, initiative: Initiative): InitiativeWorkstream {
+  return {
+    id: node.id,
+    name: node.title,
+    summary: null,
+    status: node.status,
+    progress: null,
+    initiativeId: initiative.id,
+    createdAt: node.updatedAt,
+  };
+}
+
+function toMilestoneEntity(node: MissionControlNode, initiative: Initiative): InitiativeMilestone {
+  return {
+    id: node.id,
+    title: node.title,
+    description: null,
+    status: node.status,
+    dueDate: node.dueDate,
+    initiativeId: initiative.id,
+    workstreamId: node.workstreamId,
+    createdAt: node.updatedAt,
+  };
+}
+
+function toTaskEntity(node: MissionControlNode, initiative: Initiative): InitiativeTask {
+  return {
+    id: node.id,
+    title: node.title,
+    description: null,
+    status: node.status,
+    priority: node.priorityLabel ?? `p${node.priorityNum}`,
+    dueDate: node.dueDate,
+    initiativeId: initiative.id,
+    milestoneId: node.milestoneId,
+    workstreamId: node.workstreamId,
+    createdAt: node.updatedAt,
+  };
+}
+
+export function InitiativeSection({ initiative }: InitiativeSectionProps) {
+  const {
+    expandedInitiatives,
+    toggleExpanded,
+    openModal,
+    agentEntityMap,
+    authToken,
+    embedMode,
+    mutations,
+  } = useMissionControl();
+
+  const [editMode, setEditMode] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [focusedWorkstreamId, setFocusedWorkstreamId] = useState<string | null>(null);
+
+  const isExpanded = expandedInitiatives.has(initiative.id);
+  const { graph, isLoading, degraded, error } = useMissionControlGraph({
+    initiativeId: initiative.id,
+    authToken,
+    embedMode,
+    enabled: isExpanded,
+  });
+  const {
+    details,
+    isLoading: isLegacyLoading,
+    error: legacyError,
+  } = useInitiativeDetails({
+    initiativeId: initiative.id,
+    authToken,
+    embedMode,
+    enabled: isExpanded,
+  });
+
+  const legacyGraph = useMemo(
+    () => buildLegacyGraphNodes(initiative, details),
+    [initiative, details]
+  );
+
+  const hasPrimaryGraphData = Boolean(graph && graph.nodes.length > 0);
+  const hasLegacyGraphData = legacyGraph.nodes.length > 1;
+  const useLegacyGraph = !hasPrimaryGraphData && hasLegacyGraphData;
+
+  const nodes = useLegacyGraph ? legacyGraph.nodes : graph?.nodes ?? [];
+  const edges = useLegacyGraph ? legacyGraph.edges : graph?.edges ?? [];
+  const recentTodoIds = useLegacyGraph ? legacyGraph.recentTodos : graph?.recentTodos ?? [];
+
+  const graphErrorMessage =
+    error && /unknown api endpoint/i.test(error)
+      ? 'Mission Control graph API is unavailable in this plugin process. Restart the plugin to load updated routes.'
+      : error;
+  const legacyErrorMessage =
+    legacyError && /401|unauthorized/i.test(legacyError)
+      ? 'Legacy entity API returned unauthorized. Reconnect OrgX API key in onboarding.'
+      : legacyError;
+
+  const warnings = [
+    ...degraded,
+    ...(graphErrorMessage ? [graphErrorMessage] : []),
+    ...(useLegacyGraph ? ['Using legacy hierarchy source because graph endpoint is unavailable.'] : []),
+    ...(!hasPrimaryGraphData && !hasLegacyGraphData && legacyErrorMessage
+      ? [`Legacy hierarchy unavailable (${legacyErrorMessage})`]
+      : []),
+  ];
+
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const highlightedNodeIds = useMemo(
+    () => computeHighlightedPath(selectedNodeId, nodes),
+    [selectedNodeId, nodes]
+  );
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    if (!selectedNodeId && nodes.length > 0) {
+      setSelectedNodeId(nodes[0]?.id ?? null);
+    }
+  }, [isExpanded, nodes, selectedNodeId]);
+
+  const explicitAgents = (graph?.initiative.assignedAgents ?? []).map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    confidence: 'high' as const,
+  }));
+
+  const inferredAgents = agentEntityMap.get(initiative.id) ?? [];
+  const agents = explicitAgents.length > 0 ? explicitAgents : inferredAgents;
+
+  const progress = initiative.health;
+  const dueBadge = formatDueBadge(initiative.targetDate);
+  const dueBadgeClass =
+    dueBadge.tone === 'danger'
+      ? 'border-rose-400/35 bg-rose-500/10 text-rose-200'
+      : dueBadge.tone === 'warning'
+        ? 'border-amber-400/35 bg-amber-500/10 text-amber-200'
+        : dueBadge.tone === 'success'
+          ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200'
+          : 'border-white/[0.12] bg-white/[0.03] text-white/50';
+
+  const openNodeModal = (node: MissionControlNode) => {
+    if (node.type === 'initiative') {
+      openModal({ type: 'initiative', entity: initiative });
+      return;
+    }
+    if (node.type === 'workstream') {
+      openModal({
+        type: 'workstream',
+        entity: toWorkstreamEntity(node, initiative),
+        initiative,
+      });
+      return;
+    }
+    if (node.type === 'milestone') {
+      openModal({
+        type: 'milestone',
+        entity: toMilestoneEntity(node, initiative),
+        initiative,
+      });
+      return;
+    }
+    openModal({
+      type: 'task',
+      entity: toTaskEntity(node, initiative),
+      initiative,
+    });
+  };
+
+  const updateNode = async (
+    node: MissionControlNode,
+    updates: Record<string, unknown>
+  ) => {
+    await mutations.updateEntity.mutateAsync({
+      type: node.type,
+      id: node.id,
+      ...updates,
+    });
+  };
+
+  const handleAction = (action: string) => (event: React.MouseEvent) => {
+    event.stopPropagation();
+    mutations.entityAction.mutate({
+      type: 'initiative',
+      id: initiative.id,
+      action,
+    });
+  };
+
+  return (
+    <div
+      id={`initiative-${initiative.id}`}
+      className={`glass-panel soft-shadow rounded-2xl overflow-hidden border-l-2 transition-colors ${
+        isExpanded ? 'border-l-[#BFFF00]/60' : 'border-l-transparent'
+      }`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        onClick={() => toggleExpanded(initiative.id)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleExpanded(initiative.id);
+          }
+        }}
+        className="group flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.04]"
+      >
+        <motion.div
+          animate={{ rotate: isExpanded ? 90 : 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-colors group-hover:bg-white/[0.06]"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            className="text-white/40"
+          >
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </motion.div>
+
+        {/* Breathing status dot */}
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${initiative.status === 'active' ? 'status-breathe' : ''}`}
+          style={{ backgroundColor: statusColor(initiative.status) }}
+        />
+
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openModal({ type: 'initiative', entity: initiative });
+          }}
+          className="text-[14px] font-semibold text-white hover:text-white/80 truncate transition-colors"
+        >
+          {initiative.name}
+        </button>
+
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${initiativeStatusClass[initiative.status]}`}
+        >
+          {formatEntityStatus(initiative.status)}
+        </span>
+
+        <span
+          className={`hidden md:inline-flex text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] flex-shrink-0 ${dueBadgeClass}`}
+          title={initiative.targetDate ? new Date(initiative.targetDate).toLocaleDateString() : 'No target date'}
+        >
+          {dueBadge.label}
+        </span>
+
+        {/* Quick actions — shown on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {initiative.status === 'active' && (
+            <button
+              type="button"
+              onClick={handleAction('pause')}
+              title="Pause"
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+            </button>
+          )}
+          {initiative.status === 'paused' && (
+            <button
+              type="button"
+              onClick={handleAction('resume')}
+              title="Resume"
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openModal({ type: 'initiative', entity: initiative });
+            }}
+            title="Details"
+            className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 max-w-[200px] hidden sm:block">
+          <div className="h-[2px] w-full rounded-full bg-white/[0.06] overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${progress}%`,
+                backgroundColor: statusColor(initiative.status),
+              }}
+            />
+          </div>
+        </div>
+
+        <span className="text-[11px] text-white/40 flex-shrink-0 hidden sm:block">
+          {progress}%
+        </span>
+
+        <div className="flex-shrink-0 ml-auto">
+          <InferredAgentAvatars agents={agents} max={5} />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 space-y-3 pt-3">
+              {/* Gradient divider instead of hard border */}
+              <div className="section-divider" />
+
+              {isLoading || (!hasPrimaryGraphData && isLegacyLoading) ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Skeleton key={`mc-loading-${index}`} className="h-24 w-full rounded-xl" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <EditModeToolbar
+                    editMode={editMode}
+                    onToggleEditMode={() => setEditMode((prev) => !prev)}
+                  />
+
+                  {warnings.length > 0 && (
+                    <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200/90">
+                      Partial data: {warnings.join(' | ')}
+                    </div>
+                  )}
+
+                  {focusedWorkstreamId && (
+                    <div className="flex items-center justify-between rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-3 py-1.5 text-[11px] text-[#D8FFA1]">
+                      <span>
+                        Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFocusedWorkstreamId(null)}
+                        className="text-[10px] underline underline-offset-2"
+                      >
+                        Clear focus
+                      </button>
+                    </div>
+                  )}
+
+                  <DependencyMapPanel
+                    nodes={nodes}
+                    edges={edges}
+                    selectedNodeId={selectedNodeId}
+                    focusedWorkstreamId={focusedWorkstreamId}
+                    onSelectNode={(nodeId) => {
+                      setSelectedNodeId(nodeId);
+                      const node = nodeById.get(nodeId);
+                      if (node?.type === 'workstream') {
+                        setFocusedWorkstreamId(node.id);
+                      }
+                    }}
+                  />
+
+                  <RecentTodosRail
+                    recentTodoIds={recentTodoIds}
+                    nodesById={nodeById}
+                    selectedNodeId={selectedNodeId}
+                    onSelectNode={(nodeId) => {
+                      setSelectedNodeId(nodeId);
+                      const node = nodeById.get(nodeId);
+                      if (node?.type === 'workstream') {
+                        setFocusedWorkstreamId(node.id);
+                      }
+                    }}
+                  />
+
+                  <HierarchyTreeTable
+                    nodes={nodes}
+                    edges={edges}
+                    selectedNodeId={selectedNodeId}
+                    highlightedNodeIds={highlightedNodeIds}
+                    editMode={editMode}
+                    onSelectNode={setSelectedNodeId}
+                    onFocusWorkstream={setFocusedWorkstreamId}
+                    onOpenNode={openNodeModal}
+                    onUpdateNode={updateNode}
+                    mutations={mutations}
+                  />
+                </>
+              )}
+
+              {/* Collapse hint at bottom */}
+              <button
+                type="button"
+                onClick={() => toggleExpanded(initiative.id)}
+                className="flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] text-white/30 hover:text-white/60 transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="m18 15-6-6-6 6" />
+                </svg>
+                Collapse
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

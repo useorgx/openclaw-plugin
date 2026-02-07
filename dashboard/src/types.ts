@@ -216,16 +216,112 @@ export interface Initiative {
   id: string;
   name: string;
   status: 'active' | 'paused' | 'blocked' | 'completed';
+  rawStatus?: string | null;
   category?: string;
   health: number;
   phases?: Phase[];
   currentPhase?: number;
   daysRemaining: number;
+  targetDate?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   activeAgents: number;
   totalAgents: number;
   avatars?: string[];
   description?: string;
   workstreams?: { id: string; name: string; status: string }[];
+}
+
+export interface InitiativeWorkstream {
+  id: string;
+  name: string;
+  summary?: string | null;
+  status: string;
+  progress: number | null;
+  initiativeId: string;
+  createdAt: string | null;
+}
+
+export interface InitiativeMilestone {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  dueDate: string | null;
+  initiativeId: string;
+  workstreamId: string | null;
+  createdAt: string | null;
+}
+
+export interface InitiativeTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  priority: string | null;
+  dueDate: string | null;
+  initiativeId: string;
+  milestoneId: string | null;
+  workstreamId: string | null;
+  createdAt: string | null;
+}
+
+export interface InitiativeDetails {
+  initiativeId: string;
+  workstreams: InitiativeWorkstream[];
+  milestones: InitiativeMilestone[];
+  tasks: InitiativeTask[];
+}
+
+export type MissionControlNodeType =
+  | 'initiative'
+  | 'workstream'
+  | 'milestone'
+  | 'task';
+
+export interface AssignedAgent {
+  id: string;
+  name: string;
+  domain: string | null;
+}
+
+export interface MissionControlNode {
+  id: string;
+  type: MissionControlNodeType;
+  title: string;
+  status: string;
+  parentId: string | null;
+  initiativeId: string | null;
+  workstreamId: string | null;
+  milestoneId: string | null;
+  priorityNum: number;
+  priorityLabel: string | null;
+  dependencyIds: string[];
+  dueDate: string | null;
+  etaEndAt: string | null;
+  expectedDurationHours: number;
+  assignedAgents: AssignedAgent[];
+  updatedAt: string | null;
+}
+
+export interface MissionControlEdge {
+  from: string;
+  to: string;
+  kind: 'depends_on';
+}
+
+export interface MissionControlGraphResponse {
+  initiative: {
+    id: string;
+    title: string;
+    status: string;
+    summary: string | null;
+    assignedAgents: AssignedAgent[];
+  };
+  nodes: MissionControlNode[];
+  edges: MissionControlEdge[];
+  recentTodos: string[];
+  degraded?: string[];
 }
 
 export interface Decision {

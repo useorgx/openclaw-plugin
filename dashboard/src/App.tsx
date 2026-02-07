@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { colors } from '@/lib/tokens';
@@ -14,6 +14,12 @@ import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+import { MissionControlView } from '@/components/mission-control';
+import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
+import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
+import orgxLogo from '@/assets/orgx-logo.png';
+
+type DashboardView = 'activity' | 'mission-control';
 
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
@@ -27,6 +33,8 @@ const CONNECTION_COLOR: Record<string, string> = {
   disconnected: colors.red,
 };
 
+const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
+
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
   pending: 1,
@@ -36,6 +44,13 @@ const SESSION_PRIORITY: Record<string, number> = {
   cancelled: 5,
   completed: 6,
   archived: 7,
+};
+
+type HeaderNotification = {
+  id: string;
+  kind: 'error' | 'info';
+  title: string;
+  message: string;
 };
 
 function toEpoch(value: string | null | undefined): number {
@@ -67,6 +82,7 @@ export function App() {
         onRefresh={onboarding.refreshStatus}
         onStartPairing={onboarding.startPairing}
         onSubmitManualKey={onboarding.submitManualKey}
+        onBackToPairing={onboarding.backToPairing}
         onUseManualKey={onboarding.setManualMode}
         onSkip={onboarding.skipGate}
       />
@@ -96,45 +112,11 @@ function phaseTemplateForCategory(category: string): string[] {
   return ['Plan', 'Build', 'Review', 'Ship'];
 }
 
-function StatTile({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string | number;
-  accent?: string;
-}) {
-  return (
-    <div
-      className="min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
-      style={accent ? { borderTopColor: `${accent}50`, borderTopWidth: 2 } : undefined}
-    >
-      <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">{label}</p>
-      <p className="mt-0.5 text-[16px] font-semibold" style={{ color: accent ?? '#fff', fontVariantNumeric: 'tabular-nums' }}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 function OrgXLogo() {
   return (
-    <svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="8" fill={colors.lime} fillOpacity="0.12" />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke={colors.lime} strokeOpacity="0.3" />
-      <path
-        d="M10 16C10 12.686 12.686 10 16 10C19.314 10 22 12.686 22 16C22 19.314 19.314 22 16 22C12.686 22 10 19.314 10 16Z"
-        stroke={colors.lime}
-        strokeWidth="1.8"
-      />
-      <path
-        d="M12.5 12.5L19.5 19.5M19.5 12.5L12.5 19.5"
-        stroke={colors.lime}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
+    <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.04] p-0.5">
+      <img src={orgxLogo} alt="OrgX" className="h-full w-full rounded-md object-contain" />
+    </span>
   );
 }
 
@@ -161,8 +143,44 @@ function DashboardShell({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
+  const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
+  const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
+  const notificationTrayRef = useRef<HTMLDivElement | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions' | 'session'>('initiatives');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions'>('initiatives');
+  const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(MC_WELCOME_DISMISS_KEY) === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (dismissedMissionControlWelcome) {
+      window.localStorage.setItem(MC_WELCOME_DISMISS_KEY, '1');
+    } else {
+      window.localStorage.removeItem(MC_WELCOME_DISMISS_KEY);
+    }
+  }, [dismissedMissionControlWelcome]);
+
+  // Dashboard view toggle: Activity (3-column) vs Mission Control
+  const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'mission-control') return 'mission-control';
+    try {
+      if (localStorage.getItem('orgx-dashboard-view') === 'mission-control') return 'mission-control';
+    } catch { /* ignore */ }
+    return 'activity';
+  });
+
+  const switchDashboardView = useCallback((v: DashboardView) => {
+    setDashboardView(v);
+    try { localStorage.setItem('orgx-dashboard-view', v); } catch { /* ignore */ }
+  }, []);
+
+  // Fetch entity-based initiatives for Mission Control (only when view is active)
+  const { data: entityInitiatives } = useEntityInitiatives(dashboardView === 'mission-control');
+  const { data: liveInitiatives } = useLiveInitiatives(dashboardView === 'mission-control');
 
   // Entity creation modal state
   const [entityModal, setEntityModal] = useState<EntityModalState>(null);
@@ -223,12 +241,6 @@ function DashboardShell({
     [activityFilterSessionId, data.sessions.nodes]
   );
 
-  useEffect(() => {
-    if (!opsNotice) return undefined;
-    const timer = setTimeout(() => setOpsNotice(null), 5000);
-    return () => clearTimeout(timer);
-  }, [opsNotice]);
-
   const selectedSession = useMemo(
     () => data.sessions.nodes.find((n) => n.id === selectedSessionId) ?? null,
     [data.sessions.nodes, selectedSessionId]
@@ -243,6 +255,136 @@ function DashboardShell({
     () => data.sessions.nodes.filter((node) => node.status === 'blocked' || node.blockers.length > 0).length,
     [data.sessions.nodes]
   );
+
+  const compactMetrics = useMemo(() => {
+    const metrics: Array<{
+      id: string;
+      label: string;
+      value: number;
+      color: string;
+    }> = [
+      {
+        id: 'sessions',
+        label: 'Sessions',
+        value: data.sessions.nodes.length,
+        color: colors.teal,
+      },
+      {
+        id: 'active',
+        label: 'Active',
+        value: activeSessionCount,
+        color: activeSessionCount > 0 ? colors.lime : colors.textMuted,
+      },
+      {
+        id: 'blocked',
+        label: 'Blocked',
+        value: blockedCount,
+        color: blockedCount > 0 ? colors.red : colors.textMuted,
+      },
+      {
+        id: 'decisions',
+        label: 'Decisions',
+        value: decisionsVisible ? data.decisions.length : 0,
+        color:
+          decisionsVisible && data.decisions.length > 0
+            ? colors.amber
+            : colors.textMuted,
+      },
+    ];
+    if (data.handoffs.length > 0) {
+      metrics.push({
+        id: 'handoffs',
+        label: 'Handoffs',
+        value: data.handoffs.length,
+        color: colors.iris,
+      });
+    }
+    return metrics;
+  }, [activeSessionCount, blockedCount, data.decisions.length, data.handoffs.length, data.sessions.nodes.length, decisionsVisible]);
+
+  const headerNotifications = useMemo(() => {
+    const items: HeaderNotification[] = [];
+    if (error) {
+      items.push({
+        id: `stream-error:${error}`,
+        kind: 'error',
+        title: 'Live stream degraded',
+        message: error,
+      });
+    }
+    if (data.connection !== 'connected') {
+      items.push({
+        id: `connection:${data.connection}`,
+        kind: data.connection === 'disconnected' ? 'error' : 'info',
+        title: data.connection === 'disconnected' ? 'Connection lost' : 'Reconnecting',
+        message:
+          data.connection === 'disconnected'
+            ? 'Dashboard is offline. Some data may be stale.'
+            : 'Live data is recovering. Some sections may be delayed.',
+      });
+    }
+    if (opsNotice) {
+      items.push({
+        id: `ops:${opsNotice}`,
+        kind: 'info',
+        title: 'Update',
+        message: opsNotice,
+      });
+    }
+    return items;
+  }, [data.connection, error, opsNotice]);
+
+  useEffect(() => {
+    const activeIds = new Set(headerNotifications.map((item) => item.id));
+    setDismissedNotificationIds((previous) =>
+      previous.filter((id) => activeIds.has(id))
+    );
+  }, [headerNotifications]);
+
+  const visibleNotifications = useMemo(
+    () =>
+      headerNotifications.filter(
+        (item) => !dismissedNotificationIds.includes(item.id)
+      ),
+    [dismissedNotificationIds, headerNotifications]
+  );
+
+  const dismissNotification = useCallback((id: string) => {
+    setDismissedNotificationIds((previous) =>
+      previous.includes(id) ? previous : previous.concat(id)
+    );
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setDismissedNotificationIds(headerNotifications.map((item) => item.id));
+  }, [headerNotifications]);
+
+  useEffect(() => {
+    if (!notificationTrayOpen) return;
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (notificationTrayRef.current?.contains(target)) return;
+      if (notificationButtonRef.current?.contains(target)) return;
+      setNotificationTrayOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setNotificationTrayOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [notificationTrayOpen]);
 
   const initiatives = useMemo(() => {
     type InitiativeAccumulator = {
@@ -340,11 +482,15 @@ function DashboardShell({
         id: entry.id,
         name: entry.name,
         status: completed ? 'completed' : blocked ? 'blocked' : 'active',
+        rawStatus: completed ? 'completed' : blocked ? 'blocked' : 'active',
         category,
         health: Math.max(0, Math.min(100, health)),
         phases,
         currentPhase: completed ? phaseNames.length - 1 : phasePosition,
         daysRemaining: 0,
+        targetDate: null,
+        createdAt: entry.latestEpoch > 0 ? new Date(entry.latestEpoch).toISOString() : null,
+        updatedAt: entry.latestEpoch > 0 ? new Date(entry.latestEpoch).toISOString() : null,
         activeAgents: entry.activeAgents.size,
         totalAgents: entry.allAgents.size,
         avatars: Array.from(entry.activeAgents).slice(0, 3),
@@ -364,6 +510,47 @@ function DashboardShell({
       return b.health - a.health;
     });
   }, [data.sessions.nodes, data.sessions.groups]);
+
+  // Merge session-derived + entity-based initiatives for Mission Control
+  const mcInitiatives = useMemo(() => {
+    const mergeInitiative = (base: Initiative, incoming: Initiative): Initiative => ({
+      ...base,
+      ...incoming,
+      health: incoming.health > 0 ? incoming.health : base.health,
+      activeAgents: Math.max(base.activeAgents, incoming.activeAgents),
+      totalAgents: Math.max(base.totalAgents, incoming.totalAgents),
+      avatars: base.avatars?.length ? base.avatars : incoming.avatars,
+      workstreams: base.workstreams?.length ? base.workstreams : incoming.workstreams,
+      description: base.description ?? incoming.description,
+      rawStatus: incoming.rawStatus ?? base.rawStatus ?? null,
+      targetDate: incoming.targetDate ?? base.targetDate ?? null,
+      createdAt: incoming.createdAt ?? base.createdAt ?? null,
+      updatedAt: incoming.updatedAt ?? base.updatedAt ?? null,
+    });
+
+    const merged = new Map<string, Initiative>();
+    for (const init of initiatives) merged.set(init.id, init);
+
+    for (const init of [...(entityInitiatives ?? []), ...(liveInitiatives ?? [])]) {
+      const existing = merged.get(init.id);
+      merged.set(init.id, existing ? mergeInitiative(existing, init) : init);
+    }
+
+    return Array.from(merged.values()).sort((a, b) => {
+      const statusPriority = (status: Initiative['status']) =>
+        status === 'blocked' ? 0 : status === 'active' ? 1 : status === 'paused' ? 2 : 3;
+      const statusDelta = statusPriority(a.status) - statusPriority(b.status);
+      if (statusDelta !== 0) return statusDelta;
+
+      const updatedDelta = toEpoch(b.updatedAt) - toEpoch(a.updatedAt);
+      if (updatedDelta !== 0) return updatedDelta;
+
+      const healthDelta = b.health - a.health;
+      if (healthDelta !== 0) return healthDelta;
+
+      return a.name.localeCompare(b.name);
+    });
+  }, [initiatives, entityInitiatives, liveInitiatives]);
 
   const selectedActivitySessionLabel = useMemo(() => {
     if (!selectedActivitySession) return null;
@@ -394,6 +581,9 @@ function DashboardShell({
 
     return title ?? null;
   }, [data.activity, selectedActivitySession]);
+
+  const showMissionControlWelcome =
+    onboardingState.connectionVerified && !dismissedMissionControlWelcome;
 
   const continueHighestPriority = useCallback(async () => {
     if (data.sessions.nodes.length === 0) {
@@ -524,15 +714,15 @@ function DashboardShell({
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col lg:h-screen" style={{ backgroundColor: colors.background }}>
-        <div className="border-b border-white/[0.06] px-4 py-3 sm:px-6">
+        <div className="border-b border-white/[0.06] px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="shimmer-skeleton h-6 w-6 rounded-lg" />
             <div className="shimmer-skeleton h-5 w-28 rounded-md" />
             <div className="shimmer-skeleton h-5 w-14 rounded-full" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="shimmer-skeleton h-14 rounded-xl" />
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="shimmer-skeleton h-7 w-24 rounded-full" />
             ))}
           </div>
         </div>
@@ -582,11 +772,11 @@ function DashboardShell({
         <div className="grain-overlay absolute inset-0" />
       </div>
 
-      <header className="relative z-10 border-b border-white/[0.06] px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+      <header className="relative z-30 border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
+        <div className="grid items-center gap-2.5 lg:grid-cols-[1fr_auto_1fr]">
+          <div className="flex min-w-0 items-center gap-2.5">
             <OrgXLogo />
-            <h1 className="text-[18px] font-semibold tracking-tight text-white">
+            <h1 className="text-[17px] font-semibold tracking-tight text-white">
               OrgX<span className="ml-1.5 text-white/50">Live</span>
             </h1>
             <Badge color={CONNECTION_COLOR[data.connection]} pulse={data.connection === 'connected'}>
@@ -594,23 +784,69 @@ function DashboardShell({
             </Badge>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="hidden items-center justify-center lg:flex">
+            <div
+              className="flex rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
+              role="group"
+              aria-label="Dashboard view"
+            >
+              <button
+                type="button"
+                onClick={() => switchDashboardView('activity')}
+                aria-pressed={dashboardView === 'activity'}
+                className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+                  dashboardView === 'activity'
+                    ? 'bg-white/[0.1] text-white'
+                    : 'text-white/55 hover:text-white/85'
+                }`}
+              >
+                Activity
+              </button>
+              <button
+                type="button"
+                onClick={() => switchDashboardView('mission-control')}
+                aria-pressed={dashboardView === 'mission-control'}
+                className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+                  dashboardView === 'mission-control'
+                    ? 'bg-white/[0.1] text-white'
+                    : 'text-white/55 hover:text-white/85'
+                }`}
+              >
+                Mission Control
+              </button>
+            </div>
+          </div>
+
+          <div className="relative flex items-center justify-end gap-2">
             {data.lastActivity && (
-              <span className="hidden text-[12px] text-white/45 sm:inline">
+              <span className="hidden text-[12px] text-white/45 xl:inline">
                 Last activity: {data.lastActivity}
               </span>
             )}
-            <a
-              href="https://mcp.useorgx.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white/80 sm:inline-flex"
-            >
-              Docs
-            </a>
             <button
+              type="button"
+              ref={notificationButtonRef}
+              onClick={() => setNotificationTrayOpen((open) => !open)}
+              title="Notifications"
+              aria-haspopup="dialog"
+              aria-expanded={notificationTrayOpen}
+              aria-controls="header-notifications-panel"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2c0 .53-.21 1.04-.59 1.42L4 17h5" />
+                <path d="M9 17a3 3 0 0 0 6 0" />
+              </svg>
+              {visibleNotifications.length > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                  {visibleNotifications.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={refetch}
-              className="group flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/80 transition-colors hover:bg-white/[0.07]"
+              className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-3 text-[12px] text-white/80 transition-colors hover:bg-white/[0.08]"
               title="Refresh data"
             >
               <svg
@@ -627,37 +863,169 @@ function DashboardShell({
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
                 <path d="M21 3v5h-5" />
               </svg>
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            {notificationTrayOpen && (
+              <div
+                id="header-notifications-panel"
+                ref={notificationTrayRef}
+                role="dialog"
+                aria-label="Notifications"
+                className="absolute right-0 top-[calc(100%+8px)] z-[140] w-[min(92vw,380px)] rounded-2xl border border-white/[0.12] bg-[#070a11]/95 p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur"
+              >
+                <div className="mb-1.5 flex items-center justify-between px-2 py-1">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-white/55">Notifications</p>
+                  <div className="flex items-center gap-2">
+                    {visibleNotifications.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearNotifications}
+                        className="text-[11px] text-white/45 transition-colors hover:text-white/80"
+                      >
+                        Dismiss all
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setNotificationTrayOpen(false)}
+                      className="rounded-md px-1.5 py-0.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                      aria-label="Close notifications"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-1.5 flex flex-wrap items-center gap-1.5 px-1.5">
+                  {compactMetrics.map((metric) => (
+                    <span
+                      key={metric.id}
+                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px]"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
+                      <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
+                      <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {metric.value}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+
+                {visibleNotifications.length === 0 ? (
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[12px] text-white/45">
+                    Everything looks clear.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {visibleNotifications.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border px-3 py-2"
+                        style={{
+                          borderColor: item.kind === 'error' ? 'rgba(239,68,68,0.35)' : 'rgba(255,255,255,0.1)',
+                          backgroundColor: item.kind === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.02)',
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p
+                              className="text-[12px] font-semibold"
+                              style={{ color: item.kind === 'error' ? '#fecaca' : '#e2e8f0' }}
+                            >
+                              {item.title}
+                            </p>
+                            <p className="mt-0.5 text-[12px] leading-snug text-white/65">{item.message}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => dismissNotification(item.id)}
+                            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                            title="Dismiss"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-1.5 flex items-center justify-center lg:hidden">
+          <div
+            className="flex rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
+            role="group"
+            aria-label="Dashboard view"
+          >
+            <button
+              type="button"
+              onClick={() => switchDashboardView('activity')}
+              aria-pressed={dashboardView === 'activity'}
+              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+                dashboardView === 'activity'
+                  ? 'bg-white/[0.1] text-white'
+                  : 'text-white/55 hover:text-white/85'
+              }`}
+            >
+              Activity
+            </button>
+            <button
+              type="button"
+              onClick={() => switchDashboardView('mission-control')}
+              aria-pressed={dashboardView === 'mission-control'}
+              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+                dashboardView === 'mission-control'
+                  ? 'bg-white/[0.1] text-white'
+                  : 'text-white/55 hover:text-white/85'
+              }`}
+            >
+              Mission Control
             </button>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <StatTile label="Sessions" value={data.sessions.nodes.length} accent={colors.teal} />
-          <StatTile label="Active" value={activeSessionCount} accent={activeSessionCount > 0 ? colors.lime : undefined} />
-          <StatTile label="Blocked" value={blockedCount} accent={blockedCount > 0 ? colors.red : undefined} />
-          <StatTile
-            label="Pending Decisions"
-            value={decisionsVisible ? data.decisions.length : 0}
-            accent={decisionsVisible && data.decisions.length > 0 ? colors.amber : undefined}
-          />
-          <StatTile label="Open Handoffs" value={data.handoffs.length} accent={data.handoffs.length > 0 ? colors.iris : undefined} />
-        </div>
-
-        {opsNotice && (
-          <div className="mt-2 rounded-lg border border-[#BFFF00]/20 bg-white/[0.04] px-3 py-2 text-[12px] text-white/75">
-            {opsNotice}
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-2 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-[12px] text-red-200">
-            Live stream degraded: {error}
+        {showMissionControlWelcome && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#7C7CFF]/30 bg-[#7C7CFF]/10 px-3 py-2 text-[12px] text-[#E6E4FF]">
+            <span>
+              Mission Control now includes a dependency map plus expandable hierarchy rows for initiatives, workstreams, milestones, and tasks.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => switchDashboardView('mission-control')}
+                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-[11px] text-[#D8FFA1]"
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => setDismissedMissionControlWelcome(true)}
+                className="text-[11px] text-white/65 underline underline-offset-2"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
       </header>
 
-      <main className="relative z-10 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto pb-20 p-4 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
+      {dashboardView === 'mission-control' ? (
+        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
+          <MissionControlView
+            initiatives={mcInitiatives}
+            activities={[]}
+            agents={[]}
+            isLoading={isLoading}
+            authToken={null}
+            embedMode={false}
+          />
+        </div>
+      ) : (
+      <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
           <AgentsChatsPanel
             sessions={data.sessions}
@@ -765,39 +1133,21 @@ function DashboardShell({
             )}
           </div>
 
-          {/* Session Detail — collapsible accordion panel */}
-          <div className={`min-h-0 ${expandedRightPanel === 'session' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
-            {expandedRightPanel === 'session' ? (
-              <SessionInspector
-                session={selectedSession}
-                activity={data.activity}
-                initiatives={initiatives}
-                onContinueHighestPriority={continueHighestPriority}
-                onDispatchSession={dispatchSession}
-                onStartInitiative={startInitiative}
-                onStartWorkstream={startWorkstream}
-              />
-            ) : (
-              <PremiumCard className="card-enter">
-                <button
-                  onClick={() => setExpandedRightPanel('session')}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
-                >
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[14px] font-semibold text-white">Session Detail</h2>
-                    {selectedSession && (
-                      <span className="chip text-[10px] uppercase">{selectedSession.status}</span>
-                    )}
-                  </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-              </PremiumCard>
-            )}
+          {/* Session Detail — always available on desktop to reduce context switching */}
+          <div className="hidden min-h-0 lg:flex lg:flex-1">
+            <SessionInspector
+              session={selectedSession}
+              activity={data.activity}
+              initiatives={initiatives}
+              onContinueHighestPriority={continueHighestPriority}
+              onDispatchSession={dispatchSession}
+              onStartInitiative={startInitiative}
+              onStartWorkstream={startWorkstream}
+            />
           </div>
         </section>
       </main>
+      )}
 
       <MobileTabBar
         activeTab={mobileTab}

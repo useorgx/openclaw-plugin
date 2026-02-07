@@ -213,30 +213,50 @@ export function useOnboarding() {
     async (apiKey: string, userId?: string) => {
       setIsSubmittingManual(true);
       try {
-        const payload = await readJson<OnboardingState>(
-          fetch('/orgx/api/onboarding/manual-key', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              apiKey,
-              userId,
-            }),
-          })
-        );
+        const trimmedInput = apiKey.trim();
+        const hasExplicitPrefix = /^[a-z]+_/i.test(trimmedInput);
+        const candidates = hasExplicitPrefix
+          ? [trimmedInput]
+          : [trimmedInput, `oxk_${trimmedInput}`, `orgx_${trimmedInput}`];
 
-        if (!payload.ok || !payload.data) {
-          const message = payload.error ?? 'Manual key validation failed';
-          setState((previous) => ({
-            ...previous,
-            status: 'manual_key',
-            lastError: message,
-            nextAction: 'enter_manual_key',
-          }));
-          throw new Error(message);
+        let lastError = 'Manual key validation failed';
+
+        for (const candidate of candidates) {
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'X-OrgX-Api-Key': candidate,
+            Authorization: `Bearer ${candidate}`,
+          };
+          if (userId && userId.trim().length > 0) {
+            headers['X-OrgX-User-Id'] = userId.trim();
+          }
+
+          const payload = await readJson<OnboardingState>(
+            fetch('/orgx/api/onboarding/manual-key', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                apiKey: candidate,
+                userId,
+              }),
+            })
+          );
+
+          if (payload.ok && payload.data) {
+            setState(payload.data);
+            return payload.data;
+          }
+
+          lastError = payload.error ?? lastError;
         }
 
-        setState(payload.data);
-        return payload.data;
+        setState((previous) => ({
+          ...previous,
+          status: 'manual_key',
+          lastError,
+          nextAction: 'enter_manual_key',
+        }));
+        throw new Error(lastError);
       } finally {
         setIsSubmittingManual(false);
       }
@@ -264,6 +284,19 @@ export function useOnboarding() {
     return fallback;
   }, []);
 
+  const backToPairing = useCallback(() => {
+    setState((previous) => ({
+      ...previous,
+      status: 'idle',
+      lastError: null,
+      nextAction: 'connect',
+      connectUrl: null,
+      pairingId: null,
+      expiresAt: null,
+      pollIntervalMs: null,
+    }));
+  }, []);
+
   const showGate = useMemo(() => {
     if (isGateSkipped) return false;
     return !(state.hasApiKey && state.connectionVerified && state.status === 'connected');
@@ -281,6 +314,7 @@ export function useOnboarding() {
     disconnect,
     skipGate: () => setIsGateSkipped(true),
     resumeGate: () => setIsGateSkipped(false),
+    backToPairing,
     setManualMode: () =>
       setState((previous) => ({
         ...previous,

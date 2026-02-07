@@ -286,6 +286,7 @@ export class OrgXClient {
     const params = new URLSearchParams({ type });
     if (filters?.status) params.set("status", filters.status);
     if (filters?.limit) params.set("limit", String(filters.limit));
+    if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
     return this.get(`/api/entities?${params.toString()}`);
   }
 

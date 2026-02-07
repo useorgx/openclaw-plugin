@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +27,7 @@
   "files": [
     "dist/",
     "dashboard/dist/",
+    "skills/",
     "openclaw.plugin.json",
     "README.md"
   ],

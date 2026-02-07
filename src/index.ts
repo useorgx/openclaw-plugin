@@ -12,18 +12,21 @@
  */
 
 import { OrgXClient } from "./api.js";
-import type { OnboardingState, OrgXConfig, OrgSnapshot } from "./types.js";
+import type { OnboardingState, OrgXConfig, OrgSnapshot, LiveActivityItem } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import {
   clearPersistedApiKey,
   loadAuthStore,
   resolveInstallationId,
   saveAuthStore,
 } from "./auth-store.js";
+import { appendToOutbox, readOutbox, replaceOutbox } from "./outbox.js";
+import type { OutboxEvent } from "./outbox.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -339,9 +342,9 @@ export default function register(api: PluginAPI): void {
 
   function buildManualKeyConnectUrl(): string {
     try {
-      return new URL("/settings/api", baseApiUrl).toString();
+      return new URL("/settings", baseApiUrl).toString();
     } catch {
-      return "https://www.useorgx.com/settings/api";
+      return "https://www.useorgx.com/settings";
     }
   }
 
@@ -435,6 +438,127 @@ export default function register(api: PluginAPI): void {
   let syncTimer: ReturnType<typeof setTimeout> | null = null;
   let syncInFlight: Promise<void> | null = null;
   let syncServiceRunning = false;
+  const outboxQueues = ["progress", "decisions", "artifacts"] as const;
+
+  function pickStringField(
+    payload: Record<string, unknown>,
+    key: string
+  ): string | null {
+    const value = payload[key];
+    return typeof value === "string" && value.trim().length > 0
+      ? value.trim()
+      : null;
+  }
+
+  function pickStringArrayField(
+    payload: Record<string, unknown>,
+    key: string
+  ): string[] | undefined {
+    const value = payload[key];
+    if (!Array.isArray(value)) return undefined;
+    const strings = value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return strings.length > 0 ? strings : undefined;
+  }
+
+  async function replayOutboxEvent(event: OutboxEvent): Promise<void> {
+    const payload = event.payload ?? {};
+
+    if (event.type === "progress") {
+      const summary = pickStringField(payload, "summary");
+      if (!summary) {
+        api.log?.warn?.("[orgx] Dropping invalid progress outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+      await client.createEntity("activity", {
+        title: summary,
+        type: "delegation",
+        phase: pickStringField(payload, "phase"),
+        progress_pct:
+          typeof payload.progress_pct === "number" ? payload.progress_pct : null,
+        next_step: pickStringField(payload, "next_step"),
+      });
+      return;
+    }
+
+    if (event.type === "decision") {
+      const question = pickStringField(payload, "question");
+      if (!question) {
+        api.log?.warn?.("[orgx] Dropping invalid decision outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+      await client.createEntity("decision", {
+        title: question,
+        summary: pickStringField(payload, "context"),
+        urgency: pickStringField(payload, "urgency") ?? "medium",
+        status: "pending",
+        metadata: {
+          options: pickStringArrayField(payload, "options"),
+          blocking:
+            typeof payload.blocking === "boolean" ? payload.blocking : true,
+        },
+      });
+      return;
+    }
+
+    if (event.type === "artifact") {
+      const name = pickStringField(payload, "name");
+      if (!name) {
+        api.log?.warn?.("[orgx] Dropping invalid artifact outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+      await client.createEntity("artifact", {
+        name,
+        artifact_type: pickStringField(payload, "artifact_type") ?? "other",
+        description: pickStringField(payload, "description"),
+        artifact_url: pickStringField(payload, "url"),
+        status: "active",
+      });
+      return;
+    }
+  }
+
+  async function flushOutboxQueues(): Promise<void> {
+    for (const queue of outboxQueues) {
+      const pending = await readOutbox(queue);
+      if (pending.length === 0) {
+        continue;
+      }
+
+      const remaining: OutboxEvent[] = [];
+      for (const event of pending) {
+        try {
+          await replayOutboxEvent(event);
+        } catch (err: unknown) {
+          remaining.push(event);
+          api.log?.warn?.("[orgx] Outbox replay failed", {
+            queue,
+            eventId: event.id,
+            error: toErrorMessage(err),
+          });
+        }
+      }
+
+      await replaceOutbox(queue, remaining);
+
+      const replayedCount = pending.length - remaining.length;
+      if (replayedCount > 0) {
+        api.log?.info?.("[orgx] Replayed buffered outbox events", {
+          queue,
+          replayed: replayedCount,
+          remaining: remaining.length,
+        });
+      }
+    }
+  }
 
   async function doSync(): Promise<void> {
     if (syncInFlight) {
@@ -462,6 +586,7 @@ export default function register(api: PluginAPI): void {
           lastError: null,
           nextAction: "open_dashboard",
         });
+        await flushOutboxQueues();
         api.log?.debug?.("[orgx] Sync OK");
       } catch (err: unknown) {
         updateOnboardingState({
@@ -788,6 +913,148 @@ export default function register(api: PluginAPI): void {
       syncTimer = null;
     },
   });
+
+  type AutoAssignedAgent = {
+    id: string;
+    name: string;
+    domain: string | null;
+  };
+
+  async function autoAssignEntityForCreate(input: {
+    entityType: string;
+    entityId: string;
+    initiativeId: string | null;
+    title: string;
+    summary: string | null;
+  }): Promise<{
+    assignmentSource: "orchestrator" | "fallback" | "manual";
+    assignedAgents: AutoAssignedAgent[];
+    warnings: string[];
+    updatedEntity: Record<string, unknown> | null;
+  }> {
+    const warnings: string[] = [];
+    const byKey = new Map<string, AutoAssignedAgent>();
+    const addAgent = (agent: AutoAssignedAgent) => {
+      const key = `${agent.id}:${agent.name}`.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, agent);
+    };
+
+    type LiveAgent = AutoAssignedAgent & { status: string | null };
+    let liveAgents: LiveAgent[] = [];
+    try {
+      const agentResp = await client.getLiveAgents({
+        initiative: input.initiativeId,
+        includeIdle: true,
+      });
+      liveAgents = (Array.isArray(agentResp.agents) ? agentResp.agents : [])
+        .map((raw): LiveAgent | null => {
+          if (!raw || typeof raw !== "object") return null;
+          const record = raw as Record<string, unknown>;
+          const id =
+            (typeof record.id === "string" && record.id.trim()) ||
+            (typeof record.agentId === "string" && record.agentId.trim()) ||
+            "";
+          const name =
+            (typeof record.name === "string" && record.name.trim()) ||
+            (typeof record.agentName === "string" && record.agentName.trim()) ||
+            id;
+          if (!name) return null;
+          return {
+            id: id || `name:${name}`,
+            name,
+            domain:
+              (typeof record.domain === "string" && record.domain.trim()) ||
+              (typeof record.role === "string" && record.role.trim()) ||
+              null,
+            status:
+              (typeof record.status === "string" && record.status.trim()) || null,
+          };
+        })
+        .filter((item): item is LiveAgent => item !== null);
+    } catch (err: unknown) {
+      warnings.push(`live agents unavailable (${toErrorMessage(err)})`);
+    }
+
+    const orchestrator = liveAgents.find(
+      (agent) =>
+        /holt|orchestrator/i.test(agent.name) ||
+        /orchestrator/i.test(agent.domain ?? "")
+    );
+    if (orchestrator) addAgent(orchestrator);
+
+    let assignmentSource: "orchestrator" | "fallback" | "manual" = "fallback";
+    try {
+      const preflight = await client.delegationPreflight({
+        intent: `${input.title}${input.summary ? `: ${input.summary}` : ""}`,
+      });
+      const recommendations = preflight.data?.recommended_split ?? [];
+      const recommendedDomains = [
+        ...new Set(
+          recommendations
+            .map((entry) => String(entry.owner_domain ?? "").trim().toLowerCase())
+            .filter(Boolean)
+        ),
+      ];
+      for (const domain of recommendedDomains) {
+        const match = liveAgents.find((agent) =>
+          (agent.domain ?? "").toLowerCase().includes(domain)
+        );
+        if (match) addAgent(match);
+      }
+      if (recommendedDomains.length > 0) {
+        assignmentSource = "orchestrator";
+      }
+    } catch (err: unknown) {
+      warnings.push(`delegation preflight failed (${toErrorMessage(err)})`);
+    }
+
+    if (byKey.size === 0) {
+      const haystack = `${input.title} ${input.summary ?? ""}`.toLowerCase();
+      const domainHints: string[] = [];
+      if (/market|campaign|thread|article|tweet|copy/.test(haystack)) {
+        domainHints.push("marketing");
+      } else if (/design|ux|ui|a11y/.test(haystack)) {
+        domainHints.push("design");
+      } else if (/ops|runbook|incident|reliability/.test(haystack)) {
+        domainHints.push("operations");
+      } else if (/sales|deal|pipeline/.test(haystack)) {
+        domainHints.push("sales");
+      } else {
+        domainHints.push("engineering", "product");
+      }
+
+      for (const domain of domainHints) {
+        const match = liveAgents.find((agent) =>
+          (agent.domain ?? "").toLowerCase().includes(domain)
+        );
+        if (match) addAgent(match);
+      }
+    }
+
+    if (byKey.size === 0 && liveAgents.length > 0) {
+      addAgent(liveAgents[0]);
+      warnings.push("fallback selected first available live agent");
+    }
+
+    const assignedAgents = Array.from(byKey.values());
+    let updatedEntity: Record<string, unknown> | null = null;
+    try {
+      updatedEntity = (await client.updateEntity(input.entityType, input.entityId, {
+        assigned_agent_ids: assignedAgents.map((agent) => agent.id),
+        assigned_agent_names: assignedAgents.map((agent) => agent.name),
+        assignment_source: assignmentSource,
+      })) as Record<string, unknown>;
+    } catch (err: unknown) {
+      warnings.push(`assignment update failed (${toErrorMessage(err)})`);
+    }
+
+    return {
+      assignmentSource,
+      assignedAgents,
+      warnings,
+      updatedEntity,
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // 2. MCP Tools (Model Context Protocol compatible)
@@ -1210,10 +1477,55 @@ export default function register(api: PluginAPI): void {
       async execute(_callId: string, params: Record<string, unknown> = {}) {
         try {
           const { type, ...data } = params;
-          const entity = await client.createEntity(type as string, data);
+          let entity = await client.createEntity(type as string, data);
+          let assignmentSummary: {
+            assignment_source: "orchestrator" | "fallback" | "manual";
+            assigned_agents: AutoAssignedAgent[];
+            warnings: string[];
+          } | null = null;
+
+          const entityType = String(type ?? "");
+          if (entityType === "initiative" || entityType === "workstream") {
+            const entityRecord = entity as Record<string, unknown>;
+            const assignment = await autoAssignEntityForCreate({
+              entityType,
+              entityId: String(entityRecord.id ?? ""),
+              initiativeId:
+                entityType === "initiative"
+                  ? String(entityRecord.id ?? "")
+                  : (typeof data.initiative_id === "string"
+                      ? data.initiative_id
+                      : null),
+              title:
+                (typeof entityRecord.title === "string" && entityRecord.title) ||
+                (typeof entityRecord.name === "string" && entityRecord.name) ||
+                (typeof data.title === "string" && data.title) ||
+                "Untitled",
+              summary:
+                (typeof entityRecord.summary === "string" && entityRecord.summary) ||
+                (typeof data.summary === "string" && data.summary) ||
+                null,
+            });
+            if (assignment.updatedEntity) {
+              entity = assignment.updatedEntity as typeof entity;
+            }
+            assignmentSummary = {
+              assignment_source: assignment.assignmentSource,
+              assigned_agents: assignment.assignedAgents,
+              warnings: assignment.warnings,
+            };
+          }
+
           return json(
             `✅ Created ${type}: ${entity.title ?? entity.id}`,
-            entity
+            {
+              entity,
+              ...(assignmentSummary
+                ? {
+                    auto_assignment: assignmentSummary,
+                  }
+                : {}),
+            }
           );
         } catch (err: unknown) {
           return text(
@@ -1317,6 +1629,292 @@ export default function register(api: PluginAPI): void {
         } catch (err: unknown) {
           return text(
             `❌ List failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_report_progress ---
+  api.registerTool(
+    {
+      name: "orgx_report_progress",
+      description:
+        "Report progress on current work to the OrgX dashboard. Use this at key milestones so the team can track your work.",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: {
+            type: "string",
+            description: "What was accomplished (1-2 sentences, human-readable)",
+          },
+          phase: {
+            type: "string",
+            enum: ["researching", "implementing", "testing", "reviewing", "blocked"],
+            description: "Current work phase",
+          },
+          progress_pct: {
+            type: "number",
+            description: "Progress percentage (0-100)",
+            minimum: 0,
+            maximum: 100,
+          },
+          next_step: {
+            type: "string",
+            description: "What you plan to do next",
+          },
+        },
+        required: ["summary", "phase"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          summary: string;
+          phase: string;
+          progress_pct?: number;
+          next_step?: string;
+        } = { summary: "", phase: "implementing" }
+      ) {
+        const now = new Date().toISOString();
+        const id = `progress:${randomUUID().slice(0, 8)}`;
+
+        const activityItem: LiveActivityItem = {
+          id,
+          type: "delegation",
+          title: params.summary,
+          description: params.next_step ?? null,
+          agentId: null,
+          agentName: null,
+          runId: null,
+          initiativeId: null,
+          timestamp: now,
+          phase: params.phase as LiveActivityItem["phase"],
+          summary: params.next_step
+            ? `Next: ${params.next_step}`
+            : null,
+          metadata: {
+            source: "orgx_report_progress",
+            progress_pct: params.progress_pct,
+            phase: params.phase,
+          },
+        };
+
+        // Try cloud API first, fall back to local outbox
+        try {
+          await client.createEntity("activity", {
+            title: params.summary,
+            type: "delegation",
+            phase: params.phase,
+            progress_pct: params.progress_pct,
+            next_step: params.next_step,
+          });
+          return text(
+            `Progress reported: ${params.summary} [${params.phase}${params.progress_pct != null ? ` ${params.progress_pct}%` : ""}]`
+          );
+        } catch {
+          // Buffer locally
+          await appendToOutbox("progress", {
+            id,
+            type: "progress",
+            timestamp: now,
+            payload: params as Record<string, unknown>,
+            activityItem,
+          });
+          return text(
+            `Progress saved locally: ${params.summary} [${params.phase}${params.progress_pct != null ? ` ${params.progress_pct}%` : ""}] (will sync when connected)`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_request_decision ---
+  api.registerTool(
+    {
+      name: "orgx_request_decision",
+      description:
+        "Request a human decision before proceeding. Creates a decision in the OrgX dashboard that the user can approve or reject.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "The decision question (e.g., 'Deploy to production?')",
+          },
+          context: {
+            type: "string",
+            description: "Background context to help the human decide",
+          },
+          options: {
+            type: "array",
+            items: { type: "string" },
+            description: "Available choices (e.g., ['Yes, deploy now', 'Wait for more testing', 'Cancel'])",
+          },
+          urgency: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+            description: "How urgent this decision is",
+          },
+          blocking: {
+            type: "boolean",
+            description: "Whether work should pause until this is decided (default: true)",
+          },
+        },
+        required: ["question", "urgency"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          question: string;
+          context?: string;
+          options?: string[];
+          urgency: string;
+          blocking?: boolean;
+        } = { question: "", urgency: "medium" }
+      ) {
+        const now = new Date().toISOString();
+        const id = `decision:${randomUUID().slice(0, 8)}`;
+
+        const activityItem: LiveActivityItem = {
+          id,
+          type: "decision_requested",
+          title: params.question,
+          description: params.context ?? null,
+          agentId: null,
+          agentName: null,
+          runId: null,
+          initiativeId: null,
+          timestamp: now,
+          decisionRequired: true,
+          summary: params.options?.length
+            ? `Options: ${params.options.join(" | ")}`
+            : null,
+          metadata: {
+            source: "orgx_request_decision",
+            urgency: params.urgency,
+            blocking: params.blocking ?? true,
+            options: params.options,
+          },
+        };
+
+        try {
+          const entity = await client.createEntity("decision", {
+            title: params.question,
+            summary: params.context,
+            urgency: params.urgency,
+            status: "pending",
+            metadata: {
+              options: params.options,
+              blocking: params.blocking ?? true,
+            },
+          });
+          return json(
+            `Decision requested: ${params.question} [${params.urgency.toUpperCase()}]${params.blocking !== false ? " (blocking)" : ""}`,
+            entity
+          );
+        } catch {
+          await appendToOutbox("decisions", {
+            id,
+            type: "decision",
+            timestamp: now,
+            payload: params as Record<string, unknown>,
+            activityItem,
+          });
+          return text(
+            `Decision saved locally: ${params.question} [${params.urgency.toUpperCase()}] (will sync when connected)`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_register_artifact ---
+  api.registerTool(
+    {
+      name: "orgx_register_artifact",
+      description:
+        "Register a work output (PR, document, config change, report, etc.) with OrgX. Makes it visible in the dashboard.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Human-readable artifact name (e.g., 'PR #107: Fix build size')",
+          },
+          artifact_type: {
+            type: "string",
+            enum: ["pr", "commit", "document", "config", "report", "design", "other"],
+            description: "Type of artifact",
+          },
+          description: {
+            type: "string",
+            description: "What this artifact is and why it matters",
+          },
+          url: {
+            type: "string",
+            description: "Link to the artifact (PR URL, file path, etc.)",
+          },
+        },
+        required: ["name", "artifact_type"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          name: string;
+          artifact_type: string;
+          description?: string;
+          url?: string;
+        } = { name: "", artifact_type: "other" }
+      ) {
+        const now = new Date().toISOString();
+        const id = `artifact:${randomUUID().slice(0, 8)}`;
+
+        const activityItem: LiveActivityItem = {
+          id,
+          type: "artifact_created",
+          title: params.name,
+          description: params.description ?? null,
+          agentId: null,
+          agentName: null,
+          runId: null,
+          initiativeId: null,
+          timestamp: now,
+          summary: params.url ?? null,
+          metadata: {
+            source: "orgx_register_artifact",
+            artifact_type: params.artifact_type,
+            url: params.url,
+          },
+        };
+
+        try {
+          const entity = await client.createEntity("artifact", {
+            name: params.name,
+            artifact_type: params.artifact_type,
+            description: params.description,
+            artifact_url: params.url,
+            status: "active",
+          });
+          return json(
+            `Artifact registered: ${params.name} [${params.artifact_type}]`,
+            entity
+          );
+        } catch {
+          await appendToOutbox("artifacts", {
+            id,
+            type: "artifact",
+            timestamp: now,
+            payload: params as Record<string, unknown>,
+            activityItem,
+          });
+          return text(
+            `Artifact saved locally: ${params.name} [${params.artifact_type}] (will sync when connected)`
           );
         }
       },

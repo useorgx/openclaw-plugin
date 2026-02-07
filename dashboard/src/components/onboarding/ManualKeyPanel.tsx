@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import orgxLogo from '@/assets/orgx-logo.png';
 
 interface ManualKeyPanelProps {
   isSubmitting: boolean;
@@ -34,8 +35,13 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       return;
     }
 
+    // Accept either a full key (e.g. oxk_...) or just the suffix after oxk_.
+    const normalizedApiKey = /^[a-z]+_/i.test(trimmed)
+      ? trimmed
+      : `oxk_${trimmed}`;
+
     try {
-      await onSubmit(trimmed, userId.trim() || undefined);
+      await onSubmit(normalizedApiKey, userId.trim() || undefined);
       setApiKey('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to validate API key.');
@@ -54,15 +60,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="px-6 pt-6 sm:px-8 sm:pt-8">
         <motion.div variants={rise} className="flex items-center gap-2.5">
-          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="8" fill="#BFFF00" fillOpacity="0.12" />
-            <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" stroke="#BFFF00" strokeOpacity="0.25" />
-            <path
-              d="M10 16C10 12.686 12.686 10 16 10C19.314 10 22 12.686 22 16C22 19.314 19.314 22 16 22C12.686 22 10 19.314 10 16Z"
-              stroke="#BFFF00" strokeWidth="1.8"
-            />
-            <path d="M12.5 12.5L19.5 19.5M19.5 12.5L12.5 19.5" stroke="#BFFF00" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
+          <img src={orgxLogo} alt="OrgX" className="h-7 w-7 rounded-lg object-contain" />
           <span className="text-[13px] font-semibold text-white/70">OrgX</span>
         </motion.div>
 
@@ -71,6 +69,9 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
         </motion.h3>
         <motion.p variants={rise} className="mt-1.5 text-[14px] leading-relaxed text-white/45">
           Paste a key from your <span className="text-white/60">useorgx.com</span> dashboard. Browser pairing is recommended.
+        </motion.p>
+        <motion.p variants={rise} className="mt-1 text-[12px] text-white/35">
+          Paste full key or only the part after <span className="font-mono text-white/50">oxk_</span>.
         </motion.p>
       </div>
 
