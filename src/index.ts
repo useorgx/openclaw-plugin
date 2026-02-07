@@ -12,11 +12,18 @@
  */
 
 import { OrgXClient } from "./api.js";
-import type { OrgXConfig, OrgSnapshot } from "./types.js";
+import type { OnboardingState, OrgXConfig, OrgSnapshot } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import {
+  clearPersistedApiKey,
+  loadAuthStore,
+  resolveInstallationId,
+  saveAuthStore,
+} from "./auth-store.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -73,48 +80,112 @@ export interface ToolResult {
 // HELPERS
 // =============================================================================
 
-function resolveConfig(api: PluginAPI): OrgXConfig & { dashboardEnabled: boolean } {
+interface ResolvedConfig extends OrgXConfig {
+  dashboardEnabled: boolean;
+  installationId: string;
+  pluginVersion: string;
+  docsUrl: string;
+  apiKeySource: "config" | "environment" | "persisted" | "legacy-dev" | "none";
+}
+
+interface ResolvedApiKey {
+  value: string;
+  source: "config" | "environment" | "persisted" | "legacy-dev" | "none";
+}
+
+const DEFAULT_DOCS_URL = "https://orgx.mintlify.site/guides/openclaw-plugin-setup";
+
+function readLegacyEnvValue(keyPattern: RegExp): string {
+  try {
+    const envPath = join(homedir(), "Code", "orgx", "orgx", ".env.local");
+    const envContent = readFileSync(envPath, "utf-8");
+    const match = envContent.match(keyPattern);
+    return match?.[1]?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveApiKey(
+  pluginConf: Partial<OrgXConfig>,
+  persistedApiKey: string | null
+): ResolvedApiKey {
+  if (pluginConf.apiKey && pluginConf.apiKey.trim().length > 0) {
+    return { value: pluginConf.apiKey.trim(), source: "config" };
+  }
+
+  if (process.env.ORGX_API_KEY && process.env.ORGX_API_KEY.trim().length > 0) {
+    return { value: process.env.ORGX_API_KEY.trim(), source: "environment" };
+  }
+
+  if (persistedApiKey && persistedApiKey.trim().length > 0) {
+    return { value: persistedApiKey.trim(), source: "persisted" };
+  }
+
+  const legacy = readLegacyEnvValue(
+    /^ORGX_(?:API_KEY|SERVICE_KEY)=["']?([^"'\n]+)["']?$/m
+  );
+  if (legacy) {
+    return { value: legacy, source: "legacy-dev" };
+  }
+
+  return { value: "", source: "none" };
+}
+
+function resolvePluginVersion(): string {
+  try {
+    const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
+    const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as {
+      version?: string;
+    };
+    return parsed.version && parsed.version.trim().length > 0
+      ? parsed.version
+      : "dev";
+  } catch {
+    return "dev";
+  }
+}
+
+function resolveDocsUrl(baseUrl: string): string {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  if (normalized.includes("localhost") || normalized.includes("127.0.0.1")) {
+    return `${normalized}/docs/mintlify/guides/openclaw-plugin-setup`;
+  }
+  return DEFAULT_DOCS_URL;
+}
+
+function resolveConfig(
+  api: PluginAPI,
+  input: { installationId: string; persistedApiKey: string | null; persistedUserId: string | null }
+): ResolvedConfig {
   const pluginConf = api.config?.plugins?.entries?.orgx?.config ?? {};
 
-  let apiKey = pluginConf.apiKey || process.env.ORGX_API_KEY || "";
-  if (!apiKey) {
-    try {
-      const envPath = join(homedir(), "Code", "orgx", "orgx", ".env.local");
-      const envContent = readFileSync(envPath, "utf-8");
-      const match = envContent.match(
-        /^ORGX_(?:API_KEY|SERVICE_KEY)=["']?([^"'\n]+)["']?$/m
-      );
-      if (match) apiKey = match[1].trim();
-    } catch {
-      // .env.local not found
-    }
-  }
+  const apiKeyResolution = resolveApiKey(pluginConf, input.persistedApiKey);
+  const apiKey = apiKeyResolution.value;
 
   // Resolve user ID for X-Orgx-User-Id header
-  let userId = pluginConf.userId || process.env.ORGX_USER_ID || "";
-  if (!userId) {
-    try {
-      const envPath = join(homedir(), "Code", "orgx", "orgx", ".env.local");
-      const envContent = readFileSync(envPath, "utf-8");
-      const match = envContent.match(
-        /^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m
-      );
-      if (match) userId = match[1].trim();
-    } catch {
-      // .env.local not found
-    }
-  }
+  const userId =
+    pluginConf.userId?.trim() ||
+    process.env.ORGX_USER_ID?.trim() ||
+    input.persistedUserId?.trim() ||
+    readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m);
+
+  const baseUrl =
+    pluginConf.baseUrl ||
+    process.env.ORGX_BASE_URL ||
+    "https://www.useorgx.com";
 
   return {
     apiKey,
     userId,
-    baseUrl:
-      pluginConf.baseUrl ||
-      process.env.ORGX_BASE_URL ||
-      "https://www.useorgx.com",
+    baseUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
     enabled: pluginConf.enabled ?? true,
     dashboardEnabled: pluginConf.dashboardEnabled ?? true,
+    installationId: input.installationId,
+    pluginVersion: resolvePluginVersion(),
+    docsUrl: resolveDocsUrl(baseUrl),
+    apiKeySource: apiKeyResolution.source,
   };
 }
 
@@ -186,7 +257,13 @@ let lastSnapshotAt = 0;
  * @param api - The Clawdbot plugin API
  */
 export default function register(api: PluginAPI): void {
-  const config = resolveConfig(api);
+  const persistedAuth = loadAuthStore();
+  const installationId = resolveInstallationId();
+  const config = resolveConfig(api, {
+    installationId,
+    persistedApiKey: persistedAuth?.apiKey ?? null,
+    persistedUserId: persistedAuth?.userId ?? null,
+  });
 
   if (!config.enabled) {
     api.log?.info?.("[orgx] Plugin disabled");
@@ -200,6 +277,133 @@ export default function register(api: PluginAPI): void {
   }
 
   const client = new OrgXClient(config.apiKey, config.baseUrl, config.userId);
+  let onboardingState: OnboardingState = {
+    status: config.apiKey ? "connected" : "idle",
+    hasApiKey: Boolean(config.apiKey),
+    connectionVerified: Boolean(config.apiKey),
+    workspaceName: persistedAuth?.workspaceName ?? null,
+    lastError: null,
+    nextAction: config.apiKey ? "open_dashboard" : "connect",
+    docsUrl: config.docsUrl,
+    keySource: config.apiKeySource,
+    installationId: config.installationId,
+    connectUrl: null,
+    pairingId: null,
+    expiresAt: null,
+    pollIntervalMs: null,
+  };
+
+  interface ActivePairing {
+    pairingId: string;
+    pollToken: string;
+    connectUrl: string;
+    expiresAt: string;
+    pollIntervalMs: number;
+  }
+
+  let activePairing: ActivePairing | null = null;
+
+  const baseApiUrl = config.baseUrl.replace(/\/+$/, "");
+
+  function updateOnboardingState(
+    updates: Partial<OnboardingState>
+  ): OnboardingState {
+    onboardingState = {
+      ...onboardingState,
+      ...updates,
+    };
+    return onboardingState;
+  }
+
+  function toErrorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return typeof err === "string" ? err : "Unexpected error";
+  }
+
+  function clearPairingState() {
+    activePairing = null;
+    updateOnboardingState({
+      connectUrl: null,
+      pairingId: null,
+      expiresAt: null,
+      pollIntervalMs: null,
+    });
+  }
+
+  async function fetchOrgxJson<T>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown
+  ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
+    try {
+      const response = await fetch(`${baseApiUrl}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; data?: T; error?: string }
+        | null;
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          error:
+            payload?.error ||
+            `OrgX request failed (${response.status})`,
+        };
+      }
+
+      if (payload?.data !== undefined) {
+        return { ok: true, data: payload.data };
+      }
+
+      return { ok: true, data: payload as unknown as T };
+    } catch (err: unknown) {
+      return { ok: false, status: 0, error: toErrorMessage(err) };
+    }
+  }
+
+  function setRuntimeApiKey(input: {
+    apiKey: string;
+    source: "manual" | "browser_pairing";
+    workspaceName?: string | null;
+    keyPrefix?: string | null;
+    userId?: string | null;
+  }) {
+    const nextApiKey = input.apiKey.trim();
+    config.apiKey = nextApiKey;
+    config.apiKeySource = "persisted";
+    if (typeof input.userId === "string" && input.userId.trim().length > 0) {
+      config.userId = input.userId.trim();
+    }
+
+    client.setCredentials({
+      apiKey: config.apiKey,
+      userId: config.userId,
+      baseUrl: config.baseUrl,
+    });
+
+    saveAuthStore({
+      installationId: config.installationId,
+      apiKey: nextApiKey,
+      userId: config.userId || null,
+      workspaceName: input.workspaceName ?? null,
+      keyPrefix: input.keyPrefix ?? null,
+      source: input.source,
+    });
+
+    updateOnboardingState({
+      hasApiKey: true,
+      keySource: "persisted",
+      installationId: config.installationId,
+      workspaceName: input.workspaceName ?? onboardingState.workspaceName,
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // 1. Background Sync Service
@@ -208,15 +412,293 @@ export default function register(api: PluginAPI): void {
   let syncTimer: ReturnType<typeof setInterval> | null = null;
 
   async function doSync(): Promise<void> {
+    if (!config.apiKey) {
+      updateOnboardingState({
+        status: "idle",
+        hasApiKey: false,
+        connectionVerified: false,
+        nextAction: "connect",
+      });
+      return;
+    }
+
     try {
       cachedSnapshot = await client.getOrgSnapshot();
       lastSnapshotAt = Date.now();
+      updateOnboardingState({
+        status: "connected",
+        hasApiKey: true,
+        connectionVerified: true,
+        lastError: null,
+        nextAction: "open_dashboard",
+      });
       api.log?.debug?.("[orgx] Sync OK");
     } catch (err: unknown) {
+      updateOnboardingState({
+        status: "error",
+        hasApiKey: true,
+        connectionVerified: false,
+        lastError: toErrorMessage(err),
+        nextAction: "reconnect",
+      });
       api.log?.warn?.(
         `[orgx] Sync failed: ${err instanceof Error ? err.message : err}`
       );
     }
+  }
+
+  async function startPairing(input: {
+    openclawVersion?: string;
+    platform?: string;
+    deviceName?: string;
+  }): Promise<{
+    pairingId: string;
+    connectUrl: string;
+    expiresAt: string;
+    pollIntervalMs: number;
+    state: OnboardingState;
+  }> {
+    updateOnboardingState({
+      status: "starting",
+      lastError: null,
+      nextAction: "connect",
+    });
+
+    const started = await fetchOrgxJson<{
+      pairingId: string;
+      pollToken: string;
+      connectUrl: string;
+      expiresAt: string;
+      pollIntervalMs: number;
+    }>("POST", "/api/plugin/openclaw/pairings", {
+      installationId: config.installationId,
+      pluginVersion: config.pluginVersion,
+      openclawVersion: input.openclawVersion,
+      platform: input.platform || process.platform,
+      deviceName: input.deviceName,
+    });
+
+    if (!started.ok) {
+      const message = `Pairing start failed: ${started.error}`;
+      updateOnboardingState({
+        status: "error",
+        hasApiKey: Boolean(config.apiKey),
+        connectionVerified: false,
+        lastError: message,
+        nextAction: "enter_manual_key",
+      });
+      throw new Error(message);
+    }
+
+    activePairing = {
+      pairingId: started.data.pairingId,
+      pollToken: started.data.pollToken,
+      connectUrl: started.data.connectUrl,
+      expiresAt: started.data.expiresAt,
+      pollIntervalMs: started.data.pollIntervalMs,
+    };
+
+    const state = updateOnboardingState({
+      status: "awaiting_browser_auth",
+      hasApiKey: false,
+      connectionVerified: false,
+      lastError: null,
+      nextAction: "wait_for_browser",
+      connectUrl: started.data.connectUrl,
+      pairingId: started.data.pairingId,
+      expiresAt: started.data.expiresAt,
+      pollIntervalMs: started.data.pollIntervalMs,
+    });
+
+    return {
+      pairingId: started.data.pairingId,
+      connectUrl: started.data.connectUrl,
+      expiresAt: started.data.expiresAt,
+      pollIntervalMs: started.data.pollIntervalMs,
+      state,
+    };
+  }
+
+  async function getPairingStatus(): Promise<OnboardingState> {
+    if (!activePairing) {
+      return { ...onboardingState };
+    }
+
+    const polled = await fetchOrgxJson<{
+      pairingId: string;
+      status: string;
+      expiresAt: string;
+      workspaceName?: string | null;
+      keyPrefix?: string | null;
+      key?: string;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+    }>(
+      "GET",
+      `/api/plugin/openclaw/pairings/${encodeURIComponent(
+        activePairing.pairingId
+      )}?pollToken=${encodeURIComponent(activePairing.pollToken)}`
+    );
+
+    if (!polled.ok) {
+      return updateOnboardingState({
+        status: "error",
+        hasApiKey: Boolean(config.apiKey),
+        connectionVerified: false,
+        lastError: polled.error,
+        nextAction: "enter_manual_key",
+      });
+    }
+
+    const status = polled.data.status;
+    if (status === "pending" || status === "authorized") {
+      return updateOnboardingState({
+        status: "pairing",
+        hasApiKey: false,
+        connectionVerified: false,
+        lastError: null,
+        nextAction: "wait_for_browser",
+      });
+    }
+
+    if (status === "ready") {
+      const key = typeof polled.data.key === "string" ? polled.data.key : "";
+      if (!key) {
+        clearPairingState();
+        return updateOnboardingState({
+          status: "error",
+          hasApiKey: false,
+          connectionVerified: false,
+          lastError: "Pairing completed without an API key payload.",
+          nextAction: "retry",
+        });
+      }
+
+      setRuntimeApiKey({
+        apiKey: key,
+        source: "browser_pairing",
+        workspaceName: polled.data.workspaceName ?? null,
+        keyPrefix: polled.data.keyPrefix ?? null,
+      });
+
+      await fetchOrgxJson(
+        "POST",
+        `/api/plugin/openclaw/pairings/${encodeURIComponent(
+          activePairing.pairingId
+        )}/ack`,
+        {
+          pollToken: activePairing.pollToken,
+        }
+      );
+
+      clearPairingState();
+      updateOnboardingState({
+        status: "connected",
+        hasApiKey: true,
+        connectionVerified: false,
+        workspaceName: polled.data.workspaceName ?? null,
+        nextAction: "open_dashboard",
+        lastError: null,
+      });
+      await doSync();
+      return { ...onboardingState };
+    }
+
+    if (status === "consumed") {
+      clearPairingState();
+      return updateOnboardingState({
+        status: config.apiKey ? "connected" : "error",
+        hasApiKey: Boolean(config.apiKey),
+        connectionVerified: false,
+        lastError: config.apiKey ? null : "Pairing consumed but key is unavailable.",
+        nextAction: config.apiKey ? "open_dashboard" : "retry",
+      });
+    }
+
+    clearPairingState();
+    return updateOnboardingState({
+      status: status === "cancelled" ? "manual_key" : "error",
+      hasApiKey: Boolean(config.apiKey),
+      connectionVerified: false,
+      lastError: polled.data.errorMessage ?? "Pairing failed or expired.",
+      nextAction: "retry",
+    });
+  }
+
+  async function submitManualKey(input: {
+    apiKey: string;
+    userId?: string;
+  }): Promise<OnboardingState> {
+    const nextKey = input.apiKey.trim();
+    if (!nextKey) {
+      throw new Error("apiKey is required");
+    }
+
+    updateOnboardingState({
+      status: "manual_key",
+      hasApiKey: false,
+      connectionVerified: false,
+      lastError: null,
+      nextAction: "enter_manual_key",
+    });
+
+    const probeClient = new OrgXClient(
+      nextKey,
+      config.baseUrl,
+      input.userId?.trim() || config.userId
+    );
+    const snapshot = await probeClient.getOrgSnapshot();
+
+    setRuntimeApiKey({
+      apiKey: nextKey,
+      source: "manual",
+      userId: input.userId?.trim() || null,
+      workspaceName: onboardingState.workspaceName,
+      keyPrefix: null,
+    });
+
+    cachedSnapshot = snapshot;
+    lastSnapshotAt = Date.now();
+
+    return updateOnboardingState({
+      status: "connected",
+      hasApiKey: true,
+      connectionVerified: true,
+      lastError: null,
+      nextAction: "open_dashboard",
+    });
+  }
+
+  async function disconnectOnboarding(): Promise<OnboardingState> {
+    if (activePairing) {
+      await fetchOrgxJson(
+        "POST",
+        `/api/plugin/openclaw/pairings/${encodeURIComponent(
+          activePairing.pairingId
+        )}/cancel`,
+        {
+          pollToken: activePairing.pollToken,
+          reason: "disconnect",
+        }
+      );
+    }
+
+    clearPairingState();
+    clearPersistedApiKey();
+    config.apiKey = "";
+    client.setCredentials({ apiKey: "" });
+    cachedSnapshot = null;
+    lastSnapshotAt = 0;
+
+    return updateOnboardingState({
+      status: "idle",
+      hasApiKey: false,
+      connectionVerified: false,
+      workspaceName: null,
+      lastError: null,
+      nextAction: "connect",
+      keySource: "none",
+    });
   }
 
   api.registerService({
@@ -822,13 +1304,26 @@ export default function register(api: PluginAPI): void {
   // 4. HTTP Handler — Dashboard + API proxy
   // ---------------------------------------------------------------------------
 
-  const httpHandler = createHttpHandler(config, client, () => cachedSnapshot);
+  const httpHandler = createHttpHandler(
+    config,
+    client,
+    () => cachedSnapshot,
+    {
+      getState: () => ({ ...onboardingState }),
+      startPairing,
+      getStatus: getPairingStatus,
+      submitManualKey,
+      disconnect: disconnectOnboarding,
+    }
+  );
   api.registerHttpHandler(httpHandler);
 
   api.log?.info?.("[orgx] Plugin registered", {
     baseUrl: config.baseUrl,
     hasApiKey: !!config.apiKey,
     dashboardEnabled: config.dashboardEnabled,
+    installationId: config.installationId,
+    pluginVersion: config.pluginVersion,
   });
 }
 

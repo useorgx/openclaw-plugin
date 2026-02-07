@@ -2,6 +2,16 @@
 
 OrgX plugin for [OpenClaw](https://openclaw.ai) — connect your AI agents to OrgX for orchestration, quality gates, model routing, and a live dashboard.
 
+## 60-Second Onboarding
+
+1. Install the plugin.
+2. Open `http://127.0.0.1:18789/orgx/live`.
+3. Click **Connect OrgX**.
+4. Sign in at [useorgx.com](https://useorgx.com) and approve the connection.
+5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically.
+
+Manual API key entry is still available as a permanent fallback from the onboarding panel.
+
 ## Installation
 
 ```bash
@@ -107,6 +117,10 @@ When the plugin is loaded, these HTTP endpoints are available:
 | `GET /orgx/api/activity` | Activity feed |
 | `GET /orgx/api/initiatives` | Initiative data |
 | `GET /orgx/api/onboarding` | Config/setup state |
+| `POST /orgx/api/onboarding/start` | Start browser pairing flow |
+| `GET /orgx/api/onboarding/status` | Poll pairing status / auto-connect |
+| `POST /orgx/api/onboarding/manual-key` | Manual key validation and persist |
+| `POST /orgx/api/onboarding/disconnect` | Clear local plugin credential |
 | `GET /orgx/api/live/sessions` | Live session tree |
 | `GET /orgx/api/live/activity` | Live activity feed |
 | `GET /orgx/api/live/stream` | Live SSE stream |
@@ -116,12 +130,13 @@ When the plugin is loaded, these HTTP endpoints are available:
 
 - OpenClaw 2026.1.0 or later
 - Node.js 18+
-- OrgX account with API key
+- OrgX account (browser pairing recommended, API key fallback supported)
 
 ## Links
 
 - [OrgX](https://useorgx.com) — AI orchestration platform
 - [OpenClaw](https://openclaw.ai) — Personal AI assistant framework
+- [OpenClaw Setup Guide](https://orgx.mintlify.site/guides/openclaw-plugin-setup)
 - [Documentation](https://docs.useorgx.com)
 - [GitHub](https://github.com/useorgx/openclaw-plugin)
 
