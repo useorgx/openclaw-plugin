@@ -5,67 +5,86 @@ import type { Phase } from '@/types';
 interface PhaseProgressProps {
   phases: Phase[];
   currentPhase: number;
+  health?: number;
 }
 
-export function PhaseProgress({ phases, currentPhase }: PhaseProgressProps) {
+function progressFromPhases(phases: Phase[], currentPhase: number): number {
+  if (phases.length === 0) return 0;
+  if (currentPhase >= phases.length - 1 && phases.every((phase) => phase.status === 'completed')) {
+    return 100;
+  }
+
+  const baseline = (currentPhase / Math.max(1, phases.length - 1)) * 100;
+  const current = phases[currentPhase];
+  if (!current) return baseline;
+  if (current.status === 'completed') return Math.min(100, baseline + 100 / phases.length);
+  if (current.status === 'current' || current.status === 'warning') {
+    return Math.min(100, baseline + 50 / phases.length);
+  }
+  return baseline;
+}
+
+export function PhaseProgress({ phases, currentPhase, health }: PhaseProgressProps) {
+  const progress = progressFromPhases(phases, currentPhase);
+
   return (
-    <div className="relative">
-      <div className="relative flex items-center">
-        {phases.map((phase, i) => {
-          const isLast = i === phases.length - 1;
-          const progress = i < currentPhase ? 100 : i === currentPhase ? 50 : 0;
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.1em] text-white/38">
+        <span>Momentum</span>
+        <span>{Math.round(health ?? progress)}%</span>
+      </div>
+
+      <div className="relative">
+        <div className="h-2 rounded-full bg-white/[0.08]" />
+        <div
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{
+            width: `${Math.max(0, Math.min(100, progress))}%`,
+            background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+            boxShadow: `0 0 18px ${colors.teal}45`,
+          }}
+        />
+
+        {phases.map((phase, index) => {
+          const left = (index / Math.max(1, phases.length - 1)) * 100;
+          const isCompleted = phase.status === 'completed';
+          const isCurrent = phase.status === 'current';
+          const isWarning = phase.status === 'warning';
 
           return (
-            <div key={phase.name} className="flex-1 relative">
-              <div className="h-1 rounded-full bg-white/[0.08]">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{
-                    width: `${progress}%`,
-                    background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
-                  }}
-                />
+            <div
+              key={phase.name}
+              className="absolute top-1/2 z-10 -translate-y-1/2"
+              style={{ left: `${left}%`, transform: 'translate(-50%, -50%)' }}
+            >
+              <div
+                className={cn(
+                  'flex h-4 w-4 items-center justify-center rounded-full border text-[9px] font-semibold',
+                  isCompleted && 'border-lime/80 bg-lime text-black',
+                  isCurrent && 'border-lime/60 bg-lime/30 text-lime',
+                  isWarning && 'border-amber-300/70 bg-amber-300 text-black',
+                  !isCompleted && !isCurrent && !isWarning && 'border-white/20 bg-black/60 text-white/45'
+                )}
+              >
+                {isCompleted ? '✓' : isWarning ? '!' : ''}
               </div>
-
-              {!isLast && (
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10">
-                  {phase.status === 'completed' || phase.status === 'current' ? (
-                    <div
-                      className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: colors.lime }}
-                    >
-                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </div>
-                  ) : phase.status === 'warning' ? (
-                    <div
-                      className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: colors.teal }}
-                    >
-                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                      </svg>
-                    </div>
-                  ) : (
-                    <div className="w-2 h-2 rounded-full bg-white/20" />
-                  )}
-                </div>
-              )}
             </div>
           );
         })}
       </div>
 
-      <div className="flex justify-between mt-1.5">
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${Math.max(phases.length, 1)}, minmax(0, 1fr))` }}
+      >
         {phases.map((phase) => (
           <span
             key={phase.name}
             className={cn(
-              'text-[8px] font-medium tracking-wider uppercase',
+              'truncate text-[8px] uppercase tracking-[0.12em]',
               phase.status === 'completed' || phase.status === 'current'
-                ? 'text-white/50'
-                : 'text-white/25'
+                ? 'text-white/60'
+                : 'text-white/30'
             )}
           >
             {phase.name}

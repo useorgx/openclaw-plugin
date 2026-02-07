@@ -1,11 +1,15 @@
 import { memo, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
-import type { SessionTreeNode, SessionTreeResponse } from '@/types';
+import { formatRelativeTime } from '@/lib/time';
+import { resolveProvider } from '@/lib/providers';
+import type { LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+import { ProviderLogo } from '@/components/shared/ProviderLogo';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
+  activity: LiveActivityItem[];
   selectedSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
 }
@@ -43,17 +47,34 @@ type AgentGroup = {
   latest: SessionTreeNode;
 };
 
+function toEpoch(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function sortByUpdated(a: SessionTreeNode, b: SessionTreeNode) {
-  const toEpoch = (value: string | null | undefined) =>
-    value ? new Date(value).getTime() : 0;
   return (
     toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt) -
     toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt)
   );
 }
 
+function summaryForNode(node: SessionTreeNode, summaryByRunId: Map<string, string>): string {
+  const fallback =
+    node.lastEventSummary ??
+    summaryByRunId.get(node.runId) ??
+    summaryByRunId.get(node.id) ??
+    '';
+
+  const summary = fallback.trim();
+  if (summary.length > 0) return summary;
+  return 'No run summary yet. Open session to inspect messages and outputs.';
+}
+
 export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   sessions,
+  activity,
   selectedSessionId,
   onSelectSession,
 }: AgentsChatsPanelProps) {
@@ -61,11 +82,32 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   const [offlineDateFilter, setOfflineDateFilter] =
     useState<(typeof OFFLINE_DATE_FILTERS)[number]['id']>('all');
 
+  const summaryByRunId = useMemo(() => {
+    const map = new Map<string, string>();
+    const ordered = [...activity].sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp));
+
+    for (const item of ordered) {
+      const runId = item.runId;
+      if (!runId || map.has(runId)) continue;
+
+      const summary =
+        item.summary?.trim() ??
+        item.description?.trim() ??
+        item.title?.trim() ??
+        '';
+      if (summary.length > 0) {
+        map.set(runId, summary);
+      }
+    }
+
+    return map;
+  }, [activity]);
+
   const { agents, hiddenGroupCount, filteredOutByDate } = useMemo(() => {
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
-      const key = node.agentId ?? 'unassigned';
+      const key = node.agentId ?? node.agentName ?? node.id;
       const existing = map.get(key);
 
       if (existing) {
@@ -96,8 +138,6 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       selectedWindow.minutes === null
         ? null
         : Date.now() - selectedWindow.minutes * 60_000;
-    const toEpoch = (value: string | null | undefined) =>
-      value ? new Date(value).getTime() : 0;
 
     const filteredGroups = sortedGroups.filter((group) => {
       if (cutoffEpoch === null) return true;
@@ -144,7 +184,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
         <div>
           <h2 className="text-[13px] font-semibold text-white">Agents / Chats</h2>
-          <p className="text-[10px] text-white/45">Grouped by agent identity</p>
+          <p className="text-[10px] text-white/45">
+            Provider logos + run summaries for fast triage
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <label htmlFor="offline-date-filter" className="text-[10px] text-white/45">
@@ -172,15 +214,30 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {agents.length === 0 && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-[11px] text-white/45">
-            {filteredOutByDate > 0
-              ? 'No sessions match the selected offline date filter.'
-              : 'No active chats yet.'}
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-5 text-center">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-white/25"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            <p className="text-[11px] text-white/45">
+              {filteredOutByDate > 0
+                ? 'No sessions match the selected offline date filter.'
+                : 'No active chats yet.'}
+            </p>
           </div>
         )}
 
         {agents.map((group) => {
-          const agentKey = group.agentId ?? 'unassigned';
+          const agentKey = group.agentId ?? group.agentName;
           const isCollapsed = collapsed.has(agentKey);
           const hasChildren = group.nodes.length > 1;
           const lead = group.latest;
@@ -191,6 +248,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const hiddenChildren = Math.max(
             0,
             group.nodes.length - 1 - visibleChildren.length
+          );
+          const summary = summaryForNode(lead, summaryByRunId);
+          const provider = resolveProvider(
+            group.agentName,
+            lead.title,
+            lead.lastEventSummary,
+            summary,
+            lead
           );
 
           return (
@@ -204,15 +269,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               <div className="flex items-stretch">
                 <button
                   onClick={() => onSelectSession(lead.id)}
-                  className={cn(
-                    'flex-1 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03]'
-                  )}
+                  className="flex-1 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
                 >
-                  <div className="flex items-start gap-2">
-                    <span
-                      className="mt-1.5 h-2 w-2 rounded-full"
-                      style={{ backgroundColor: statusColor(lead.status) }}
-                    />
+                  <div className="flex items-start gap-2.5">
+                    <div className="relative mt-0.5 flex-shrink-0">
+                      <ProviderLogo provider={provider.id} size="sm" />
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
+                        style={{
+                          backgroundColor: statusColor(lead.status),
+                          borderColor: colors.cardBg,
+                        }}
+                      />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-[11px] font-semibold text-white">
@@ -224,12 +293,23 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           </span>
                         )}
                       </div>
-                      <p className="truncate text-[10px] text-white/70">{lead.title}</p>
-                      {lead.lastEventSummary && (
-                        <p className="truncate text-[9px] text-white/40">
-                          {lead.lastEventSummary}
-                        </p>
-                      )}
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-white/45">
+                        <span
+                          className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
+                          style={{
+                            borderColor: `${provider.accent}66`,
+                            color: provider.accent,
+                            backgroundColor: provider.tint,
+                          }}
+                        >
+                          {provider.label}
+                        </span>
+                        <span>{formatRelativeTime(lead.updatedAt ?? lead.lastEventAt ?? lead.startedAt ?? Date.now())}</span>
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-white/78">{lead.title}</p>
+                      <p className="mt-0.5 line-clamp-2 text-[9px] leading-relaxed text-white/48">
+                        {summary}
+                      </p>
                     </div>
                   </div>
                 </button>
@@ -266,6 +346,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   <div className="space-y-1.5 p-2">
                     {visibleChildren.map((node) => {
                       const childActive = selectedSessionId === node.id;
+                      const childProvider = resolveProvider(
+                        node.agentName,
+                        node.title,
+                        node.lastEventSummary,
+                        node
+                      );
                       return (
                         <button
                           key={node.id}
@@ -278,14 +364,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           )}
                         >
                           <div className="flex items-center gap-2">
-                            <span
-                              className="h-1.5 w-1.5 rounded-full"
-                              style={{ backgroundColor: statusColor(node.status) }}
-                            />
+                            <ProviderLogo provider={childProvider.id} size="xs" />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-[10px] text-white/90">{node.title}</p>
                               <p className="text-[9px] uppercase tracking-[0.08em] text-white/45">
-                                {node.status}
+                                {childProvider.label} · {node.status}
                               </p>
                             </div>
                           </div>
