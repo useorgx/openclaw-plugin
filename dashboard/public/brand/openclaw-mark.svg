@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" fill="none">
+  <defs>
+    <linearGradient id="openclaw-grad" x1="12" y1="14" x2="66" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="72" height="72" rx="18" fill="#06141B" stroke="#1E3A47"/>
+  <path d="M24 53c0-10 6.5-18 16-18s16 8 16 18" stroke="url(#openclaw-grad)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M25 32l3-9M36 30l2-10M46 30l2-10M56 32l3-9" stroke="url(#openclaw-grad)" stroke-width="4" stroke-linecap="round"/>
+</svg>

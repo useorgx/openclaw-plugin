@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
@@ -8,6 +9,7 @@ import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/type
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 
 const itemVariants = {
@@ -36,6 +38,7 @@ interface DecoratedActivityItem {
   timestampEpoch: number;
   searchText: string;
 }
+type HeadlineSource = 'llm' | 'heuristic' | null;
 
 const filterLabels: Record<ActivityFilterId, string> = {
   all: 'All',
@@ -103,7 +106,28 @@ function resolveRunId(item: LiveActivityItem): string | null {
   return null;
 }
 
+function hasArtifactMetadata(metadata: Record<string, unknown> | undefined): boolean {
+  if (!metadata) return false;
+  const keys = [
+    'artifact',
+    'artifacts',
+    'artifact_type',
+    'artifactType',
+    'output',
+    'outputs',
+    'result',
+    'results',
+    'payload',
+    'toolOutput',
+    'toolOutputs',
+    'toolResult',
+    'toolResults',
+  ];
+  return keys.some((key) => key in metadata);
+}
+
 function classifyActivity(item: LiveActivityItem): ActivityBucket {
+  const metadata = item.metadata as Record<string, unknown> | undefined;
   const metadataText = textFromMetadata(item.metadata as Record<string, unknown> | undefined);
   const combined = [item.type, item.kind, item.summary, item.title, item.description, metadataText]
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
@@ -112,7 +136,8 @@ function classifyActivity(item: LiveActivityItem): ActivityBucket {
 
   const looksLikeArtifact =
     item.type === 'artifact_created' ||
-    /artifact|output|diff|patch|commit|pr|pull request|deliverable/.test(combined);
+    hasArtifactMetadata(metadata) ||
+    /artifact|deliverable|output payload/.test(combined);
   if (looksLikeArtifact) return 'artifact';
 
   const looksLikeDecision =
@@ -177,6 +202,90 @@ function metadataToJson(metadata: Record<string, unknown> | undefined): string |
   }
 }
 
+type ArtifactPayload = {
+  source: string;
+  value: unknown;
+};
+
+function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload | null {
+  if (!item) return null;
+  const metadata = item.metadata as Record<string, unknown> | undefined;
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  const candidates = [
+    'artifact',
+    'artifacts',
+    'output',
+    'outputs',
+    'result',
+    'results',
+    'payload',
+    'toolOutput',
+    'toolOutputs',
+    'toolResult',
+    'toolResults',
+  ];
+
+  for (const key of candidates) {
+    const value = metadata[key];
+    if (value !== undefined && value !== null) {
+      return { source: key, value };
+    }
+  }
+
+  if (item.type === 'artifact_created') {
+    return { source: 'metadata', value: metadata };
+  }
+
+  return null;
+}
+
+function renderArtifactValue(value: unknown): ReactNode {
+  if (typeof value === 'string') {
+    return <MarkdownText mode="block" text={value} className="text-[13px] leading-relaxed text-white/82" />;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return <p className="text-[13px] text-white/82">{String(value)}</p>;
+  }
+
+  if (Array.isArray(value)) {
+    return (
+      <div className="space-y-1.5">
+        {value.map((entry, index) => (
+          <div key={`artifact-list-${index}`} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
+            {renderArtifactValue(entry)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return (
+      <dl className="space-y-1.5">
+        {entries.map(([key, entry]) => (
+          <div key={key} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
+            <dt className="text-[10px] uppercase tracking-[0.1em] text-white/45">{humanizeText(key)}</dt>
+            <dd className="mt-1 text-[13px] text-white/82">
+              {typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
+                ? String(entry)
+                : Array.isArray(entry)
+                  ? `${entry.length} item${entry.length === 1 ? '' : 's'}`
+                  : entry && typeof entry === 'object'
+                    ? `${Object.keys(entry as Record<string, unknown>).length} field${Object.keys(entry as Record<string, unknown>).length === 1 ? '' : 's'}`
+                    : '—'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+
+  return <p className="text-[13px] text-white/55">No artifact payload.</p>;
+}
+
 function humanizeActivityBody(text: string | null | undefined): string | null {
   if (!text) return null;
   const trimmed = text.trim();
@@ -186,6 +295,74 @@ function humanizeActivityBody(text: string | null | undefined): string | null {
     return modelOnly;
   }
   return humanizeText(trimmed);
+}
+
+function getLocalTurnReference(item: LiveActivityItem | null): {
+  turnId: string;
+  sessionKey: string | null;
+  runId: string | null;
+} | null {
+  if (!item) return null;
+  const metadata = item.metadata as Record<string, unknown> | undefined;
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  const source = typeof metadata.source === 'string' ? metadata.source.trim() : '';
+  const turnId = typeof metadata.turnId === 'string' ? metadata.turnId.trim() : '';
+  if (source !== 'local_openclaw' || !turnId) return null;
+
+  const sessionKey =
+    typeof metadata.sessionKey === 'string' && metadata.sessionKey.trim().length > 0
+      ? metadata.sessionKey.trim()
+      : null;
+
+  return {
+    turnId,
+    sessionKey,
+    runId: item.runId ?? null,
+  };
+}
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/_([^_\n]+)_/g, '$1');
+}
+
+function summarizeDetailHeadline(
+  item: LiveActivityItem,
+  summaryOverride?: string | null
+): string {
+  const source =
+    humanizeActivityBody(summaryOverride ?? item.summary) ??
+    humanizeActivityBody(item.description) ??
+    humanizeText(item.title || labelForType(item.type));
+
+  const normalized = source
+    .replace(/\r\n/g, '\n')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const lines = normalized
+    .split('\n')
+    .map((line) => stripInlineMarkdown(line).trim())
+    .filter((line) => line.length > 0 && !/^\|?[:\-| ]+\|?$/.test(line));
+
+  let headline = lines[0] ?? stripInlineMarkdown(normalized);
+  if (headline.length < 24 && lines.length > 1) {
+    headline = `${headline} ${lines[1]}`.trim();
+  }
+
+  if (headline.length > 108) {
+    return `${headline.slice(0, 107).trimEnd()}…`;
+  }
+  return headline;
 }
 
 export const ActivityTimeline = memo(function ActivityTimeline({
@@ -201,6 +378,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
+  const [artifactViewMode, setArtifactViewMode] = useState<'structured' | 'json'>('structured');
+  const [detailSummaryOverride, setDetailSummaryOverride] = useState<string | null>(null);
+  const [detailSummarySource, setDetailSummarySource] = useState<'feed' | 'local' | 'missing'>('feed');
+  const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
+  const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
+  const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
 
   const runLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -321,6 +504,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [activeItemId, filtered]);
 
   const activeDecorated = activeIndex >= 0 ? filtered[activeIndex] : null;
+  const activeArtifact = useMemo(
+    () => extractArtifactPayload(activeDecorated?.item ?? null),
+    [activeDecorated]
+  );
   const activeMetadataJson = useMemo(
     () =>
       metadataToJson(
@@ -328,10 +515,123 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ),
     [activeDecorated]
   );
+  const activeSummaryText = useMemo(() => {
+    const override = humanizeActivityBody(detailSummaryOverride);
+    if (override) return override;
+    return (
+      humanizeActivityBody(activeDecorated?.item.summary) ??
+      humanizeActivityBody(activeDecorated?.item.description)
+    );
+  }, [detailSummaryOverride, activeDecorated]);
 
   const closeDetail = useCallback(() => {
     setActiveItemId(null);
   }, []);
+
+  useEffect(() => {
+    setArtifactViewMode('structured');
+  }, [activeItemId]);
+
+  useEffect(() => {
+    setDetailSummaryOverride(null);
+    setDetailSummarySource('feed');
+
+    const reference = getLocalTurnReference(activeDecorated?.item ?? null);
+    if (!reference) return;
+
+    const query = new URLSearchParams({ turnId: reference.turnId });
+    if (reference.sessionKey) query.set('sessionKey', reference.sessionKey);
+    if (reference.runId) query.set('run', reference.runId);
+
+    const controller = new AbortController();
+
+    fetch(`/orgx/api/live/activity/detail?${query.toString()}`, {
+      method: 'GET',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          if (response.status === 404) {
+            setDetailSummarySource('missing');
+          }
+          return null;
+        }
+        const payload = (await response.json()) as {
+          detail?: { summary?: string | null };
+        };
+        return payload.detail?.summary ?? null;
+      })
+      .then((summary) => {
+        if (typeof summary === 'string' && summary.trim().length > 0) {
+          setDetailSummaryOverride(summary);
+          setDetailSummarySource('local');
+        } else {
+          setDetailSummarySource('missing');
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setDetailSummarySource('missing');
+      });
+
+    return () => controller.abort();
+  }, [activeDecorated]);
+
+  useEffect(() => {
+    setDetailHeadlineOverride(null);
+    setDetailHeadlineSource(null);
+
+    const item = activeDecorated?.item;
+    if (!item || headlineEndpointUnsupported) return;
+
+    const headlineInputText = (
+      detailSummaryOverride ??
+      item.summary ??
+      item.description ??
+      item.title ??
+      ''
+    ).trim();
+    if (!headlineInputText) return;
+
+    const controller = new AbortController();
+
+    fetch('/orgx/api/live/activity/headline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        text: headlineInputText,
+        title: item.title ?? null,
+        type: item.type,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          if (response.status === 404 || response.status === 405) {
+            setHeadlineEndpointUnsupported(true);
+          }
+          return null;
+        }
+        const payload = (await response.json()) as {
+          headline?: string | null;
+          source?: 'llm' | 'heuristic' | null;
+        };
+        return payload;
+      })
+      .then((payload) => {
+        const headline = payload?.headline;
+        if (typeof headline === 'string' && headline.trim().length > 0) {
+          setHeadlineEndpointUnsupported(false);
+          setDetailHeadlineOverride(headline.trim());
+          setDetailHeadlineSource(payload?.source ?? null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+      });
+
+    return () => controller.abort();
+  }, [activeDecorated, detailSummaryOverride, headlineEndpointUnsupported]);
 
   const navigateDetail = useCallback(
     (direction: 1 | -1) => {
@@ -415,16 +715,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
       >
         <div className="flex items-start gap-2.5">
-          <span
-            className={cn('mt-1.5 h-2.5 w-2.5 rounded-full', isRecent && 'pulse-soft')}
-            style={{
-              backgroundColor: color,
-              boxShadow: `0 0 16px ${color}77`,
-            }}
-          />
+          <div className="mt-0.5 flex flex-col items-center gap-1.5">
+            <AgentAvatar
+              name={item.agentName ?? 'OrgX'}
+              hint={`${item.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
+              size="xs"
+            />
+            <span
+              className={cn('h-2.5 w-2.5 rounded-full', isRecent && 'pulse-soft')}
+              style={{
+                backgroundColor: color,
+                boxShadow: `0 0 16px ${color}77`,
+              }}
+            />
+          </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[13px] text-white/90">
+              <p className="line-clamp-2 text-[13px] text-white/90">
                 {displayTitle}
               </p>
               <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
@@ -433,7 +740,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
 
             {(displaySummary || displayDesc) && (
-              <div className="mt-1 text-[11px] leading-relaxed text-white/55">
+              <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-white/55">
                 <MarkdownText
                   mode="inline"
                   text={displaySummary ?? displayDesc ?? ''}
@@ -642,7 +949,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
       <Modal open={activeDecorated !== null} onClose={closeDetail} maxWidth="max-w-3xl">
         {activeDecorated && (
-          <div className="relative flex h-full max-h-full flex-col sm:max-h-[86vh]">
+          <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
             <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
 
             <div className="relative z-10 flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
@@ -690,7 +997,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </div>
             </div>
 
-            <div className="relative flex-1 overflow-hidden px-5 pb-5 pt-4 sm:px-6">
+            <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4 sm:px-6">
               <AnimatePresence mode="wait" custom={detailDirection}>
                 <motion.section
                   key={activeDecorated.item.id}
@@ -699,15 +1006,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: detailDirection * -32, scale: 0.985 }}
                   transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                  className="h-full overflow-y-auto pr-1"
+                  className="min-h-full w-full overscroll-contain"
                 >
-                  <div className="space-y-4">
+                  <div className="space-y-4 pb-1">
                     <div>
-                      <h3 className="text-[20px] font-semibold tracking-[-0.02em] text-white">
-                        {humanizeText(activeDecorated.item.title || labelForType(activeDecorated.item.type))}
+                      <h3 className="text-[20px] font-semibold tracking-[-0.02em] text-white whitespace-pre-wrap break-words">
+                        {detailHeadlineOverride ||
+                          summarizeDetailHeadline(activeDecorated.item, detailSummaryOverride) ||
+                          humanizeText(activeDecorated.item.title || labelForType(activeDecorated.item.type))}
                       </h3>
-                      <p className="mt-1 text-[12px] text-white/45">
+                      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-white/45">
                         {new Date(activeDecorated.item.timestamp).toLocaleString()} · {formatRelativeTime(activeDecorated.item.timestamp)}
+                        {detailHeadlineSource === 'llm' && (
+                          <span className="text-white/35">· AI title</span>
+                        )}
                       </p>
                     </div>
 
@@ -725,8 +1037,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         {labelForType(activeDecorated.item.type)}
                       </span>
                       {activeDecorated.item.agentName && (
-                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
-                          {activeDecorated.item.agentName}
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/65">
+                          <AgentAvatar
+                            name={activeDecorated.item.agentName}
+                            hint={`${activeDecorated.item.agentId ?? ''} ${activeDecorated.item.title ?? ''}`}
+                            size="xs"
+                          />
+                          <span>{activeDecorated.item.agentName}</span>
                         </span>
                       )}
                       {activeDecorated.runId && (
@@ -736,12 +1053,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       )}
                     </div>
 
-                    {humanizeActivityBody(activeDecorated.item.summary) && (
+                    {activeSummaryText && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                         <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Summary</p>
+                        {detailSummarySource === 'missing' && (
+                          <p className="mt-1 text-[11px] text-amber-200/75">
+                            Full local turn transcript was unavailable; showing the event summary payload.
+                          </p>
+                        )}
                         <MarkdownText
                           mode="block"
-                          text={humanizeActivityBody(activeDecorated.item.summary) ?? ''}
+                          text={activeSummaryText}
                           className="mt-1.5 text-[14px] leading-relaxed text-white/82"
                         />
                       </div>
@@ -755,6 +1077,52 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
                           className="mt-1.5 text-[13px] leading-relaxed text-white/75"
                         />
+                      </div>
+                    )}
+
+                    {activeArtifact && (
+                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] uppercase tracking-[0.11em] text-cyan-100/85">
+                            Artifact Output
+                          </p>
+                          <div className="inline-flex rounded-full border border-white/[0.12] bg-black/30 p-0.5 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => setArtifactViewMode('structured')}
+                              aria-pressed={artifactViewMode === 'structured'}
+                              className={`rounded-full px-2.5 py-0.5 transition-colors ${
+                                artifactViewMode === 'structured'
+                                  ? 'bg-white/[0.12] text-white'
+                                  : 'text-white/55 hover:text-white/80'
+                              }`}
+                            >
+                              Structured
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setArtifactViewMode('json')}
+                              aria-pressed={artifactViewMode === 'json'}
+                              className={`rounded-full px-2.5 py-0.5 transition-colors ${
+                                artifactViewMode === 'json'
+                                  ? 'bg-white/[0.12] text-white'
+                                  : 'text-white/55 hover:text-white/80'
+                              }`}
+                            >
+                              JSON
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-1 text-[10px] text-cyan-100/55">Source: {activeArtifact.source}</p>
+                        <div className="mt-2">
+                          {artifactViewMode === 'structured' ? (
+                            renderArtifactValue(activeArtifact.value)
+                          ) : (
+                            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/70">
+                              {JSON.stringify(activeArtifact.value, null, 2)}
+                            </pre>
+                          )}
+                        </div>
                       </div>
                     )}
 

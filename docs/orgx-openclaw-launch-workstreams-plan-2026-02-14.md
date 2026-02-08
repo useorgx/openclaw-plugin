@@ -1,6 +1,6 @@
 # OrgX OpenClaw Launch Workstreams Plan (No-Duplicate)
 
-Updated: 2026-02-07 (CST)
+Updated: 2026-02-08 (CST)
 Target launch window: Sunday, 2026-02-08 through Saturday, 2026-02-14
 
 ## Scope
@@ -9,6 +9,18 @@ This plan is for the OrgX OpenClaw plugin launch objective:
 - users can launch OrgX agents and see value
 - users can pay
 - launch marketing runs (threads, articles, X ads)
+
+## Budgeting Basis (Token-Cost, 2026-02-08)
+- Budget defaults and execution task estimates are now token-cost based (not flat hourly multipliers).
+- GPT-5.3 Codex API pricing is not published yet, so estimates currently proxy to GPT-5.2 Codex API rates.
+- Opus 4.6 estimates use published API rates.
+- Default assumptions used in script + mission-control fallbacks:
+  - token throughput: `1,200,000` tokens/hour
+  - token shape: `86%` input / `14%` output
+  - cached input share: `15%`
+  - contingency multiplier: `1.3`
+  - blended model mix baseline: `70%` GPT-5.3 Codex proxy / `30%` Opus 4.6
+- All assumptions are overrideable with `ORGX_BUDGET_*` environment variables.
 
 ## Existing Initiative Audit
 Source checked first: local OrgX API endpoints on `http://127.0.0.1:18789`
@@ -57,7 +69,28 @@ Other active initiatives with overlap risk (do not duplicate work into these):
 7. `Twitter Ads Campaign`
 - Depends on: `Tweet Threads & Articles` and `Plugin Packaging & Distribution`.
 
-8. `Launch Day Coordination`
+8. `Continuous Execution & Auto-Completion`
+- Depends on: `Auth & User Identity`, `Agent Launcher & Runtime`.
+
+9. `Budget & Duration Forecasting`
+- Depends on: `Continuous Execution & Auto-Completion`, `Launch Day Coordination`.
+
+10. `Plugin + Core Codebase Unification`
+- Depends on: `Auth & User Identity`, `Agent Launcher & Runtime`.
+
+11. `Dashboard Bundle Endpoint`
+- Depends on: `Auth & User Identity`.
+
+12. `Real-Time Stream (SSE) Integration`
+- Depends on: `Dashboard Bundle Endpoint`.
+
+13. `Self-Healing Auth & Warm Cache`
+- Depends on: `Auth & User Identity`.
+
+14. `Orchestration Client Dependency Injection`
+- Depends on: `Plugin + Core Codebase Unification`.
+
+15. `Launch Day Coordination`
 - Depends on: all workstreams above.
 
 ## Dated Execution Plan (This Week)
@@ -90,17 +123,25 @@ Other active initiatives with overlap risk (do not duplicate work into these):
 - Configure X ads account, targeting, budget, conversion tracking.
 - Internal QA run of complete funnel:
   - sign up -> login -> launch agent -> see value -> pay
+- Validate continuous-run loop (next-up task auto-advance until completion or token guardrail).
 
 ### 2026-02-13 (Fri)
 - Freeze release candidate.
 - Pre-launch dry run with rollback checklist.
 - Schedule posts and confirm ad campaign start times.
+- Verify mission control expected duration/budget rollups at initiative + hierarchy levels.
+- Deliver dashboard-bundle + SSE integration and validate fallback polling behavior.
 
 ### 2026-02-14 (Sat, Target Date)
 - Launch execution window.
 - Publish thread/article/ad campaigns.
 - Live monitor signups, payments, runtime errors.
 - End-of-day KPI review and next-iteration list.
+
+### 2026-02-15 to 2026-02-21 (Post-Launch Stabilization)
+- Complete plugin/core codebase unification and remove duplicated client/type/http surfaces.
+- Finalize orchestration dependency-injection refactor to use shared OrgXClient.
+- Lock regression coverage for auth/outbox/pairing + orchestration on unified runtime.
 
 ## Minimum KPI Targets For 2026-02-14
 - Auth conversion: >= 70% of landing visitors complete signup/login.
@@ -113,6 +154,21 @@ Other active initiatives with overlap risk (do not duplicate work into these):
 2. Normalize statuses (`not_started`, `active`, `done`) based on real progress.
 3. Add explicit prerequisite links in summaries/metadata so dashboard tracking is truthful.
 4. Only then create missing tasks (if any) found by idempotent dedupe check.
+
+## BYOK + Paywall Integration Focus (No Duplicate Build)
+- Reuse existing OrgX billing surfaces in `Code/orgx/orgx`:
+  - `/api/billing/checkout`
+  - `/api/billing/portal`
+  - `lib/plans.ts`
+- Reuse existing provider key configuration surfaces:
+  - `/settings/agents/components/ProviderConfigSection.tsx`
+  - `/api/settings/agents/provider-config`
+  - credential migrations (`user_api_credentials`, hybrid provider support)
+- Plugin workstream scope is integration:
+  - add paywall gate before launch in plugin UX
+  - route users to existing OrgX checkout/portal
+  - surface BYOK key readiness in plugin settings by consuming existing OrgX provider APIs
+  - avoid creating new backlog milestones/tasks automatically during plan application
 
 ## Implementation Notes (2026-02-07)
 - Executed via direct OrgX API (`https://www.useorgx.com/api/entities`) using local OpenClaw plugin credentials.

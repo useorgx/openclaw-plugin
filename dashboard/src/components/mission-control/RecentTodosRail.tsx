@@ -26,7 +26,7 @@ export function RecentTodosRail({
     <section className="space-y-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
       <div className="flex items-center justify-between gap-2">
         <h4 className="text-[11px] uppercase tracking-[0.08em] text-white/45">
-          Most recent todos
+          Next-up tasks
         </h4>
         <span className="text-[10px] text-white/35">{recentNodes.length}</span>
       </div>
@@ -61,4 +61,3 @@ export function RecentTodosRail({
     </section>
   );
 }
-

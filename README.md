@@ -105,6 +105,28 @@ openclaw orgx status
 openclaw orgx sync --memory "..." --daily-log "..."
 ```
 
+## Full-Auto Codex Dispatch Job
+
+Reusable orchestration job to dispatch/monitor parallel `codex --full-auto` workers against OrgX tasks and report progress back through the reporting control plane (`/api/client/live/activity` + `/api/client/live/changesets/apply`).
+
+```bash
+export ORGX_API_KEY=oxk_...
+export ORGX_USER_ID=user_...
+
+npm run job:dispatch -- \
+  --initiative_id=aa6d16dc-d450-417f-8a17-fd89bd597195 \
+  --plan_file=/Users/hopeatina/Code/orgx-openclaw-plugin/docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md \
+  --codex_args="--full-auto" \
+  --concurrency=6
+```
+
+Key behavior:
+- Pulls tasks from OrgX for selected workstreams
+- Spawns parallel Codex workers per task
+- Retries failures with backoff up to `--max_attempts`
+- Emits activity and task status transitions into OrgX DB
+- Persists resumable state to `.orgx-codex-jobs/<job-id>/job-state.json`
+
 ## API Endpoints
 
 When the plugin is loaded, these HTTP endpoints are available:

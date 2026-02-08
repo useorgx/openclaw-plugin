@@ -14,7 +14,7 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
   return (
     <Modal open={target !== null} onClose={onClose} maxWidth="max-w-3xl">
       {target && (
-        <div className="max-h-[80vh] overflow-y-auto">
+        <div className="flex h-full w-full min-h-0 flex-col">
           {target.type === 'initiative' && (
             <InitiativeDetail initiative={target.entity} />
           )}

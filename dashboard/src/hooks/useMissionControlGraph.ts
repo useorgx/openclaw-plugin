@@ -61,7 +61,10 @@ export function useMissionControlGraph({
           (typeof body?.error === 'string' && body.error) ||
           (typeof body?.message === 'string' && body.message) ||
           `Failed to fetch Mission Control graph (${response.status})`;
-        throw new Error(message);
+        // Return a degraded fallback instead of throwing, so the UI can still render
+        console.warn(`[useMissionControlGraph] ${message}`);
+        const fb = fallbackGraph(initiativeId);
+        return { ...fb, degraded: [message] } as MissionControlGraphResponse;
       }
       return (await response.json()) as MissionControlGraphResponse;
     },

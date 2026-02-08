@@ -34,6 +34,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:hooks": "node --test tests/**/*.test.mjs",
+    "job:dispatch": "node ./scripts/run-codex-dispatch-job.mjs",
     "build": "tsc && node ./scripts/copy-manifest.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"

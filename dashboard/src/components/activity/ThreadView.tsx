@@ -4,6 +4,7 @@ import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeModel, humanizeText } from '@/lib/humanize';
 import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 
 interface ThreadViewProps {
   /** Activity items filtered to a single session. */
@@ -131,8 +132,9 @@ export const ThreadView = memo(function ThreadView({
 
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-white/45">
           {agentName && (
-            <span className="rounded-full border border-white/[0.1] px-1.5 py-0.5">
-              {agentName}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] px-1 py-0.5">
+              <AgentAvatar name={agentName} hint={session?.id ?? session?.runId ?? null} size="xs" />
+              <span>{agentName}</span>
             </span>
           )}
           <span>{sorted.length} turn{sorted.length !== 1 ? 's' : ''}</span>
@@ -224,8 +226,7 @@ export const ThreadView = memo(function ThreadView({
 
                       {item.summary && item.summary !== title && (
                         <p className="mt-0.5 text-[11px] leading-relaxed text-white/40">
-                          {humanizeText(item.summary).slice(0, 120)}
-                          {(item.summary?.length ?? 0) > 120 ? '\u2026' : ''}
+                          {humanizeText(item.summary)}
                         </p>
                       )}
                     </div>

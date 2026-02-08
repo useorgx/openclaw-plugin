@@ -1,0 +1,15 @@
+{
+  "defaultCwd": "/Users/hopeatina/Code/orgx-openclaw-plugin",
+  "workstreamCwds": {
+    "8832bb2b-f888-4119-a29c-31be9d61ac4f": "/Users/hopeatina/Code/orgx-openclaw-plugin",
+    "55472b6d-7e72-4428-b836-c071f629775d": "/Users/hopeatina/Code/orgx/orgx",
+    "49be6c2e-bb48-46d5-8baf-806c728ba492": "/Users/hopeatina/Code",
+    "9f7308eb-282b-4e69-afdc-145a850665f2": "/Users/hopeatina/Code"
+  },
+  "workstreamPrompt": {
+    "9f7308eb-282b-4e69-afdc-145a850665f2": "Enforce the 4-layer architecture: MCP write contract, hook backstops, skills guidance, structured completion fallback."
+  },
+  "taskPrompt": {
+    "15f34642-4fc5-47a0-b604-f0056c1958c6": "Keep orchestration client dependency injection backward-compatible for existing plugin HTTP handlers."
+  }
+}

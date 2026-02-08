@@ -772,7 +772,7 @@ function DashboardShell({
         <div className="grain-overlay absolute inset-0" />
       </div>
 
-      <header className="relative z-30 border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
+      <header className="relative z-[180] border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
         <div className="grid items-center gap-2.5 lg:grid-cols-[1fr_auto_1fr]">
           <div className="flex min-w-0 items-center gap-2.5">
             <OrgXLogo />
@@ -817,7 +817,7 @@ function DashboardShell({
             </div>
           </div>
 
-          <div className="relative flex items-center justify-end gap-2">
+          <div className="relative isolate flex items-center justify-end gap-2">
             {data.lastActivity && (
               <span className="hidden text-[12px] text-white/45 xl:inline">
                 Last activity: {data.lastActivity}
@@ -872,7 +872,7 @@ function DashboardShell({
                 ref={notificationTrayRef}
                 role="dialog"
                 aria-label="Notifications"
-                className="absolute right-0 top-[calc(100%+8px)] z-[140] w-[min(92vw,380px)] rounded-2xl border border-white/[0.12] bg-[#070a11]/95 p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur"
+                className="absolute right-0 top-[calc(100%+8px)] z-[320] w-[min(92vw,380px)] rounded-2xl border border-white/[0.12] bg-[#070a11]/95 p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur"
               >
                 <div className="mb-1.5 flex items-center justify-between px-2 py-1">
                   <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-white/55">Notifications</p>

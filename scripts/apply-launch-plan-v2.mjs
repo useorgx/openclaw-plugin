@@ -5,8 +5,124 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 const INITIATIVE_ID = process.env.ORGX_INITIATIVE_ID || 'aa6d16dc-d450-417f-8a17-fd89bd597195';
-const PLAN_VERSION = 'launch-v2-2026-02-07';
+const PLAN_VERSION = 'launch-v2-2026-02-08-token-cost';
 const DUPLICATE_SIMILARITY_THRESHOLD = 0.88;
+
+function readEnvNumber(name, fallback, { min = null, max = null } = {}) {
+  const raw = process.env[name];
+  if (typeof raw !== 'string' || raw.trim().length === 0) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (min !== null && parsed < min) return fallback;
+  if (max !== null && parsed > max) return fallback;
+  return parsed;
+}
+
+const TOKEN_MODEL_PRICING_USD_PER_1M = {
+  // GPT-5.3 Codex API pricing is not published yet; default to GPT-5.2 Codex pricing.
+  gpt53CodexProxy: {
+    input: readEnvNumber('ORGX_BUDGET_GPT53_CODEX_INPUT_PER_1M', 1.75, { min: 0 }),
+    cachedInput: readEnvNumber('ORGX_BUDGET_GPT53_CODEX_CACHED_INPUT_PER_1M', 0.175, {
+      min: 0,
+    }),
+    output: readEnvNumber('ORGX_BUDGET_GPT53_CODEX_OUTPUT_PER_1M', 14, { min: 0 }),
+  },
+  opus46: {
+    input: readEnvNumber('ORGX_BUDGET_OPUS46_INPUT_PER_1M', 5, { min: 0 }),
+    // Anthropic does not publish a fixed cached-input token rate on the model page.
+    cachedInput: readEnvNumber('ORGX_BUDGET_OPUS46_CACHED_INPUT_PER_1M', 5, {
+      min: 0,
+    }),
+    output: readEnvNumber('ORGX_BUDGET_OPUS46_OUTPUT_PER_1M', 25, { min: 0 }),
+  },
+};
+
+const TOKEN_BUDGET_ASSUMPTIONS = {
+  tokensPerHour: readEnvNumber('ORGX_BUDGET_TOKENS_PER_HOUR', 1_200_000, { min: 1 }),
+  inputShare: readEnvNumber('ORGX_BUDGET_INPUT_TOKEN_SHARE', 0.86, { min: 0, max: 1 }),
+  cachedInputShare: readEnvNumber('ORGX_BUDGET_CACHED_INPUT_SHARE', 0.15, {
+    min: 0,
+    max: 1,
+  }),
+  contingencyMultiplier: readEnvNumber('ORGX_BUDGET_CONTINGENCY_MULTIPLIER', 1.3, {
+    min: 0.1,
+  }),
+  roundingStepUsd: readEnvNumber('ORGX_BUDGET_ROUNDING_STEP_USD', 5, { min: 0.01 }),
+  minimumBudgetUsd: readEnvNumber('ORGX_BUDGET_MIN_BUDGET_USD', 15, { min: 0 }),
+};
+
+const DEFAULT_MODEL_MIX = Object.freeze({
+  gpt53CodexProxy: 0.7,
+  opus46: 0.3,
+});
+
+const MODEL_MIX_BY_WORKSTREAM = {
+  'Continuous Execution & Auto-Completion': { gpt53CodexProxy: 0.75, opus46: 0.25 },
+  'Budget & Duration Forecasting': { gpt53CodexProxy: 0.65, opus46: 0.35 },
+  'Plugin + Core Codebase Unification': { gpt53CodexProxy: 0.55, opus46: 0.45 },
+  'Dashboard Bundle Endpoint': { gpt53CodexProxy: 0.7, opus46: 0.3 },
+  'Real-Time Stream (SSE) Integration': { gpt53CodexProxy: 0.7, opus46: 0.3 },
+  'Self-Healing Auth & Warm Cache': { gpt53CodexProxy: 0.7, opus46: 0.3 },
+  'Orchestration Client Dependency Injection': { gpt53CodexProxy: 0.65, opus46: 0.35 },
+};
+
+function normalizeModelMix(rawMix) {
+  const keys = Object.keys(TOKEN_MODEL_PRICING_USD_PER_1M);
+  let total = 0;
+  const normalized = {};
+  for (const key of keys) {
+    const candidate = Number(rawMix?.[key] ?? 0);
+    if (Number.isFinite(candidate) && candidate > 0) {
+      normalized[key] = candidate;
+      total += candidate;
+    } else {
+      normalized[key] = 0;
+    }
+  }
+
+  if (total <= 0) {
+    return { ...DEFAULT_MODEL_MIX };
+  }
+
+  for (const key of keys) {
+    normalized[key] = normalized[key] / total;
+  }
+  return normalized;
+}
+
+function perMillionTokenCostUsd(modelPricing) {
+  const inputShare = TOKEN_BUDGET_ASSUMPTIONS.inputShare;
+  const outputShare = Math.max(0, 1 - inputShare);
+  const cachedShare = TOKEN_BUDGET_ASSUMPTIONS.cachedInputShare;
+  const uncachedShare = Math.max(0, 1 - cachedShare);
+  const effectiveInputRate =
+    modelPricing.input * uncachedShare + modelPricing.cachedInput * cachedShare;
+  return inputShare * effectiveInputRate + outputShare * modelPricing.output;
+}
+
+function estimateBudgetUsdFromDuration(expectedDurationHours, workstreamName) {
+  if (!Number.isFinite(expectedDurationHours) || expectedDurationHours <= 0) {
+    return 0;
+  }
+
+  const mix = normalizeModelMix(MODEL_MIX_BY_WORKSTREAM[workstreamName] ?? DEFAULT_MODEL_MIX);
+  const blendedPerMillionUsd = Object.entries(mix).reduce((sum, [modelName, ratio]) => {
+    const pricing = TOKEN_MODEL_PRICING_USD_PER_1M[modelName];
+    if (!pricing || ratio <= 0) return sum;
+    return sum + ratio * perMillionTokenCostUsd(pricing);
+  }, 0);
+
+  const tokenMillions =
+    (expectedDurationHours * TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour) / 1_000_000;
+  const rawBudgetUsd =
+    tokenMillions *
+    blendedPerMillionUsd *
+    TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
+  const roundedBudgetUsd =
+    Math.round(rawBudgetUsd / TOKEN_BUDGET_ASSUMPTIONS.roundingStepUsd) *
+    TOKEN_BUDGET_ASSUMPTIONS.roundingStepUsd;
+  return Math.max(TOKEN_BUDGET_ASSUMPTIONS.minimumBudgetUsd, roundedBudgetUsd);
+}
 
 const WORKSTREAM_PLAN = {
   'Auth & User Identity': {
@@ -564,7 +680,10 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-12T11:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 8,
-    expectedBudgetUsd: 320,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      8,
+      'Continuous Execution & Auto-Completion'
+    ),
   },
   {
     title: 'Add token budget guardrails and deterministic stop reasons for long-running initiatives',
@@ -574,7 +693,10 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-12T12:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 6,
-    expectedBudgetUsd: 240,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      6,
+      'Continuous Execution & Auto-Completion'
+    ),
   },
   {
     title: 'Auto-select next-up task based on dependencies, priority, due date, and readiness',
@@ -584,7 +706,10 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-12T14:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 5,
-    expectedBudgetUsd: 200,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      5,
+      'Continuous Execution & Auto-Completion'
+    ),
   },
   {
     title: 'Set initiative status to paused when no active tasks are running',
@@ -594,7 +719,10 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-12T15:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 3,
-    expectedBudgetUsd: 120,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      3,
+      'Continuous Execution & Auto-Completion'
+    ),
   },
   {
     title: 'Add expected duration and budget fields to initiative/workstream/milestone/task entities',
@@ -604,7 +732,7 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-13T10:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 4,
-    expectedBudgetUsd: 160,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(4, 'Budget & Duration Forecasting'),
   },
   {
     title: 'Render budget and duration columns in Mission Control hierarchy table',
@@ -614,7 +742,7 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-13T12:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 4,
-    expectedBudgetUsd: 160,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(4, 'Budget & Duration Forecasting'),
   },
   {
     title: 'Show initiative-level rollup of expected duration and budget',
@@ -624,7 +752,7 @@ const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
     dueDate: '2026-02-13T13:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 3,
-    expectedBudgetUsd: 120,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(3, 'Budget & Duration Forecasting'),
   },
 ];
 
@@ -637,7 +765,10 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-14T16:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 6,
-    expectedBudgetUsd: 240,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      6,
+      'Plugin + Core Codebase Unification'
+    ),
   },
   {
     title: 'Extract shared @orgx/types package and migrate both codebases to common contracts',
@@ -647,7 +778,10 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-18T17:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 10,
-    expectedBudgetUsd: 400,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      10,
+      'Plugin + Core Codebase Unification'
+    ),
   },
   {
     title: 'Layer standalone auth/pairing/outbox as adapters on top of core plugin runtime',
@@ -657,7 +791,10 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-21T17:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 12,
-    expectedBudgetUsd: 480,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      12,
+      'Plugin + Core Codebase Unification'
+    ),
   },
   {
     title: 'Implement /orgx/api/dashboard-bundle endpoint with cloud + local session merge',
@@ -667,7 +804,7 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-13T12:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 8,
-    expectedBudgetUsd: 320,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(8, 'Dashboard Bundle Endpoint'),
   },
   {
     title: 'Refactor useLiveData to consume DashboardSnapshot from dashboard-bundle endpoint',
@@ -677,7 +814,7 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-13T15:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 6,
-    expectedBudgetUsd: 240,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(6, 'Dashboard Bundle Endpoint'),
   },
   {
     title: 'Wire SSE-first dashboard updates with polling fallback',
@@ -687,7 +824,10 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-13T19:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 6,
-    expectedBudgetUsd: 240,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      6,
+      'Real-Time Stream (SSE) Integration'
+    ),
   },
   {
     title: 'Add unified connectionStatus and one-click reconnect banner for auth failures',
@@ -697,7 +837,7 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-12T15:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 4,
-    expectedBudgetUsd: 160,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(4, 'Self-Healing Auth & Warm Cache'),
   },
   {
     title: 'Persist last successful cloud snapshot and load it as warm cache during auth outage',
@@ -707,7 +847,7 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-12T18:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 4,
-    expectedBudgetUsd: 160,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(4, 'Self-Healing Auth & Warm Cache'),
   },
   {
     title: 'Inject OrgXClient into orchestration and delete duplicate fetch layer',
@@ -717,7 +857,10 @@ const PLATFORM_MULTIPLIER_TASKS = [
     dueDate: '2026-02-12T14:00:00-06:00',
     priority: 'high',
     expectedDurationHours: 4,
-    expectedBudgetUsd: 160,
+    expectedBudgetUsd: estimateBudgetUsdFromDuration(
+      4,
+      'Orchestration Client Dependency Injection'
+    ),
   },
 ];
 

@@ -6,6 +6,7 @@ import {
   type MissionControlDateField,
   type MissionControlDatePreset,
   type GroupByOption,
+  type SortByOption,
 } from './MissionControlContext';
 
 interface MissionControlFiltersProps {
@@ -82,6 +83,8 @@ export function MissionControlFilters({
     hasActiveFilters,
     groupBy,
     setGroupBy,
+    sortBy,
+    setSortBy,
     setStatusFilters,
     toggleStatusFilter,
     setDateField,
@@ -155,6 +158,12 @@ export function MissionControlFilters({
     { value: 'category', label: 'Category' },
   ];
 
+  const SORT_BY_OPTIONS: Array<{ value: SortByOption; label: string }> = [
+    { value: 'default', label: 'Default' },
+    { value: 'date_asc', label: 'Date (earliest)' },
+    { value: 'date_desc', label: 'Date (latest)' },
+  ];
+
   return (
     <div ref={containerRef} className="relative flex items-center gap-2">
       {/* Group-by selector */}
@@ -166,6 +175,22 @@ export function MissionControlFilters({
           className="h-8 rounded-lg border border-white/[0.12] bg-white/[0.03] px-2 text-[11px] text-white/75 focus:border-[#BFFF00]/40 focus:outline-none"
         >
           {GROUP_BY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Sort-by selector */}
+      <div className="hidden sm:flex items-center gap-1">
+        <span className="text-[10px] uppercase tracking-[0.08em] text-white/40">Sort</span>
+        <select
+          value={sortBy}
+          onChange={(event) => setSortBy(event.target.value as SortByOption)}
+          className="h-8 rounded-lg border border-white/[0.12] bg-white/[0.03] px-2 text-[11px] text-white/75 focus:border-[#BFFF00]/40 focus:outline-none"
+        >
+          {SORT_BY_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
