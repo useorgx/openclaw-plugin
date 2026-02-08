@@ -30,6 +30,39 @@ import type {
 const REQUEST_TIMEOUT_MS = 10_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 const DECISION_MUTATION_CONCURRENCY = 6;
+const DEFAULT_CLIENT_BASE_URL = "https://www.useorgx.com";
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHost(hostname);
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function normalizeClientBaseUrl(raw: string, fallback: string): string {
+  const candidate = raw.trim();
+  if (!candidate) return fallback;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return fallback;
+    }
+    if (parsed.username || parsed.password) {
+      return fallback;
+    }
+    if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
+      return fallback;
+    }
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return fallback;
+  }
+}
 
 export type DecisionAction = "approve" | "reject";
 export type RunAction = "pause" | "resume" | "cancel" | "rollback";
@@ -48,7 +81,7 @@ export class OrgXClient {
 
   constructor(apiKey: string, baseUrl: string, userId?: string) {
     this.apiKey = apiKey;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = normalizeClientBaseUrl(baseUrl, DEFAULT_CLIENT_BASE_URL);
     this.userId = userId || "";
   }
 
@@ -60,7 +93,7 @@ export class OrgXClient {
       this.userId = input.userId;
     }
     if (typeof input.baseUrl === "string" && input.baseUrl.trim().length > 0) {
-      this.baseUrl = input.baseUrl.replace(/\/+$/, "");
+      this.baseUrl = normalizeClientBaseUrl(input.baseUrl, this.baseUrl);
     }
   }
 

@@ -116,7 +116,52 @@ interface ResolvedApiKey {
     | "none";
 }
 
+const DEFAULT_BASE_URL = "https://www.useorgx.com";
 const DEFAULT_DOCS_URL = "https://orgx.mintlify.site/guides/openclaw-plugin-setup";
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHost(hostname);
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function normalizeBaseUrl(raw: string | undefined): string {
+  const candidate = raw?.trim() ?? "";
+  if (!candidate) {
+    return DEFAULT_BASE_URL;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return DEFAULT_BASE_URL;
+    }
+
+    // Do not allow credential-bearing URLs.
+    if (parsed.username || parsed.password) {
+      return DEFAULT_BASE_URL;
+    }
+
+    // Plain HTTP is only allowed for local loopback development.
+    if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
+      return DEFAULT_BASE_URL;
+    }
+
+    parsed.search = "";
+    parsed.hash = "";
+
+    const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+    parsed.pathname = normalizedPath;
+
+    const normalized = parsed.toString().replace(/\/+$/, "");
+    return normalized.length > 0 ? normalized : DEFAULT_BASE_URL;
+  } catch {
+    return DEFAULT_BASE_URL;
+  }
+}
 
 function readLegacyEnvValue(keyPattern: RegExp): string {
   try {
@@ -210,8 +255,13 @@ function resolvePluginVersion(): string {
 
 function resolveDocsUrl(baseUrl: string): string {
   const normalized = baseUrl.replace(/\/+$/, "");
-  if (normalized.includes("localhost") || normalized.includes("127.0.0.1")) {
-    return `${normalized}/docs/mintlify/guides/openclaw-plugin-setup`;
+  try {
+    const parsed = new URL(normalized);
+    if (isLoopbackHostname(parsed.hostname)) {
+      return `${normalized}/docs/mintlify/guides/openclaw-plugin-setup`;
+    }
+  } catch {
+    return DEFAULT_DOCS_URL;
   }
   return DEFAULT_DOCS_URL;
 }
@@ -234,11 +284,9 @@ function resolveConfig(
     openclaw.userId ||
     readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m);
 
-  const baseUrl =
-    pluginConf.baseUrl ||
-    process.env.ORGX_BASE_URL ||
-    openclaw.baseUrl ||
-    "https://www.useorgx.com";
+  const baseUrl = normalizeBaseUrl(
+    pluginConf.baseUrl || process.env.ORGX_BASE_URL || openclaw.baseUrl || DEFAULT_BASE_URL
+  );
 
   return {
     apiKey,

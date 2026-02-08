@@ -6,10 +6,36 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import type { LiveActivityItem } from "./types.js";
 
 const OUTBOX_DIR = join(homedir(), ".openclaw", "orgx-outbox");
+
+function isSafeOutboxSessionId(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized || normalized === "." || normalized === "..") return false;
+  if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("\0")) {
+    return false;
+  }
+  if (normalized.includes("..")) return false;
+  return true;
+}
+
+function normalizeSessionId(sessionId: string): string {
+  const normalized = sessionId.trim();
+  if (!isSafeOutboxSessionId(normalized)) {
+    throw new Error("Invalid outbox session identifier");
+  }
+  return normalized;
+}
+
+async function hardenPath(path: string, mode: number): Promise<void> {
+  try {
+    await chmod(path, mode);
+  } catch {
+    // best effort
+  }
+}
 
 export interface OutboxEvent {
   id: string;
@@ -22,14 +48,15 @@ export interface OutboxEvent {
 
 async function ensureDir(): Promise<void> {
   try {
-    await mkdir(OUTBOX_DIR, { recursive: true });
+    await mkdir(OUTBOX_DIR, { recursive: true, mode: 0o700 });
+    await hardenPath(OUTBOX_DIR, 0o700);
   } catch {
     // Directory may already exist
   }
 }
 
 function outboxPath(sessionId: string): string {
-  return join(OUTBOX_DIR, `${sessionId}.json`);
+  return join(OUTBOX_DIR, `${normalizeSessionId(sessionId)}.json`);
 }
 
 export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
@@ -46,9 +73,14 @@ export async function appendToOutbox(
   event: OutboxEvent
 ): Promise<void> {
   await ensureDir();
+  const targetPath = outboxPath(sessionId);
   const existing = await readOutbox(sessionId);
   existing.push(event);
-  await writeFile(outboxPath(sessionId), JSON.stringify(existing, null, 2), "utf8");
+  await writeFile(targetPath, JSON.stringify(existing, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await hardenPath(targetPath, 0o600);
 }
 
 export async function replaceOutbox(
@@ -56,17 +88,22 @@ export async function replaceOutbox(
   events: OutboxEvent[]
 ): Promise<void> {
   await ensureDir();
+  const targetPath = outboxPath(sessionId);
   if (events.length === 0) {
     try {
       const { unlink } = await import("node:fs/promises");
-      await unlink(outboxPath(sessionId));
+      await unlink(targetPath);
       return;
     } catch {
       // File may not exist
       return;
     }
   }
-  await writeFile(outboxPath(sessionId), JSON.stringify(events, null, 2), "utf8");
+  await writeFile(targetPath, JSON.stringify(events, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await hardenPath(targetPath, 0o600);
 }
 
 export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
