@@ -290,6 +290,17 @@ function DashboardShell({
             ? colors.amber
             : colors.textMuted,
       },
+      {
+        id: 'outbox',
+        label: 'Outbox',
+        value: data.outbox.pendingTotal,
+        color:
+          data.outbox.replayStatus === 'error'
+            ? colors.red
+            : data.outbox.pendingTotal > 0
+              ? colors.amber
+              : colors.textMuted,
+      },
     ];
     if (data.handoffs.length > 0) {
       metrics.push({
@@ -300,7 +311,16 @@ function DashboardShell({
       });
     }
     return metrics;
-  }, [activeSessionCount, blockedCount, data.decisions.length, data.handoffs.length, data.sessions.nodes.length, decisionsVisible]);
+  }, [
+    activeSessionCount,
+    blockedCount,
+    data.decisions.length,
+    data.handoffs.length,
+    data.outbox.pendingTotal,
+    data.outbox.replayStatus,
+    data.sessions.nodes.length,
+    decisionsVisible,
+  ]);
 
   const headerNotifications = useMemo(() => {
     const items: HeaderNotification[] = [];
@@ -323,6 +343,22 @@ function DashboardShell({
             : 'Live data is recovering. Some sections may be delayed.',
       });
     }
+    if (data.outbox.pendingTotal > 0) {
+      items.push({
+        id: `outbox:pending:${data.outbox.pendingTotal}`,
+        kind: 'info',
+        title: 'Buffered updates pending',
+        message: `${data.outbox.pendingTotal} event(s) queued for replay.`,
+      });
+    }
+    if (data.outbox.replayStatus === 'error' && data.outbox.lastReplayError) {
+      items.push({
+        id: `outbox:error:${data.outbox.lastReplayError}`,
+        kind: 'error',
+        title: 'Outbox replay failed',
+        message: data.outbox.lastReplayError,
+      });
+    }
     if (opsNotice) {
       items.push({
         id: `ops:${opsNotice}`,
@@ -332,7 +368,14 @@ function DashboardShell({
       });
     }
     return items;
-  }, [data.connection, error, opsNotice]);
+  }, [
+    data.connection,
+    data.outbox.lastReplayError,
+    data.outbox.pendingTotal,
+    data.outbox.replayStatus,
+    error,
+    opsNotice,
+  ]);
 
   useEffect(() => {
     const activeIds = new Set(headerNotifications.map((item) => item.id));
@@ -782,6 +825,14 @@ function DashboardShell({
             <Badge color={CONNECTION_COLOR[data.connection]} pulse={data.connection === 'connected'}>
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
+            {(data.outbox.pendingTotal > 0 || data.outbox.replayStatus === 'error') && (
+              <Badge
+                color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
+                pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
+              >
+                Outbox {data.outbox.pendingTotal}
+              </Badge>
+            )}
           </div>
 
           <div className="hidden items-center justify-center lg:flex">
@@ -821,6 +872,11 @@ function DashboardShell({
             {data.lastActivity && (
               <span className="hidden text-[12px] text-white/45 xl:inline">
                 Last activity: {data.lastActivity}
+              </span>
+            )}
+            {data.outbox.pendingTotal > 0 && (
+              <span className="hidden text-[12px] text-white/45 xl:inline">
+                Replay: {data.outbox.replayStatus}
               </span>
             )}
             <button

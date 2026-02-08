@@ -167,5 +167,16 @@ export const createMockData = (): LiveData => {
         waitingMinutes: 22,
       },
     ],
+    outbox: {
+      pendingTotal: 0,
+      pendingByQueue: {},
+      oldestEventAt: null,
+      newestEventAt: null,
+      replayStatus: 'idle',
+      lastReplayAttemptAt: null,
+      lastReplaySuccessAt: null,
+      lastReplayFailureAt: null,
+      lastReplayError: null,
+    },
   };
 };

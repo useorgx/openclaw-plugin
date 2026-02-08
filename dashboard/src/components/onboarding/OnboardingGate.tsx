@@ -38,6 +38,23 @@ function statusLabel(status: OnboardingStatus): string {
   }
 }
 
+function keySourceLabel(source: OnboardingState['keySource']): string {
+  switch (source) {
+    case 'config':
+      return 'Config key';
+    case 'environment':
+      return 'Env key';
+    case 'persisted':
+      return 'Saved key';
+    case 'openclaw-config-file':
+      return 'OpenClaw key';
+    case 'legacy-dev':
+      return 'Legacy key';
+    default:
+      return 'No key';
+  }
+}
+
 type DotState = 'idle' | 'active' | 'error';
 
 function dotState(status: OnboardingStatus): DotState {
@@ -175,6 +192,9 @@ export function OnboardingGate({
               <span className="text-[13px] text-white/60">{statusLabel(state.status)}</span>
               {state.workspaceName && (
                 <span className="chip">{state.workspaceName}</span>
+              )}
+              {state.keySource && state.keySource !== 'none' && (
+                <span className="chip">{keySourceLabel(state.keySource)}</span>
               )}
             </div>
 

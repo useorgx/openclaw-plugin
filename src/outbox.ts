@@ -46,6 +46,13 @@ export interface OutboxEvent {
   activityItem: LiveActivityItem;
 }
 
+export interface OutboxSummary {
+  pendingTotal: number;
+  pendingByQueue: Record<string, number>;
+  oldestEventAt: string | null;
+  newestEventAt: string | null;
+}
+
 async function ensureDir(): Promise<void> {
   try {
     await mkdir(OUTBOX_DIR, { recursive: true, mode: 0o700 });
@@ -129,6 +136,56 @@ export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
     );
   } catch {
     return [];
+  }
+}
+
+export async function readOutboxSummary(): Promise<OutboxSummary> {
+  try {
+    await ensureDir();
+    const { readdir } = await import("node:fs/promises");
+    const files = await readdir(OUTBOX_DIR);
+    const pendingByQueue: Record<string, number> = {};
+    let pendingTotal = 0;
+    let oldestEpoch = Number.POSITIVE_INFINITY;
+    let newestEpoch = Number.NEGATIVE_INFINITY;
+
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const queueId = file.slice(0, -5);
+      try {
+        const raw = await readFile(join(OUTBOX_DIR, file), "utf8");
+        const events = JSON.parse(raw) as OutboxEvent[];
+        const count = Array.isArray(events) ? events.length : 0;
+        pendingByQueue[queueId] = count;
+        pendingTotal += count;
+        for (const event of events) {
+          const epoch = Date.parse(event.timestamp);
+          if (!Number.isFinite(epoch)) continue;
+          oldestEpoch = Math.min(oldestEpoch, epoch);
+          newestEpoch = Math.max(newestEpoch, epoch);
+        }
+      } catch {
+        pendingByQueue[queueId] = pendingByQueue[queueId] ?? 0;
+      }
+    }
+
+    return {
+      pendingTotal,
+      pendingByQueue,
+      oldestEventAt: Number.isFinite(oldestEpoch)
+        ? new Date(oldestEpoch).toISOString()
+        : null,
+      newestEventAt: Number.isFinite(newestEpoch)
+        ? new Date(newestEpoch).toISOString()
+        : null,
+    };
+  } catch {
+    return {
+      pendingTotal: 0,
+      pendingByQueue: {},
+      oldestEventAt: null,
+      newestEventAt: null,
+    };
   }
 }
 

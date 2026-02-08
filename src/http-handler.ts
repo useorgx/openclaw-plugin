@@ -8,6 +8,7 @@
  *   /orgx/api/agents     → agent states
  *   /orgx/api/activity   → activity feed
  *   /orgx/api/initiatives → initiative data
+ *   /orgx/api/health     → plugin diagnostics + outbox/sync status
  *   /orgx/api/onboarding → onboarding / config state
  *   /orgx/api/delegation/preflight → delegation preflight
  *   /orgx/api/runs/:id/checkpoints → list/create checkpoints
@@ -45,7 +46,7 @@ import {
   toLocalLiveInitiatives,
   toLocalSessionTree,
 } from "./local-openclaw.js";
-import { readAllOutboxItems } from "./outbox.js";
+import { readAllOutboxItems, readOutboxSummary } from "./outbox.js";
 
 // =============================================================================
 // Helpers
@@ -315,6 +316,10 @@ interface OnboardingController {
     userId?: string;
   }) => Promise<OnboardingState>;
   disconnect: () => Promise<OnboardingState>;
+}
+
+interface DiagnosticsProvider {
+  getHealth?: (input?: { probeRemote?: boolean }) => Promise<unknown>;
 }
 
 // =============================================================================
@@ -644,6 +649,17 @@ function parsePositiveInt(raw: string | null, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.floor(parsed));
+}
+
+function parseBooleanQuery(raw: string | null): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
 }
 
 type MissionControlNodeType = "initiative" | "workstream" | "milestone" | "task";
@@ -1667,7 +1683,8 @@ export function createHttpHandler(
   config: OrgXConfig,
   client: OrgXClient,
   getSnapshot: () => OrgSnapshot | null,
-  onboarding: OnboardingController
+  onboarding: OnboardingController,
+  diagnostics?: DiagnosticsProvider
 ) {
   const dashboardEnabled =
     (config as OrgXConfig & { dashboardEnabled?: boolean }).dashboardEnabled ??
@@ -2114,6 +2131,55 @@ export function createHttpHandler(
           return true;
         }
 
+        case "health": {
+          const probeRemote = parseBooleanQuery(
+            searchParams.get("probe") ?? searchParams.get("probe_remote")
+          );
+          try {
+            if (diagnostics?.getHealth) {
+              const health = await diagnostics.getHealth({ probeRemote });
+              sendJson(res, 200, health);
+              return true;
+            }
+
+            const outbox = await readOutboxSummary();
+            sendJson(res, 200, {
+              ok: true,
+              status: "ok",
+              generatedAt: new Date().toISOString(),
+              checks: [],
+              plugin: {
+                baseUrl: config.baseUrl,
+              },
+              auth: {
+                hasApiKey: Boolean(config.apiKey),
+              },
+              outbox: {
+                pendingTotal: outbox.pendingTotal,
+                pendingByQueue: outbox.pendingByQueue,
+                oldestEventAt: outbox.oldestEventAt,
+                newestEventAt: outbox.newestEventAt,
+                replayStatus: "idle",
+                lastReplayAttemptAt: null,
+                lastReplaySuccessAt: null,
+                lastReplayFailureAt: null,
+                lastReplayError: null,
+              },
+              remote: {
+                enabled: false,
+                reachable: null,
+                latencyMs: null,
+                error: null,
+              },
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
         case "agents":
           sendJson(res, 200, formatAgents(getSnapshot()));
           return true;
@@ -2294,6 +2360,47 @@ export function createHttpHandler(
           const includeIdleRaw = searchParams.get("include_idle");
           const includeIdle =
             includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
+          const degraded: string[] = [];
+
+          let outboxStatus: Record<string, unknown> | null = null;
+          try {
+            if (diagnostics?.getHealth) {
+              const health = await diagnostics.getHealth({ probeRemote: false });
+              if (health && typeof health === "object") {
+                const maybeOutbox = (health as Record<string, unknown>).outbox;
+                if (maybeOutbox && typeof maybeOutbox === "object") {
+                  outboxStatus = maybeOutbox as Record<string, unknown>;
+                }
+              }
+            }
+            if (!outboxStatus) {
+              const outbox = await readOutboxSummary();
+              outboxStatus = {
+                pendingTotal: outbox.pendingTotal,
+                pendingByQueue: outbox.pendingByQueue,
+                oldestEventAt: outbox.oldestEventAt,
+                newestEventAt: outbox.newestEventAt,
+                replayStatus: "idle",
+                lastReplayAttemptAt: null,
+                lastReplaySuccessAt: null,
+                lastReplayFailureAt: null,
+                lastReplayError: null,
+              };
+            }
+          } catch (err: unknown) {
+            degraded.push(`outbox status unavailable (${safeErrorMessage(err)})`);
+            outboxStatus = {
+              pendingTotal: 0,
+              pendingByQueue: {},
+              oldestEventAt: null,
+              newestEventAt: null,
+              replayStatus: "idle",
+              lastReplayAttemptAt: null,
+              lastReplaySuccessAt: null,
+              lastReplayFailureAt: null,
+              lastReplayError: null,
+            };
+          }
 
           let localSnapshot:
             | Awaited<ReturnType<typeof loadLocalOpenClawSnapshot>>
@@ -2325,8 +2432,6 @@ export function createHttpHandler(
               includeIdle,
             }),
           ]);
-
-          const degraded: string[] = [];
 
           // sessions
           let sessions: SessionTreeResponse = {
@@ -2480,6 +2585,7 @@ export function createHttpHandler(
             handoffs,
             decisions,
             agents,
+            outbox: outboxStatus,
             generatedAt: new Date().toISOString(),
             degraded: degraded.length > 0 ? degraded : undefined,
           });

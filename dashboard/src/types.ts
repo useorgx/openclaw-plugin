@@ -169,6 +169,19 @@ export interface LiveData {
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
+  outbox: OutboxStatus;
+}
+
+export interface OutboxStatus {
+  pendingTotal: number;
+  pendingByQueue: Record<string, number>;
+  oldestEventAt: string | null;
+  newestEventAt: string | null;
+  replayStatus: 'idle' | 'running' | 'success' | 'error';
+  lastReplayAttemptAt: string | null;
+  lastReplaySuccessAt: string | null;
+  lastReplayFailureAt: string | null;
+  lastReplayError: string | null;
 }
 
 export interface LiveSnapshotAgent {
@@ -188,6 +201,7 @@ export interface LiveSnapshotResponse {
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
   agents: LiveSnapshotAgent[];
+  outbox?: OutboxStatus;
   generatedAt: string;
   degraded?: string[];
 }
