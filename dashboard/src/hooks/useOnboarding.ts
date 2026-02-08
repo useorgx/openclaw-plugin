@@ -214,10 +214,14 @@ export function useOnboarding() {
       setIsSubmittingManual(true);
       try {
         const trimmedInput = apiKey.trim();
-        const hasExplicitPrefix = /^[a-z]+_/i.test(trimmedInput);
-        const candidates = hasExplicitPrefix
-          ? [trimmedInput]
-          : [trimmedInput, `oxk_${trimmedInput}`, `orgx_${trimmedInput}`];
+        const keyBody = trimmedInput.replace(/^[a-z]+_/i, '');
+        const candidates = Array.from(
+          new Set(
+            [trimmedInput, keyBody ? `oxk_${keyBody}` : '', keyBody ? `orgx_${keyBody}` : '']
+              .map((candidate) => candidate.trim())
+              .filter((candidate) => candidate.length > 0)
+          )
+        );
 
         let lastError = 'Manual key validation failed';
 

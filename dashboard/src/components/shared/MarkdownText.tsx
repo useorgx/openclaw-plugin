@@ -101,6 +101,26 @@ function renderInlineMultiline(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
+function splitTableRow(line: string): string[] {
+  const raw = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return raw.split('|').map((cell) => cell.trim());
+}
+
+function isTableDivider(line: string): boolean {
+  const cells = splitTableRow(line);
+  if (cells.length === 0) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableCellAlign(cell: string): 'left' | 'center' | 'right' {
+  const trimmed = cell.trim();
+  const starts = trimmed.startsWith(':');
+  const ends = trimmed.endsWith(':');
+  if (starts && ends) return 'center';
+  if (ends) return 'right';
+  return 'left';
+}
+
 function renderBlocks(text: string): ReactNode[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
@@ -112,6 +132,64 @@ function renderBlocks(text: string): ReactNode[] {
 
     if (!trimmed) {
       index += 1;
+      continue;
+    }
+
+    const hasTableHeader = current.includes('|');
+    const next = lines[index + 1] ?? '';
+    if (hasTableHeader && next.includes('|') && isTableDivider(next)) {
+      const header = splitTableRow(current);
+      const divider = splitTableRow(next);
+      const align = divider.map((cell) => tableCellAlign(cell));
+      index += 2;
+
+      const rows: string[][] = [];
+      while (index < lines.length) {
+        const rowLine = lines[index] ?? '';
+        const rowTrimmed = rowLine.trim();
+        if (!rowTrimmed) break;
+        if (!rowLine.includes('|')) break;
+        rows.push(splitTableRow(rowLine));
+        index += 1;
+      }
+
+      blocks.push(
+        <div key={`tbl-${index}`} className="overflow-x-auto rounded-xl border border-white/[0.1] bg-black/25">
+          <table className="min-w-full border-collapse text-left">
+            <thead>
+              <tr className="border-b border-white/[0.08] bg-white/[0.03]">
+                {header.map((cell, cellIndex) => (
+                  <th
+                    key={`tbl-h-${cellIndex}`}
+                    className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70"
+                    style={{ textAlign: align[cellIndex] ?? 'left' }}
+                  >
+                    {renderInline(cell, `tbl-h-${index}-${cellIndex}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr
+                  key={`tbl-r-${rowIndex}`}
+                  className={rowIndex < rows.length - 1 ? 'border-b border-white/[0.06]' : undefined}
+                >
+                  {header.map((_, cellIndex) => (
+                    <td
+                      key={`tbl-r-${rowIndex}-c-${cellIndex}`}
+                      className="px-3 py-2 text-[13px] leading-relaxed text-white/80 align-top"
+                      style={{ textAlign: align[cellIndex] ?? 'left' }}
+                    >
+                      {renderInline(row[cellIndex] ?? '', `tbl-r-${index}-${rowIndex}-${cellIndex}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
       continue;
     }
 

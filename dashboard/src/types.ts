@@ -29,7 +29,13 @@ export interface OnboardingState {
   lastError: string | null;
   nextAction: OnboardingNextAction;
   docsUrl: string;
-  keySource?: 'config' | 'environment' | 'persisted' | 'legacy-dev' | 'none';
+  keySource?:
+    | 'config'
+    | 'environment'
+    | 'persisted'
+    | 'openclaw-config-file'
+    | 'legacy-dev'
+    | 'none';
   installationId?: string | null;
   connectUrl: string | null;
   pairingId?: string | null;
@@ -300,6 +306,7 @@ export interface MissionControlNode {
   dueDate: string | null;
   etaEndAt: string | null;
   expectedDurationHours: number;
+  expectedBudgetUsd: number;
   assignedAgents: AssignedAgent[];
   updatedAt: string | null;
 }

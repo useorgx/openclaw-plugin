@@ -125,19 +125,25 @@ export function useInitiativeDetails({
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
       const requestHeaders = Object.keys(headers).length ? headers : undefined;
 
-      const fetchEntities = async <T,>(type: 'workstream' | 'milestone' | 'task') => {
-        const params = new URLSearchParams({
-          type,
-          initiative_id: initiativeId,
-          limit: '100',
-        });
-        const response = await fetch(`/orgx/api/entities?${params.toString()}`, {
-          headers: requestHeaders,
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch ${type} data (${response.status})`);
+      const fetchEntities = async <T,>(type: 'workstream' | 'milestone' | 'task'): Promise<EntitiesResponse<T>> => {
+        try {
+          const params = new URLSearchParams({
+            type,
+            initiative_id: initiativeId,
+            limit: '100',
+          });
+          const response = await fetch(`/orgx/api/entities?${params.toString()}`, {
+            headers: requestHeaders,
+          });
+          if (!response.ok) {
+            console.warn(`[useInitiativeDetails] ${type} fetch returned ${response.status}, using empty list`);
+            return { data: [] };
+          }
+          return (await response.json()) as EntitiesResponse<T>;
+        } catch (err) {
+          console.warn(`[useInitiativeDetails] ${type} fetch failed:`, err);
+          return { data: [] };
         }
-        return (await response.json()) as EntitiesResponse<T>;
       };
 
       const [workstreamsResponse, milestonesResponse, tasksResponse] = await Promise.all([

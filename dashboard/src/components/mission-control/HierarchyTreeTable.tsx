@@ -195,7 +195,7 @@ export function HierarchyTreeTable({
         Hierarchy table
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-separate border-spacing-y-1.5">
+        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
               <th className="px-2 py-1.5">Item</th>
@@ -203,6 +203,7 @@ export function HierarchyTreeTable({
               <th className="px-2 py-1.5">Priority</th>
               <th className="px-2 py-1.5">ETA</th>
               <th className="px-2 py-1.5">Duration (h)</th>
+              <th className="px-2 py-1.5">Budget ($)</th>
               <th className="px-2 py-1.5">Dependencies</th>
               <th className="px-2 py-1.5">Assigned</th>
             </tr>
@@ -361,7 +362,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editMode && node.type !== 'task' ? (
                       <input
                         type="number"
                         min={0}
@@ -378,6 +379,30 @@ export function HierarchyTreeTable({
                       />
                     ) : (
                       <span>{node.expectedDurationHours}</span>
+                    )}
+                  </td>
+
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                    {editMode && node.type !== 'task' ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={node.expectedBudgetUsd}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value)) {
+                            void onUpdateNode(node, { expected_budget_usd: value });
+                          }
+                        }}
+                        className="w-[88px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      />
+                    ) : (
+                      <span>
+                        ${node.expectedBudgetUsd.toLocaleString()}
+                        {editMode && node.type === 'task' ? ' (from task spec)' : ''}
+                      </span>
                     )}
                   </td>
 
@@ -450,6 +475,15 @@ export function HierarchyTreeTable({
         </table>
       </div>
 
+      {rows.length === 0 && (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center">
+          <div className="text-[12px] text-white/60">No workstreams, milestones, or tasks yet</div>
+          <div className="mt-1 text-[11px] text-white/35">
+            Create workstreams and tasks to see them here, or reconnect the OrgX API key.
+          </div>
+        </div>
+      )}
+
       {edges.length > 0 && (
         <div className="mt-2 text-[10px] text-white/35">
           Showing {rows.length} rows and {edges.length} dependency links.
@@ -461,4 +495,3 @@ export function HierarchyTreeTable({
     </section>
   );
 }
-

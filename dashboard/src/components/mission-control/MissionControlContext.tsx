@@ -22,6 +22,7 @@ export type MissionControlDatePreset =
   | 'custom_range';
 
 export type GroupByOption = 'none' | 'status' | 'date' | 'category';
+export type SortByOption = 'default' | 'date_asc' | 'date_desc';
 
 export type EntityModalTarget =
   | { type: 'initiative'; entity: Initiative }
@@ -44,6 +45,7 @@ interface MissionControlState {
   activeFilterCount: number;
   hasActiveFilters: boolean;
   groupBy: GroupByOption;
+  sortBy: SortByOption;
   authToken: string | null;
   embedMode: boolean;
   mutations: EntityMutations;
@@ -61,6 +63,7 @@ interface MissionControlState {
   setDateStart: (value: string) => void;
   setDateEnd: (value: string) => void;
   setGroupBy: (groupBy: GroupByOption) => void;
+  setSortBy: (sortBy: SortByOption) => void;
   clearFilters: () => void;
 }
 
@@ -93,7 +96,8 @@ export function MissionControlProvider({
   const [datePreset, setDatePreset] = useState<MissionControlDatePreset>('any');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
-  const [groupBy, setGroupBy] = useState<GroupByOption>('none');
+  const [groupBy, setGroupBy] = useState<GroupByOption>('status');
+  const [sortBy, setSortBy] = useState<SortByOption>('default');
   const mutations = useEntityMutations({ authToken, embedMode });
 
   const toggleExpanded = useCallback((id: string) => {
@@ -172,6 +176,7 @@ export function MissionControlProvider({
       activeFilterCount,
       hasActiveFilters,
       groupBy,
+      sortBy,
       authToken,
       embedMode,
       mutations,
@@ -189,6 +194,7 @@ export function MissionControlProvider({
       setDateStart,
       setDateEnd,
       setGroupBy,
+      setSortBy,
       clearFilters,
     }),
     [
@@ -204,6 +210,7 @@ export function MissionControlProvider({
       activeFilterCount,
       hasActiveFilters,
       groupBy,
+      sortBy,
       authToken,
       embedMode,
       mutations,
@@ -220,6 +227,7 @@ export function MissionControlProvider({
       setDateStart,
       setDateEnd,
       setGroupBy,
+      setSortBy,
       clearFilters,
     ]
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityItem, Agent, Initiative } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { SearchInput } from '@/components/shared/SearchInput';
@@ -135,6 +135,22 @@ function groupInitiatives(
   return [];
 }
 
+function groupDisclosureId(groupBy: GroupByOption, key: string): string {
+  return `${groupBy}:${key}`;
+}
+
+function toDisclosureDomId(value: string): string {
+  return `mc-group-${value}`.toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+}
+
+function isSameSet(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
 export function MissionControlView({
   initiatives,
   activities,
@@ -180,6 +196,7 @@ function MissionControlInner({
     dateEnd,
     hasActiveFilters,
     groupBy,
+    sortBy,
     expandedInitiatives,
     expandAll,
     collapseAll,
@@ -188,6 +205,7 @@ function MissionControlInner({
     expandInitiative,
   } = useMissionControl();
   const didAutoExpand = useRef(false);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
   const filteredInitiatives = useMemo(() => {
     const now = new Date();
@@ -264,23 +282,87 @@ function MissionControlInner({
     dateEnd,
   ]);
 
+  const sortedInitiatives = useMemo(() => {
+    if (sortBy === 'default') return filteredInitiatives;
+    return [...filteredInitiatives].sort((a, b) => {
+      const aDate = a.targetDate ? Date.parse(a.targetDate) : Number.NaN;
+      const bDate = b.targetDate ? Date.parse(b.targetDate) : Number.NaN;
+      const aValid = Number.isFinite(aDate);
+      const bValid = Number.isFinite(bDate);
+      if (!aValid && !bValid) return 0;
+      if (!aValid) return 1;
+      if (!bValid) return -1;
+      return sortBy === 'date_asc' ? aDate - bDate : bDate - aDate;
+    });
+  }, [filteredInitiatives, sortBy]);
+
   const groups = useMemo(
-    () => (groupBy !== 'none' ? groupInitiatives(filteredInitiatives, groupBy) : null),
-    [filteredInitiatives, groupBy],
+    () => (groupBy !== 'none' ? groupInitiatives(sortedInitiatives, groupBy) : null),
+    [sortedInitiatives, groupBy],
   );
+
+  const groupIds = useMemo(
+    () =>
+      groups?.map((group) => groupDisclosureId(groupBy, group.key)) ?? [],
+    [groupBy, groups],
+  );
+
+  const allGroupsExpanded = groupIds.length > 0 && groupIds.every((id) => expandedGroupIds.has(id));
+
+  const toggleGroupExpanded = useCallback((id: string) => {
+    setExpandedGroupIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!groups || groups.length === 0) {
+      setExpandedGroupIds((previous) => (previous.size === 0 ? previous : new Set()));
+      return;
+    }
+
+    const validIds = new Set(groups.map((group) => groupDisclosureId(groupBy, group.key)));
+    setExpandedGroupIds((previous) => {
+      const next = new Set(Array.from(previous).filter((id) => validIds.has(id)));
+      if (next.size === 0) {
+        next.add(groupDisclosureId(groupBy, groups[0].key));
+      }
+      return isSameSet(next, previous) ? previous : next;
+    });
+  }, [groupBy, groups]);
 
   useEffect(() => {
     if (initialInitiativeId && !didAutoExpand.current && !isLoading && initiatives.length > 0) {
       expandInitiative(initialInitiativeId);
+      if (groups) {
+        const matchingGroup = groups.find((group) =>
+          group.initiatives.some((initiative) => initiative.id === initialInitiativeId),
+        );
+        if (matchingGroup) {
+          const id = groupDisclosureId(groupBy, matchingGroup.key);
+          setExpandedGroupIds((previous) => {
+            if (previous.has(id)) return previous;
+            const next = new Set(previous);
+            next.add(id);
+            return next;
+          });
+        }
+      }
       didAutoExpand.current = true;
       requestAnimationFrame(() => {
         const el = document.getElementById(`initiative-${initialInitiativeId}`);
         el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
-  }, [initialInitiativeId, isLoading, initiatives.length, expandInitiative]);
+  }, [initialInitiativeId, isLoading, initiatives.length, expandInitiative, groupBy, groups]);
 
-  const allExpanded = filteredInitiatives.length > 0 && expandedInitiatives.size >= filteredInitiatives.length;
+  const allExpanded = sortedInitiatives.length > 0 && expandedInitiatives.size >= sortedInitiatives.length;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -305,19 +387,34 @@ function MissionControlInner({
                 visibleCount={filteredInitiatives.length}
               />
               {/* Expand/Collapse All toggle */}
-              {filteredInitiatives.length > 0 && (
+              {sortedInitiatives.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
                     if (allExpanded) {
                       collapseAll();
                     } else {
-                      expandAll(filteredInitiatives.map((i) => i.id));
+                      expandAll(sortedInitiatives.map((i) => i.id));
                     }
                   }}
                   className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
                 >
                   {allExpanded ? 'Collapse All' : 'Expand All'}
+                </button>
+              )}
+              {groups && groupIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (allGroupsExpanded) {
+                      setExpandedGroupIds(new Set());
+                    } else {
+                      setExpandedGroupIds(new Set(groupIds));
+                    }
+                  }}
+                  className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
+                >
+                  {allGroupsExpanded ? 'Collapse Groups' : 'Expand Groups'}
                 </button>
               )}
             </div>
@@ -337,7 +434,7 @@ function MissionControlInner({
               </div>
             ) : initiatives.length === 0 ? (
               <MissionControlEmpty />
-            ) : filteredInitiatives.length === 0 ? (
+            ) : sortedInitiatives.length === 0 ? (
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center">
                 <div className="text-[13px] font-medium text-white/85">
                   No initiatives match the current filters
@@ -351,20 +448,44 @@ function MissionControlInner({
             ) : groups ? (
               /* Grouped initiative list */
               <div className="space-y-4">
-                {groups.map((group) => (
-                  <div key={group.key}>
-                    <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 mb-2">
-                      <span className="text-[12px] font-medium text-white/75">{group.label}</span>
-                      <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/50">
-                        {group.count}
-                      </span>
+                {groups.map((group) => {
+                  const disclosureId = groupDisclosureId(groupBy, group.key);
+                  const panelId = toDisclosureDomId(disclosureId);
+                  const isGroupExpanded = expandedGroupIds.has(disclosureId);
+                  return (
+                    <div key={group.key}>
+                      <button
+                        type="button"
+                        aria-expanded={isGroupExpanded}
+                        aria-controls={panelId}
+                        onClick={() => toggleGroupExpanded(disclosureId)}
+                        className="mb-2 flex w-full items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]"
+                      >
+                        <span
+                          aria-hidden
+                          className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-white/[0.1] bg-white/[0.03] text-[11px] text-white/55 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`}
+                        >
+                          ▶
+                        </span>
+                        <span className="text-[12px] font-medium text-white/75">{group.label}</span>
+                        <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/50">
+                          {group.count}
+                        </span>
+                        <span className="ml-auto text-[10px] uppercase tracking-[0.08em] text-white/45">
+                          {isGroupExpanded ? 'Hide' : 'Show'}
+                        </span>
+                      </button>
+                      {isGroupExpanded && (
+                        <div id={panelId}>
+                          <InitiativeOrbit initiatives={group.initiatives} />
+                        </div>
+                      )}
                     </div>
-                    <InitiativeOrbit initiatives={group.initiatives} />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <InitiativeOrbit initiatives={filteredInitiatives} />
+              <InitiativeOrbit initiatives={sortedInitiatives} />
             )}
           </div>
         </div>

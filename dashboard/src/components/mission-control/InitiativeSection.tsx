@@ -49,6 +49,16 @@ function priorityFromLabel(value: string | null | undefined): {
   return { priorityNum: 60, priorityLabel: null };
 }
 
+function isTodoTaskStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return ['todo', 'not_started', 'planned', 'pending', 'backlog'].includes(normalized);
+}
+
+function isActiveTaskStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return ['in_progress', 'active', 'running', 'queued'].includes(normalized);
+}
+
 function buildLegacyGraphNodes(
   initiative: Initiative,
   details: InitiativeDetails
@@ -72,13 +82,27 @@ function buildLegacyGraphNodes(
     dueDate: initiative.targetDate ?? null,
     etaEndAt: initiative.targetDate ?? null,
     expectedDurationHours: 40,
+    expectedBudgetUsd: 1500,
     assignedAgents: [],
     updatedAt: initiative.updatedAt ?? initiative.createdAt ?? null,
   };
 
-  const workstreamNodes: MissionControlNode[] = details.workstreams.map((workstream) => ({
+  // Use entity workstreams if available, otherwise fall back to session-derived workstreams
+  const workstreamSource = details.workstreams.length > 0
+    ? details.workstreams
+    : (initiative.workstreams ?? []).map((ws) => ({
+        id: ws.id,
+        name: ws.name,
+        summary: null,
+        status: ws.status,
+        progress: null,
+        initiativeId: initiative.id,
+        createdAt: null,
+      }));
+
+  const workstreamNodes: MissionControlNode[] = workstreamSource.map((workstream) => ({
     id: workstream.id,
-    type: 'workstream',
+    type: 'workstream' as const,
     title: workstream.name,
     status: workstream.status,
     parentId: initiative.id,
@@ -91,6 +115,7 @@ function buildLegacyGraphNodes(
     dueDate: null,
     etaEndAt: null,
     expectedDurationHours: 16,
+    expectedBudgetUsd: 300,
     assignedAgents: [],
     updatedAt: workstream.createdAt,
   }));
@@ -117,6 +142,7 @@ function buildLegacyGraphNodes(
     dueDate: milestone.dueDate,
     etaEndAt: milestone.dueDate,
     expectedDurationHours: 6,
+    expectedBudgetUsd: 120,
     assignedAgents: [],
     updatedAt: milestone.createdAt,
   }));
@@ -141,6 +167,7 @@ function buildLegacyGraphNodes(
       dueDate: task.dueDate,
       etaEndAt: task.dueDate,
       expectedDurationHours: 2,
+      expectedBudgetUsd: 40,
       assignedAgents: [],
       updatedAt: task.createdAt,
     };
@@ -285,28 +312,30 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   );
 
   const hasPrimaryGraphData = Boolean(graph && graph.nodes.length > 0);
-  const hasLegacyGraphData = legacyGraph.nodes.length > 1;
+  const hasLegacyGraphData = legacyGraph.nodes.length > 0;
   const useLegacyGraph = !hasPrimaryGraphData && hasLegacyGraphData;
 
-  const nodes = useLegacyGraph ? legacyGraph.nodes : graph?.nodes ?? [];
-  const edges = useLegacyGraph ? legacyGraph.edges : graph?.edges ?? [];
-  const recentTodoIds = useLegacyGraph ? legacyGraph.recentTodos : graph?.recentTodos ?? [];
+  const nodes = useLegacyGraph ? legacyGraph.nodes : (hasPrimaryGraphData ? graph?.nodes ?? [] : legacyGraph.nodes);
+  const edges = useLegacyGraph ? legacyGraph.edges : (hasPrimaryGraphData ? graph?.edges ?? [] : legacyGraph.edges);
+  const recentTodoIds = useLegacyGraph ? legacyGraph.recentTodos : (hasPrimaryGraphData ? graph?.recentTodos ?? [] : legacyGraph.recentTodos);
+
+  const authUnavailable =
+    degraded.some((msg) => /401|unauthorized/i.test(msg)) ||
+    Boolean(error && /401|unauthorized/i.test(error)) ||
+    Boolean(legacyError && /401|unauthorized/i.test(legacyError));
 
   const graphErrorMessage =
     error && /unknown api endpoint/i.test(error)
-      ? 'Mission Control graph API is unavailable in this plugin process. Restart the plugin to load updated routes.'
+      ? 'Graph API unavailable. Showing session-derived data.'
       : error;
-  const legacyErrorMessage =
-    legacyError && /401|unauthorized/i.test(legacyError)
-      ? 'Legacy entity API returned unauthorized. Reconnect OrgX API key in onboarding.'
-      : legacyError;
+  const legacyErrorMessage = legacyError;
 
   const warnings = [
     ...degraded,
     ...(graphErrorMessage ? [graphErrorMessage] : []),
-    ...(useLegacyGraph ? ['Using legacy hierarchy source because graph endpoint is unavailable.'] : []),
-    ...(!hasPrimaryGraphData && !hasLegacyGraphData && legacyErrorMessage
-      ? [`Legacy hierarchy unavailable (${legacyErrorMessage})`]
+    ...(legacyErrorMessage ? [`Entity data partially unavailable: ${legacyErrorMessage}`] : []),
+    ...(authUnavailable
+      ? ['OrgX auth is missing or expired in this local plugin instance. Reconnect in onboarding to load full workstreams/milestones/tasks.']
       : []),
   ];
 
@@ -331,6 +360,27 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
   const inferredAgents = agentEntityMap.get(initiative.id) ?? [];
   const agents = explicitAgents.length > 0 ? explicitAgents : inferredAgents;
+
+  const taskNodes = nodes.filter((node) => node.type === 'task');
+  const activeTaskCount = taskNodes.filter((node) => isActiveTaskStatus(node.status)).length;
+  const todoTaskCount = taskNodes.filter((node) => isTodoTaskStatus(node.status)).length;
+  const effectiveInitiativeStatus =
+    initiative.status === 'active' && activeTaskCount === 0 && todoTaskCount > 0
+      ? 'paused'
+      : initiative.status;
+
+  const budgetSourceNodes =
+    taskNodes.length > 0
+      ? taskNodes
+      : nodes.some((node) => node.type === 'milestone')
+        ? nodes.filter((node) => node.type === 'milestone')
+        : nodes.filter((node) => node.type === 'workstream');
+  const totalExpectedDurationHours = Math.round(
+    budgetSourceNodes.reduce((sum, node) => sum + (node.expectedDurationHours || 0), 0) * 10
+  ) / 10;
+  const totalExpectedBudgetUsd = Math.round(
+    budgetSourceNodes.reduce((sum, node) => sum + (node.expectedBudgetUsd || 0), 0) * 100
+  ) / 100;
 
   const progress = initiative.health;
   const dueBadge = formatDueBadge(initiative.targetDate);
@@ -431,8 +481,8 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
         {/* Breathing status dot */}
         <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${initiative.status === 'active' ? 'status-breathe' : ''}`}
-          style={{ backgroundColor: statusColor(initiative.status) }}
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${effectiveInitiativeStatus === 'active' ? 'status-breathe' : ''}`}
+          style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
         <button
@@ -447,9 +497,9 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
         </button>
 
         <span
-          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${initiativeStatusClass[initiative.status]}`}
+          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${initiativeStatusClass[effectiveInitiativeStatus]}`}
         >
-          {formatEntityStatus(initiative.status)}
+          {formatEntityStatus(effectiveInitiativeStatus)}
         </span>
 
         <span
@@ -461,7 +511,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
         {/* Quick actions — shown on hover */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          {initiative.status === 'active' && (
+          {effectiveInitiativeStatus === 'active' && (
             <button
               type="button"
               onClick={handleAction('pause')}
@@ -471,7 +521,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
             </button>
           )}
-          {initiative.status === 'paused' && (
+          {effectiveInitiativeStatus === 'paused' && (
             <button
               type="button"
               onClick={handleAction('resume')}
@@ -500,7 +550,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
               className="h-full rounded-full transition-all"
               style={{
                 width: `${progress}%`,
-                backgroundColor: statusColor(initiative.status),
+                backgroundColor: statusColor(effectiveInitiativeStatus),
               }}
             />
           </div>
@@ -546,6 +596,23 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                       Partial data: {warnings.join(' | ')}
                     </div>
                   )}
+
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Next-Up Queue</div>
+                      <div className="mt-1 text-[12px] text-white/85">
+                        {todoTaskCount} todo • {activeTaskCount} active
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Expected Duration</div>
+                      <div className="mt-1 text-[12px] text-white/85">{totalExpectedDurationHours}h</div>
+                    </div>
+                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Expected Budget</div>
+                      <div className="mt-1 text-[12px] text-white/85">${totalExpectedBudgetUsd.toLocaleString()}</div>
+                    </div>
+                  </div>
 
                   {focusedWorkstreamId && (
                     <div className="flex items-center justify-between rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-3 py-1.5 text-[11px] text-[#D8FFA1]">

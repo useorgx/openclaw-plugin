@@ -687,11 +687,101 @@ const DEFAULT_DURATION_HOURS: Record<MissionControlNodeType, number> = {
   task: 2,
 };
 
+interface BudgetEnvBounds {
+  min?: number;
+  max?: number;
+}
+
+function readBudgetEnvNumber(name: string, fallback: number, bounds: BudgetEnvBounds = {}): number {
+  const raw = process.env[name];
+  if (typeof raw !== "string" || raw.trim().length === 0) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (typeof bounds.min === "number" && parsed < bounds.min) return fallback;
+  if (typeof bounds.max === "number" && parsed > bounds.max) return fallback;
+  return parsed;
+}
+
+const DEFAULT_TOKEN_MODEL_PRICING_USD_PER_1M = {
+  // GPT-5.3 Codex API pricing is not published yet; use GPT-5.2 Codex pricing as proxy.
+  gpt53CodexProxy: {
+    input: readBudgetEnvNumber("ORGX_BUDGET_GPT53_CODEX_INPUT_PER_1M", 1.75, { min: 0 }),
+    cachedInput: readBudgetEnvNumber("ORGX_BUDGET_GPT53_CODEX_CACHED_INPUT_PER_1M", 0.175, {
+      min: 0,
+    }),
+    output: readBudgetEnvNumber("ORGX_BUDGET_GPT53_CODEX_OUTPUT_PER_1M", 14, { min: 0 }),
+  },
+  opus46: {
+    input: readBudgetEnvNumber("ORGX_BUDGET_OPUS46_INPUT_PER_1M", 5, { min: 0 }),
+    // Anthropic does not publish a fixed cached-input rate on the model page.
+    cachedInput: readBudgetEnvNumber("ORGX_BUDGET_OPUS46_CACHED_INPUT_PER_1M", 5, { min: 0 }),
+    output: readBudgetEnvNumber("ORGX_BUDGET_OPUS46_OUTPUT_PER_1M", 25, { min: 0 }),
+  },
+};
+
+const DEFAULT_TOKEN_BUDGET_ASSUMPTIONS = {
+  tokensPerHour: readBudgetEnvNumber("ORGX_BUDGET_TOKENS_PER_HOUR", 1_200_000, { min: 1 }),
+  inputShare: readBudgetEnvNumber("ORGX_BUDGET_INPUT_TOKEN_SHARE", 0.86, { min: 0, max: 1 }),
+  cachedInputShare: readBudgetEnvNumber("ORGX_BUDGET_CACHED_INPUT_SHARE", 0.15, {
+    min: 0,
+    max: 1,
+  }),
+  contingencyMultiplier: readBudgetEnvNumber("ORGX_BUDGET_CONTINGENCY_MULTIPLIER", 1.3, {
+    min: 0.1,
+  }),
+  roundingStepUsd: readBudgetEnvNumber("ORGX_BUDGET_ROUNDING_STEP_USD", 5, { min: 0.01 }),
+};
+
+const DEFAULT_TOKEN_MODEL_MIX = {
+  gpt53CodexProxy: 0.7,
+  opus46: 0.3,
+};
+
+function modelCostPerMillionTokensUsd(pricing: {
+  input: number;
+  cachedInput: number;
+  output: number;
+}): number {
+  const inputShare = DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.inputShare;
+  const outputShare = Math.max(0, 1 - inputShare);
+  const cachedShare = DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.cachedInputShare;
+  const uncachedShare = Math.max(0, 1 - cachedShare);
+  const effectiveInputRate = pricing.input * uncachedShare + pricing.cachedInput * cachedShare;
+  return inputShare * effectiveInputRate + outputShare * pricing.output;
+}
+
+function estimateBudgetUsdFromDurationHours(durationHours: number): number {
+  if (!Number.isFinite(durationHours) || durationHours <= 0) return 0;
+  const blendedPerMillionUsd =
+    DEFAULT_TOKEN_MODEL_MIX.gpt53CodexProxy *
+      modelCostPerMillionTokensUsd(DEFAULT_TOKEN_MODEL_PRICING_USD_PER_1M.gpt53CodexProxy) +
+    DEFAULT_TOKEN_MODEL_MIX.opus46 *
+      modelCostPerMillionTokensUsd(DEFAULT_TOKEN_MODEL_PRICING_USD_PER_1M.opus46);
+  const tokenMillions =
+    (durationHours * DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour) / 1_000_000;
+  const rawBudgetUsd =
+    tokenMillions *
+    blendedPerMillionUsd *
+    DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
+  const roundedBudgetUsd =
+    Math.round(rawBudgetUsd / DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.roundingStepUsd) *
+    DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.roundingStepUsd;
+  return Math.max(0, roundedBudgetUsd);
+}
+
+function isLegacyHourlyBudget(budgetUsd: number, durationHours: number): boolean {
+  if (!Number.isFinite(budgetUsd) || !Number.isFinite(durationHours) || durationHours <= 0) {
+    return false;
+  }
+  const legacyHourlyBudget = durationHours * 40;
+  return Math.abs(budgetUsd - legacyHourlyBudget) <= 0.5;
+}
+
 const DEFAULT_BUDGET_USD: Record<MissionControlNodeType, number> = {
-  initiative: 1500,
-  workstream: 300,
-  milestone: 120,
-  task: 40,
+  initiative: estimateBudgetUsdFromDurationHours(DEFAULT_DURATION_HOURS.initiative),
+  workstream: estimateBudgetUsdFromDurationHours(DEFAULT_DURATION_HOURS.workstream),
+  milestone: estimateBudgetUsdFromDurationHours(DEFAULT_DURATION_HOURS.milestone),
+  task: estimateBudgetUsdFromDurationHours(DEFAULT_DURATION_HOURS.task),
 };
 
 const PRIORITY_LABEL_TO_NUM: Record<string, number> = {
@@ -960,7 +1050,7 @@ function toMissionControlNode(
     ) ??
     DEFAULT_DURATION_HOURS[type];
 
-  const expectedBudget =
+  const explicitBudget =
     pickNumber(record, [
       "expected_budget_usd",
       "expectedBudgetUsd",
@@ -972,12 +1062,23 @@ function toMissionControlNode(
       "expectedBudgetUsd",
       "budget_usd",
       "budgetUsd",
-    ]) ??
+    ]);
+  const extractedBudget =
     extractBudgetUsdFromText(
       pickString(record, ["description", "summary", "context"]),
       pickString(metadata, ["description", "summary", "context"])
-    ) ??
-    DEFAULT_BUDGET_USD[type];
+    ) ?? null;
+  const tokenModeledBudget =
+    estimateBudgetUsdFromDurationHours(
+      expectedDuration > 0 ? expectedDuration : DEFAULT_DURATION_HOURS[type]
+    ) || DEFAULT_BUDGET_USD[type];
+  const expectedBudget =
+    explicitBudget ??
+    (typeof extractedBudget === "number"
+      ? isLegacyHourlyBudget(extractedBudget, expectedDuration)
+        ? tokenModeledBudget
+        : extractedBudget
+      : DEFAULT_BUDGET_USD[type]);
 
   const priority = normalizePriorityForEntity(record);
 
