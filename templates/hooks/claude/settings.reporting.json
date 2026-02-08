@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=session_start --phase=intent --message=\"Claude session started\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=post_tool_use --phase=execution --message=\"Claude tool completed\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=subagent_stop --phase=handoff --message=\"Subagent completed\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=stop --phase=completed --message=\"Claude session completed\" --apply_completion=true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -15,6 +15,10 @@ import type {
   QualityScore,
   Entity,
   EntityListFilters,
+  EmitActivityRequest,
+  EmitActivityResponse,
+  ApplyChangesetRequest,
+  ApplyChangesetResponse,
   LiveActivityItem,
   SessionTreeResponse,
   HandoffSummary,
@@ -288,6 +292,43 @@ export class OrgXClient {
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
     return this.get(`/api/entities?${params.toString()}`);
+  }
+
+  // ===========================================================================
+  // Reporting Control Plane
+  // ===========================================================================
+
+  async emitActivity(payload: EmitActivityRequest): Promise<EmitActivityResponse> {
+    const response = await this.post<EmitActivityResponse | { ok: boolean; data?: EmitActivityResponse }>(
+      "/api/client/live/activity",
+      payload
+    );
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as EmitActivityResponse;
+  }
+
+  async applyChangeset(
+    payload: ApplyChangesetRequest
+  ): Promise<ApplyChangesetResponse> {
+    const response = await this.post<
+      ApplyChangesetResponse | { ok: boolean; data?: ApplyChangesetResponse }
+    >("/api/client/live/changesets/apply", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as ApplyChangesetResponse;
   }
 
   // ===========================================================================

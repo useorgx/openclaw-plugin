@@ -47,7 +47,13 @@ export interface OnboardingState {
   lastError: string | null;
   nextAction: OnboardingNextAction;
   docsUrl: string;
-  keySource: 'config' | 'environment' | 'persisted' | 'legacy-dev' | 'none';
+  keySource:
+    | 'config'
+    | 'environment'
+    | 'persisted'
+    | 'openclaw-config-file'
+    | 'legacy-dev'
+    | 'none';
   installationId: string | null;
   connectUrl: string | null;
   pairingId: string | null;
@@ -327,6 +333,104 @@ export interface EntityListFilters {
   status?: string;
   limit?: number;
   [key: string]: unknown;
+}
+
+// =============================================================================
+// REPORTING CONTROL PLANE
+// =============================================================================
+
+export type ReportingSourceClient = 'openclaw' | 'codex' | 'claude-code' | 'api';
+export type ReportingPhase =
+  | 'intent'
+  | 'execution'
+  | 'blocked'
+  | 'review'
+  | 'handoff'
+  | 'completed';
+export type ReportingLevel = 'info' | 'warn' | 'error';
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked';
+export type MilestoneStatus =
+  | 'planned'
+  | 'in_progress'
+  | 'completed'
+  | 'at_risk'
+  | 'cancelled';
+export type DecisionUrgency = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface EmitActivityRequest {
+  initiative_id: string;
+  message: string;
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: ReportingSourceClient;
+  phase?: ReportingPhase;
+  progress_pct?: number;
+  level?: ReportingLevel;
+  next_step?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EmitActivityResponse {
+  ok: true;
+  run_id: string;
+  event_id: string | null;
+  reused_run: boolean;
+  auth_mode?: 'service' | 'api_key';
+}
+
+export type ChangesetOperation =
+  | {
+      op: 'task.create';
+      title: string;
+      milestone_id?: string;
+      workstream_id?: string;
+      description?: string;
+      priority?: 'low' | 'medium' | 'high';
+      due_date?: string;
+    }
+  | {
+      op: 'task.update';
+      task_id: string;
+      status?: TaskStatus;
+      title?: string;
+      description?: string;
+      priority?: 'low' | 'medium' | 'high';
+      due_date?: string;
+    }
+  | {
+      op: 'milestone.update';
+      milestone_id: string;
+      status?: MilestoneStatus;
+      due_date?: string;
+      description?: string;
+    }
+  | {
+      op: 'decision.create';
+      title: string;
+      summary?: string;
+      urgency?: DecisionUrgency;
+      options?: string[];
+      blocking?: boolean;
+    };
+
+export interface ApplyChangesetRequest {
+  initiative_id: string;
+  idempotency_key: string;
+  operations: ChangesetOperation[];
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: ReportingSourceClient;
+}
+
+export interface ApplyChangesetResponse {
+  ok: boolean;
+  changeset_id: string;
+  replayed: boolean;
+  run_id: string;
+  applied_count: number;
+  results: Record<string, unknown>[];
+  event_id: string | null;
+  auth_mode?: 'service' | 'api_key';
 }
 
 // =============================================================================

@@ -1,7 +1,7 @@
 ---
 name: orgx
 description: Use when managing work with OrgX — reporting progress, requesting decisions, registering artifacts, syncing memory, checking quality gates, or viewing org status. Activates for phrases like "report progress", "request approval", "create initiative", "check orgx", "sync with orgx", "register artifact".
-version: 2.1.0
+version: 3.0.0
 user-invocable: true
 tags:
   - orchestration
@@ -28,28 +28,36 @@ After installing, pair with OrgX via the live dashboard at `http://127.0.0.1:187
 
 ## MCP Tools Reference
 
-### Work Reporting (use these regularly)
+### Work Reporting (primary contract)
 
-**`orgx_report_progress`** — Report what you've accomplished.
+Use the **two-tool reporting contract** for launch reporting:
+
+**`orgx_emit_activity`** — Append-only telemetry (frequent updates).
 ```
-orgx_report_progress({
-  summary: "Fixed the authentication bug and added tests",
-  phase: "testing",           // researching | implementing | testing | reviewing | blocked
-  progress_pct: 75,           // 0-100 (optional)
-  next_step: "Run full CI suite"  // (optional)
+orgx_emit_activity({
+  initiative_id: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+  message: "Implemented auth middleware and validated redirects",
+  phase: "execution",         // intent | execution | blocked | review | handoff | completed
+  progress_pct: 60,           // optional 0-100
+  next_step: "Add integration tests" // optional
 })
 ```
 
-**`orgx_request_decision`** — Ask the user to decide something before continuing.
+**`orgx_apply_changeset`** — Transactional state mutations (batched, idempotent).
 ```
-orgx_request_decision({
-  question: "Deploy to production now or wait for load testing?",
-  context: "All unit tests pass. Load testing would take ~2 hours.",
-  options: ["Deploy now", "Wait for load testing", "Deploy to staging first"],
-  urgency: "medium",          // low | medium | high | urgent
-  blocking: true              // pause work until decided (default: true)
+orgx_apply_changeset({
+  initiative_id: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+  idempotency_key: "run_abc_turn_7_commit_1",
+  operations: [
+    { op: "task.update", task_id: "task_uuid", status: "in_progress" },
+    { op: "decision.create", title: "Use SSE for live updates", urgency: "medium" }
+  ]
 })
 ```
+
+Backward-compatible aliases:
+- `orgx_report_progress` delegates to `orgx_emit_activity`
+- `orgx_request_decision` delegates to `orgx_apply_changeset` (`decision.create`)
 
 **`orgx_register_artifact`** — Register a deliverable (PR, document, config, etc.).
 ```
@@ -109,16 +117,16 @@ orgx_quality_score({
 
 ## Reporting Protocol
 
-When working on a task or initiative, report your progress to OrgX at key moments. This keeps the dashboard accurate and helps the team track your work.
+When working on a task or initiative, follow the two-tool reporting contract. This keeps state deterministic and idempotent.
 
 ### On task start
-Call `orgx_report_progress` with `phase: "researching"` or `"implementing"` and a brief summary of what you're about to do.
+Call `orgx_emit_activity` with `phase: "intent"` and a brief summary of what you're about to do.
 
 ### At meaningful progress points
-Call `orgx_report_progress` at natural checkpoints: after finishing research, after a first implementation pass, after tests pass, etc. Include `progress_pct` when you can estimate it.
+Call `orgx_emit_activity` at natural checkpoints: after finishing research, after implementation passes, after tests pass, etc. Include `progress_pct` when possible.
 
 ### When you need a human decision
-Call `orgx_request_decision` with a clear question, context, and options. Set `blocking: true` if you should wait for the answer before continuing. Set urgency appropriately:
+Call `orgx_apply_changeset` with a `decision.create` operation including clear context/options. Set `blocking: true` when work must pause. Set urgency appropriately:
 - **low** — Can wait hours/days
 - **medium** — Should be decided today
 - **high** — Blocking progress, needs attention soon
@@ -128,12 +136,12 @@ Call `orgx_request_decision` with a clear question, context, and options. Set `b
 Call `orgx_register_artifact` for anything the team should see: PRs, documents, config changes, reports, design files. Include a URL when available.
 
 ### On task completion
-1. Call `orgx_report_progress` with `phase: "reviewing"` and `progress_pct: 100`
-2. Call `orgx_quality_score` to self-assess your work (1-5 scale)
-3. Call `orgx_update_entity` to mark the task as completed
+1. Call `orgx_emit_activity` with `phase: "completed"` and `progress_pct: 100`
+2. Call `orgx_apply_changeset` to mark task/milestone completion or record final decisions
+3. Call `orgx_quality_score` to self-assess your work (1-5 scale)
 
 ### On blockers
-Call `orgx_report_progress` with `phase: "blocked"` and describe the blocker in the summary. If you need human help, also call `orgx_request_decision`.
+Call `orgx_emit_activity` with `phase: "blocked"` and describe the blocker. If human intervention is needed, use `orgx_apply_changeset` with a `decision.create` op.
 
 ## Model Routing
 
