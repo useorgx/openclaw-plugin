@@ -677,6 +677,140 @@ function DashboardShell({
     [refetch]
   );
 
+  const runControlAction = useCallback(
+    async (
+      session: SessionTreeNode,
+      action: 'pause' | 'resume' | 'cancel' | 'rollback',
+      payload: Record<string, unknown> = {}
+    ) => {
+      const response = await fetch(
+        `/orgx/api/runs/${encodeURIComponent(session.runId)}/actions/${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `${action} failed (${response.status})`);
+      }
+    },
+    []
+  );
+
+  const createSessionCheckpoint = useCallback(
+    async (session: SessionTreeNode) => {
+      const response = await fetch(
+        `/orgx/api/runs/${encodeURIComponent(session.runId)}/checkpoints`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'dashboard_manual_checkpoint' }),
+        }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `Checkpoint creation failed (${response.status})`);
+      }
+
+      const body = (await response.json().catch(() => null)) as
+        | { data?: { id?: string } }
+        | { id?: string }
+        | null;
+      const checkpointId =
+        (body && 'data' in body && body.data?.id) ||
+        (body && 'id' in body && body.id) ||
+        null;
+
+      setOpsNotice(
+        checkpointId
+          ? `Checkpoint created: ${checkpointId.slice(0, 8)}`
+          : 'Checkpoint created.'
+      );
+      await refetch();
+    },
+    [refetch]
+  );
+
+  const pauseSession = useCallback(
+    async (session: SessionTreeNode) => {
+      await runControlAction(session, 'pause', { reason: 'pause_from_dashboard' });
+      setOpsNotice(`Pause requested: ${session.title}`);
+      await refetch();
+    },
+    [refetch, runControlAction]
+  );
+
+  const resumeSession = useCallback(
+    async (session: SessionTreeNode) => {
+      await runControlAction(session, 'resume', { reason: 'resume_from_dashboard' });
+      setOpsNotice(`Resume requested: ${session.title}`);
+      await refetch();
+    },
+    [refetch, runControlAction]
+  );
+
+  const cancelSession = useCallback(
+    async (session: SessionTreeNode) => {
+      await runControlAction(session, 'cancel', { reason: 'cancel_from_dashboard' });
+      setOpsNotice(`Cancel requested: ${session.title}`);
+      await refetch();
+    },
+    [refetch, runControlAction]
+  );
+
+  const rollbackSession = useCallback(
+    async (session: SessionTreeNode) => {
+      const listResponse = await fetch(
+        `/orgx/api/runs/${encodeURIComponent(session.runId)}/checkpoints`,
+        {
+          method: 'GET',
+        }
+      );
+      if (!listResponse.ok) {
+        const body = (await listResponse.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `Checkpoint list failed (${listResponse.status})`);
+      }
+
+      const body = (await listResponse.json().catch(() => null)) as
+        | { data?: Array<Record<string, unknown>> }
+        | Array<Record<string, unknown>>
+        | null;
+      const records = Array.isArray(body)
+        ? body
+        : Array.isArray(body?.data)
+          ? body.data
+          : [];
+      const checkpoints = records
+        .map((row) => ({
+          id: typeof row.id === 'string' ? row.id : '',
+          createdAt:
+            typeof row.createdAt === 'string'
+              ? row.createdAt
+              : typeof row.created_at === 'string'
+                ? row.created_at
+                : '',
+        }))
+        .filter((row) => row.id.length > 0)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+      const checkpointId = checkpoints[0]?.id;
+      if (!checkpointId) {
+        throw new Error('No checkpoint available for rollback.');
+      }
+
+      await runControlAction(session, 'rollback', {
+        checkpointId,
+        reason: 'rollback_from_dashboard',
+      });
+      setOpsNotice(`Rollback requested for ${session.title}.`);
+      await refetch();
+    },
+    [refetch, runControlAction]
+  );
+
   const confirmCreateEntity = useCallback(async () => {
     if (!entityModal || entityName.trim().length === 0 || entityCreating) return;
 
@@ -1197,6 +1331,11 @@ function DashboardShell({
               initiatives={initiatives}
               onContinueHighestPriority={continueHighestPriority}
               onDispatchSession={dispatchSession}
+              onPauseSession={pauseSession}
+              onResumeSession={resumeSession}
+              onCancelSession={cancelSession}
+              onCreateCheckpoint={createSessionCheckpoint}
+              onRollbackSession={rollbackSession}
               onStartInitiative={startInitiative}
               onStartWorkstream={startWorkstream}
             />

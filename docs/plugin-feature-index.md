@@ -109,33 +109,33 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - Degraded mode signaling from `/orgx/api/live/snapshot`.
 - Local outbox buffering for progress/decision/artifact events during cloud failures.
 
-## 8) Quick-Win Gaps for Marketing Leverage
+## 8) Quick-Win Status for Marketing Leverage
 
 Ranking scale:
 - Impact: Low/Medium/High
 - Effort: S/M/L
 
-1. Add plugin diagnostics (`doctor`) command and health endpoint.
+1. [Done] Add plugin diagnostics (`doctor`) command and health endpoint.
 - Impact: High
 - Effort: S
 - Why: Removes setup uncertainty and gives strong "self-healing/diagnosable" marketing claim.
 
-2. Add outbox observability in UI (pending count and replay status badge).
+2. [Done] Add outbox observability in UI (pending count and replay status badge).
 - Impact: High
 - Effort: S
 - Why: Turns reliability behavior into visible proof users can trust.
 
-3. Add run control shortcuts in dashboard (pause/resume/cancel/rollback buttons).
+3. [Done] Add run control shortcuts in dashboard (pause/resume/cancel/rollback buttons).
 - Impact: High
 - Effort: M
 - Why: Converts backend control APIs into a strong operator workflow story.
 
-4. Add "copy setup command" and API key source indicator in onboarding.
+4. [Done] Add "copy setup command" and API key source indicator in onboarding.
 - Impact: Medium
 - Effort: S
 - Why: Lowers first-run friction and shortens time-to-value.
 
-5. Publish canonical feature matrix in README and docs with concrete scenarios.
+5. [Done] Publish canonical feature matrix in README and docs with concrete scenarios.
 - Impact: High
 - Effort: S
 - Why: Current value is stronger than current external messaging; copy is lagging capabilities.
@@ -154,3 +154,6 @@ Ranking scale:
 - Added onboarding setup convenience:
   - copy setup command button
   - API key source indicator chips
+- Added run control shortcuts in Session Detail:
+  - pause / resume / cancel actions
+  - create checkpoint + rollback to latest checkpoint
