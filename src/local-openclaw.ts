@@ -105,7 +105,28 @@ function toIsoString(value: number | string | undefined): { iso: string | null; 
 
 function parseAgentId(sessionKey: string): string | null {
   const match = /^agent:([^:]+):/.exec(sessionKey);
-  return match?.[1] ?? null;
+  const candidate = match?.[1] ?? null;
+  return candidate && isSafePathSegment(candidate) ? candidate : null;
+}
+
+function isSafePathSegment(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized || normalized === "." || normalized === "..") return false;
+  if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("\0")) {
+    return false;
+  }
+  if (normalized.includes("..")) return false;
+  return true;
+}
+
+function coerceSafePathSegment(
+  value: string | null | undefined,
+  fallback: string
+): string {
+  if (typeof value === "string" && isSafePathSegment(value)) {
+    return value.trim();
+  }
+  return fallback;
 }
 
 function parseSessionLabel(sessionKey: string): string {
@@ -120,9 +141,9 @@ function resolveDefaultAgentId(config: OpenClawConfig | null): string {
   const list = config?.agents?.list;
   if (Array.isArray(list) && list.length > 0) {
     const preferred = list.find((entry) => entry.default && typeof entry.id === "string");
-    if (preferred?.id) return preferred.id;
+    if (preferred?.id && isSafePathSegment(preferred.id)) return preferred.id.trim();
     const first = list.find((entry) => typeof entry.id === "string");
-    if (first?.id) return first.id;
+    if (first?.id && isSafePathSegment(first.id)) return first.id.trim();
   }
   return "main";
 }
@@ -185,6 +206,7 @@ function buildAgentList(config: OpenClawConfig | null, sessions: LocalSession[])
     if (!entry || typeof entry !== "object") continue;
     if (typeof entry.id !== "string" || entry.id.trim().length === 0) continue;
     const id = entry.id.trim();
+    if (!isSafePathSegment(id)) continue;
     const name = typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : id;
     configured.set(id, name);
   }
@@ -243,12 +265,12 @@ async function readLocalOpenClawSnapshot(
   for (const entry of config?.agents?.list ?? []) {
     if (typeof entry?.id !== "string") continue;
     const id = entry.id.trim();
-    if (!id) continue;
+    if (!id || !isSafePathSegment(id)) continue;
     const name = typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : id;
     configuredAgents.set(id, name);
   }
 
-  const defaultAgentId = resolveDefaultAgentId(config);
+  const defaultAgentId = coerceSafePathSegment(resolveDefaultAgentId(config), "main");
   const sessionsPath = join(baseDir, "agents", defaultAgentId, "sessions", "sessions.json");
   const sessionMap = await readJsonFile<SessionMap>(sessionsPath);
 
@@ -401,6 +423,16 @@ const JSONL_RECENT_WINDOW_MS = 7 * 24 * 60 * 60_000; // 7 days
 const MAX_TURNS_PER_SESSION = 30;
 const MAX_TOTAL_TURNS = 120;
 const MAX_RAW_EVENTS = 600; // Cap raw events read from JSONL
+const MAX_RAW_EVENTS_DETAIL = 5_000;
+const USER_PROMPT_MAX_CHARS = 1_200;
+const ERROR_TEXT_MAX_CHARS = 2_000;
+const ASSISTANT_TEXT_MAX_CHARS = 20_000;
+
+interface TurnGroupingLimits {
+  userPromptMaxChars?: number;
+  errorTextMaxChars?: number;
+  assistantTextMaxChars?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Text extraction helpers
@@ -410,18 +442,25 @@ function extractText(
   content: string | JnlContentBlock[] | undefined,
   maxLen: number
 ): string {
+  const clip = (value: string): string => {
+    if (maxLen <= 0 || value.length <= maxLen) return value;
+    return value.slice(0, maxLen) + "\u2026";
+  };
+
   if (!content) return "";
   if (typeof content === "string") {
-    return content.length > maxLen ? content.slice(0, maxLen) + "\u2026" : content;
+    return clip(content);
   }
   if (!Array.isArray(content)) return "";
 
-  for (const block of content) {
-    if (block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0) {
-      const t = block.text.trim();
-      return t.length > maxLen ? t.slice(0, maxLen) + "\u2026" : t;
-    }
+  const textBlocks = content
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => (block.text as string).trim())
+    .filter((block) => block.length > 0);
+  if (textBlocks.length > 0) {
+    return clip(textBlocks.join("\n\n"));
   }
+
   for (const block of content) {
     if (block.type === "tool_use" && typeof block.name === "string") {
       return `[tool: ${block.name}]`;
@@ -431,13 +470,15 @@ function extractText(
     if (block.type === "tool_result") {
       const inner = block.content;
       if (typeof inner === "string") {
-        return inner.length > maxLen ? inner.slice(0, maxLen) + "\u2026" : inner;
+        return clip(inner);
       }
       if (Array.isArray(inner)) {
-        const tb = (inner as JnlContentBlock[]).find((b) => b.type === "text" && typeof b.text === "string");
-        if (tb?.text) {
-          const t = tb.text.trim();
-          return t.length > maxLen ? t.slice(0, maxLen) + "\u2026" : t;
+        const innerText = (inner as JnlContentBlock[])
+          .filter((b) => b.type === "text" && typeof b.text === "string")
+          .map((b) => (b.text as string).trim())
+          .filter((b) => b.length > 0);
+        if (innerText.length > 0) {
+          return clip(innerText.join("\n\n"));
         }
       }
       return "[tool result]";
@@ -464,6 +505,9 @@ async function readSessionEvents(
   maxEvents: number
 ): Promise<JnlEvent[]> {
   if (!session.sessionId) return [];
+  if (!isSafePathSegment(agentId) || !isSafePathSegment(session.sessionId)) {
+    return [];
+  }
 
   const jsonlPath = join(baseDir, "agents", agentId, "sessions", `${session.sessionId}.jsonl`);
 
@@ -505,7 +549,15 @@ async function readSessionEvents(
 // Turn grouping
 // ---------------------------------------------------------------------------
 
-function groupEventsIntoTurns(events: JnlEvent[], maxTurns: number): SessionTurn[] {
+function groupEventsIntoTurns(
+  events: JnlEvent[],
+  maxTurns: number,
+  limits?: TurnGroupingLimits
+): SessionTurn[] {
+  const userPromptMaxChars = limits?.userPromptMaxChars ?? USER_PROMPT_MAX_CHARS;
+  const errorTextMaxChars = limits?.errorTextMaxChars ?? ERROR_TEXT_MAX_CHARS;
+  const assistantTextMaxChars =
+    limits?.assistantTextMaxChars ?? ASSISTANT_TEXT_MAX_CHARS;
   const turns: SessionTurn[] = [];
   let current: {
     id: string;
@@ -554,7 +606,7 @@ function groupEventsIntoTurns(events: JnlEvent[], maxTurns: number): SessionTurn
       finalizeTurn();
       current = {
         id: evt.id ?? `turn-${turns.length}`,
-        userPrompt: extractText(msg.content, 300),
+        userPrompt: extractText(msg.content, userPromptMaxChars),
         toolNames: [],
         assistantTexts: [],
         errorMessage: null,
@@ -596,11 +648,11 @@ function groupEventsIntoTurns(events: JnlEvent[], maxTurns: number): SessionTurn
 
       // Check for error
       if (msg.stopReason === "error" || msg.errorMessage) {
-        current.errorMessage = msg.errorMessage ?? extractText(msg.content, 200);
+        current.errorMessage = msg.errorMessage ?? extractText(msg.content, errorTextMaxChars);
       }
 
       // Collect text response
-      const text = extractText(msg.content, 300);
+      const text = extractText(msg.content, assistantTextMaxChars);
       if (text && !text.startsWith("[tool:")) {
         current.assistantTexts.push(text);
       }
@@ -628,11 +680,10 @@ function groupEventsIntoTurns(events: JnlEvent[], maxTurns: number): SessionTurn
 // ---------------------------------------------------------------------------
 
 function summarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
+  const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+
   if (turn.errorMessage) {
-    const err = turn.errorMessage.length > 60
-      ? turn.errorMessage.slice(0, 60) + "\u2026"
-      : turn.errorMessage;
-    return `Error: ${err}`;
+    return `Error: ${normalize(turn.errorMessage)}`;
   }
 
   // If there are tool calls, describe what was done
@@ -643,28 +694,39 @@ function summarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
       : `${uniqueTools.slice(0, 2).join(", ")} +${uniqueTools.length - 2} more`;
 
     if (turn.assistantResponse) {
-      // Use the assistant's own response as summary if short enough
-      const resp = turn.assistantResponse;
-      if (resp.length <= 80) return resp;
-      return resp.slice(0, 77) + "\u2026";
+      // Keep full text so detail modals can show complete context.
+      return normalize(turn.assistantResponse);
     }
     return `Used ${toolStr}`;
   }
 
   // Text-only response
   if (turn.assistantResponse) {
-    const resp = turn.assistantResponse;
-    if (resp.length <= 80) return resp;
-    return resp.slice(0, 77) + "\u2026";
+    return normalize(turn.assistantResponse);
   }
 
   if (turn.userPrompt) {
-    const prompt = turn.userPrompt;
-    if (prompt.length <= 70) return `User: ${prompt}`;
-    return `User: ${prompt.slice(0, 67)}\u2026`;
+    return `User: ${normalize(turn.userPrompt)}`;
   }
 
   return "Activity";
+}
+
+function isDigestSummaryStale(cached: string | null, fresh: string): boolean {
+  if (!cached) return true;
+  const trimmed = cached.trim();
+  if (!trimmed) return true;
+  if (trimmed.endsWith("…") && fresh.length > trimmed.length) return true;
+  const deEllipsized = trimmed.replace(/…$/, "");
+  if (
+    deEllipsized.length > 0 &&
+    fresh.length > deEllipsized.length + 24 &&
+    fresh.startsWith(deEllipsized)
+  ) {
+    return true;
+  }
+  if (trimmed.startsWith("[tool:") && !fresh.startsWith("[tool:")) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +738,9 @@ async function readDigestCache(
   agentId: string,
   sessionId: string
 ): Promise<DigestCache | null> {
+  if (!isSafePathSegment(agentId) || !isSafePathSegment(sessionId)) {
+    return null;
+  }
   const cachePath = join(baseDir, "agents", agentId, "sessions", `${sessionId}.digest.json`);
   try {
     const raw = await readFile(cachePath, "utf8");
@@ -691,6 +756,9 @@ async function writeDigestCache(
   sessionId: string,
   cache: DigestCache
 ): Promise<void> {
+  if (!isSafePathSegment(agentId) || !isSafePathSegment(sessionId)) {
+    return;
+  }
   const cachePath = join(baseDir, "agents", agentId, "sessions", `${sessionId}.digest.json`);
   try {
     await writeFile(cachePath, JSON.stringify(cache), "utf8");
@@ -785,8 +853,10 @@ export async function toLocalLiveActivity(
   const totalCap = Math.min(limit, MAX_TOTAL_TURNS);
 
   const allActivities: LiveActivityItem[] = [];
-  const defaultAgentId =
-    snapshot.sessions.find((s) => s.agentId)?.agentId ?? "main";
+  const defaultAgentId = coerceSafePathSegment(
+    snapshot.sessions.find((s) => s.agentId)?.agentId ?? "main",
+    "main"
+  );
 
   for (const session of snapshot.sessions) {
     if (allActivities.length >= totalCap) break;
@@ -795,7 +865,7 @@ export async function toLocalLiveActivity(
     const isRecent = session.updatedAtMs >= recentCutoff;
 
     if (hasSessionFile && isRecent) {
-      const agentId = session.agentId ?? defaultAgentId;
+      const agentId = coerceSafePathSegment(session.agentId ?? defaultAgentId, defaultAgentId);
       const remaining = totalCap - allActivities.length;
       const perSessionCap = Math.min(MAX_TURNS_PER_SESSION, remaining);
 
@@ -823,22 +893,29 @@ export async function toLocalLiveActivity(
         const turn = turns[i];
         const cached = cachedMap.get(turn.id) ?? null;
         const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
-        const fallbackSummary = cached ?? summarizeTurn(turn, agentLabel);
+        const computedSummary = summarizeTurn(turn, agentLabel);
+        const fallbackSummary = isDigestSummaryStale(cached, computedSummary)
+          ? computedSummary
+          : (cached as string);
 
         allActivities.push(turnToActivity(turn, session, fallbackSummary, i));
 
         // Track for cache
-        if (!cached) {
+        if (isDigestSummaryStale(cached, computedSummary)) {
           newCacheEntries.push({ turnId: turn.id, summary: fallbackSummary });
         }
       }
 
       // Update digest cache if we have new entries
       if (newCacheEntries.length > 0) {
-        const updatedEntries = [
-          ...(cache?.entries ?? []),
-          ...newCacheEntries,
-        ];
+        const byTurn = new Map<string, DigestEntry>();
+        for (const entry of cache?.entries ?? []) {
+          byTurn.set(entry.turnId, entry);
+        }
+        for (const entry of newCacheEntries) {
+          byTurn.set(entry.turnId, entry);
+        }
+        const updatedEntries = Array.from(byTurn.values());
         await writeDigestCache(baseDir, agentId, session.sessionId!, {
           sessionId: session.sessionId!,
           updatedAtMs: nowMs,
@@ -853,6 +930,59 @@ export async function toLocalLiveActivity(
   return {
     activities: allActivities,
     total: allActivities.length,
+  };
+}
+
+export async function loadLocalTurnDetail(input: {
+  turnId: string;
+  sessionKey?: string | null;
+  runId?: string | null;
+}): Promise<{
+  turnId: string;
+  summary: string | null;
+  userPrompt: string | null;
+  timestamp: string | null;
+  model: string | null;
+} | null> {
+  const turnId = input.turnId.trim();
+  if (!turnId) return null;
+
+  const sessionKey = input.sessionKey?.trim() || null;
+  const runId = input.runId?.trim() || null;
+
+  const snapshot = await loadLocalOpenClawSnapshot(400);
+  const session = snapshot.sessions.find((candidate) => {
+    if (sessionKey && candidate.key === sessionKey) return true;
+    if (!runId) return false;
+    return candidate.sessionId === runId || candidate.key === runId;
+  });
+  if (!session || !session.sessionId) return null;
+
+  const baseDir = join(homedir(), ".openclaw");
+  const defaultAgentId = coerceSafePathSegment(
+    snapshot.sessions.find((s) => s.agentId)?.agentId ?? "main",
+    "main"
+  );
+  const agentId = coerceSafePathSegment(session.agentId ?? defaultAgentId, defaultAgentId);
+
+  const events = await readSessionEvents(
+    session,
+    baseDir,
+    agentId,
+    MAX_RAW_EVENTS_DETAIL
+  );
+  const turns = groupEventsIntoTurns(events, Math.max(MAX_TURNS_PER_SESSION * 10, 400), {
+    assistantTextMaxChars: 0,
+  });
+  const turn = turns.find((candidate) => candidate.id === turnId);
+  if (!turn) return null;
+
+  return {
+    turnId: turn.id,
+    summary: turn.assistantResponse,
+    userPrompt: turn.userPrompt,
+    timestamp: turn.timestamp ?? null,
+    model: turn.model,
   };
 }
 

@@ -16,8 +16,9 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 import type { OrgXClient } from "./api.js";
 import type {
@@ -38,6 +39,7 @@ import {
 } from "./dashboard-api.js";
 import {
   loadLocalOpenClawSnapshot,
+  loadLocalTurnDetail,
   toLocalLiveActivity,
   toLocalLiveAgents,
   toLocalLiveInitiatives,
@@ -53,6 +55,222 @@ function safeErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "Unexpected error";
+}
+
+const ACTIVITY_HEADLINE_TIMEOUT_MS = 4_000;
+const ACTIVITY_HEADLINE_CACHE_TTL_MS = 12 * 60 * 60_000;
+const ACTIVITY_HEADLINE_CACHE_MAX = 1_000;
+const ACTIVITY_HEADLINE_MAX_INPUT_CHARS = 8_000;
+const DEFAULT_ACTIVITY_HEADLINE_MODEL = "openai/gpt-4.1-nano";
+
+type ActivityHeadlineSource = "llm" | "heuristic";
+
+interface ActivityHeadlineCacheEntry {
+  headline: string;
+  source: ActivityHeadlineSource;
+  expiresAt: number;
+}
+
+const activityHeadlineCache = new Map<string, ActivityHeadlineCacheEntry>();
+let resolvedActivitySummaryApiKey: string | null | undefined;
+
+function normalizeSpaces(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function stripMarkdownLite(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function cleanActivityHeadline(value: string): string {
+  const lines = stripMarkdownLite(value)
+    .split("\n")
+    .map((line) => normalizeSpaces(line))
+    .filter((line) => line.length > 0 && !/^\|?[:\-| ]+\|?$/.test(line));
+  const headline = lines[0] ?? "";
+  if (!headline) return "";
+  if (headline.length <= 108) return headline;
+  return `${headline.slice(0, 107).trimEnd()}…`;
+}
+
+function heuristicActivityHeadline(text: string, title?: string | null): string {
+  const cleanedText = cleanActivityHeadline(text);
+  if (cleanedText.length > 0) return cleanedText;
+  const cleanedTitle = cleanActivityHeadline(title ?? "");
+  if (cleanedTitle.length > 0) return cleanedTitle;
+  return "Activity update";
+}
+
+function resolveActivitySummaryApiKey(): string | null {
+  if (resolvedActivitySummaryApiKey !== undefined) {
+    return resolvedActivitySummaryApiKey;
+  }
+
+  const candidates = [
+    process.env.ORGX_ACTIVITY_SUMMARY_API_KEY ?? "",
+    process.env.OPENROUTER_API_KEY ?? "",
+  ];
+
+  const key = candidates.find((candidate) => candidate.trim().length > 0)?.trim() ?? "";
+  resolvedActivitySummaryApiKey = key || null;
+  return resolvedActivitySummaryApiKey;
+}
+
+function trimActivityHeadlineCache(): void {
+  while (activityHeadlineCache.size > ACTIVITY_HEADLINE_CACHE_MAX) {
+    const firstKey = activityHeadlineCache.keys().next().value;
+    if (!firstKey) break;
+    activityHeadlineCache.delete(firstKey);
+  }
+}
+
+function extractCompletionText(payload: Record<string, unknown>): string | null {
+  const choices = payload.choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (!first || typeof first !== "object") return null;
+
+  const firstRecord = first as Record<string, unknown>;
+  const message = firstRecord.message;
+  if (message && typeof message === "object") {
+    const content = (message as Record<string, unknown>).content;
+    if (typeof content === "string") {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      const textParts = content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (!part || typeof part !== "object") return "";
+          const record = part as Record<string, unknown>;
+          return typeof record.text === "string" ? record.text : "";
+        })
+        .filter((part) => part.length > 0);
+      if (textParts.length > 0) {
+        return textParts.join(" ");
+      }
+    }
+  }
+
+  return pickString(firstRecord, ["text", "content"]);
+}
+
+async function summarizeActivityHeadline(
+  input: {
+    text: string;
+    title?: string | null;
+    type?: string | null;
+  }
+): Promise<{ headline: string; source: ActivityHeadlineSource; model: string | null }> {
+  const normalizedText = normalizeSpaces(input.text).slice(0, ACTIVITY_HEADLINE_MAX_INPUT_CHARS);
+  const normalizedTitle = normalizeSpaces(input.title ?? "");
+  const normalizedType = normalizeSpaces(input.type ?? "");
+  const heuristic = heuristicActivityHeadline(normalizedText, normalizedTitle);
+
+  const cacheKey = createHash("sha256")
+    .update(`${normalizedType}\n${normalizedTitle}\n${normalizedText}`)
+    .digest("hex");
+
+  const cached = activityHeadlineCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { headline: cached.headline, source: cached.source, model: null };
+  }
+
+  const apiKey = resolveActivitySummaryApiKey();
+  if (!apiKey) {
+    activityHeadlineCache.set(cacheKey, {
+      headline: heuristic,
+      source: "heuristic",
+      expiresAt: Date.now() + ACTIVITY_HEADLINE_CACHE_TTL_MS,
+    });
+    trimActivityHeadlineCache();
+    return { headline: heuristic, source: "heuristic", model: null };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ACTIVITY_HEADLINE_TIMEOUT_MS);
+
+  const model = process.env.ORGX_ACTIVITY_SUMMARY_MODEL?.trim() || DEFAULT_ACTIVITY_HEADLINE_MODEL;
+  const prompt = [
+    "Create one short activity title for a dashboard header.",
+    "Rules:",
+    "- Max 96 characters.",
+    "- Keep key numbers/status markers (for example: 15 tasks, 0 blocked).",
+    "- No markdown, no quotes, no trailing period unless needed.",
+    "- Prefer plain language over jargon.",
+    "",
+    `Type: ${normalizedType || "activity"}`,
+    normalizedTitle ? `Current title: ${normalizedTitle}` : "",
+    "Full detail:",
+    normalizedText,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: 48,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You write concise activity headers for operational dashboards. Return only the header text.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`headline model request failed (${response.status})`);
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const generated = cleanActivityHeadline(extractCompletionText(payload) ?? "");
+    const headline = generated || heuristic;
+    const source: ActivityHeadlineSource = generated ? "llm" : "heuristic";
+    activityHeadlineCache.set(cacheKey, {
+      headline,
+      source,
+      expiresAt: Date.now() + ACTIVITY_HEADLINE_CACHE_TTL_MS,
+    });
+    trimActivityHeadlineCache();
+    return { headline, source, model };
+  } catch {
+    activityHeadlineCache.set(cacheKey, {
+      headline: heuristic,
+      source: "heuristic",
+      expiresAt: Date.now() + ACTIVITY_HEADLINE_CACHE_TTL_MS,
+    });
+    trimActivityHeadlineCache();
+    return { headline: heuristic, source: "heuristic", model: null };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // =============================================================================
@@ -126,14 +344,75 @@ function contentType(filePath: string): string {
 }
 
 // =============================================================================
-// CORS headers (for local dev)
+// CORS + response hardening
 // =============================================================================
 
 const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, X-OrgX-Api-Key, X-API-Key, X-OrgX-User-Id",
+  Vary: "Origin",
 };
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "same-origin",
+  "Cross-Origin-Resource-Policy": "same-origin",
+};
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = normalizeHost(hostname);
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isTrustedOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    return isLoopbackHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedRequestSource(
+  headers: Record<string, string | string[] | undefined>
+): boolean {
+  const fetchSite = pickHeaderString(headers, ["sec-fetch-site"]);
+  if (fetchSite) {
+    const normalizedFetchSite = fetchSite.trim().toLowerCase();
+    if (
+      normalizedFetchSite !== "same-origin" &&
+      normalizedFetchSite !== "same-site" &&
+      normalizedFetchSite !== "none"
+    ) {
+      return false;
+    }
+  }
+
+  const origin = pickHeaderString(headers, ["origin"]);
+  if (origin) {
+    return isTrustedOrigin(origin);
+  }
+
+  const referer = pickHeaderString(headers, ["referer"]);
+  if (referer) {
+    try {
+      return isTrustedOrigin(new URL(referer).origin);
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 const STREAM_IDLE_TIMEOUT_MS = 60_000;
 
@@ -144,6 +423,23 @@ const STREAM_IDLE_TIMEOUT_MS = 60_000;
 const __filename = fileURLToPath(import.meta.url);
 // src/http-handler.ts → up to plugin root → dashboard/dist
 const DIST_DIR = join(__filename, "..", "..", "dashboard", "dist");
+const RESOLVED_DIST_DIR = resolve(DIST_DIR);
+const RESOLVED_DIST_ASSETS_DIR = resolve(DIST_DIR, "assets");
+
+function resolveSafeDistPath(subPath: string): string | null {
+  if (!subPath || subPath.includes("\0")) return null;
+
+  const normalized = normalize(subPath).replace(/^([/\\])+/, "");
+  if (!normalized || normalized === ".") return null;
+
+  const candidate = resolve(DIST_DIR, normalized);
+  const rel = relative(RESOLVED_DIST_DIR, candidate);
+  if (!rel || rel === "." || rel.startsWith("..") || rel.includes(`..${sep}`)) {
+    return null;
+  }
+
+  return candidate;
+}
 
 // =============================================================================
 // Helpers
@@ -157,6 +453,7 @@ function sendJson(
   const body = JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
+    ...SECURITY_HEADERS,
     ...CORS_HEADERS,
   });
   res.end(body);
@@ -172,6 +469,7 @@ function sendFile(
     res.writeHead(200, {
       "Content-Type": contentType(filePath),
       "Cache-Control": cacheControl,
+      ...SECURITY_HEADERS,
       ...CORS_HEADERS,
     });
     res.end(content);
@@ -183,6 +481,7 @@ function sendFile(
 function send404(res: PluginResponse): void {
   res.writeHead(404, {
     "Content-Type": "text/plain; charset=utf-8",
+    ...SECURITY_HEADERS,
     ...CORS_HEADERS,
   });
   res.end("Not Found");
@@ -195,6 +494,7 @@ function sendIndexHtml(res: PluginResponse): void {
   } else {
     res.writeHead(503, {
       "Content-Type": "text/html; charset=utf-8",
+      ...SECURITY_HEADERS,
       ...CORS_HEADERS,
     });
     res.end(
@@ -369,6 +669,7 @@ interface MissionControlNode {
   dueDate: string | null;
   etaEndAt: string | null;
   expectedDurationHours: number;
+  expectedBudgetUsd: number;
   assignedAgents: MissionControlAssignedAgent[];
   updatedAt: string | null;
 }
@@ -384,6 +685,13 @@ const DEFAULT_DURATION_HOURS: Record<MissionControlNodeType, number> = {
   workstream: 16,
   milestone: 6,
   task: 2,
+};
+
+const DEFAULT_BUDGET_USD: Record<MissionControlNodeType, number> = {
+  initiative: 1500,
+  workstream: 300,
+  milestone: 120,
+  task: 40,
 };
 
 const PRIORITY_LABEL_TO_NUM: Record<string, number> = {
@@ -411,6 +719,34 @@ function getRecordMetadata(record: Record<string, unknown>): Record<string, unkn
     return metadata as Record<string, unknown>;
   }
   return {};
+}
+
+function extractBudgetUsdFromText(...texts: Array<string | null | undefined>): number | null {
+  for (const text of texts) {
+    if (typeof text !== "string" || text.trim().length === 0) continue;
+    const moneyMatch = /(?:expected\s+budget|budget)[^0-9$]{0,24}\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i.exec(
+      text
+    );
+    if (!moneyMatch) continue;
+    const numeric = Number(moneyMatch[1].replace(/,/g, ""));
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+  }
+  return null;
+}
+
+function extractDurationHoursFromText(
+  ...texts: Array<string | null | undefined>
+): number | null {
+  for (const text of texts) {
+    if (typeof text !== "string" || text.trim().length === 0) continue;
+    const durationMatch = /(?:expected\s+duration|duration)[^0-9]{0,24}([0-9]+(?:\.[0-9]+)?)\s*h/i.exec(
+      text
+    );
+    if (!durationMatch) continue;
+    const numeric = Number(durationMatch[1]);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+  }
+  return null;
 }
 
 function pickStringArray(
@@ -618,7 +954,30 @@ function toMissionControlNode(
       "duration_hours",
       "durationHours",
     ]) ??
+    extractDurationHoursFromText(
+      pickString(record, ["description", "summary", "context"]),
+      pickString(metadata, ["description", "summary", "context"])
+    ) ??
     DEFAULT_DURATION_HOURS[type];
+
+  const expectedBudget =
+    pickNumber(record, [
+      "expected_budget_usd",
+      "expectedBudgetUsd",
+      "budget_usd",
+      "budgetUsd",
+    ]) ??
+    pickNumber(metadata, [
+      "expected_budget_usd",
+      "expectedBudgetUsd",
+      "budget_usd",
+      "budgetUsd",
+    ]) ??
+    extractBudgetUsdFromText(
+      pickString(record, ["description", "summary", "context"]),
+      pickString(metadata, ["description", "summary", "context"])
+    ) ??
+    DEFAULT_BUDGET_USD[type];
 
   const priority = normalizePriorityForEntity(record);
 
@@ -640,6 +999,8 @@ function toMissionControlNode(
     etaEndAt,
     expectedDurationHours:
       expectedDuration > 0 ? expectedDuration : DEFAULT_DURATION_HOURS[type],
+    expectedBudgetUsd:
+      expectedBudget >= 0 ? expectedBudget : DEFAULT_BUDGET_USD[type],
     assignedAgents: normalizeAssignedAgents(record),
     updatedAt: toIsoString(
       pickString(record, [
@@ -660,6 +1021,27 @@ function isTodoStatus(status: string): boolean {
     normalized === "planned" ||
     normalized === "backlog" ||
     normalized === "pending"
+  );
+}
+
+function isInProgressStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return (
+    normalized === "in_progress" ||
+    normalized === "active" ||
+    normalized === "running" ||
+    normalized === "queued"
+  );
+}
+
+function isDoneStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return (
+    normalized === "done" ||
+    normalized === "completed" ||
+    normalized === "cancelled" ||
+    normalized === "archived" ||
+    normalized === "deleted"
   );
 }
 
@@ -777,6 +1159,7 @@ async function buildMissionControlGraph(
         dueDate: null,
         etaEndAt: null,
         expectedDurationHours: DEFAULT_DURATION_HOURS.initiative,
+        expectedBudgetUsd: DEFAULT_BUDGET_USD.initiative,
         assignedAgents: [],
         updatedAt: null,
       };
@@ -891,12 +1274,60 @@ async function buildMissionControlGraph(
     }
   }
 
+  const taskNodesOnly = nodes.filter((node) => node.type === "task");
+  const hasActiveTasks = taskNodesOnly.some((node) => isInProgressStatus(node.status));
+  const hasTodoTasks = taskNodesOnly.some((node) => isTodoStatus(node.status));
+  if (
+    initiativeNode.status.toLowerCase() === "active" &&
+    !hasActiveTasks &&
+    hasTodoTasks
+  ) {
+    initiativeNode.status = "paused";
+  }
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const taskIsReady = (task: MissionControlNode): boolean =>
+    task.dependencyIds.every((depId) => {
+      const dependency = nodeById.get(depId);
+      return dependency ? isDoneStatus(dependency.status) : true;
+    });
+
+  const taskHasBlockedParent = (task: MissionControlNode): boolean => {
+    const milestone =
+      task.milestoneId ? nodeById.get(task.milestoneId) ?? null : null;
+    const workstream =
+      task.workstreamId ? nodeById.get(task.workstreamId) ?? null : null;
+    return (
+      milestone?.status?.toLowerCase() === "blocked" ||
+      workstream?.status?.toLowerCase() === "blocked"
+    );
+  };
+
   const recentTodos = nodes
     .filter((node) => node.type === "task" && isTodoStatus(node.status))
     .sort((a, b) => {
+      const aReady = taskIsReady(a);
+      const bReady = taskIsReady(b);
+      if (aReady !== bReady) return aReady ? -1 : 1;
+
+      const aBlocked = taskHasBlockedParent(a);
+      const bBlocked = taskHasBlockedParent(b);
+      if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
+
+      const priorityDelta = a.priorityNum - b.priorityNum;
+      if (priorityDelta !== 0) return priorityDelta;
+
+      const aDue = a.dueDate ? Date.parse(a.dueDate) : Number.POSITIVE_INFINITY;
+      const bDue = b.dueDate ? Date.parse(b.dueDate) : Number.POSITIVE_INFINITY;
+      if (aDue !== bDue) return aDue - bDue;
+
+      const aEta = a.etaEndAt ? Date.parse(a.etaEndAt) : Number.POSITIVE_INFINITY;
+      const bEta = b.etaEndAt ? Date.parse(b.etaEndAt) : Number.POSITIVE_INFINITY;
+      if (aEta !== bEta) return aEta - bEta;
+
       const aEpoch = a.updatedAt ? Date.parse(a.updatedAt) : 0;
       const bEpoch = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-      return bEpoch - aEpoch;
+      return aEpoch - bEpoch;
     })
     .map((node) => node.id);
 
@@ -953,6 +1384,16 @@ function normalizeEntityMutationPayload(
   ]);
   if (expectedDuration !== null) {
     next.expected_duration_hours = Math.max(0, expectedDuration);
+  }
+
+  const expectedBudget = pickNumber(next, [
+    "expected_budget_usd",
+    "expectedBudgetUsd",
+    "budget_usd",
+    "budgetUsd",
+  ]);
+  if (expectedBudget !== null) {
+    next.expected_budget_usd = Math.max(0, expectedBudget);
   }
 
   const etaEndAt = pickString(next, ["eta_end_at", "etaEndAt"]);
@@ -1148,13 +1589,30 @@ export function createHttpHandler(
 
     // Handle CORS preflight
     if (method === "OPTIONS") {
-      res.writeHead(204, CORS_HEADERS);
+      if (url.startsWith("/orgx/api/") && !isTrustedRequestSource(req.headers)) {
+        sendJson(res, 403, {
+          error: "Cross-origin browser requests are blocked for /orgx/api endpoints.",
+        });
+        return true;
+      }
+
+      res.writeHead(204, {
+        ...SECURITY_HEADERS,
+        ...CORS_HEADERS,
+      });
       res.end();
       return true;
     }
 
     // ── API endpoints ──────────────────────────────────────────────────────
     if (url.startsWith("/orgx/api/")) {
+      if (!isTrustedRequestSource(req.headers)) {
+        sendJson(res, 403, {
+          error: "Cross-origin browser requests are blocked for /orgx/api endpoints.",
+        });
+        return true;
+      }
+
       const route = url.replace("/orgx/api/", "").replace(/\/+$/, "");
       const decisionApproveMatch = route.match(
         /^live\/decisions\/([^/]+)\/approve$/
@@ -1175,6 +1633,7 @@ export function createHttpHandler(
       const isOnboardingStatusRoute = route === "onboarding/status";
       const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
       const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
+      const isLiveActivityHeadlineRoute = route === "live/activity/headline";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -1527,10 +1986,12 @@ export function createHttpHandler(
         !(entityActionMatch && method === "POST") &&
         !(isOnboardingStartRoute && method === "POST") &&
         !(isOnboardingManualKeyRoute && method === "POST") &&
-        !(isOnboardingDisconnectRoute && method === "POST")
+        !(isOnboardingDisconnectRoute && method === "POST") &&
+        !(isLiveActivityHeadlineRoute && method === "POST")
       ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
+          ...SECURITY_HEADERS,
           ...CORS_HEADERS,
         });
         res.end("Method Not Allowed");
@@ -2035,6 +2496,75 @@ export function createHttpHandler(
           return true;
         }
 
+        case "live/activity/detail": {
+          const turnId =
+            searchParams.get("turnId") ?? searchParams.get("turn_id");
+          const sessionKey =
+            searchParams.get("sessionKey") ?? searchParams.get("session_key");
+          const run = searchParams.get("run");
+
+          if (!turnId || turnId.trim().length === 0) {
+            sendJson(res, 400, { error: "turnId is required" });
+            return true;
+          }
+
+          try {
+            const detail = await loadLocalTurnDetail({
+              turnId,
+              sessionKey,
+              runId: run,
+            });
+            if (!detail) {
+              sendJson(res, 404, {
+                error: "Turn detail unavailable",
+                turnId,
+              });
+              return true;
+            }
+            sendJson(res, 200, { detail });
+          } catch (err: unknown) {
+            sendJson(res, 500, { error: safeErrorMessage(err), turnId });
+          }
+          return true;
+        }
+
+        case "live/activity/headline": {
+          if (method !== "POST") {
+            sendJson(res, 405, { error: "Use POST /orgx/api/live/activity/headline" });
+            return true;
+          }
+
+          try {
+            const payload = parseJsonBody(req.body);
+            const text = pickString(payload, ["text", "summary", "detail", "content"]);
+            if (!text) {
+              sendJson(res, 400, { error: "text is required" });
+              return true;
+            }
+
+            const title = pickString(payload, ["title", "name"]);
+            const type = pickString(payload, ["type", "kind"]);
+            const result = await summarizeActivityHeadline(
+              {
+                text,
+                title,
+                type,
+              }
+            );
+
+            sendJson(res, 200, {
+              headline: result.headline,
+              source: result.source,
+              model: result.model,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
         case "live/agents": {
           try {
             const initiative = searchParams.get("initiative");
@@ -2228,6 +2758,7 @@ export function createHttpHandler(
               "Content-Type": "text/event-stream; charset=utf-8",
               "Cache-Control": "no-cache, no-transform",
               Connection: "keep-alive",
+              ...SECURITY_HEADERS,
               ...CORS_HEADERS,
             });
             streamOpened = true;
@@ -2320,6 +2851,7 @@ export function createHttpHandler(
     if (!dashboardEnabled) {
       res.writeHead(404, {
         "Content-Type": "text/plain",
+        ...SECURITY_HEADERS,
         ...CORS_HEADERS,
       });
       res.end("Dashboard is disabled");
@@ -2333,8 +2865,14 @@ export function createHttpHandler(
       // Static assets: /orgx/live/assets/* → dashboard/dist/assets/*
       // Hashed filenames get long-lived cache
       if (subPath.startsWith("assets/")) {
-        const assetPath = join(DIST_DIR, subPath);
-        if (existsSync(assetPath)) {
+        const assetPath = resolveSafeDistPath(subPath);
+        let isWithinAssetsDir = false;
+        if (assetPath) {
+          isWithinAssetsDir =
+            assetPath === RESOLVED_DIST_ASSETS_DIR ||
+            assetPath.startsWith(`${RESOLVED_DIST_ASSETS_DIR}${sep}`);
+        }
+        if (assetPath && isWithinAssetsDir && existsSync(assetPath)) {
           sendFile(
             res,
             assetPath,
@@ -2347,9 +2885,9 @@ export function createHttpHandler(
       }
 
       // Check for an exact file match (e.g. favicon, manifest)
-      if (subPath && !subPath.includes("..")) {
-        const filePath = join(DIST_DIR, subPath);
-        if (existsSync(filePath)) {
+      if (subPath) {
+        const filePath = resolveSafeDistPath(subPath);
+        if (filePath && existsSync(filePath)) {
           sendFile(res, filePath, "no-cache");
           return true;
         }
@@ -2365,6 +2903,7 @@ export function createHttpHandler(
       // Redirect to dashboard
       res.writeHead(302, {
         Location: "/orgx/live",
+        ...SECURITY_HEADERS,
         ...CORS_HEADERS,
       });
       res.end();
