@@ -104,6 +104,7 @@ Agent spawns with recommended model
 | Manual API key fallback | ✅ | In onboarding gate and `manual-key` endpoint |
 | Live sessions + activity + handoffs | ✅ | SSE with local fallback paths |
 | Mission Control hierarchy view | ✅ | Initiative → workstream → milestone → task |
+| Run control shortcuts | ✅ | Pause/resume/cancel/checkpoint/rollback in Session Detail |
 | Outbox buffering + replay | ✅ | Local queue + auto replay on sync |
 | Outbox observability in dashboard | ✅ | Pending/replay indicators in header/notifications |
 | Plugin diagnostics (`doctor`) | ✅ | CLI + `GET /orgx/api/health` |

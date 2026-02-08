@@ -13,6 +13,11 @@ interface SessionInspectorProps {
   initiatives?: Initiative[];
   onContinueHighestPriority?: () => Promise<void> | void;
   onDispatchSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onPauseSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onResumeSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onCancelSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onCreateCheckpoint?: (session: SessionTreeNode) => Promise<void> | void;
+  onRollbackSession?: (session: SessionTreeNode) => Promise<void> | void;
   onStartInitiative?: () => Promise<void> | void;
   onStartWorkstream?: (initiativeId: string | null) => Promise<void> | void;
 }
@@ -39,6 +44,11 @@ export const SessionInspector = memo(function SessionInspector({
   initiatives = [],
   onContinueHighestPriority,
   onDispatchSession,
+  onPauseSession,
+  onResumeSession,
+  onCancelSession,
+  onCreateCheckpoint,
+  onRollbackSession,
   onStartInitiative,
   onStartWorkstream,
 }: SessionInspectorProps) {
@@ -187,6 +197,11 @@ export const SessionInspector = memo(function SessionInspector({
   }
 
   const progressValue = session.progress === null ? null : Math.round(session.progress);
+  const sessionStatus = session.status.toLowerCase();
+  const canPause = ['running', 'active', 'queued', 'pending'].includes(sessionStatus);
+  const canResume = ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
+  const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
+  const canRollback = !['archived', 'cancelled'].includes(sessionStatus);
   const timelineInfo = [
     { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '—' },
     { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '—' },
@@ -325,6 +340,46 @@ export const SessionInspector = memo(function SessionInspector({
               className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               {busyAction === 'start-workstream' ? 'Creating…' : 'Start Workstream'}
+            </button>
+
+            <button
+              onClick={() => runAction('pause-session', 'Pause session', () => onPauseSession?.(session))}
+              disabled={!onPauseSession || !canPause || !!busyAction}
+              className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-400/20 disabled:opacity-45"
+            >
+              {busyAction === 'pause-session' ? 'Pausing…' : 'Pause Session'}
+            </button>
+
+            <button
+              onClick={() => runAction('resume-session', 'Resume session', () => onResumeSession?.(session))}
+              disabled={!onResumeSession || !canResume || !!busyAction}
+              className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            >
+              {busyAction === 'resume-session' ? 'Resuming…' : 'Resume Session'}
+            </button>
+
+            <button
+              onClick={() => runAction('checkpoint-session', 'Checkpoint created', () => onCreateCheckpoint?.(session))}
+              disabled={!onCreateCheckpoint || !!busyAction}
+              className="rounded-md border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-45"
+            >
+              {busyAction === 'checkpoint-session' ? 'Creating…' : 'Create Checkpoint'}
+            </button>
+
+            <button
+              onClick={() => runAction('rollback-session', 'Rollback requested', () => onRollbackSession?.(session))}
+              disabled={!onRollbackSession || !canRollback || !!busyAction}
+              className="rounded-md border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-2 text-[11px] font-semibold text-fuchsia-300 transition-colors hover:bg-fuchsia-400/20 disabled:opacity-45"
+            >
+              {busyAction === 'rollback-session' ? 'Rolling back…' : 'Rollback'}
+            </button>
+
+            <button
+              onClick={() => runAction('cancel-session', 'Cancel session', () => onCancelSession?.(session))}
+              disabled={!onCancelSession || !canCancel || !!busyAction}
+              className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-[11px] font-semibold text-red-300 transition-colors hover:bg-red-400/20 disabled:opacity-45"
+            >
+              {busyAction === 'cancel-session' ? 'Cancelling…' : 'Cancel Session'}
             </button>
           </div>
 
