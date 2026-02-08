@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import type { OnboardingState } from '@/types';
 import orgxLogo from '@/assets/orgx-logo.png';
@@ -56,6 +57,25 @@ const ladderFlow = [
   { label: 'Task', detail: 'Atomic action with dependencies and priority' },
 ] as const;
 
+const SETUP_COMMAND = 'openclaw plugins install @useorgx/openclaw-plugin';
+
+function keySourceLabel(source: OnboardingState['keySource']): string {
+  switch (source) {
+    case 'config':
+      return 'Plugin config';
+    case 'environment':
+      return 'Environment variable';
+    case 'persisted':
+      return 'Saved local credential';
+    case 'openclaw-config-file':
+      return 'OpenClaw config file';
+    case 'legacy-dev':
+      return 'Legacy dev fallback';
+    default:
+      return 'Not detected';
+  }
+}
+
 /* ── Animation variants ────────────────────────────────────────────── */
 
 const stagger = {
@@ -82,6 +102,23 @@ export function ExplainerPanel({
   onContinueWithoutOrgX,
 }: ExplainerPanelProps) {
   const hasError = Boolean(state.lastError);
+  const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
+  const showKeySource = state.hasApiKey && state.keySource && state.keySource !== 'none';
+
+  useEffect(() => {
+    if (copyState === 'idle') return undefined;
+    const timer = window.setTimeout(() => setCopyState('idle'), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  const copySetupCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(SETUP_COMMAND);
+      setCopyState('ok');
+    } catch {
+      setCopyState('error');
+    }
+  };
 
   return (
     <motion.section
@@ -147,6 +184,27 @@ export function ExplainerPanel({
         <p className="mt-1 text-[12px] leading-relaxed text-[#CFF8F3]">
           OrgX syncs with your OpenClaw sessions so initiatives, workstreams, milestones, tasks, and assignment context stay aligned with live agent execution.
         </p>
+      </motion.div>
+
+      <motion.div variants={rise} className="mt-3 mx-6 sm:mx-8 rounded-xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+        <p className="text-[11px] uppercase tracking-[0.08em] text-white/38">Quick Setup</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <code className="rounded-md border border-white/[0.08] bg-black/30 px-2 py-1 font-mono text-[11px] text-white/75">
+            {SETUP_COMMAND}
+          </code>
+          <button
+            type="button"
+            onClick={() => { void copySetupCommand(); }}
+            className="rounded-full border border-white/[0.12] px-3 py-1 text-[11px] text-white/65 transition hover:border-white/[0.2] hover:text-white/90"
+          >
+            {copyState === 'ok' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy command'}
+          </button>
+        </div>
+        {showKeySource && (
+          <p className="mt-2 text-[11px] text-white/45">
+            API key source detected: {keySourceLabel(state.keySource)}
+          </p>
+        )}
       </motion.div>
 
       {/* ── CTAs ────────────────────────────────────────────────── */}

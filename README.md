@@ -70,6 +70,7 @@ Shows:
 - Agent status and current tasks
 - Pending decisions requiring approval
 - Activity stream
+- Outbox replay visibility for buffered offline events
 
 ### 🎯 Model Routing
 
@@ -95,6 +96,19 @@ Returns: { allowed: true, modelTier: "sonnet" }
 Agent spawns with recommended model
 ```
 
+## Feature Matrix
+
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| Browser pairing onboarding | ✅ | `POST /orgx/api/onboarding/start` + polling flow |
+| Manual API key fallback | ✅ | In onboarding gate and `manual-key` endpoint |
+| Live sessions + activity + handoffs | ✅ | SSE with local fallback paths |
+| Mission Control hierarchy view | ✅ | Initiative → workstream → milestone → task |
+| Outbox buffering + replay | ✅ | Local queue + auto replay on sync |
+| Outbox observability in dashboard | ✅ | Pending/replay indicators in header/notifications |
+| Plugin diagnostics (`doctor`) | ✅ | CLI + `GET /orgx/api/health` |
+| Full-auto codex dispatch | ✅ | `npm run job:dispatch` with retries + rollups |
+
 ## CLI Commands
 
 ```bash
@@ -103,6 +117,12 @@ openclaw orgx status
 
 # Manual sync
 openclaw orgx sync --memory "..." --daily-log "..."
+
+# Diagnostics (local + remote probe)
+openclaw orgx doctor
+
+# Diagnostics JSON without remote probe
+openclaw orgx doctor --json --no-remote
 ```
 
 ## Full-Auto Codex Dispatch Job
@@ -138,6 +158,7 @@ When the plugin is loaded, these HTTP endpoints are available:
 | `GET /orgx/api/agents` | Agent states |
 | `GET /orgx/api/activity` | Activity feed |
 | `GET /orgx/api/initiatives` | Initiative data |
+| `GET /orgx/api/health` | Plugin diagnostics + outbox/sync health |
 | `GET /orgx/api/onboarding` | Config/setup state |
 | `POST /orgx/api/onboarding/start` | Start browser pairing flow |
 | `GET /orgx/api/onboarding/status` | Poll pairing status / auto-connect |

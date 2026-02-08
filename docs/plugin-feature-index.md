@@ -58,6 +58,7 @@ Scope: current repository state in `src/` and `dashboard/src/`
   - `GET /orgx/api/agents`
   - `GET /orgx/api/activity`
   - `GET /orgx/api/initiatives`
+  - `GET /orgx/api/health`
 - Onboarding endpoints:
   - `GET /orgx/api/onboarding`
   - `POST /orgx/api/onboarding/start`
@@ -144,3 +145,12 @@ Ranking scale:
 - Automatic outbox replay on successful sync:
   - buffered `progress`, `decision`, and `artifact` events are retried and removed when delivered.
 - Live snapshot now merges locally buffered outbox activity so users can see offline-captured events in dashboard views.
+- Added diagnostics surfaces:
+  - CLI command: `openclaw orgx doctor` (`--json`, `--no-remote`)
+  - HTTP endpoint: `GET /orgx/api/health`
+- Added outbox observability to dashboard header metrics/notifications:
+  - pending outbox count
+  - replay status/error signal
+- Added onboarding setup convenience:
+  - copy setup command button
+  - API key source indicator chips

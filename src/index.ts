@@ -33,7 +33,12 @@ import {
   resolveInstallationId,
   saveAuthStore,
 } from "./auth-store.js";
-import { appendToOutbox, readOutbox, replaceOutbox } from "./outbox.js";
+import {
+  appendToOutbox,
+  readOutbox,
+  readOutboxSummary,
+  replaceOutbox,
+} from "./outbox.js";
 import type { OutboxEvent } from "./outbox.js";
 
 // Re-export types for consumers
@@ -352,6 +357,74 @@ function formatSnapshot(snap: OrgSnapshot): string {
   return lines.join("\n");
 }
 
+type DoctorCheckStatus = "pass" | "warn" | "fail";
+type ReplayStatus = "idle" | "running" | "success" | "error";
+
+interface DoctorCheck {
+  id: string;
+  status: DoctorCheckStatus;
+  message: string;
+}
+
+interface HealthReport {
+  ok: boolean;
+  status: "ok" | "degraded" | "error";
+  generatedAt: string;
+  checks: DoctorCheck[];
+  plugin: {
+    version: string;
+    installationId: string;
+    enabled: boolean;
+    dashboardEnabled: boolean;
+    baseUrl: string;
+  };
+  auth: {
+    hasApiKey: boolean;
+    keySource: ResolvedConfig["apiKeySource"];
+    userIdConfigured: boolean;
+    onboardingStatus: OnboardingState["status"];
+  };
+  sync: {
+    serviceRunning: boolean;
+    inFlight: boolean;
+    lastSnapshotAt: string | null;
+  };
+  outbox: {
+    pendingTotal: number;
+    pendingByQueue: Record<string, number>;
+    oldestEventAt: string | null;
+    newestEventAt: string | null;
+    replayStatus: ReplayStatus;
+    lastReplayAttemptAt: string | null;
+    lastReplaySuccessAt: string | null;
+    lastReplayFailureAt: string | null;
+    lastReplayError: string | null;
+  };
+  remote: {
+    enabled: boolean;
+    reachable: boolean | null;
+    latencyMs: number | null;
+    error: string | null;
+  };
+}
+
+function apiKeySourceLabel(source: ResolvedConfig["apiKeySource"]): string {
+  switch (source) {
+    case "config":
+      return "Plugin Config";
+    case "environment":
+      return "Environment";
+    case "persisted":
+      return "Persisted Store";
+    case "openclaw-config-file":
+      return "OpenClaw Config";
+    case "legacy-dev":
+      return "Legacy Dev Env";
+    default:
+      return "Not configured";
+  }
+}
+
 interface ReportingContextInput {
   initiative_id?: unknown;
   run_id?: unknown;
@@ -655,6 +728,166 @@ export default function register(api: PluginAPI): void {
   let syncInFlight: Promise<void> | null = null;
   let syncServiceRunning = false;
   const outboxQueues = ["progress", "decisions", "artifacts"] as const;
+  let outboxReplayState: {
+    status: ReplayStatus;
+    lastReplayAttemptAt: string | null;
+    lastReplaySuccessAt: string | null;
+    lastReplayFailureAt: string | null;
+    lastReplayError: string | null;
+  } = {
+    status: "idle",
+    lastReplayAttemptAt: null,
+    lastReplaySuccessAt: null,
+    lastReplayFailureAt: null,
+    lastReplayError: null,
+  };
+
+  async function buildHealthReport(
+    input: { probeRemote?: boolean } = {}
+  ): Promise<HealthReport> {
+    const generatedAt = new Date().toISOString();
+    const probeRemote = input.probeRemote === true;
+    const outbox = await readOutboxSummary();
+    const checks: DoctorCheck[] = [];
+    const hasApiKey = Boolean(config.apiKey);
+
+    if (hasApiKey) {
+      checks.push({
+        id: "api_key",
+        status: "pass",
+        message: `API key detected (${apiKeySourceLabel(config.apiKeySource)}).`,
+      });
+    } else {
+      checks.push({
+        id: "api_key",
+        status: "fail",
+        message: "API key missing. Connect OrgX in onboarding or set ORGX_API_KEY.",
+      });
+    }
+
+    if (syncServiceRunning) {
+      checks.push({
+        id: "sync_service",
+        status: "pass",
+        message: "Background sync service is running.",
+      });
+    } else {
+      checks.push({
+        id: "sync_service",
+        status: "warn",
+        message: "Background sync service is not running.",
+      });
+    }
+
+    if (outbox.pendingTotal > 0) {
+      checks.push({
+        id: "outbox",
+        status: "warn",
+        message: `Outbox has ${outbox.pendingTotal} queued event(s).`,
+      });
+    } else {
+      checks.push({
+        id: "outbox",
+        status: "pass",
+        message: "Outbox is empty.",
+      });
+    }
+
+    let remoteReachable: boolean | null = null;
+    let remoteLatencyMs: number | null = null;
+    let remoteError: string | null = null;
+
+    if (probeRemote) {
+      if (!hasApiKey) {
+        checks.push({
+          id: "remote_probe",
+          status: "warn",
+          message: "Skipped remote probe because API key is missing.",
+        });
+      } else {
+        const startedAt = Date.now();
+        try {
+          await client.getOrgSnapshot();
+          remoteReachable = true;
+          remoteLatencyMs = Date.now() - startedAt;
+          checks.push({
+            id: "remote_probe",
+            status: "pass",
+            message: `OrgX API reachable (${remoteLatencyMs}ms).`,
+          });
+        } catch (err: unknown) {
+          remoteReachable = false;
+          remoteLatencyMs = Date.now() - startedAt;
+          remoteError = toErrorMessage(err);
+          checks.push({
+            id: "remote_probe",
+            status: "fail",
+            message: `OrgX API probe failed: ${remoteError}`,
+          });
+        }
+      }
+    }
+
+    if (onboardingState.status === "error") {
+      checks.push({
+        id: "onboarding_state",
+        status: "warn",
+        message: onboardingState.lastError
+          ? `Onboarding reports an error: ${onboardingState.lastError}`
+          : "Onboarding reports an error state.",
+      });
+    }
+
+    const hasFail = checks.some((check) => check.status === "fail");
+    const hasWarn = checks.some((check) => check.status === "warn");
+    const status: HealthReport["status"] = hasFail
+      ? "error"
+      : hasWarn
+        ? "degraded"
+        : "ok";
+
+    return {
+      ok: status !== "error",
+      status,
+      generatedAt,
+      checks,
+      plugin: {
+        version: config.pluginVersion,
+        installationId: config.installationId,
+        enabled: config.enabled,
+        dashboardEnabled: config.dashboardEnabled,
+        baseUrl: config.baseUrl,
+      },
+      auth: {
+        hasApiKey,
+        keySource: config.apiKeySource,
+        userIdConfigured: Boolean(config.userId && config.userId.trim().length > 0),
+        onboardingStatus: onboardingState.status,
+      },
+      sync: {
+        serviceRunning: syncServiceRunning,
+        inFlight: syncInFlight !== null,
+        lastSnapshotAt: lastSnapshotAt > 0 ? new Date(lastSnapshotAt).toISOString() : null,
+      },
+      outbox: {
+        pendingTotal: outbox.pendingTotal,
+        pendingByQueue: outbox.pendingByQueue,
+        oldestEventAt: outbox.oldestEventAt,
+        newestEventAt: outbox.newestEventAt,
+        replayStatus: outboxReplayState.status,
+        lastReplayAttemptAt: outboxReplayState.lastReplayAttemptAt,
+        lastReplaySuccessAt: outboxReplayState.lastReplaySuccessAt,
+        lastReplayFailureAt: outboxReplayState.lastReplayFailureAt,
+        lastReplayError: outboxReplayState.lastReplayError,
+      },
+      remote: {
+        enabled: probeRemote,
+        reachable: remoteReachable,
+        latencyMs: remoteLatencyMs,
+        error: remoteError,
+      },
+    };
+  }
 
   function pickStringField(
     payload: Record<string, unknown>,
@@ -811,6 +1044,17 @@ export default function register(api: PluginAPI): void {
   }
 
   async function flushOutboxQueues(): Promise<void> {
+    const attemptAt = new Date().toISOString();
+    outboxReplayState = {
+      ...outboxReplayState,
+      status: "running",
+      lastReplayAttemptAt: attemptAt,
+      lastReplayError: null,
+    };
+
+    let hadReplayFailure = false;
+    let lastReplayError: string | null = null;
+
     for (const queue of outboxQueues) {
       const pending = await readOutbox(queue);
       if (pending.length === 0) {
@@ -822,11 +1066,13 @@ export default function register(api: PluginAPI): void {
         try {
           await replayOutboxEvent(event);
         } catch (err: unknown) {
+          hadReplayFailure = true;
+          lastReplayError = toErrorMessage(err);
           remaining.push(event);
           api.log?.warn?.("[orgx] Outbox replay failed", {
             queue,
             eventId: event.id,
-            error: toErrorMessage(err),
+            error: lastReplayError,
           });
         }
       }
@@ -841,6 +1087,22 @@ export default function register(api: PluginAPI): void {
           remaining: remaining.length,
         });
       }
+    }
+
+    if (hadReplayFailure) {
+      outboxReplayState = {
+        ...outboxReplayState,
+        status: "error",
+        lastReplayFailureAt: new Date().toISOString(),
+        lastReplayError,
+      };
+    } else {
+      outboxReplayState = {
+        ...outboxReplayState,
+        status: "success",
+        lastReplaySuccessAt: new Date().toISOString(),
+        lastReplayError: null,
+      };
     }
   }
 
@@ -2541,6 +2803,68 @@ export default function register(api: PluginAPI): void {
             process.exit(1);
           }
         });
+
+      cmd
+        .command("doctor")
+        .description("Run plugin diagnostics and connectivity checks")
+        .option("--json", "Print the report as JSON")
+        .option("--no-remote", "Skip remote OrgX API reachability probe")
+        .action(async (opts: { json?: boolean; remote?: boolean } = {}) => {
+          try {
+            const report = await buildHealthReport({
+              probeRemote: opts.remote !== false,
+            });
+
+            if (opts.json) {
+              console.log(JSON.stringify(report, null, 2));
+              if (!report.ok) process.exit(1);
+              return;
+            }
+
+            console.log("OrgX Doctor");
+            console.log(`  Status: ${report.status.toUpperCase()}`);
+            console.log(`  Plugin: v${report.plugin.version}`);
+            console.log(`  Base URL: ${report.plugin.baseUrl}`);
+            console.log(
+              `  API Key Source: ${apiKeySourceLabel(report.auth.keySource)}`
+            );
+            console.log(`  Outbox Pending: ${report.outbox.pendingTotal}`);
+            console.log("");
+            console.log("Checks:");
+            for (const check of report.checks) {
+              const prefix =
+                check.status === "pass"
+                  ? "[PASS]"
+                  : check.status === "warn"
+                    ? "[WARN]"
+                    : "[FAIL]";
+              console.log(`  ${prefix} ${check.message}`);
+            }
+
+            if (report.remote.enabled) {
+              if (report.remote.reachable === true) {
+                console.log(
+                  `  Remote probe latency: ${report.remote.latencyMs ?? "?"}ms`
+                );
+              } else if (report.remote.reachable === false) {
+                console.log(
+                  `  Remote probe error: ${report.remote.error ?? "Unknown error"}`
+                );
+              } else {
+                console.log("  Remote probe: skipped");
+              }
+            }
+
+            if (!report.ok) {
+              process.exit(1);
+            }
+          } catch (err: unknown) {
+            console.error(
+              `Doctor failed: ${err instanceof Error ? err.message : err}`
+            );
+            process.exit(1);
+          }
+        });
     },
     { commands: ["orgx"] }
   );
@@ -2559,6 +2883,10 @@ export default function register(api: PluginAPI): void {
       getStatus: getPairingStatus,
       submitManualKey,
       disconnect: disconnectOnboarding,
+    },
+    {
+      getHealth: async (input = {}) =>
+        buildHealthReport({ probeRemote: input.probeRemote === true }),
     }
   );
   api.registerHttpHandler(httpHandler);
