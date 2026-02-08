@@ -1,0 +1,11 @@
+# Codex hook template for OrgX reporting backstop
+# Merge this into your Codex config.toml.
+
+notify = [
+  "node",
+  "templates/hooks/scripts/post-reporting-event.mjs",
+  "--event=agent_turn_complete",
+  "--phase=completed",
+  "--message=Codex turn completed",
+  "--apply_completion=true"
+]

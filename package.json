@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,6 +33,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test:hooks": "node --test tests/**/*.test.mjs",
     "build": "tsc && node ./scripts/copy-manifest.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build"

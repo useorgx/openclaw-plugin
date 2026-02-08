@@ -33,16 +33,18 @@ const WORKSTREAM_PLAN = {
     due: '2026-02-10T18:00:00-06:00',
     dependsOn: ['Auth & User Identity'],
     exitCriteria:
-      'User can launch at least two agents, observe status transitions, and see output reflected in activity.',
+      'User can launch at least two agents, observe status transitions, see output reflected in activity, and choose cloud-vs-local execution mode.',
     verificationSteps: [
       'Launch at least two agent runs from dashboard',
       'Verify status transitions queued -> running -> completed',
       'Verify output events appear in activity stream with initiative context',
+      'Verify execution mode selector routes correctly (OrgX cloud on behalf vs local machine)',
     ],
     requiredEvidence: [
       'Run IDs for at least two runs',
       'Activity timestamps proving state transitions',
       'Screenshot or short recording of launch-to-output',
+      'Evidence of mode-specific launch execution behavior',
     ],
   },
   'Payment & Billing Integration': {
@@ -51,17 +53,19 @@ const WORKSTREAM_PLAN = {
     due: '2026-02-10T20:00:00-06:00',
     dependsOn: ['Auth & User Identity'],
     exitCriteria:
-      'Checkout, webhook entitlement updates, billing portal, and premium gating all verified in test mode.',
+      'Checkout, webhook entitlement updates, billing portal, premium gating, and BYOK-aware paywall path are all verified in test mode.',
     verificationSteps: [
       'Complete test checkout end-to-end',
       'Replay webhook events and verify entitlement update',
       'Verify billing portal access and cancellation path',
       'Verify premium feature gates free vs paid correctly',
+      'Verify paid user with BYOK can launch agents while unpaid user is paywalled',
     ],
     requiredEvidence: [
       'Stripe event IDs',
       'Entitlement state snapshot before/after',
       'Premium gate pass/fail proof',
+      'BYOK + paywall launch matrix (paid/unpaid, key/no-key)',
     ],
   },
   'Onboarding & Value Demo': {
@@ -70,16 +74,18 @@ const WORKSTREAM_PLAN = {
     due: '2026-02-09T23:59:00-06:00',
     dependsOn: ['Auth & User Identity', 'Agent Launcher & Runtime'],
     exitCriteria:
-      'New user reaches first value in <= 60 seconds from first open with guided onboarding and demo mode.',
+      'New user reaches first value in <= 60 seconds from first open with guided onboarding, BYOK setup clarity, and demo mode.',
     verificationSteps: [
       'Run timed first-run flow from clean state (3 runs minimum)',
       'Verify guided onboarding sequence and demo mode render',
       'Verify launch-first-agent CTA succeeds from onboarding path',
+      'Verify settings UX clearly guides Anthropic/OpenAI/OpenRouter key entry',
     ],
     requiredEvidence: [
       'Stopwatch timestamps from three clean runs',
       'Flow recording or screenshots',
       'Onboarding completion metrics snapshot',
+      'Key setup completion funnel metrics',
     ],
   },
   'Plugin Packaging & Distribution': {
@@ -138,6 +144,132 @@ const WORKSTREAM_PLAN = {
       'Campaign ID and settings snapshot',
       'Pixel/API conversion logs',
       'Creative IDs and spend cap configuration',
+    ],
+  },
+  'Continuous Execution & Auto-Completion': {
+    gate: 'G2',
+    owner: 'engineering-owner',
+    due: '2026-02-12T23:59:00-06:00',
+    dependsOn: ['Auth & User Identity', 'Agent Launcher & Runtime'],
+    exitCriteria:
+      'Initiative execution can continue autonomously across next-up tasks until initiative completion or explicit token budget exhaustion.',
+    verificationSteps: [
+      'Run a seeded initiative and verify task auto-advancement across queued todo items',
+      'Verify execution pauses only when blocked, completed, or budget/token guardrail is reached',
+      'Verify manual resume continues from next-up task without duplicate execution',
+    ],
+    requiredEvidence: [
+      'Run transcript showing at least 3 autonomous task transitions',
+      'Stop reason evidence (completed, blocked, or budget_exhausted)',
+      'Checkpoint/resume evidence for continuation from last stable state',
+    ],
+  },
+  'Budget & Duration Forecasting': {
+    gate: 'G4',
+    owner: 'operations-owner',
+    due: '2026-02-13T20:00:00-06:00',
+    dependsOn: ['Continuous Execution & Auto-Completion', 'Launch Day Coordination'],
+    exitCriteria:
+      'Mission Control displays expected duration and budget at initiative/workstream/milestone/task levels with validated rollups.',
+    verificationSteps: [
+      'Set expected duration and budget values on representative entities',
+      'Verify hierarchy table shows editable and persisted duration/budget values',
+      'Verify initiative-level summary displays rollup totals for duration and budget',
+    ],
+    requiredEvidence: [
+      'Screenshots of duration/budget values at task and workstream levels',
+      'API payload snapshots confirming expected_duration_hours and expected_budget_usd persistence',
+      'Before/after screenshot proving totals update when estimates change',
+    ],
+  },
+  'Plugin + Core Codebase Unification': {
+    gate: 'G4',
+    owner: 'engineering-owner',
+    due: '2026-02-21T23:59:00-06:00',
+    dependsOn: ['Auth & User Identity', 'Agent Launcher & Runtime'],
+    exitCriteria:
+      'Standalone plugin and core package share one client/types/http surface with adapter layers for auth/pairing/outbox and orchestration.',
+    verificationSteps: [
+      'Map duplicated modules (client/types/http) and finalize target shared package boundaries',
+      'Extract shared package contracts and migrate both codebases to shared imports',
+      'Validate auth/outbox/pairing and orchestration/skill-sync paths in unified architecture',
+    ],
+    requiredEvidence: [
+      'Code map showing removed duplicate modules and replacement imports',
+      'Build/test output for both plugin codepaths after migration',
+      'Adapter coverage checklist for auth/outbox/pairing/orchestration features',
+    ],
+  },
+  'Dashboard Bundle Endpoint': {
+    gate: 'G4',
+    owner: 'engineering-owner',
+    due: '2026-02-13T23:59:00-06:00',
+    dependsOn: ['Auth & User Identity'],
+    exitCriteria:
+      'Dashboard consumes a single server-side merged bundle snapshot instead of multi-endpoint client fan-out polling.',
+    verificationSteps: [
+      'Implement dashboard-bundle endpoint merging cloud + local session data',
+      'Refactor dashboard hook to consume bundle payload as primary data source',
+      'Validate parity against previous data sources for initiatives, agents, sessions, activity, decisions, and runs',
+    ],
+    requiredEvidence: [
+      'Before/after request count comparison under identical refresh interval',
+      'Bundle payload schema snapshot and parity checklist',
+      'Regression test proof for empty/degraded/partial data states',
+    ],
+  },
+  'Real-Time Stream (SSE) Integration': {
+    gate: 'G4',
+    owner: 'engineering-owner',
+    due: '2026-02-13T23:59:00-06:00',
+    dependsOn: ['Dashboard Bundle Endpoint'],
+    exitCriteria:
+      'Dashboard receives live updates via SSE first with polling fallback and no stale-state regressions.',
+    verificationSteps: [
+      'Expose SSE stream mode for dashboard bundle updates',
+      'Wire SSE-first data updates in dashboard with polling fallback path',
+      'Validate reconnect/retry behavior and stale view recovery on stream interruptions',
+    ],
+    requiredEvidence: [
+      'SSE event transcript with snapshot diff updates',
+      'Fallback activation proof when stream is interrupted',
+      'Latency comparison (event-to-UI) versus polling baseline',
+    ],
+  },
+  'Self-Healing Auth & Warm Cache': {
+    gate: 'G4',
+    owner: 'engineering-owner',
+    due: '2026-02-12T23:59:00-06:00',
+    dependsOn: ['Auth & User Identity'],
+    exitCriteria:
+      'Dashboard detects auth failure globally, offers one-click reconnect, and serves last known good cloud snapshot during outage.',
+    verificationSteps: [
+      'Aggregate auth failures into unified connection status in dashboard state',
+      'Expose reconnect banner + action that starts pairing/manual key flow inline',
+      'Persist and load last successful cloud snapshot as warm cache on auth failure',
+    ],
+    requiredEvidence: [
+      'Auth failure simulation showing reconnect banner and successful recovery',
+      'Warm-cache snapshot file and replay proof',
+      'Post-reconnect data freshness verification log',
+    ],
+  },
+  'Orchestration Client Dependency Injection': {
+    gate: 'G4',
+    owner: 'engineering-owner',
+    due: '2026-02-12T23:59:00-06:00',
+    dependsOn: ['Plugin + Core Codebase Unification'],
+    exitCriteria:
+      'Orchestration layer consumes injected OrgXClient and removes duplicate fetch/request logic.',
+    verificationSteps: [
+      'Refactor orchestration constructor to accept OrgXClient dependency',
+      'Delete duplicated fetch helper and route all orgx HTTP through shared client',
+      'Validate orchestration flow with mock client tests and live integration smoke',
+    ],
+    requiredEvidence: [
+      'Diff proving removal of duplicated request implementation',
+      'Unit test evidence with mocked client responses',
+      'Integration smoke log for orchestration actions using injected client',
     ],
   },
   'Launch Day Coordination': {
@@ -226,6 +358,14 @@ const VERIFICATION_SCENARIOS = [
     priority: 'high',
   },
   {
+    title: 'Verification Scenario 08b: Paid BYOK user can launch agents while unpaid user is blocked',
+    description:
+      'Verify paid user with valid provider key can launch agents and unpaid user is blocked by paywall with clear upgrade path.',
+    workstream: 'Payment & Billing Integration',
+    dueDate: '2026-02-10T17:30:00-06:00',
+    priority: 'high',
+  },
+  {
     title: 'Verification Scenario 09: Clean machine install reproduces docs exactly',
     description: 'Reproduce installation from docs in clean environment and confirm no undocumented steps required.',
     workstream: 'Plugin Packaging & Distribution',
@@ -237,6 +377,14 @@ const VERIFICATION_SCENARIOS = [
     description: 'Verify /orgx/live loads and /orgx/api/onboarding endpoints respond with healthy states.',
     workstream: 'Onboarding & Value Demo',
     dueDate: '2026-02-11T13:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 10b: Settings key UX supports Anthropic, OpenAI, and OpenRouter',
+    description:
+      'Verify settings flow clearly supports entering, validating, and saving Anthropic/OpenAI/OpenRouter keys with actionable errors.',
+    workstream: 'Onboarding & Value Demo',
+    dueDate: '2026-02-11T14:00:00-06:00',
     priority: 'high',
   },
   {
@@ -273,6 +421,303 @@ const VERIFICATION_SCENARIOS = [
     workstream: 'Launch Day Coordination',
     dueDate: '2026-02-13T18:00:00-06:00',
     priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 16: Initiative auto-continues next-up tasks until completion or token cap',
+    description:
+      'Validate autonomous execution loop advances tasks in dependency order until initiative is done or budget/token guardrails stop execution.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T16:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 17: Mission Control displays expected budget and duration per hierarchy level',
+    description:
+      'Validate budget and duration values are visible and editable for initiative/workstream/milestone/task and persist across reload.',
+    workstream: 'Budget & Duration Forecasting',
+    dueDate: '2026-02-13T15:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 18: Initiative status auto-shifts to paused when no active tasks',
+    description:
+      'Validate initiative displays paused state when all tasks are todo/blocked and no active tasks are in progress.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T18:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 19: Shared plugin/core contracts remove duplicate client/types/http implementations',
+    description:
+      'Validate both plugin codepaths compile and run against unified shared contracts without drift in entity or API behavior.',
+    workstream: 'Plugin + Core Codebase Unification',
+    dueDate: '2026-02-20T17:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 20: Dashboard bundle endpoint replaces multi-call client fan-out',
+    description:
+      'Validate dashboard loads from a single bundle endpoint response with equivalent initiative/session/activity/decision coverage.',
+    workstream: 'Dashboard Bundle Endpoint',
+    dueDate: '2026-02-13T16:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 21: SSE stream updates dashboard with polling fallback',
+    description:
+      'Validate live updates arrive through SSE and fallback polling keeps dashboard current when stream disconnects.',
+    workstream: 'Real-Time Stream (SSE) Integration',
+    dueDate: '2026-02-13T18:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 22: Auth failure shows reconnect banner and warm cache',
+    description:
+      'Validate auth expiration triggers a single reconnect CTA and cached snapshot is shown until reconnection succeeds.',
+    workstream: 'Self-Healing Auth & Warm Cache',
+    dueDate: '2026-02-12T17:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Verification Scenario 23: Orchestration HTTP path is fully client-injected',
+    description:
+      'Validate orchestration no longer contains direct fetch helper logic and all calls route through injected OrgXClient.',
+    workstream: 'Orchestration Client Dependency Injection',
+    dueDate: '2026-02-12T19:00:00-06:00',
+    priority: 'high',
+  },
+];
+
+const BYOK_PAYWALL_EXECUTION_TASKS = [
+  {
+    title: 'Define paywall packaging for BYOK agent launch ($99/mo baseline + premium options)',
+    description:
+      'Define and document pricing strategy for mission board and BYOK-powered agent launch, including baseline $99/mo plan and higher tiers. Reuse existing OrgX billing plan definitions and pricing surfaces instead of duplicating pricing logic in the plugin.',
+    workstream: 'Payment & Billing Integration',
+    dueDate: '2026-02-10T12:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Implement launch paywall check before agent execution',
+    description:
+      'Before agent launch, enforce subscription entitlement check and route unpaid users to upgrade flow with clear value messaging. Reuse existing OrgX checkout/portal APIs (`/api/billing/checkout`, `/api/billing/portal`) for upgrade and billing management.',
+    workstream: 'Payment & Billing Integration',
+    dueDate: '2026-02-10T13:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Add BYOK settings panel for Anthropic/OpenAI/OpenRouter',
+    description:
+      'Integrate plugin settings with existing OrgX provider-config UX/API for Anthropic/OpenAI/OpenRouter keys (`ProviderConfigSection`, `/api/settings/agents/provider-config`) instead of building a duplicate settings backend.',
+    workstream: 'Onboarding & Value Demo',
+    dueDate: '2026-02-10T18:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Add key health and readiness checks in settings',
+    description:
+      'Expose per-provider key status, last validation time, and launch-readiness state in plugin UX by consuming existing OrgX credential/provider status responses where available.',
+    workstream: 'Onboarding & Value Demo',
+    dueDate: '2026-02-11T10:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Add secure key storage policy and key rotation UX',
+    description:
+      'Use existing OrgX user API credential storage and rotation patterns (no plugin-side secret persistence) while exposing masking, revoke/remove actions, and key-ownership boundaries in UX copy.',
+    workstream: 'Auth & User Identity',
+    dueDate: '2026-02-11T12:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Implement execution mode selector (OrgX cloud on behalf vs local machine)',
+    description:
+      'Add runtime execution mode setting with clear defaults and explanatory copy for cloud execution on behalf of user vs local execution.',
+    workstream: 'Agent Launcher & Runtime',
+    dueDate: '2026-02-11T15:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Wire provider routing to BYOK credentials at launch time',
+    description:
+      'Route launches to Anthropic/OpenAI/OpenRouter based on selected provider and stored BYOK credentials, with robust error handling.',
+    workstream: 'Agent Launcher & Runtime',
+    dueDate: '2026-02-11T17:00:00-06:00',
+    priority: 'high',
+  },
+  {
+    title: 'Instrument paywall and BYOK conversion funnel analytics',
+    description:
+      'Track settings key completion, paywall views, upgrade conversions, and first launch success to measure monetization and activation.',
+    workstream: 'Launch Day Coordination',
+    dueDate: '2026-02-12T18:00:00-06:00',
+    priority: 'high',
+  },
+];
+
+const CONTINUOUS_MODEL_AND_FORECAST_TASKS = [
+  {
+    title: 'Implement initiative auto-continue loop until completion or token budget exhaustion',
+    description:
+      'Continuously pick and dispatch next-up tasks until initiative completion, explicit stop, or token budget exhaustion.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T11:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 8,
+    expectedBudgetUsd: 320,
+  },
+  {
+    title: 'Add token budget guardrails and deterministic stop reasons for long-running initiatives',
+    description:
+      'Track token burn and enforce stop reasons (`budget_exhausted`, `blocked`, `completed`) to prevent runaway execution.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T12:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 6,
+    expectedBudgetUsd: 240,
+  },
+  {
+    title: 'Auto-select next-up task based on dependencies, priority, due date, and readiness',
+    description:
+      'Ensure todo queue ordering is readiness-first so dispatch always starts from the highest-priority unblocked task.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T14:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 5,
+    expectedBudgetUsd: 200,
+  },
+  {
+    title: 'Set initiative status to paused when no active tasks are running',
+    description:
+      'Derive mission control initiative state from task execution activity so inactive initiatives show paused by default.',
+    workstream: 'Continuous Execution & Auto-Completion',
+    dueDate: '2026-02-12T15:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 3,
+    expectedBudgetUsd: 120,
+  },
+  {
+    title: 'Add expected duration and budget fields to initiative/workstream/milestone/task entities',
+    description:
+      'Persist and update `expected_duration_hours` and `expected_budget_usd` values across hierarchy entities.',
+    workstream: 'Budget & Duration Forecasting',
+    dueDate: '2026-02-13T10:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 4,
+    expectedBudgetUsd: 160,
+  },
+  {
+    title: 'Render budget and duration columns in Mission Control hierarchy table',
+    description:
+      'Expose editable duration and budget fields in Mission Control to support planning and real-time cost visibility.',
+    workstream: 'Budget & Duration Forecasting',
+    dueDate: '2026-02-13T12:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 4,
+    expectedBudgetUsd: 160,
+  },
+  {
+    title: 'Show initiative-level rollup of expected duration and budget',
+    description:
+      'Aggregate expected values from child tasks to provide top-level time and budget visibility in mission control cards.',
+    workstream: 'Budget & Duration Forecasting',
+    dueDate: '2026-02-13T13:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 3,
+    expectedBudgetUsd: 120,
+  },
+];
+
+const PLATFORM_MULTIPLIER_TASKS = [
+  {
+    title: 'Map and de-duplicate OrgXClient/types/http-handler across standalone plugin and core package',
+    description:
+      'Produce a concrete migration map showing duplicated modules and target shared ownership boundaries.',
+    workstream: 'Plugin + Core Codebase Unification',
+    dueDate: '2026-02-14T16:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 6,
+    expectedBudgetUsd: 240,
+  },
+  {
+    title: 'Extract shared @orgx/types package and migrate both codebases to common contracts',
+    description:
+      'Create shared contract package and remove divergent duplicated type definitions from both repositories.',
+    workstream: 'Plugin + Core Codebase Unification',
+    dueDate: '2026-02-18T17:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 10,
+    expectedBudgetUsd: 400,
+  },
+  {
+    title: 'Layer standalone auth/pairing/outbox as adapters on top of core plugin runtime',
+    description:
+      'Integrate standalone production auth/offline features via adapters instead of maintaining forked runtime surfaces.',
+    workstream: 'Plugin + Core Codebase Unification',
+    dueDate: '2026-02-21T17:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 12,
+    expectedBudgetUsd: 480,
+  },
+  {
+    title: 'Implement /orgx/api/dashboard-bundle endpoint with cloud + local session merge',
+    description:
+      'Serve a single merged dashboard snapshot from server-side aggregator to replace seven client polling calls.',
+    workstream: 'Dashboard Bundle Endpoint',
+    dueDate: '2026-02-13T12:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 8,
+    expectedBudgetUsd: 320,
+  },
+  {
+    title: 'Refactor useLiveData to consume DashboardSnapshot from dashboard-bundle endpoint',
+    description:
+      'Collapse client merge/dedupe logic into bundle consumer path and retain resilient degraded state handling.',
+    workstream: 'Dashboard Bundle Endpoint',
+    dueDate: '2026-02-13T15:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 6,
+    expectedBudgetUsd: 240,
+  },
+  {
+    title: 'Wire SSE-first dashboard updates with polling fallback',
+    description:
+      'Subscribe to live bundle stream updates via SSE and apply snapshots directly into query cache, polling only as fallback.',
+    workstream: 'Real-Time Stream (SSE) Integration',
+    dueDate: '2026-02-13T19:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 6,
+    expectedBudgetUsd: 240,
+  },
+  {
+    title: 'Add unified connectionStatus and one-click reconnect banner for auth failures',
+    description:
+      'Aggregate consecutive 401 failures into a single dashboard auth state with explicit reconnect action.',
+    workstream: 'Self-Healing Auth & Warm Cache',
+    dueDate: '2026-02-12T15:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 4,
+    expectedBudgetUsd: 160,
+  },
+  {
+    title: 'Persist last successful cloud snapshot and load it as warm cache during auth outage',
+    description:
+      'Store previous good bundle response locally and serve it when cloud auth is unavailable to avoid blank dashboards.',
+    workstream: 'Self-Healing Auth & Warm Cache',
+    dueDate: '2026-02-12T18:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 4,
+    expectedBudgetUsd: 160,
+  },
+  {
+    title: 'Inject OrgXClient into orchestration and delete duplicate fetch layer',
+    description:
+      'Refactor orchestration to use injected shared client for all HTTP paths and remove local request implementation.',
+    workstream: 'Orchestration Client Dependency Injection',
+    dueDate: '2026-02-12T14:00:00-06:00',
+    priority: 'high',
+    expectedDurationHours: 4,
+    expectedBudgetUsd: 160,
   },
 ];
 
@@ -357,6 +802,13 @@ function snapshotCounts(state) {
 
 function deepEqualJson(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sanitizeExistingPlanText(input) {
+  return String(input || '')
+    .replace(/probe\[{2,}/gi, '')
+    .replace(/\btemporary probe\b/gi, '')
+    .trim();
 }
 
 class OrgxApi {
@@ -491,6 +943,27 @@ function dueDateForTask(taskTitle, workstreamName) {
     if (title.includes('conversion tracking')) return '2026-02-12T19:00:00-06:00';
     return '2026-02-12T17:00:00-06:00';
   }
+  if (workstreamName === 'Continuous Execution & Auto-Completion') {
+    return '2026-02-12T20:00:00-06:00';
+  }
+  if (workstreamName === 'Budget & Duration Forecasting') {
+    return '2026-02-13T20:00:00-06:00';
+  }
+  if (workstreamName === 'Dashboard Bundle Endpoint') {
+    return '2026-02-13T19:00:00-06:00';
+  }
+  if (workstreamName === 'Real-Time Stream (SSE) Integration') {
+    return '2026-02-13T21:00:00-06:00';
+  }
+  if (workstreamName === 'Self-Healing Auth & Warm Cache') {
+    return '2026-02-12T20:00:00-06:00';
+  }
+  if (workstreamName === 'Orchestration Client Dependency Injection') {
+    return '2026-02-12T20:00:00-06:00';
+  }
+  if (workstreamName === 'Plugin + Core Codebase Unification') {
+    return '2026-02-21T21:00:00-06:00';
+  }
 
   return '2026-02-14T23:59:00-06:00';
 }
@@ -527,7 +1000,7 @@ function buildSummary(existingSummary, planEntry, dependencyNames) {
     'Rule: do not mark done until verification evidence is attached and reviewed.',
   ].join('\n');
 
-  const base = String(existingSummary || '').trim();
+  const base = sanitizeExistingPlanText(existingSummary);
   if (!base) return canonicalBlock;
   if (base.includes(marker)) {
     return base.replace(new RegExp(`${marker}[\\s\\S]*$`), canonicalBlock).trim();
@@ -560,7 +1033,7 @@ function buildDescription(existingDescription, planEntry, dependencyNames, extra
     .filter(Boolean)
     .join('\n');
 
-  const base = String(existingDescription || '').trim();
+  const base = sanitizeExistingPlanText(existingDescription);
   if (!base) return canonicalBlock;
   if (base.includes(marker)) {
     return base.replace(new RegExp(`${marker}[\\s\\S]*$`), canonicalBlock).trim();
@@ -572,6 +1045,18 @@ function mergeById(items, id, updates) {
   const index = items.findIndex((item) => item.id === id);
   if (index === -1) return;
   items[index] = { ...items[index], ...updates };
+}
+
+function milestoneIsBacklogLike(milestone) {
+  const title = normalize(milestone?.title);
+  return title === 'backlog' || title.startsWith('deprecated: backlog');
+}
+
+function statusForSoftDelete(entityType) {
+  const type = normalize(entityType);
+  if (type === 'milestone') return 'cancelled';
+  if (type === 'task') return 'cancelled';
+  return 'deleted';
 }
 
 async function main() {
@@ -598,8 +1083,13 @@ async function main() {
     updatedTasks: 0,
     createdTasks: 0,
     dedupedScenarioTasksToExisting: 0,
+    createdMilestones: 0,
+    reassignedBacklogTasks: 0,
+    cancelledBacklogMilestones: 0,
+    retiredProbeEntities: 0,
     mutationLogsCreated: 0,
   };
+  const mutationLogEntries = [];
 
   const workstreamByName = new Map(
     state.workstreams.map((ws) => [normalize(ws.name), ws])
@@ -612,7 +1102,6 @@ async function main() {
         initiative_id: INITIATIVE_ID,
         status: 'not_started',
         summary: `Auto-created by ${PLAN_VERSION} because expected launch workstream was missing.`,
-        created_by_plan_version: PLAN_VERSION,
       });
       const normalizedCreated = {
         id: created.id,
@@ -631,20 +1120,12 @@ async function main() {
   );
 
   async function logMutation(context, before, after) {
-    const title = `Launch Plan v2 mutation: ${context.entityType} ${context.entityId}`;
-    const summary = [
-      `Plan version: ${PLAN_VERSION}`,
-      `Entity: ${context.entityType}/${context.entityId}`,
-      `Action: ${context.action}`,
-      `Before: ${JSON.stringify(before)}`,
-      `After: ${JSON.stringify(after)}`,
-    ].join('\n');
-
-    await api.createEntity('stream', {
-      title,
-      summary,
-      initiative_id: INITIATIVE_ID,
-      status: 'active',
+    mutationLogEntries.push({
+      entity_type: context.entityType,
+      entity_id: context.entityId,
+      action: context.action,
+      before,
+      after,
     });
 
     mutationSummary.mutationLogsCreated += 1;
@@ -756,7 +1237,7 @@ async function main() {
     );
   }
 
-  // Scenario task creation with exact + near-duplicate checks.
+  // Planned task creation with exact + near-duplicate checks.
   console.error(
     `[launch-plan-v2] Applying verification scenarios: ${VERIFICATION_SCENARIOS.length}`
   );
@@ -780,26 +1261,87 @@ async function main() {
     }
   }
 
-  for (const scenario of VERIFICATION_SCENARIOS) {
-    const wsId = workstreamIdByName.get(normalize(scenario.workstream));
-    if (!wsId) continue;
+  async function ensurePreferredMilestone(workstreamId, workstreamName) {
+    const currentPreferredId = preferredMilestoneByWorkstreamId.get(workstreamId);
+    if (currentPreferredId) return currentPreferredId;
 
-    const plan = WORKSTREAM_PLAN[scenario.workstream];
-    const dependencyIds = plan.dependsOn
-      .map((name) => workstreamIdByName.get(normalize(name)))
-      .filter(Boolean);
+    const existing = state.milestones.find(
+      (milestone) =>
+        milestone.workstream_id === workstreamId &&
+        normalize(milestone.status) !== 'cancelled' &&
+        !milestoneIsBacklogLike(milestone)
+    );
+    if (existing?.id) {
+      preferredMilestoneByWorkstreamId.set(workstreamId, existing.id);
+      return existing.id;
+    }
 
-    const exactKey = `${wsId}::${normalize(scenario.title)}`;
+    const before = snapshotCounts(state);
+    const created = await api.createEntity('milestone', {
+      title: 'Launch Verification',
+      description: `[Launch Plan v2]\nAuto-created verification milestone for ${workstreamName}.`,
+      status: 'planned',
+      due_date: WORKSTREAM_PLAN[workstreamName]?.due || '2026-02-14T23:59:00-06:00',
+      workstream_id: workstreamId,
+      initiative_id: INITIATIVE_ID,
+    });
+    const createdMilestone = {
+      id: created.id,
+      title: created.title || 'Launch Verification',
+      description: created.description || '',
+      status: created.status || 'planned',
+      due_date: created.due_date || WORKSTREAM_PLAN[workstreamName]?.due || '2026-02-14T23:59:00-06:00',
+      workstream_id: created.workstream_id || workstreamId,
+      initiative_id: created.initiative_id || INITIATIVE_ID,
+    };
+    state.milestones.push(createdMilestone);
+    preferredMilestoneByWorkstreamId.set(workstreamId, createdMilestone.id);
+    const after = snapshotCounts(state);
+
+    mutationSummary.createdMilestones += 1;
+    await logMutation(
+      {
+        entityType: 'milestone',
+        entityId: createdMilestone.id,
+        action: 'create_launch_verification_milestone',
+      },
+      before,
+      after
+    );
+    return createdMilestone.id;
+  }
+
+  async function applyPlannedTaskItem(item, kind) {
+    const wsId = workstreamIdByName.get(normalize(item.workstream));
+    if (!wsId) return;
+
+    const plan = WORKSTREAM_PLAN[item.workstream];
+    if (!plan) return;
+    const preferredMilestoneId = await ensurePreferredMilestone(wsId, item.workstream);
+
+    const exactKey = `${wsId}::${normalize(item.title)}`;
     const exact = state.tasks.find((task) => canonicalMilestoneOrTaskKey(task) === exactKey);
 
     if (exact) {
+      const exactMilestone = state.milestones.find((milestone) => milestone.id === exact.milestone_id);
+      const extraLines = [
+        `${kind} requirement: ${item.description}`,
+        `${kind} due date: ${item.dueDate}`,
+      ];
+      if (typeof item.expectedDurationHours === 'number') {
+        extraLines.push(`${kind} expected duration: ${item.expectedDurationHours}h`);
+      }
+      if (typeof item.expectedBudgetUsd === 'number') {
+        extraLines.push(`${kind} expected budget: $${item.expectedBudgetUsd}`);
+      }
       const updates = {
-        due_date: scenario.dueDate,
-        priority: scenario.priority,
-        description: buildDescription(exact.description, plan, plan.dependsOn, [
-          `Scenario requirement: ${scenario.description}`,
-          `Scenario due date: ${scenario.dueDate}`,
-        ]),
+        due_date: item.dueDate,
+        priority: item.priority,
+        milestone_id:
+          !exact.milestone_id || milestoneIsBacklogLike(exactMilestone)
+            ? preferredMilestoneId
+            : exact.milestone_id,
+        description: buildDescription(exact.description, plan, plan.dependsOn, extraLines),
       };
       const before = snapshotCounts(state);
       await api.updateEntity('task', exact.id, updates);
@@ -810,19 +1352,19 @@ async function main() {
         {
           entityType: 'task',
           entityId: exact.id,
-          action: 'update_scenario_exact_match',
+          action: `update_${kind.toLowerCase().replace(/\\s+/g, '_')}_exact_match`,
         },
         before,
         after
       );
-      continue;
+      return;
     }
 
     const candidates = state.tasks.filter((task) => task.workstream_id === wsId);
     let best = null;
     let bestScore = -1;
     for (const candidate of candidates) {
-      const score = similarity(scenario.title, candidate.title);
+      const score = similarity(item.title, candidate.title);
       if (score > bestScore) {
         best = candidate;
         bestScore = score;
@@ -830,14 +1372,26 @@ async function main() {
     }
 
     if (best && bestScore >= DUPLICATE_SIMILARITY_THRESHOLD) {
+      const bestMilestone = state.milestones.find((milestone) => milestone.id === best.milestone_id);
+      const extraLines = [
+        `${kind} requirement: ${item.description}`,
+        `${kind} due date: ${item.dueDate}`,
+        `Deduped from planned ${kind.toLowerCase()} title at similarity ${Number(bestScore.toFixed(4))}`,
+      ];
+      if (typeof item.expectedDurationHours === 'number') {
+        extraLines.push(`${kind} expected duration: ${item.expectedDurationHours}h`);
+      }
+      if (typeof item.expectedBudgetUsd === 'number') {
+        extraLines.push(`${kind} expected budget: $${item.expectedBudgetUsd}`);
+      }
       const updates = {
-        due_date: scenario.dueDate,
-        priority: scenario.priority,
-        description: buildDescription(best.description, plan, plan.dependsOn, [
-          `Scenario requirement: ${scenario.description}`,
-          `Scenario due date: ${scenario.dueDate}`,
-          `Deduped from planned scenario title at similarity ${Number(bestScore.toFixed(4))}`,
-        ]),
+        due_date: item.dueDate,
+        priority: item.priority,
+        milestone_id:
+          !best.milestone_id || milestoneIsBacklogLike(bestMilestone)
+            ? preferredMilestoneId
+            : best.milestone_id,
+        description: buildDescription(best.description, plan, plan.dependsOn, extraLines),
       };
       const before = snapshotCounts(state);
       await api.updateEntity('task', best.id, updates);
@@ -849,38 +1403,45 @@ async function main() {
         {
           entityType: 'task',
           entityId: best.id,
-          action: 'update_scenario_near_duplicate',
+          action: `update_${kind.toLowerCase().replace(/\\s+/g, '_')}_near_duplicate`,
           duplicateSimilarity: Number(bestScore.toFixed(4)),
         },
         before,
         after
       );
-      continue;
+      return;
     }
 
+    const extraLines = [
+      `${kind} requirement: ${item.description}`,
+      `${kind} due date: ${item.dueDate}`,
+    ];
+    if (typeof item.expectedDurationHours === 'number') {
+      extraLines.push(`${kind} expected duration: ${item.expectedDurationHours}h`);
+    }
+    if (typeof item.expectedBudgetUsd === 'number') {
+      extraLines.push(`${kind} expected budget: $${item.expectedBudgetUsd}`);
+    }
     const before = snapshotCounts(state);
     const created = await api.createEntity('task', {
-      title: scenario.title,
-      description: buildDescription('', plan, plan.dependsOn, [
-        `Scenario requirement: ${scenario.description}`,
-        `Scenario due date: ${scenario.dueDate}`,
-      ]),
+      title: item.title,
+      description: buildDescription('', plan, plan.dependsOn, extraLines),
       status: 'todo',
-      priority: scenario.priority,
-      due_date: scenario.dueDate,
-      milestone_id: preferredMilestoneByWorkstreamId.get(wsId) || null,
+      priority: item.priority,
+      due_date: item.dueDate,
+      milestone_id: preferredMilestoneId,
       workstream_id: wsId,
       initiative_id: INITIATIVE_ID,
     });
 
     const normalizedCreated = {
       id: created.id,
-      title: created.title || scenario.title,
-      description: created.description || scenario.description,
+      title: created.title || item.title,
+      description: created.description || item.description,
       status: created.status || 'todo',
-      priority: created.priority || scenario.priority,
-      due_date: created.due_date || scenario.dueDate,
-      milestone_id: created.milestone_id || preferredMilestoneByWorkstreamId.get(wsId) || null,
+      priority: created.priority || item.priority,
+      due_date: created.due_date || item.dueDate,
+      milestone_id: created.milestone_id || preferredMilestoneId,
       workstream_id: created.workstream_id || wsId,
       initiative_id: created.initiative_id || INITIATIVE_ID,
     };
@@ -892,7 +1453,161 @@ async function main() {
       {
         entityType: 'task',
         entityId: normalizedCreated.id,
-        action: 'create_scenario_task',
+        action: `create_${kind.toLowerCase().replace(/\\s+/g, '_')}_task`,
+      },
+      before,
+      after
+    );
+  }
+
+  for (const scenario of VERIFICATION_SCENARIOS) {
+    await applyPlannedTaskItem(scenario, 'Scenario');
+  }
+
+  console.error(
+    `[launch-plan-v2] Applying BYOK/paywall execution tasks: ${BYOK_PAYWALL_EXECUTION_TASKS.length}`
+  );
+  for (const taskItem of BYOK_PAYWALL_EXECUTION_TASKS) {
+    await applyPlannedTaskItem(taskItem, 'Execution Task');
+  }
+
+  console.error(
+    `[launch-plan-v2] Applying continuous execution + forecast tasks: ${CONTINUOUS_MODEL_AND_FORECAST_TASKS.length}`
+  );
+  for (const taskItem of CONTINUOUS_MODEL_AND_FORECAST_TASKS) {
+    await applyPlannedTaskItem(taskItem, 'Execution Task');
+  }
+
+  console.error(
+    `[launch-plan-v2] Applying platform multiplier tasks: ${PLATFORM_MULTIPLIER_TASKS.length}`
+  );
+  for (const taskItem of PLATFORM_MULTIPLIER_TASKS) {
+    await applyPlannedTaskItem(taskItem, 'Execution Task');
+  }
+
+  // Cleanup pass: remove temporary probe entities and deprecate duplicate/auto backlog milestones.
+  console.error('[launch-plan-v2] Running cleanup for probe entities and backlog duplicates');
+
+  for (const workstream of state.workstreams) {
+    const milestonesForWorkstream = state.milestones.filter(
+      (milestone) => milestone.workstream_id === workstream.id
+    );
+    const backlogMilestones = milestonesForWorkstream.filter((milestone) =>
+      milestoneIsBacklogLike(milestone)
+    );
+    if (backlogMilestones.length === 0) continue;
+
+    const preferredMilestoneId = await ensurePreferredMilestone(workstream.id, workstream.name);
+    for (const backlogMilestone of backlogMilestones) {
+      const tasksOnBacklog = state.tasks.filter(
+        (task) => task.milestone_id === backlogMilestone.id
+      );
+      for (const task of tasksOnBacklog) {
+        const before = snapshotCounts(state);
+        const updates = { milestone_id: preferredMilestoneId };
+        await api.updateEntity('task', task.id, updates);
+        mergeById(state.tasks, task.id, updates);
+        const after = snapshotCounts(state);
+        mutationSummary.updatedTasks += 1;
+        mutationSummary.reassignedBacklogTasks += 1;
+        await logMutation(
+          {
+            entityType: 'task',
+            entityId: task.id,
+            action: 'reassign_from_backlog_milestone',
+          },
+          before,
+          after
+        );
+      }
+
+      const before = snapshotCounts(state);
+      const updates = {
+        status: 'cancelled',
+        title: `Deprecated Milestone Archive (${workstream.name})`,
+      };
+      await api.updateEntity('milestone', backlogMilestone.id, updates);
+      mergeById(state.milestones, backlogMilestone.id, updates);
+      const after = snapshotCounts(state);
+      mutationSummary.updatedMilestones += 1;
+      mutationSummary.cancelledBacklogMilestones += 1;
+      await logMutation(
+        {
+          entityType: 'milestone',
+          entityId: backlogMilestone.id,
+          action: 'deprecate_backlog_milestone',
+        },
+        before,
+        after
+      );
+    }
+  }
+
+  async function listEntitiesOptional(type) {
+    try {
+      return await api.listEntities(type, INITIATIVE_ID);
+    } catch {
+      return [];
+    }
+  }
+
+  const probeCandidates = [];
+  for (const type of ['plan_session', 'stream']) {
+    const entities = await listEntitiesOptional(type);
+    for (const entity of entities) {
+      const title = normalize(entity.title || entity.name);
+      const summary = normalize(entity.summary || entity.description);
+      const looksProbe =
+        title.startsWith('probe') ||
+        title.includes('temporary probe') ||
+        summary.includes('temporary probe');
+      if (looksProbe) {
+        probeCandidates.push({ type, entity });
+      }
+    }
+  }
+
+  for (const candidate of probeCandidates) {
+    const before = snapshotCounts(state);
+    const preferredStatus = statusForSoftDelete(candidate.type);
+    const textField =
+      candidate.type === 'task' || candidate.type === 'milestone'
+        ? 'description'
+        : 'summary';
+    const existingText =
+      textField === 'description'
+        ? String(candidate.entity.description || '')
+        : String(candidate.entity.summary || '');
+
+    let updated = null;
+    const candidateStatuses = [preferredStatus, 'cancelled', 'deleted', 'archived'];
+    for (const status of candidateStatuses) {
+      try {
+        updated = await api.updateEntity(candidate.type, candidate.entity.id, {
+          status,
+          [textField]: `${existingText}\n\n[Launch Plan v2 cleanup] Retired temporary probe entity.`.trim(),
+        });
+        break;
+      } catch {
+        // Try fallback status if this type rejects the previous status value.
+      }
+    }
+    if (!updated) continue;
+
+    if (candidate.type === 'milestone') {
+      mergeById(state.milestones, candidate.entity.id, updated);
+      mutationSummary.updatedMilestones += 1;
+    } else if (candidate.type === 'task') {
+      mergeById(state.tasks, candidate.entity.id, updated);
+      mutationSummary.updatedTasks += 1;
+    }
+    const after = snapshotCounts(state);
+    mutationSummary.retiredProbeEntities += 1;
+    await logMutation(
+      {
+        entityType: candidate.type,
+        entityId: candidate.entity.id,
+        action: 'retire_probe_entity',
       },
       before,
       after
@@ -925,6 +1640,7 @@ async function main() {
       `initial_snapshot: ${JSON.stringify(initialSnapshot)}`,
       `final_snapshot: ${JSON.stringify(finalSnapshot)}`,
       `mutation_summary: ${JSON.stringify(mutationSummary)}`,
+      `mutation_log_sample: ${JSON.stringify(mutationLogEntries.slice(0, 50))}`,
       `gate_status: ${JSON.stringify(gateStatus)}`,
     ].join('\n'),
     initiative_id: INITIATIVE_ID,

@@ -13,7 +13,7 @@ const OUTBOX_DIR = join(homedir(), ".openclaw", "orgx-outbox");
 
 export interface OutboxEvent {
   id: string;
-  type: "progress" | "decision" | "artifact";
+  type: "progress" | "decision" | "artifact" | "changeset";
   timestamp: string;
   payload: Record<string, unknown>;
   /** Converted to a LiveActivityItem for dashboard display. */

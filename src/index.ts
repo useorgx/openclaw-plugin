@@ -12,7 +12,15 @@
  */
 
 import { OrgXClient } from "./api.js";
-import type { OnboardingState, OrgXConfig, OrgSnapshot, LiveActivityItem } from "./types.js";
+import type {
+  OnboardingState,
+  OrgXConfig,
+  OrgSnapshot,
+  LiveActivityItem,
+  ReportingSourceClient,
+  ReportingPhase,
+  ChangesetOperation,
+} from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -88,12 +96,24 @@ interface ResolvedConfig extends OrgXConfig {
   installationId: string;
   pluginVersion: string;
   docsUrl: string;
-  apiKeySource: "config" | "environment" | "persisted" | "legacy-dev" | "none";
+  apiKeySource:
+    | "config"
+    | "environment"
+    | "persisted"
+    | "openclaw-config-file"
+    | "legacy-dev"
+    | "none";
 }
 
 interface ResolvedApiKey {
   value: string;
-  source: "config" | "environment" | "persisted" | "legacy-dev" | "none";
+  source:
+    | "config"
+    | "environment"
+    | "persisted"
+    | "openclaw-config-file"
+    | "legacy-dev"
+    | "none";
 }
 
 const DEFAULT_DOCS_URL = "https://orgx.mintlify.site/guides/openclaw-plugin-setup";
@@ -106,6 +126,40 @@ function readLegacyEnvValue(keyPattern: RegExp): string {
     return match?.[1]?.trim() ?? "";
   } catch {
     return "";
+  }
+}
+
+function readOpenClawOrgxConfig(): {
+  apiKey: string;
+  userId: string;
+  baseUrl: string;
+} {
+  try {
+    const configPath = join(homedir(), ".openclaw", "openclaw.json");
+    const raw = readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const plugins =
+      parsed.plugins && typeof parsed.plugins === "object"
+        ? (parsed.plugins as Record<string, unknown>)
+        : {};
+    const entries =
+      plugins.entries && typeof plugins.entries === "object"
+        ? (plugins.entries as Record<string, unknown>)
+        : {};
+    const orgx =
+      entries.orgx && typeof entries.orgx === "object"
+        ? (entries.orgx as Record<string, unknown>)
+        : {};
+    const config =
+      orgx.config && typeof orgx.config === "object"
+        ? (orgx.config as Record<string, unknown>)
+        : {};
+    const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
+    const userId = typeof config.userId === "string" ? config.userId.trim() : "";
+    const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl.trim() : "";
+    return { apiKey, userId, baseUrl };
+  } catch {
+    return { apiKey: "", userId: "", baseUrl: "" };
   }
 }
 
@@ -123,6 +177,11 @@ function resolveApiKey(
 
   if (persistedApiKey && persistedApiKey.trim().length > 0) {
     return { value: persistedApiKey.trim(), source: "persisted" };
+  }
+
+  const openclaw = readOpenClawOrgxConfig();
+  if (openclaw.apiKey) {
+    return { value: openclaw.apiKey, source: "openclaw-config-file" };
   }
 
   const legacy = readLegacyEnvValue(
@@ -162,6 +221,7 @@ function resolveConfig(
   input: { installationId: string; persistedApiKey: string | null; persistedUserId: string | null }
 ): ResolvedConfig {
   const pluginConf = api.config?.plugins?.entries?.orgx?.config ?? {};
+  const openclaw = readOpenClawOrgxConfig();
 
   const apiKeyResolution = resolveApiKey(pluginConf, input.persistedApiKey);
   const apiKey = apiKeyResolution.value;
@@ -171,11 +231,13 @@ function resolveConfig(
     pluginConf.userId?.trim() ||
     process.env.ORGX_USER_ID?.trim() ||
     input.persistedUserId?.trim() ||
+    openclaw.userId ||
     readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m);
 
   const baseUrl =
     pluginConf.baseUrl ||
     process.env.ORGX_BASE_URL ||
+    openclaw.baseUrl ||
     "https://www.useorgx.com";
 
   return {
@@ -240,6 +302,55 @@ function formatSnapshot(snap: OrgSnapshot): string {
 
   if (snap.syncedAt) lines.push(`_Last synced: ${snap.syncedAt}_`);
   return lines.join("\n");
+}
+
+interface ReportingContextInput {
+  initiative_id?: unknown;
+  run_id?: unknown;
+  correlation_id?: unknown;
+  source_client?: unknown;
+}
+
+interface ResolvedReportingContext {
+  initiativeId: string;
+  runId?: string;
+  correlationId?: string;
+  sourceClient?: ReportingSourceClient;
+}
+
+function pickNonEmptyString(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function isUuid(value: string | undefined): value is string {
+  if (!value) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function toReportingPhase(phase: string, progressPct?: number): ReportingPhase {
+  if (progressPct === 100) return "completed";
+  switch (phase) {
+    case "researching":
+      return "intent";
+    case "implementing":
+    case "testing":
+      return "execution";
+    case "reviewing":
+      return "review";
+    case "blocked":
+      return "blocked";
+    default:
+      return "execution";
+  }
 }
 
 // =============================================================================
@@ -307,6 +418,63 @@ export default function register(api: PluginAPI): void {
   let activePairing: ActivePairing | null = null;
 
   const baseApiUrl = config.baseUrl.replace(/\/+$/, "");
+  const defaultReportingCorrelationId =
+    pickNonEmptyString(process.env.ORGX_CORRELATION_ID) ??
+    `openclaw-${config.installationId}`;
+
+  function resolveReportingContext(
+    input: ReportingContextInput
+  ): { ok: true; value: ResolvedReportingContext } | { ok: false; error: string } {
+    const initiativeId = pickNonEmptyString(
+      input.initiative_id,
+      process.env.ORGX_INITIATIVE_ID
+    );
+
+    if (!initiativeId || !isUuid(initiativeId)) {
+      return {
+        ok: false,
+        error:
+          "initiative_id is required (set ORGX_INITIATIVE_ID or pass initiative_id).",
+      };
+    }
+
+    const sourceCandidate = pickNonEmptyString(
+      input.source_client,
+      process.env.ORGX_SOURCE_CLIENT,
+      "openclaw"
+    );
+    const sourceClient: ReportingSourceClient =
+      sourceCandidate === "codex" ||
+      sourceCandidate === "claude-code" ||
+      sourceCandidate === "api" ||
+      sourceCandidate === "openclaw"
+        ? sourceCandidate
+        : "openclaw";
+
+    const runIdCandidate = pickNonEmptyString(
+      input.run_id,
+      process.env.ORGX_RUN_ID
+    );
+    const runId = isUuid(runIdCandidate) ? runIdCandidate : undefined;
+
+    const correlationId = runId
+      ? undefined
+      : pickNonEmptyString(
+          input.correlation_id,
+          defaultReportingCorrelationId,
+          `openclaw-${Date.now()}`
+        );
+
+    return {
+      ok: true,
+      value: {
+        initiativeId,
+        runId,
+        correlationId,
+        sourceClient,
+      },
+    };
+  }
 
   function updateOnboardingState(
     updates: Partial<OnboardingState>
@@ -474,13 +642,36 @@ export default function register(api: PluginAPI): void {
         });
         return;
       }
-      await client.createEntity("activity", {
-        title: summary,
-        type: "delegation",
-        phase: pickStringField(payload, "phase"),
-        progress_pct:
-          typeof payload.progress_pct === "number" ? payload.progress_pct : null,
-        next_step: pickStringField(payload, "next_step"),
+      const context = resolveReportingContext(payload as ReportingContextInput);
+      if (!context.ok) {
+        throw new Error(context.error);
+      }
+      const rawPhase = pickStringField(payload, "phase") ?? "implementing";
+      const progressPct =
+        typeof payload.progress_pct === "number" ? payload.progress_pct : undefined;
+      const phase =
+        rawPhase === "intent" ||
+        rawPhase === "execution" ||
+        rawPhase === "blocked" ||
+        rawPhase === "review" ||
+        rawPhase === "handoff" ||
+        rawPhase === "completed"
+          ? (rawPhase as ReportingPhase)
+          : toReportingPhase(rawPhase, progressPct);
+      await client.emitActivity({
+        initiative_id: context.value.initiativeId,
+        run_id: context.value.runId,
+        correlation_id: context.value.correlationId,
+        source_client: context.value.sourceClient,
+        message: summary,
+        phase,
+        progress_pct: progressPct,
+        level: pickStringField(payload, "level") as "info" | "warn" | "error" | undefined,
+        next_step: pickStringField(payload, "next_step") ?? undefined,
+        metadata: {
+          source: "orgx_openclaw_outbox_replay",
+          outbox_event_id: event.id,
+        },
       });
       return;
     }
@@ -493,16 +684,61 @@ export default function register(api: PluginAPI): void {
         });
         return;
       }
-      await client.createEntity("decision", {
-        title: question,
-        summary: pickStringField(payload, "context"),
-        urgency: pickStringField(payload, "urgency") ?? "medium",
-        status: "pending",
-        metadata: {
-          options: pickStringArrayField(payload, "options"),
-          blocking:
-            typeof payload.blocking === "boolean" ? payload.blocking : true,
-        },
+      const context = resolveReportingContext(payload as ReportingContextInput);
+      if (!context.ok) {
+        throw new Error(context.error);
+      }
+      await client.applyChangeset({
+        initiative_id: context.value.initiativeId,
+        run_id: context.value.runId,
+        correlation_id: context.value.correlationId,
+        source_client: context.value.sourceClient,
+        idempotency_key:
+          pickStringField(payload, "idempotency_key") ?? `decision:${event.id}`,
+        operations: [
+          {
+            op: "decision.create",
+            title: question,
+            summary: pickStringField(payload, "context") ?? undefined,
+            urgency:
+              (pickStringField(payload, "urgency") as
+                | "low"
+                | "medium"
+                | "high"
+                | "urgent"
+                | undefined) ?? "medium",
+            options: pickStringArrayField(payload, "options"),
+            blocking:
+              typeof payload.blocking === "boolean" ? payload.blocking : true,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.type === "changeset") {
+      const context = resolveReportingContext(payload as ReportingContextInput);
+      if (!context.ok) {
+        throw new Error(context.error);
+      }
+      const operations = Array.isArray(payload.operations)
+        ? (payload.operations as ChangesetOperation[])
+        : [];
+      if (operations.length === 0) {
+        api.log?.warn?.("[orgx] Dropping invalid changeset outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+
+      await client.applyChangeset({
+        initiative_id: context.value.initiativeId,
+        run_id: context.value.runId,
+        correlation_id: context.value.correlationId,
+        source_client: context.value.sourceClient,
+        idempotency_key:
+          pickStringField(payload, "idempotency_key") ?? `changeset:${event.id}`,
+        operations,
       });
       return;
     }
@@ -1636,15 +1872,329 @@ export default function register(api: PluginAPI): void {
     { optional: true }
   );
 
-  // --- orgx_report_progress ---
+  async function emitActivityWithFallback(
+    source: string,
+    payload: {
+      initiative_id?: string;
+      message: string;
+      run_id?: string;
+      correlation_id?: string;
+      source_client?: ReportingSourceClient;
+      phase?: ReportingPhase;
+      progress_pct?: number;
+      level?: "info" | "warn" | "error";
+      next_step?: string;
+      metadata?: Record<string, unknown>;
+    }
+  ): Promise<ToolResult> {
+    if (!payload.message || payload.message.trim().length === 0) {
+      return text("❌ message is required");
+    }
+
+    const context = resolveReportingContext(payload);
+    if (!context.ok) {
+      return text(`❌ ${context.error}`);
+    }
+
+    const now = new Date().toISOString();
+    const id = `progress:${randomUUID().slice(0, 8)}`;
+    const normalizedPayload = {
+      initiative_id: context.value.initiativeId,
+      run_id: context.value.runId,
+      correlation_id: context.value.correlationId,
+      source_client: context.value.sourceClient,
+      message: payload.message,
+      phase: payload.phase ?? "execution",
+      progress_pct: payload.progress_pct,
+      level: payload.level ?? "info",
+      next_step: payload.next_step,
+      metadata: {
+        ...(payload.metadata ?? {}),
+        source,
+      },
+    };
+
+    const activityItem: LiveActivityItem = {
+      id,
+      type: "delegation",
+      title: payload.message,
+      description: payload.next_step ?? null,
+      agentId: null,
+      agentName: null,
+      runId: context.value.runId ?? null,
+      initiativeId: context.value.initiativeId,
+      timestamp: now,
+      phase: normalizedPayload.phase,
+      summary: payload.next_step ? `Next: ${payload.next_step}` : payload.message,
+      metadata: normalizedPayload.metadata,
+    };
+
+    try {
+      const result = await client.emitActivity(normalizedPayload);
+      return text(
+        `Activity emitted: ${payload.message} [${normalizedPayload.phase}${
+          payload.progress_pct != null ? ` ${payload.progress_pct}%` : ""
+        }] (run ${result.run_id.slice(0, 8)}...)`
+      );
+    } catch {
+      await appendToOutbox("progress", {
+        id,
+        type: "progress",
+        timestamp: now,
+        payload: normalizedPayload as Record<string, unknown>,
+        activityItem,
+      });
+      return text(
+        `Activity saved locally: ${payload.message} [${normalizedPayload.phase}${
+          payload.progress_pct != null ? ` ${payload.progress_pct}%` : ""
+        }] (will sync when connected)`
+      );
+    }
+  }
+
+  async function applyChangesetWithFallback(
+    source: string,
+    payload: {
+      initiative_id?: string;
+      idempotency_key?: string;
+      operations: ChangesetOperation[];
+      run_id?: string;
+      correlation_id?: string;
+      source_client?: ReportingSourceClient;
+    }
+  ): Promise<ToolResult> {
+    const context = resolveReportingContext(payload);
+    if (!context.ok) {
+      return text(`❌ ${context.error}`);
+    }
+
+    if (!Array.isArray(payload.operations) || payload.operations.length === 0) {
+      return text("❌ operations must contain at least one change");
+    }
+
+    const idempotencyKey =
+      pickNonEmptyString(payload.idempotency_key) ??
+      `${source}:${Date.now()}:${randomUUID().slice(0, 8)}`;
+
+    const requestPayload = {
+      initiative_id: context.value.initiativeId,
+      run_id: context.value.runId,
+      correlation_id: context.value.correlationId,
+      source_client: context.value.sourceClient,
+      idempotency_key: idempotencyKey,
+      operations: payload.operations,
+    };
+
+    const now = new Date().toISOString();
+    const id = `changeset:${randomUUID().slice(0, 8)}`;
+
+    const activityItem: LiveActivityItem = {
+      id,
+      type: "milestone_completed",
+      title: "Changeset queued",
+      description: `${payload.operations.length} operation${
+        payload.operations.length === 1 ? "" : "s"
+      }`,
+      agentId: null,
+      agentName: null,
+      runId: context.value.runId ?? null,
+      initiativeId: context.value.initiativeId,
+      timestamp: now,
+      phase: "review",
+      summary: `${payload.operations.length} operation${
+        payload.operations.length === 1 ? "" : "s"
+      }`,
+      metadata: {
+        source,
+        idempotency_key: idempotencyKey,
+      },
+    };
+
+    try {
+      const result = await client.applyChangeset(requestPayload);
+      return text(
+        `Changeset ${result.replayed ? "replayed" : "applied"}: ${result.applied_count} op${
+          result.applied_count === 1 ? "" : "s"
+        } (run ${result.run_id.slice(0, 8)}...)`
+      );
+    } catch {
+      await appendToOutbox("decisions", {
+        id,
+        type: "changeset",
+        timestamp: now,
+        payload: requestPayload as Record<string, unknown>,
+        activityItem,
+      });
+      return text(
+        `Changeset saved locally (${payload.operations.length} op${
+          payload.operations.length === 1 ? "" : "s"
+        }) (will sync when connected)`
+      );
+    }
+  }
+
+  // --- orgx_emit_activity ---
+  api.registerTool(
+    {
+      name: "orgx_emit_activity",
+      description:
+        "Emit append-only OrgX activity telemetry (launch reporting contract primary write tool).",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative UUID (required unless ORGX_INITIATIVE_ID is set)",
+          },
+          message: {
+            type: "string",
+            description: "Human-readable activity update",
+          },
+          run_id: {
+            type: "string",
+            description: "Optional run UUID",
+          },
+          correlation_id: {
+            type: "string",
+            description: "Required when run_id is omitted",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+            description: "Required when run_id is omitted",
+          },
+          phase: {
+            type: "string",
+            enum: ["intent", "execution", "blocked", "review", "handoff", "completed"],
+            description: "Reporting phase",
+          },
+          progress_pct: {
+            type: "number",
+            minimum: 0,
+            maximum: 100,
+            description: "Optional progress percentage",
+          },
+          level: {
+            type: "string",
+            enum: ["info", "warn", "error"],
+            description: "Optional level (default info)",
+          },
+          next_step: {
+            type: "string",
+            description: "Optional next step",
+          },
+          metadata: {
+            type: "object",
+            description: "Optional structured metadata",
+          },
+        },
+        required: ["message"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          initiative_id?: string;
+          message: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
+          phase?: ReportingPhase;
+          progress_pct?: number;
+          level?: "info" | "warn" | "error";
+          next_step?: string;
+          metadata?: Record<string, unknown>;
+        } = { message: "" }
+      ) {
+        return emitActivityWithFallback("orgx_emit_activity", params);
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_apply_changeset ---
+  api.registerTool(
+    {
+      name: "orgx_apply_changeset",
+      description:
+        "Apply an idempotent transactional OrgX changeset (launch reporting contract primary mutation tool).",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative UUID (required unless ORGX_INITIATIVE_ID is set)",
+          },
+          idempotency_key: {
+            type: "string",
+            description: "Idempotency key (<=120 chars). Auto-generated if omitted.",
+          },
+          operations: {
+            type: "array",
+            minItems: 1,
+            maxItems: 25,
+            description: "Changeset operations (task.create, task.update, milestone.update, decision.create)",
+            items: { type: "object" },
+          },
+          run_id: {
+            type: "string",
+            description: "Optional run UUID",
+          },
+          correlation_id: {
+            type: "string",
+            description: "Required when run_id is omitted",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+            description: "Required when run_id is omitted",
+          },
+        },
+        required: ["operations"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          initiative_id?: string;
+          idempotency_key?: string;
+          operations: ChangesetOperation[];
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
+        } = { operations: [] }
+      ) {
+        return applyChangesetWithFallback("orgx_apply_changeset", params);
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_report_progress (alias -> orgx_emit_activity) ---
   api.registerTool(
     {
       name: "orgx_report_progress",
       description:
-        "Report progress on current work to the OrgX dashboard. Use this at key milestones so the team can track your work.",
+        "Alias for orgx_emit_activity. Report progress at key milestones so the team can track your work.",
       parameters: {
         type: "object",
         properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative UUID (required unless ORGX_INITIATIVE_ID is set)",
+          },
+          run_id: {
+            type: "string",
+            description: "Optional run UUID",
+          },
+          correlation_id: {
+            type: "string",
+            description: "Required when run_id is omitted",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+          },
           summary: {
             type: "string",
             description: "What was accomplished (1-2 sentences, human-readable)",
@@ -1671,75 +2221,60 @@ export default function register(api: PluginAPI): void {
       async execute(
         _callId: string,
         params: {
+          initiative_id?: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
           summary: string;
           phase: string;
           progress_pct?: number;
           next_step?: string;
         } = { summary: "", phase: "implementing" }
       ) {
-        const now = new Date().toISOString();
-        const id = `progress:${randomUUID().slice(0, 8)}`;
-
-        const activityItem: LiveActivityItem = {
-          id,
-          type: "delegation",
-          title: params.summary,
-          description: params.next_step ?? null,
-          agentId: null,
-          agentName: null,
-          runId: null,
-          initiativeId: null,
-          timestamp: now,
-          phase: params.phase as LiveActivityItem["phase"],
-          summary: params.next_step
-            ? `Next: ${params.next_step}`
-            : null,
+        return emitActivityWithFallback("orgx_report_progress", {
+          initiative_id: params.initiative_id,
+          run_id: params.run_id,
+          correlation_id: params.correlation_id,
+          source_client: params.source_client,
+          message: params.summary,
+          phase: toReportingPhase(params.phase, params.progress_pct),
+          progress_pct: params.progress_pct,
+          next_step: params.next_step,
+          level: params.phase === "blocked" ? "warn" : "info",
           metadata: {
-            source: "orgx_report_progress",
-            progress_pct: params.progress_pct,
-            phase: params.phase,
+            legacy_phase: params.phase,
           },
-        };
-
-        // Try cloud API first, fall back to local outbox
-        try {
-          await client.createEntity("activity", {
-            title: params.summary,
-            type: "delegation",
-            phase: params.phase,
-            progress_pct: params.progress_pct,
-            next_step: params.next_step,
-          });
-          return text(
-            `Progress reported: ${params.summary} [${params.phase}${params.progress_pct != null ? ` ${params.progress_pct}%` : ""}]`
-          );
-        } catch {
-          // Buffer locally
-          await appendToOutbox("progress", {
-            id,
-            type: "progress",
-            timestamp: now,
-            payload: params as Record<string, unknown>,
-            activityItem,
-          });
-          return text(
-            `Progress saved locally: ${params.summary} [${params.phase}${params.progress_pct != null ? ` ${params.progress_pct}%` : ""}] (will sync when connected)`
-          );
-        }
+        });
       },
     },
     { optional: true }
   );
 
-  // --- orgx_request_decision ---
+  // --- orgx_request_decision (alias -> orgx_apply_changeset decision.create) ---
   api.registerTool(
     {
       name: "orgx_request_decision",
       description:
-        "Request a human decision before proceeding. Creates a decision in the OrgX dashboard that the user can approve or reject.",
+        "Alias for orgx_apply_changeset with decision.create. Request a human decision before proceeding.",
       parameters: {
         type: "object",
         properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative UUID (required unless ORGX_INITIATIVE_ID is set)",
+          },
+          run_id: {
+            type: "string",
+            description: "Optional run UUID",
+          },
+          correlation_id: {
+            type: "string",
+            description: "Required when run_id is omitted",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+          },
           question: {
             type: "string",
             description: "The decision question (e.g., 'Deploy to production?')",
@@ -1751,7 +2286,8 @@ export default function register(api: PluginAPI): void {
           options: {
             type: "array",
             items: { type: "string" },
-            description: "Available choices (e.g., ['Yes, deploy now', 'Wait for more testing', 'Cancel'])",
+            description:
+              "Available choices (e.g., ['Yes, deploy now', 'Wait for more testing', 'Cancel'])",
           },
           urgency: {
             type: "string",
@@ -1769,65 +2305,55 @@ export default function register(api: PluginAPI): void {
       async execute(
         _callId: string,
         params: {
+          initiative_id?: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
           question: string;
           context?: string;
           options?: string[];
-          urgency: string;
+          urgency: "low" | "medium" | "high" | "urgent";
           blocking?: boolean;
         } = { question: "", urgency: "medium" }
       ) {
-        const now = new Date().toISOString();
-        const id = `decision:${randomUUID().slice(0, 8)}`;
+        const requestId = `decision:${randomUUID().slice(0, 8)}`;
+        const changesetResult = await applyChangesetWithFallback(
+          "orgx_request_decision",
+          {
+            initiative_id: params.initiative_id,
+            run_id: params.run_id,
+            correlation_id: params.correlation_id,
+            source_client: params.source_client,
+            idempotency_key: `decision:${requestId}`,
+            operations: [
+              {
+                op: "decision.create",
+                title: params.question,
+                summary: params.context,
+                urgency: params.urgency,
+                options: params.options,
+                blocking: params.blocking ?? true,
+              },
+            ],
+          }
+        );
 
-        const activityItem: LiveActivityItem = {
-          id,
-          type: "decision_requested",
-          title: params.question,
-          description: params.context ?? null,
-          agentId: null,
-          agentName: null,
-          runId: null,
-          initiativeId: null,
-          timestamp: now,
-          decisionRequired: true,
-          summary: params.options?.length
-            ? `Options: ${params.options.join(" | ")}`
-            : null,
+        await emitActivityWithFallback("orgx_request_decision", {
+          initiative_id: params.initiative_id,
+          run_id: params.run_id,
+          correlation_id: params.correlation_id,
+          source_client: params.source_client,
+          message: `Decision requested: ${params.question}`,
+          phase: "review",
+          level: "info",
           metadata: {
-            source: "orgx_request_decision",
             urgency: params.urgency,
             blocking: params.blocking ?? true,
-            options: params.options,
+            options: params.options ?? [],
           },
-        };
+        });
 
-        try {
-          const entity = await client.createEntity("decision", {
-            title: params.question,
-            summary: params.context,
-            urgency: params.urgency,
-            status: "pending",
-            metadata: {
-              options: params.options,
-              blocking: params.blocking ?? true,
-            },
-          });
-          return json(
-            `Decision requested: ${params.question} [${params.urgency.toUpperCase()}]${params.blocking !== false ? " (blocking)" : ""}`,
-            entity
-          );
-        } catch {
-          await appendToOutbox("decisions", {
-            id,
-            type: "decision",
-            timestamp: now,
-            payload: params as Record<string, unknown>,
-            activityItem,
-          });
-          return text(
-            `Decision saved locally: ${params.question} [${params.urgency.toUpperCase()}] (will sync when connected)`
-          );
-        }
+        return changesetResult;
       },
     },
     { optional: true }
