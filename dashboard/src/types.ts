@@ -165,6 +165,7 @@ export interface HandoffSummary {
 export interface LiveData {
   connection: ConnectionStatus;
   lastActivity: string | null;
+  lastSnapshotAt: string | null;
   sessions: SessionTreeResponse;
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];

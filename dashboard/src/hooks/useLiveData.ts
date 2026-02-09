@@ -630,7 +630,8 @@ function buildLiveData(
   activity: LiveActivityItem[],
   handoffs: HandoffSummary[],
   decisions: LiveDecision[],
-  outbox: OutboxStatus = EMPTY_OUTBOX_STATUS
+  outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
+  generatedAt: string | null = null
 ): LiveData {
   const latestActivityAt = activity[0]?.timestamp ?? null;
   const latestDecisionAt = decisions[0]?.requestedAt ?? decisions[0]?.updatedAt ?? null;
@@ -642,6 +643,7 @@ function buildLiveData(
   return {
     connection: 'connected',
     lastActivity: latestTimestamp ? formatRelativeTime(latestTimestamp) : null,
+    lastSnapshotAt: generatedAt,
     sessions,
     activity,
     handoffs,
@@ -676,7 +678,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       activityInput: LiveActivityItem[],
       handoffInput: HandoffSummary[],
       decisionInput: LiveDecision[] | null = null,
-      outboxInput: OutboxStatus | null = null
+      outboxInput: OutboxStatus | null = null,
+      generatedAtInput: string | null = null
     ) => {
       const sessions = trimSessions(sessionsInput, maxSessions);
       const activity = normalizeActivity(activityInput, maxActivityItems);
@@ -696,12 +699,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameHandoffShape(prev.handoffs, handoffs) &&
           sameDecisionShape(prev.decisions, decisions) &&
           sameOutboxShape(prev.outbox, outbox) &&
+          prev.lastSnapshotAt === generatedAtInput &&
           prev.connection === 'connected'
         ) {
           return prev;
         }
 
-        return buildLiveData(sessions, activity, handoffs, decisions, outbox);
+        return buildLiveData(
+          sessions,
+          activity,
+          handoffs,
+          decisions,
+          outbox,
+          generatedAtInput
+        );
       });
 
       setIsLoading(false);
@@ -769,7 +780,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             ? snapshot.sessions
             : deriveSessionsFromFallbacks(activity, snapshot.agents, maxSessions);
 
-        applySnapshot(sessions, activity, handoffs, decisions, snapshot.outbox ?? null);
+        applySnapshot(
+          sessions,
+          activity,
+          handoffs,
+          decisions,
+          snapshot.outbox ?? null,
+          snapshot.generatedAt ?? null
+        );
 
         const degradedReasons = Array.isArray(snapshot.degraded)
           ? snapshot.degraded
@@ -997,6 +1015,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs: HandoffSummary[];
           decisions: LiveDecision[] | null;
           outbox: OutboxStatus | null;
+          generatedAt: string;
         }
       | null = null;
     let pendingSessions: SessionTreeResponse | null = null;
@@ -1020,7 +1039,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           snapshot.activity,
           snapshot.handoffs,
           snapshot.decisions,
-          snapshot.outbox
+          snapshot.outbox,
+          snapshot.generatedAt
         );
         return;
       }
@@ -1126,7 +1146,13 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs?: HandoffSummary[];
           decisions?: LiveDecision[];
           outbox?: OutboxStatus;
+          generatedAt?: string;
         };
+
+        const generatedAt =
+          typeof payload.generatedAt === 'string' && payload.generatedAt.length > 0
+            ? payload.generatedAt
+            : new Date().toISOString();
 
         pendingSnapshot = {
           sessions: payload.sessions,
@@ -1134,6 +1160,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs: payload.handoffs ?? [],
           decisions: enableDecisions ? payload.decisions ?? null : [],
           outbox: payload.outbox ?? null,
+          generatedAt,
         };
         scheduleFlush();
       } catch (err) {
