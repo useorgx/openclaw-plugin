@@ -50,6 +50,12 @@ import {
 import { readAllOutboxItems, readOutboxSummary } from "./outbox.js";
 import { readAgentContexts, upsertAgentContext } from "./agent-context-store.js";
 import type { AgentLaunchContext } from "./agent-context-store.js";
+import {
+  getAgentRun,
+  markAgentRunStopped,
+  readAgentRuns,
+  upsertAgentRun,
+} from "./agent-run-store.js";
 
 // =============================================================================
 // Helpers
@@ -154,6 +160,169 @@ function spawnOpenClawAgentTurn(input: {
   });
   child.unref();
   return { pid: child.pid ?? null };
+}
+
+type OpenClawProvider = "anthropic" | "openrouter" | "openai";
+
+function normalizeOpenClawProvider(value: string | null): OpenClawProvider | null {
+  const raw = (value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "auto") return null;
+  if (raw === "claude") return "anthropic";
+  if (raw === "anthropic") return "anthropic";
+  if (raw === "openrouter" || raw === "open-router") return "openrouter";
+  if (raw === "openai") return "openai";
+  return null;
+}
+
+async function setOpenClawAgentModel(input: { agentId: string; model: string }): Promise<void> {
+  const agentId = input.agentId.trim();
+  const model = input.model.trim();
+  if (!agentId || !model) {
+    throw new Error("agentId and model are required");
+  }
+
+  const result = await runCommandCollect({
+    command: "openclaw",
+    args: ["models", "--agent", agentId, "set", model],
+    timeoutMs: 10_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `openclaw models set failed for ${agentId}`);
+  }
+}
+
+async function listOpenClawProviderModels(input: {
+  agentId: string;
+  provider: OpenClawProvider;
+}): Promise<Array<{ key: string; tags: string[] }>> {
+  const result = await runCommandCollect({
+    command: "openclaw",
+    args: [
+      "models",
+      "--agent",
+      input.agentId,
+      "list",
+      "--provider",
+      input.provider,
+      "--json",
+    ],
+    timeoutMs: 10_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || "openclaw models list failed");
+  }
+  const parsed = parseJsonSafe<unknown>(result.stdout);
+  if (!parsed || typeof parsed !== "object") {
+    const trimmed = result.stdout.trim();
+    if (!trimmed || /no models found/i.test(trimmed)) {
+      return [];
+    }
+    throw new Error("openclaw models list returned invalid JSON");
+  }
+
+  const modelsRaw =
+    "models" in parsed && Array.isArray((parsed as Record<string, unknown>).models)
+      ? ((parsed as Record<string, unknown>).models as unknown[])
+      : [];
+
+  return modelsRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      const key = typeof row.key === "string" ? row.key.trim() : "";
+      const tags = Array.isArray(row.tags)
+        ? row.tags.filter((t): t is string => typeof t === "string")
+        : [];
+      if (!key) return null;
+      return { key, tags };
+    })
+    .filter((entry): entry is { key: string; tags: string[] } => Boolean(entry));
+}
+
+function pickPreferredModel(models: Array<{ key: string; tags: string[] }>): string | null {
+  if (models.length === 0) return null;
+  const preferred = models.find((m) => m.tags.some((t) => t === "default"));
+  return preferred?.key ?? models[0]?.key ?? null;
+}
+
+async function configureOpenClawProviderRouting(input: {
+  agentId: string;
+  provider: OpenClawProvider;
+  requestedModel?: string | null;
+}): Promise<{ provider: OpenClawProvider; model: string }> {
+  const requestedModel = (input.requestedModel ?? "").trim() || null;
+
+  // Fast path: use known aliases where possible.
+  const aliasByProvider: Record<OpenClawProvider, string | null> = {
+    anthropic: "opus",
+    openrouter: "sonnet",
+    openai: null,
+  };
+
+  const candidate = requestedModel ?? aliasByProvider[input.provider];
+  if (candidate) {
+    try {
+      await setOpenClawAgentModel({ agentId: input.agentId, model: candidate });
+      return { provider: input.provider, model: candidate };
+    } catch {
+      // Fall through to discovery-based selection.
+    }
+  }
+
+  const models = await listOpenClawProviderModels({
+    agentId: input.agentId,
+    provider: input.provider,
+  });
+  const selected = pickPreferredModel(models);
+  if (!selected) {
+    throw new Error(
+      `No ${input.provider} models configured for agent ${input.agentId}. Add a model in OpenClaw and retry.`
+    );
+  }
+
+  await setOpenClawAgentModel({ agentId: input.agentId, model: selected });
+  return { provider: input.provider, model: selected };
+}
+
+function isPidAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function stopDetachedProcess(pid: number): Promise<{ stopped: boolean; wasRunning: boolean }> {
+  const alive = isPidAlive(pid);
+  if (!alive) {
+    return { stopped: true, wasRunning: false };
+  }
+
+  const tryKill = (signal: NodeJS.Signals) => {
+    try {
+      // Detached child becomes its own process group (pgid = pid) on Unix.
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // Fall back to direct pid kill.
+    }
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // ignore
+    }
+  };
+
+  tryKill("SIGTERM");
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  if (isPidAlive(pid)) {
+    tryKill("SIGKILL");
+  }
+
+  return { stopped: !isPidAlive(pid), wasRunning: true };
 }
 
 function getScopedAgentIds(contexts: Record<string, AgentLaunchContext>): Set<string> {
@@ -2055,6 +2224,8 @@ export function createHttpHandler(
       const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
       const isLiveActivityHeadlineRoute = route === "live/activity/headline";
       const isAgentLaunchRoute = route === "agents/launch";
+      const isAgentStopRoute = route === "agents/stop";
+      const isAgentRestartRoute = route === "agents/restart";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -2225,6 +2396,20 @@ export function createHttpHandler(
               searchParams.get("thinking") ??
               "")
               .trim() || null;
+          const provider = normalizeOpenClawProvider(
+            pickString(payload, ["provider", "modelProvider", "model_provider"]) ??
+              searchParams.get("provider") ??
+              searchParams.get("modelProvider") ??
+              searchParams.get("model_provider") ??
+              null
+          );
+          const requestedModel =
+            (pickString(payload, ["model", "modelId", "model_id"]) ??
+              searchParams.get("model") ??
+              searchParams.get("modelId") ??
+              searchParams.get("model_id") ??
+              "")
+              .trim() || null;
 
           const messageInput =
             (pickString(payload, ["message", "prompt", "text"]) ??
@@ -2241,6 +2426,18 @@ export function createHttpHandler(
                 ? `Kick off initiative ${initiativeId}`
                 : `Kick off agent ${agentId}`);
 
+          let routedProvider: string | null = null;
+          let routedModel: string | null = null;
+          if (provider) {
+            const routed = await configureOpenClawProviderRouting({
+              agentId,
+              provider,
+              requestedModel,
+            });
+            routedProvider = routed.provider;
+            routedModel = routed.model;
+          }
+
           upsertAgentContext({
             agentId,
             initiativeId,
@@ -2256,11 +2453,28 @@ export function createHttpHandler(
             thinking,
           });
 
+          upsertAgentRun({
+            runId: sessionId,
+            agentId,
+            pid: spawned.pid,
+            message,
+            provider: routedProvider,
+            model: routedModel,
+            initiativeId,
+            initiativeTitle,
+            workstreamId,
+            taskId,
+            startedAt: new Date().toISOString(),
+            status: "running",
+          });
+
           sendJson(res, 202, {
             ok: true,
             agentId,
             sessionId,
             pid: spawned.pid,
+            provider: routedProvider,
+            model: routedModel,
             initiativeId,
             workstreamId,
             taskId,
@@ -2271,6 +2485,156 @@ export function createHttpHandler(
             ok: false,
             error: safeErrorMessage(err),
           });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isAgentStopRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const runId =
+            (pickString(payload, ["runId", "run_id", "sessionId", "session_id"]) ??
+              searchParams.get("runId") ??
+              searchParams.get("run_id") ??
+              searchParams.get("sessionId") ??
+              searchParams.get("session_id") ??
+              "")
+              .trim();
+          if (!runId) {
+            sendJson(res, 400, { ok: false, error: "runId is required" });
+            return true;
+          }
+
+          const record = getAgentRun(runId);
+          if (!record) {
+            sendJson(res, 404, { ok: false, error: "Run not found" });
+            return true;
+          }
+          if (!record.pid) {
+            sendJson(res, 409, { ok: false, error: "Run has no tracked pid" });
+            return true;
+          }
+
+          const result = await stopDetachedProcess(record.pid);
+          const updated = markAgentRunStopped(runId);
+
+          sendJson(res, 200, {
+            ok: true,
+            runId,
+            agentId: record.agentId,
+            pid: record.pid,
+            stopped: result.stopped,
+            wasRunning: result.wasRunning,
+            record: updated,
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isAgentRestartRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const previousRunId =
+            (pickString(payload, ["runId", "run_id", "sessionId", "session_id"]) ??
+              searchParams.get("runId") ??
+              searchParams.get("run_id") ??
+              searchParams.get("sessionId") ??
+              searchParams.get("session_id") ??
+              "")
+              .trim();
+          if (!previousRunId) {
+            sendJson(res, 400, { ok: false, error: "runId is required" });
+            return true;
+          }
+
+          const record = getAgentRun(previousRunId);
+          if (!record) {
+            sendJson(res, 404, { ok: false, error: "Run not found" });
+            return true;
+          }
+
+          const messageOverride =
+            (pickString(payload, ["message", "prompt", "text"]) ??
+              searchParams.get("message") ??
+              searchParams.get("prompt") ??
+              searchParams.get("text") ??
+              "")
+              .trim() || null;
+
+          const providerOverride = normalizeOpenClawProvider(
+            pickString(payload, ["provider", "modelProvider", "model_provider"]) ??
+              searchParams.get("provider") ??
+              searchParams.get("modelProvider") ??
+              searchParams.get("model_provider") ??
+              record.provider ??
+              null
+          );
+          const requestedModel =
+            (pickString(payload, ["model", "modelId", "model_id"]) ??
+              searchParams.get("model") ??
+              searchParams.get("modelId") ??
+              searchParams.get("model_id") ??
+              record.model ??
+              "")
+              .trim() || null;
+
+          const sessionId = randomUUID();
+          const message = messageOverride ?? record.message ?? `Restart agent ${record.agentId}`;
+
+          let routedProvider: string | null = providerOverride ?? null;
+          let routedModel: string | null = requestedModel ?? null;
+          if (providerOverride) {
+            const routed = await configureOpenClawProviderRouting({
+              agentId: record.agentId,
+              provider: providerOverride,
+              requestedModel,
+            });
+            routedProvider = routed.provider;
+            routedModel = routed.model;
+          }
+
+          upsertAgentContext({
+            agentId: record.agentId,
+            initiativeId: record.initiativeId,
+            initiativeTitle: record.initiativeTitle,
+            workstreamId: record.workstreamId,
+            taskId: record.taskId,
+          });
+
+          const spawned = spawnOpenClawAgentTurn({
+            agentId: record.agentId,
+            sessionId,
+            message,
+          });
+
+          upsertAgentRun({
+            runId: sessionId,
+            agentId: record.agentId,
+            pid: spawned.pid,
+            message,
+            provider: routedProvider,
+            model: routedModel,
+            initiativeId: record.initiativeId,
+            initiativeTitle: record.initiativeTitle,
+            workstreamId: record.workstreamId,
+            taskId: record.taskId,
+            startedAt: new Date().toISOString(),
+            status: "running",
+          });
+
+          sendJson(res, 202, {
+            ok: true,
+            previousRunId,
+            sessionId,
+            agentId: record.agentId,
+            pid: spawned.pid,
+            provider: routedProvider,
+            model: routedModel,
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }
         return true;
       }
@@ -2629,6 +2993,33 @@ export function createHttpHandler(
             }
 
             const contexts = readAgentContexts().agents;
+            const runs = readAgentRuns().runs;
+            const latestRunByAgent = new Map<string, (typeof runs)[string]>();
+
+            for (const run of Object.values(runs)) {
+              if (!run || typeof run !== "object") continue;
+              const agentId = typeof run.agentId === "string" ? run.agentId.trim() : "";
+              if (!agentId) continue;
+              const existing = latestRunByAgent.get(agentId);
+              const nextTs = Date.parse(run.startedAt ?? "");
+              const existingTs = existing ? Date.parse(existing.startedAt ?? "") : 0;
+
+              // Prefer latest running record; fall back to latest overall if none running.
+              if (!existing) {
+                latestRunByAgent.set(agentId, run);
+                continue;
+              }
+
+              const existingRunning = existing.status === "running";
+              const nextRunning = run.status === "running";
+              if (nextRunning && !existingRunning) {
+                latestRunByAgent.set(agentId, run);
+                continue;
+              }
+              if (nextRunning === existingRunning && nextTs > existingTs) {
+                latestRunByAgent.set(agentId, run);
+              }
+            }
 
             const agents = openclawAgents.map((entry) => {
               const id = typeof entry.id === "string" ? entry.id.trim() : "";
@@ -2638,6 +3029,8 @@ export function createHttpHandler(
                   : id || "unknown";
               const local = id ? localById.get(id) ?? null : null;
               const context = id ? contexts[id] ?? null : null;
+              const runFromSession = id && local?.runId ? runs[local.runId] ?? null : null;
+              const run = runFromSession ?? (id ? latestRunByAgent.get(id) ?? null : null);
               return {
                 id,
                 name,
@@ -2650,6 +3043,7 @@ export function createHttpHandler(
                 startedAt: local?.startedAt ?? null,
                 blockers: local?.blockers ?? [],
                 context,
+                run,
               };
             });
 
