@@ -24,6 +24,20 @@
     },
     {
       "channel": "twitter",
+      "title": "Story Thread: Soft-Shell To Ironclaw (Molt/Exoskeleton)",
+      "cta": "Try it: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=soft_shell_ironclaw",
+      "media_brief": "Tweet 1: attach docs/launch/assets/openclaw-x-orgx-lockup-2026-02-09.png. Tweet 4: attach docs/launch/assets/mission-control-2026-02-09.gif.",
+      "content": "1/ If you scale agents without ops, you’re running soft-shell.\n\n2/ The moment you add agents, tools, or parallel runs, you get two things at once:\npower + fragility.\n\n3/ Fragility looks like:\n- lost context\n- missing decisions\n- no “what’s next?”\n- cost blowups\n\n4/ OrgX is the instant carapace.\nIt gives OpenClaw a harness + cockpit:\nMission Control + next-up queue + checkpoints.\n\n5/ Result: you stop babysitting runs.\nYou steer.\n\n6/ Try it: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=soft_shell_ironclaw"
+    },
+    {
+      "channel": "twitter",
+      "title": "Interactive Thread: The Checkpoint Show (Poll-Driven)",
+      "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=checkpoint_show",
+      "media_brief": "Tweet 1: attach docs/launch/assets/mission-control-2026-02-09.gif. Tweet 3: add a poll (Continue / Pause / Rollback).",
+      "content": "1/ We’re running a live agent mission.\n\nYou steer it.\n\nCheckpoint 0: Mission Control is live inside OpenClaw.\n\n2/ Checkpoint 1: next-up queue is set.\nDecision points will be posted as they happen.\n\n3/ Poll: what should we do next?\n- Continue\n- Pause\n- Rollback\n\n4/ Checkpoint 2: execution update (activity stream).\n\n5/ Checkpoint 3: decision required.\n\n6/ If you want this control plane for your own runs:\nopenclaw plugins install @useorgx/openclaw-plugin\n\n7/ Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=checkpoint_show"
+    },
+    {
+      "channel": "twitter",
       "title": "Launch Announcement Thread",
       "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement",
       "content": "1/ Launching: OrgX Integration for OpenClaw. Mission Control for your agents: orchestration, quality gates, model routing, and a live dashboard inside OpenClaw.\\n\\n2/ If you have ever run more than one agent, you know the failure mode: you lose the thread. What's done? What's blocked? What's next?\\n\\n3/ OrgX adds a hierarchy view (initiative -> workstream -> milestone -> task), a next-up queue, and a real-time activity stream, so execution stays legible.\\n\\n4/ Install in one line:\\nopenclaw plugins install @useorgx/openclaw-plugin\\n\\n5/ Then open:\\nhttp://127.0.0.1:18789/orgx/live\\nand click Connect OrgX (browser pairing recommended, manual key fallback supported).\\n\\n6/ Try it here: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement"
