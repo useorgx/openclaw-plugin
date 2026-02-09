@@ -6,12 +6,14 @@ OrgX core use one canonical contract and one request implementation.
 
 ## Current Duplicates
 - **Client implementation**
-  - Plugin: `/Users/hopeatina/Code/orgx-openclaw-plugin/src/api.ts`
+  - Plugin (public entrypoint): `/Users/hopeatina/Code/orgx-openclaw-plugin/src/api.ts`
+  - Plugin (canonical implementation): `/Users/hopeatina/Code/orgx-openclaw-plugin/src/contracts/client.ts`
   - Core: `/Users/hopeatina/Code/orgx/orgx/app/api/client/*` (server endpoints) +
     `/Users/hopeatina/Code/orgx/orgx/lib/client-integration/*` (server helpers)
 
 - **Type contracts**
-  - Plugin: `/Users/hopeatina/Code/orgx-openclaw-plugin/src/types.ts`
+  - Plugin (public entrypoint): `/Users/hopeatina/Code/orgx-openclaw-plugin/src/types.ts`
+  - Plugin (canonical definitions): `/Users/hopeatina/Code/orgx-openclaw-plugin/src/contracts/types.ts`
   - Core: `/Users/hopeatina/Code/orgx/orgx/types/*` +
     `/Users/hopeatina/Code/orgx/orgx/lib/server/clientLive.ts` (response shaping)
 
@@ -20,24 +22,27 @@ OrgX core use one canonical contract and one request implementation.
   - Core: `/Users/hopeatina/Code/orgx/orgx/app/api/client/*`
 
 ## Proposed Shared Packages
-1. `@orgx/client`
-   - `OrgXClient` class, request helpers, billing + live endpoints.
-   - Exported from a shared package consumed by plugin + any scripts.
+1. Shared contracts (pragmatic now)
+   - Canonical client+types exported from the already-published plugin package:
+   - `@useorgx/openclaw-plugin/api` (client)
+   - `@useorgx/openclaw-plugin/types` (contracts)
+   - This removes drift immediately without waiting on a new npm scope.
 
-2. `@orgx/contracts`
-   - Shared types for live sessions, initiatives, billing, entities.
-   - Generated from core types (or hand-maintained) and versioned.
+2. Future package split (optional)
+   - If we still want a separate scope, split later into:
+   - `@orgx/client` and `@orgx/contracts` (types-only)
+   - But only once we have a canonical, accessible repo to publish from.
 
-3. `@orgx/http-adapters`
+3. `@orgx/http-adapters` (future)
    - Shared request validation helpers and error normalization used by
      plugin HTTP handler and core API handlers.
 
 ## Migration Steps (Incremental)
-1. Extract shared types from plugin `src/types.ts` into `@orgx/contracts`.
-2. Update plugin `src/api.ts` to import from `@orgx/contracts`.
-3. Extract `OrgXClient` into `@orgx/client`.
-4. Update plugin `src/index.ts` + scripts to import `OrgXClient` from `@orgx/client`.
-5. For core, reuse `@orgx/contracts` in `/app/api/client/*` response shaping.
+1. Keep plugin contracts in `src/contracts/*`, preserve stable public entrypoints
+   (`src/api.ts`, `src/types.ts`) for consumers.
+2. Migrate the core package(s) to import from `@useorgx/openclaw-plugin/{api,types}`
+   instead of maintaining forked client/types implementations.
+3. Validate end-to-end: compile + run the plugin surfaces after migration.
 
 ## Open Decisions
 - Where to host shared packages (OrgX monorepo `packages/` vs separate repo)?
@@ -45,4 +50,5 @@ OrgX core use one canonical contract and one request implementation.
 - Versioning cadence (sync with plugin releases or core releases).
 
 ## Current Status
-Mapping complete; extraction + migration not yet started.
+Contracts moved under `src/contracts/*` and stable entrypoints preserved.
+Core migration to shared imports is next.
