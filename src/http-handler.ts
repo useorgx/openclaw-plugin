@@ -17,6 +17,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -2161,6 +2162,583 @@ export function createHttpHandler(
     (config as OrgXConfig & { dashboardEnabled?: boolean }).dashboardEnabled ??
     true;
 
+  // ---------------------------------------------------------------------------
+  // Initiative Auto-Continue (Continuous Execution & Auto-Completion)
+  //
+  // Keeps dispatching next-up tasks (based on Mission Control readiness) until:
+  // - all tasks complete (stop_reason = completed)
+  // - tasks are blocked (stop_reason = blocked)
+  // - token budget is exhausted (stop_reason = budget_exhausted)
+  //
+  // This is intentionally conservative:
+  // - It never starts a new task if a task run is still active.
+  // - It only auto-marks tasks done when the OpenClaw session finishes without
+  //   an error stop reason.
+  // ---------------------------------------------------------------------------
+
+  type AutoContinueStopReason =
+    | "budget_exhausted"
+    | "blocked"
+    | "completed"
+    | "stopped"
+    | "error";
+
+  type AutoContinueStatus = "running" | "stopping" | "stopped";
+
+  type AutoContinueRun = {
+    initiativeId: string;
+    agentId: string;
+    includeVerification: boolean;
+    allowedWorkstreamIds: string[] | null;
+    tokenBudget: number;
+    tokensUsed: number;
+    status: AutoContinueStatus;
+    stopReason: AutoContinueStopReason | null;
+    stopRequested: boolean;
+    startedAt: string;
+    stoppedAt: string | null;
+    updatedAt: string;
+    lastError: string | null;
+    lastTaskId: string | null;
+    lastRunId: string | null;
+    activeTaskId: string | null;
+    activeRunId: string | null;
+    activeTaskTokenEstimate: number | null;
+  };
+
+  const autoContinueRuns = new Map<string, AutoContinueRun>();
+  let autoContinueTickInFlight = false;
+  const AUTO_CONTINUE_TICK_MS = 2_500;
+
+  function normalizeTokenBudget(value: unknown, fallback: number): number {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(1_000, Math.round(value));
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1_000, Math.round(parsed));
+      }
+    }
+    return Math.max(1_000, Math.round(fallback));
+  }
+
+  function defaultAutoContinueTokenBudget(): number {
+    const hours = readBudgetEnvNumber("ORGX_AUTO_CONTINUE_BUDGET_HOURS", 4, {
+      min: 0.05,
+      max: 24,
+    });
+    const fallback =
+      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour *
+      hours *
+      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
+    return normalizeTokenBudget(
+      process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET,
+      fallback
+    );
+  }
+
+  function estimateTokensForDurationHours(durationHours: number): number {
+    if (!Number.isFinite(durationHours) || durationHours <= 0) return 0;
+    const raw =
+      durationHours *
+      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour *
+      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
+    return Math.max(0, Math.round(raw));
+  }
+
+  function isSafePathSegment(value: string): boolean {
+    const normalized = value.trim();
+    if (!normalized || normalized === "." || normalized === "..") return false;
+    if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("\0")) {
+      return false;
+    }
+    if (normalized.includes("..")) return false;
+    return true;
+  }
+
+  function toFiniteNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  }
+
+  function readOpenClawSessionSummary(input: {
+    agentId: string;
+    sessionId: string;
+  }): {
+    tokens: number;
+    costUsd: number;
+    hadError: boolean;
+    errorMessage: string | null;
+  } {
+    const agentId = input.agentId.trim();
+    const sessionId = input.sessionId.trim();
+    if (!agentId || !sessionId) {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+    if (!isSafePathSegment(agentId) || !isSafePathSegment(sessionId)) {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+
+    const jsonlPath = join(
+      homedir(),
+      ".openclaw",
+      "agents",
+      agentId,
+      "sessions",
+      `${sessionId}.jsonl`
+    );
+
+    try {
+      if (!existsSync(jsonlPath)) {
+        return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+      }
+      const raw = readFileSync(jsonlPath, "utf8");
+      const lines = raw.split("\n");
+
+      let tokens = 0;
+      let costUsd = 0;
+      let hadError = false;
+      let errorMessage: string | null = null;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const evt = JSON.parse(trimmed) as Record<string, unknown>;
+          if (evt.type !== "message") continue;
+          const msg = evt.message as Record<string, unknown> | undefined;
+          if (!msg || typeof msg !== "object") continue;
+
+          const usage = msg.usage as Record<string, unknown> | undefined;
+          if (usage && typeof usage === "object") {
+            const totalTokens =
+              toFiniteNumber(usage.totalTokens) ??
+              toFiniteNumber(usage.total_tokens) ??
+              null;
+            const inputTokens = toFiniteNumber(usage.input) ?? 0;
+            const outputTokens = toFiniteNumber(usage.output) ?? 0;
+            const cacheReadTokens = toFiniteNumber(usage.cacheRead) ?? 0;
+            const cacheWriteTokens = toFiniteNumber(usage.cacheWrite) ?? 0;
+
+            tokens += Math.max(
+              0,
+              Math.round(
+                totalTokens ??
+                  inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+              )
+            );
+
+            const cost = usage.cost as Record<string, unknown> | undefined;
+            const costTotal = cost ? toFiniteNumber(cost.total) : null;
+            if (costTotal !== null) {
+              costUsd += Math.max(0, costTotal);
+            }
+          }
+
+          const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : "";
+          const msgError =
+            typeof msg.errorMessage === "string" && msg.errorMessage.trim().length > 0
+              ? msg.errorMessage.trim()
+              : null;
+          if (stopReason === "error" || msgError) {
+            hadError = true;
+            errorMessage = msgError ?? errorMessage;
+          }
+        } catch {
+          // Ignore malformed lines.
+        }
+      }
+
+      return {
+        tokens,
+        costUsd: Math.round(costUsd * 10_000) / 10_000,
+        hadError,
+        errorMessage,
+      };
+    } catch {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+  }
+
+  async function fetchInitiativeEntity(initiativeId: string): Promise<Entity | null> {
+    try {
+      const list = await client.listEntities("initiative", { limit: 200 });
+      const match = list.data.find((candidate) => String((candidate as any)?.id ?? "") === initiativeId);
+      return match ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function updateInitiativeMetadata(
+    initiativeId: string,
+    patch: Record<string, unknown>
+  ): Promise<void> {
+    const existing = await fetchInitiativeEntity(initiativeId);
+    const existingMeta =
+      existing && typeof existing === "object"
+        ? getRecordMetadata(existing as Record<string, unknown>)
+        : {};
+    const nextMeta = { ...existingMeta, ...patch };
+    await client.updateEntity("initiative", initiativeId, { metadata: nextMeta });
+  }
+
+  async function updateInitiativeAutoContinueState(input: {
+    initiativeId: string;
+    run: AutoContinueRun;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      auto_continue_enabled: true,
+      auto_continue_status: input.run.status,
+      auto_continue_stop_reason: input.run.stopReason,
+      auto_continue_started_at: input.run.startedAt,
+      auto_continue_stopped_at: input.run.stoppedAt,
+      auto_continue_updated_at: now,
+      auto_continue_token_budget: input.run.tokenBudget,
+      auto_continue_tokens_used: input.run.tokensUsed,
+      auto_continue_active_task_id: input.run.activeTaskId,
+      auto_continue_active_run_id: input.run.activeRunId,
+      auto_continue_active_task_token_estimate: input.run.activeTaskTokenEstimate,
+      auto_continue_last_task_id: input.run.lastTaskId,
+      auto_continue_last_run_id: input.run.lastRunId,
+      auto_continue_include_verification: input.run.includeVerification,
+      auto_continue_workstream_filter: input.run.allowedWorkstreamIds,
+      ...(input.run.lastError ? { auto_continue_last_error: input.run.lastError } : {}),
+    };
+    await updateInitiativeMetadata(input.initiativeId, patch);
+  }
+
+  async function stopAutoContinueRun(input: {
+    run: AutoContinueRun;
+    reason: AutoContinueStopReason;
+    error?: string | null;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    input.run.status = "stopped";
+    input.run.stopReason = input.reason;
+    input.run.stoppedAt = now;
+    input.run.updatedAt = now;
+    input.run.stopRequested = false;
+    input.run.activeRunId = null;
+    input.run.activeTaskId = null;
+    if (input.error) input.run.lastError = input.error;
+
+    try {
+      if (input.reason === "completed") {
+        await client.updateEntity("initiative", input.run.initiativeId, {
+          status: "completed",
+        });
+      } else {
+        await client.updateEntity("initiative", input.run.initiativeId, {
+          status: "paused",
+        });
+      }
+    } catch {
+      // best effort; UI still derives paused state locally
+    }
+
+    try {
+      await updateInitiativeAutoContinueState({
+        initiativeId: input.run.initiativeId,
+        run: input.run,
+      });
+    } catch {
+      // best effort
+    }
+  }
+
+  async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
+    if (run.status !== "running" && run.status !== "stopping") return;
+
+    const now = new Date().toISOString();
+
+    // 1) If we have an active run, wait for it to finish.
+    if (run.activeRunId) {
+      const record = getAgentRun(run.activeRunId);
+      const pid = record?.pid ?? null;
+      if (pid && isPidAlive(pid)) {
+        return;
+      }
+
+      // Run finished (or pid missing). Mark stopped and auto-complete the task.
+      if (record) {
+        try {
+          markAgentRunStopped(record.runId);
+        } catch {
+          // ignore
+        }
+
+      const summary = readOpenClawSessionSummary({
+          agentId: record.agentId,
+          sessionId: record.runId,
+        });
+
+        const modeledTokens = run.activeTaskTokenEstimate ?? 0;
+        const consumedTokens = summary.tokens > 0 ? summary.tokens : modeledTokens;
+        run.tokensUsed += Math.max(0, consumedTokens);
+        run.activeTaskTokenEstimate = null;
+
+        if (record.taskId) {
+          try {
+            await client.updateEntity("task", record.taskId, {
+              status: summary.hadError ? "blocked" : "done",
+            });
+          } catch (err: unknown) {
+            run.lastError = safeErrorMessage(err);
+          }
+        }
+
+        run.lastRunId = record.runId;
+        run.lastTaskId = record.taskId ?? run.lastTaskId;
+        run.activeRunId = null;
+        run.activeTaskId = null;
+        run.updatedAt = now;
+        if (summary.hadError && summary.errorMessage) {
+          run.lastError = summary.errorMessage;
+        }
+
+        try {
+          await updateInitiativeAutoContinueState({
+            initiativeId: run.initiativeId,
+            run,
+          });
+        } catch {
+          // best effort
+        }
+      } else {
+        // No record; clear active pointers so we can continue.
+        run.activeRunId = null;
+        run.activeTaskId = null;
+      }
+
+      // If a stop was requested, finalize after the active run completes.
+      if (run.stopRequested) {
+        await stopAutoContinueRun({ run, reason: "stopped" });
+        return;
+      }
+    }
+
+    if (run.stopRequested) {
+      run.status = "stopping";
+      run.updatedAt = now;
+      await stopAutoContinueRun({ run, reason: "stopped" });
+      return;
+    }
+
+    // 2) Enforce token guardrail before starting a new task.
+    if (run.tokensUsed >= run.tokenBudget) {
+      await stopAutoContinueRun({ run, reason: "budget_exhausted" });
+      return;
+    }
+
+    // 3) Pick next-up task and dispatch.
+    let graph: Awaited<ReturnType<typeof buildMissionControlGraph>>;
+    try {
+      graph = await buildMissionControlGraph(client, run.initiativeId);
+    } catch (err: unknown) {
+      await stopAutoContinueRun({
+        run,
+        reason: "error",
+        error: safeErrorMessage(err),
+      });
+      return;
+    }
+
+    const nodes = graph.nodes;
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const taskNodes = nodes.filter((node) => node.type === "task");
+    const todoTasks = taskNodes.filter((node) => isTodoStatus(node.status));
+
+    if (todoTasks.length === 0) {
+      await stopAutoContinueRun({ run, reason: "completed" });
+      return;
+    }
+
+    const taskIsReady = (task: MissionControlNode): boolean =>
+      task.dependencyIds.every((depId) => {
+        const dependency = nodeById.get(depId);
+        return dependency ? isDoneStatus(dependency.status) : true;
+      });
+
+    const taskHasBlockedParent = (task: MissionControlNode): boolean => {
+      const milestone =
+        task.milestoneId ? nodeById.get(task.milestoneId) ?? null : null;
+      const workstream =
+        task.workstreamId ? nodeById.get(task.workstreamId) ?? null : null;
+      return (
+        milestone?.status?.toLowerCase() === "blocked" ||
+        workstream?.status?.toLowerCase() === "blocked"
+      );
+    };
+
+    let nextTaskNode: MissionControlNode | null = null;
+    for (const taskId of graph.recentTodos) {
+      const node = nodeById.get(taskId);
+      if (!node || node.type !== "task") continue;
+      if (!isTodoStatus(node.status)) continue;
+      if (
+        !run.includeVerification &&
+        typeof node.title === "string" &&
+        /^verification\s+scenario/i.test(node.title)
+      ) {
+        continue;
+      }
+      if (
+        run.allowedWorkstreamIds &&
+        node.workstreamId &&
+        !run.allowedWorkstreamIds.includes(node.workstreamId)
+      ) {
+        continue;
+      }
+      if (node.workstreamId) {
+        const ws = nodeById.get(node.workstreamId);
+        if (ws && !isInProgressStatus(ws.status)) {
+          continue;
+        }
+      }
+      if (!taskIsReady(node)) continue;
+      if (taskHasBlockedParent(node)) continue;
+      nextTaskNode = node;
+      break;
+    }
+
+    if (!nextTaskNode) {
+      await stopAutoContinueRun({ run, reason: "blocked" });
+      return;
+    }
+
+    const nextTaskTokenEstimate = estimateTokensForDurationHours(
+      typeof nextTaskNode.expectedDurationHours === "number"
+        ? nextTaskNode.expectedDurationHours
+        : 0
+    );
+    if (
+      nextTaskTokenEstimate > 0 &&
+      run.tokensUsed + nextTaskTokenEstimate > run.tokenBudget
+    ) {
+      await stopAutoContinueRun({ run, reason: "budget_exhausted" });
+      return;
+    }
+
+    const agentId = run.agentId || "main";
+    const sessionId = randomUUID();
+    const initiativeNode = nodes.find((node) => node.type === "initiative") ?? null;
+    const workstreamTitle =
+      nextTaskNode.workstreamId
+        ? nodeById.get(nextTaskNode.workstreamId)?.title ?? null
+        : null;
+    const milestoneTitle =
+      nextTaskNode.milestoneId
+        ? nodeById.get(nextTaskNode.milestoneId)?.title ?? null
+        : null;
+
+    const message = [
+      initiativeNode ? `Initiative: ${initiativeNode.title}` : null,
+      workstreamTitle ? `Workstream: ${workstreamTitle}` : null,
+      milestoneTitle ? `Milestone: ${milestoneTitle}` : null,
+      "",
+      `Task: ${nextTaskNode.title}`,
+      "",
+      "Execute this task. When finished, provide a concise completion summary and any relevant commands/notes.",
+    ]
+      .filter((line): line is string => typeof line === "string")
+      .join("\n");
+
+    try {
+      await client.updateEntity("task", nextTaskNode.id, {
+        status: "in_progress",
+      });
+    } catch (err: unknown) {
+      await stopAutoContinueRun({
+        run,
+        reason: "error",
+        error: safeErrorMessage(err),
+      });
+      return;
+    }
+
+    upsertAgentContext({
+      agentId,
+      initiativeId: run.initiativeId,
+      initiativeTitle: initiativeNode?.title ?? null,
+      workstreamId: nextTaskNode.workstreamId,
+      taskId: nextTaskNode.id,
+    });
+
+    const spawned = spawnOpenClawAgentTurn({
+      agentId,
+      sessionId,
+      message,
+    });
+
+    upsertAgentRun({
+      runId: sessionId,
+      agentId,
+      pid: spawned.pid,
+      message,
+      provider: null,
+      model: null,
+      initiativeId: run.initiativeId,
+      initiativeTitle: initiativeNode?.title ?? null,
+      workstreamId: nextTaskNode.workstreamId,
+      taskId: nextTaskNode.id,
+      startedAt: now,
+      status: "running",
+    });
+
+    run.lastTaskId = nextTaskNode.id;
+    run.lastRunId = sessionId;
+    run.activeTaskId = nextTaskNode.id;
+    run.activeRunId = sessionId;
+    run.activeTaskTokenEstimate = nextTaskTokenEstimate > 0 ? nextTaskTokenEstimate : null;
+    run.updatedAt = now;
+
+    try {
+      await client.updateEntity("initiative", run.initiativeId, { status: "active" });
+    } catch {
+      // best effort
+    }
+
+    try {
+      await updateInitiativeAutoContinueState({
+        initiativeId: run.initiativeId,
+        run,
+      });
+    } catch {
+      // best effort
+    }
+  }
+
+  async function tickAllAutoContinue(): Promise<void> {
+    if (autoContinueTickInFlight) return;
+    autoContinueTickInFlight = true;
+    try {
+      for (const run of autoContinueRuns.values()) {
+        try {
+          await tickAutoContinueRun(run);
+        } catch (err: unknown) {
+          // Never let one loop crash the whole handler.
+          run.lastError = safeErrorMessage(err);
+          run.updatedAt = new Date().toISOString();
+          await stopAutoContinueRun({ run, reason: "error", error: run.lastError });
+        }
+      }
+    } finally {
+      autoContinueTickInFlight = false;
+    }
+  }
+
+  const autoContinueTimer = setInterval(() => {
+    void tickAllAutoContinue();
+  }, AUTO_CONTINUE_TICK_MS);
+  autoContinueTimer.unref?.();
+
   return async function handler(
     req: PluginRequest,
     res: PluginResponse
@@ -2214,6 +2792,10 @@ export function createHttpHandler(
       const isDelegationPreflight = route === "delegation/preflight";
       const isMissionControlAutoAssignmentRoute =
         route === "mission-control/assignments/auto";
+      const isMissionControlAutoContinueStartRoute =
+        route === "mission-control/auto-continue/start";
+      const isMissionControlAutoContinueStopRoute =
+        route === "mission-control/auto-continue/stop";
       const isEntitiesRoute = route === "entities";
       const entityActionMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/([^/]+)$/
@@ -2633,6 +3215,192 @@ export function createHttpHandler(
             provider: routedProvider,
             model: routedModel,
           });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isMissionControlAutoContinueStartRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+
+          if (!initiativeId) {
+            sendJson(res, 400, { ok: false, error: "initiativeId is required" });
+            return true;
+          }
+
+          const agentIdRaw =
+            (pickString(payload, ["agentId", "agent_id"]) ??
+              searchParams.get("agentId") ??
+              searchParams.get("agent_id") ??
+              "main")
+              .trim();
+          const agentId = agentIdRaw || "main";
+          if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "agentId must be a simple identifier (letters, numbers, _ or -).",
+            });
+            return true;
+          }
+
+          const tokenBudget =
+            pickNumber(payload, [
+              "tokenBudget",
+              "token_budget",
+              "tokenBudgetTokens",
+              "token_budget_tokens",
+              "maxTokens",
+              "max_tokens",
+            ]) ??
+            searchParams.get("tokenBudget") ??
+            searchParams.get("token_budget") ??
+            searchParams.get("tokenBudgetTokens") ??
+            searchParams.get("token_budget_tokens") ??
+            searchParams.get("maxTokens") ??
+            searchParams.get("max_tokens") ??
+            null;
+
+          const includeVerificationRaw =
+            payload.includeVerification ??
+            (payload as Record<string, unknown>).include_verification ??
+            searchParams.get("includeVerification") ??
+            searchParams.get("include_verification") ??
+            null;
+          const includeVerification =
+            typeof includeVerificationRaw === "boolean"
+              ? includeVerificationRaw
+              : parseBooleanQuery(
+                  typeof includeVerificationRaw === "string"
+                    ? includeVerificationRaw
+                    : null
+                );
+
+          const workstreamFilter = dedupeStrings([
+            ...pickStringArray(payload, [
+              "workstreamIds",
+              "workstream_ids",
+              "workstreamId",
+              "workstream_id",
+            ]),
+            ...(searchParams.get("workstreamIds") ??
+            searchParams.get("workstream_ids") ??
+            searchParams.get("workstreamId") ??
+            searchParams.get("workstream_id") ??
+            "")
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter(Boolean),
+          ]);
+          const allowedWorkstreamIds =
+            workstreamFilter.length > 0 ? workstreamFilter : null;
+
+          const now = new Date().toISOString();
+          const existing = autoContinueRuns.get(initiativeId) ?? null;
+
+          const run: AutoContinueRun =
+            existing ??
+            ({
+              initiativeId,
+              agentId,
+              includeVerification: false,
+              allowedWorkstreamIds: null,
+              tokenBudget: defaultAutoContinueTokenBudget(),
+              tokensUsed: 0,
+              status: "running",
+              stopReason: null,
+              stopRequested: false,
+              startedAt: now,
+              stoppedAt: null,
+              updatedAt: now,
+              lastError: null,
+              lastTaskId: null,
+              lastRunId: null,
+              activeTaskId: null,
+              activeRunId: null,
+              activeTaskTokenEstimate: null,
+            } as AutoContinueRun);
+
+          run.agentId = agentId;
+          run.includeVerification = includeVerification;
+          run.allowedWorkstreamIds = allowedWorkstreamIds;
+          run.tokenBudget = normalizeTokenBudget(
+            tokenBudget,
+            run.tokenBudget || defaultAutoContinueTokenBudget()
+          );
+          run.status = "running";
+          run.stopReason = null;
+          run.stopRequested = false;
+          run.startedAt = now;
+          run.stoppedAt = null;
+          run.updatedAt = now;
+          run.lastError = null;
+
+          autoContinueRuns.set(initiativeId, run);
+
+          try {
+            await client.updateEntity("initiative", initiativeId, { status: "active" });
+          } catch {
+            // best effort
+          }
+
+          try {
+            await updateInitiativeAutoContinueState({ initiativeId, run });
+          } catch {
+            // best effort
+          }
+
+          sendJson(res, 200, { ok: true, run });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isMissionControlAutoContinueStopRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+
+          if (!initiativeId) {
+            sendJson(res, 400, { ok: false, error: "initiativeId is required" });
+            return true;
+          }
+
+          const run = autoContinueRuns.get(initiativeId) ?? null;
+          if (!run) {
+            sendJson(res, 404, { ok: false, error: "No auto-continue run found" });
+            return true;
+          }
+
+          const now = new Date().toISOString();
+          run.stopRequested = true;
+          run.status = run.activeRunId ? "stopping" : "stopped";
+          run.updatedAt = now;
+
+          if (!run.activeRunId) {
+            await stopAutoContinueRun({ run, reason: "stopped" });
+          } else {
+            try {
+              await updateInitiativeAutoContinueState({ initiativeId, run });
+            } catch {
+              // best effort
+            }
+          }
+
+          sendJson(res, 200, { ok: true, run });
         } catch (err: unknown) {
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }
@@ -3070,6 +3838,33 @@ export function createHttpHandler(
         case "onboarding":
           sendJson(res, 200, getOnboardingState(await onboarding.getStatus()));
           return true;
+
+        case "mission-control/auto-continue/status": {
+          const initiativeId =
+            searchParams.get("initiative_id") ??
+            searchParams.get("initiativeId") ??
+            "";
+          const id = initiativeId.trim();
+          if (!id) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "Query parameter 'initiative_id' is required.",
+            });
+            return true;
+          }
+
+          const run = autoContinueRuns.get(id) ?? null;
+          sendJson(res, 200, {
+            ok: true,
+            initiativeId: id,
+            run,
+            defaults: {
+              tokenBudget: defaultAutoContinueTokenBudget(),
+              tickMs: AUTO_CONTINUE_TICK_MS,
+            },
+          });
+          return true;
+        }
 
         case "mission-control/graph": {
           const initiativeId =

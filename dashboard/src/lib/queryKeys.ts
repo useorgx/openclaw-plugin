@@ -66,6 +66,19 @@ export const queryKeys = {
         embedMode: params.embedMode ?? false,
       },
     ] as const,
+  autoContinueStatus: (params: {
+    initiativeId: string | null;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'auto-continue-status',
+      {
+        initiativeId: params.initiativeId,
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
   liveInitiatives: (params?: { limit?: number }) =>
     [
       'live-initiatives',

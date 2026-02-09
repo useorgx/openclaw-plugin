@@ -19,6 +19,7 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { EditModeToolbar } from './EditModeToolbar';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
@@ -306,6 +307,13 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
     enabled: isExpanded,
   });
 
+  const autoContinue = useAutoContinue({
+    initiativeId: initiative.id,
+    authToken,
+    embedMode,
+    enabled: isExpanded,
+  });
+
   const legacyGraph = useMemo(
     () => buildLegacyGraphNodes(initiative, details),
     [initiative, details]
@@ -511,6 +519,33 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
         {/* Quick actions — shown on hover */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              const action = autoContinue.isRunning ? autoContinue.stop : autoContinue.start;
+              void action().catch((err) => {
+                console.warn('[auto-continue] action failed', err);
+              });
+            }}
+            title={
+              autoContinue.isRunning
+                ? 'Stop auto-continue'
+                : 'Start auto-continue (dispatch next-up tasks)'
+            }
+            disabled={authUnavailable || autoContinue.isStarting || autoContinue.isStopping}
+            className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            {autoContinue.isRunning ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
+              </svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            )}
+          </button>
           {effectiveInitiativeStatus === 'active' && (
             <button
               type="button"
