@@ -345,6 +345,44 @@ export interface MissionControlGraphResponse {
   degraded?: string[];
 }
 
+export type AutoContinueStopReason =
+  | 'budget_exhausted'
+  | 'blocked'
+  | 'completed'
+  | 'stopped'
+  | 'error';
+
+export type AutoContinueStatus = 'running' | 'stopping' | 'stopped';
+
+export interface AutoContinueRun {
+  initiativeId: string;
+  agentId: string;
+  tokenBudget: number;
+  tokensUsed: number;
+  status: AutoContinueStatus;
+  stopReason: AutoContinueStopReason | null;
+  stopRequested: boolean;
+  startedAt: string;
+  stoppedAt: string | null;
+  updatedAt: string;
+  lastError: string | null;
+  lastTaskId: string | null;
+  lastRunId: string | null;
+  activeTaskId: string | null;
+  activeRunId: string | null;
+}
+
+export interface AutoContinueStatusResponse {
+  ok: boolean;
+  initiativeId: string;
+  run: AutoContinueRun | null;
+  defaults: {
+    tokenBudget: number;
+    tickMs: number;
+  };
+  error?: string;
+}
+
 export interface Decision {
   id: string;
   title: string;
