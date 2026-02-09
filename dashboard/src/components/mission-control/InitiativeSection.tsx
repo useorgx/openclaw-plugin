@@ -24,6 +24,7 @@ import { EditModeToolbar } from './EditModeToolbar';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
+import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
@@ -372,6 +373,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const taskNodes = nodes.filter((node) => node.type === 'task');
   const activeTaskCount = taskNodes.filter((node) => isActiveTaskStatus(node.status)).length;
   const todoTaskCount = taskNodes.filter((node) => isTodoTaskStatus(node.status)).length;
+  const doneTaskCount = taskNodes.filter((node) => isDoneStatus(node.status)).length;
   const effectiveInitiativeStatus =
     initiative.status === 'active' && activeTaskCount === 0 && todoTaskCount > 0
       ? 'paused'
@@ -390,7 +392,32 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
     budgetSourceNodes.reduce((sum, node) => sum + (node.expectedBudgetUsd || 0), 0) * 100
   ) / 100;
 
-  const progress = initiative.health;
+  const milestoneNodes = nodes.filter((node) => node.type === 'milestone');
+  const workstreamNodes = nodes.filter((node) => node.type === 'workstream');
+  const hasEntityHierarchy =
+    isExpanded &&
+    (hasPrimaryGraphData ||
+      details.workstreams.length > 0 ||
+      details.milestones.length > 0 ||
+      details.tasks.length > 0);
+
+  const computedProgress =
+    taskNodes.length > 0
+      ? completionPercent(doneTaskCount, taskNodes.length)
+      : milestoneNodes.length > 0
+        ? completionPercent(
+            milestoneNodes.filter((node) => isDoneStatus(node.status)).length,
+            milestoneNodes.length
+          )
+        : hasEntityHierarchy && workstreamNodes.length > 0
+          ? completionPercent(
+              workstreamNodes.filter((node) => isDoneStatus(node.status)).length,
+              workstreamNodes.length
+            )
+          : null;
+  const progress = clampPercent(
+    computedProgress === null ? initiative.health : computedProgress
+  );
   const dueBadge = formatDueBadge(initiative.targetDate);
   const dueBadgeClass =
     dueBadge.tone === 'danger'

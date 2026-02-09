@@ -5,6 +5,7 @@ import {
   getWorkstreamStatusClass,
   formatEntityStatus,
 } from '@/lib/entityStatusColors';
+import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 
@@ -21,9 +22,15 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
   const activeTasks = tasks.filter((t) =>
     ['active', 'in_progress'].includes(t.status.toLowerCase())
   ).length;
-  const doneTasks = tasks.filter((t) =>
-    ['done', 'completed'].includes(t.status.toLowerCase())
-  ).length;
+  const doneTasks = tasks.filter((t) => isDoneStatus(t.status)).length;
+  const completion =
+    tasks.length > 0
+      ? completionPercent(doneTasks, tasks.length)
+      : typeof workstream.progress === 'number'
+        ? clampPercent(workstream.progress <= 1 ? workstream.progress * 100 : workstream.progress)
+        : isDoneStatus(workstream.status)
+          ? 100
+          : null;
 
   return (
     <motion.button
@@ -43,16 +50,16 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
         </span>
       </div>
 
-      {workstream.progress !== null && (
+      {completion !== null && (
         <div className="mb-2">
           <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
-              style={{ width: `${Math.round(workstream.progress)}%`, backgroundColor: colors.lime }}
+              style={{ width: `${completion}%`, backgroundColor: colors.lime }}
             />
           </div>
           <span className="mt-0.5 block text-[10px] text-white/30">
-            {Math.round(workstream.progress)}%
+            {completion}%
           </span>
         </div>
       )}
