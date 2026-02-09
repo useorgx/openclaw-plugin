@@ -306,81 +306,107 @@ export const SessionInspector = memo(function SessionInspector({
             ))}
           </dl>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() =>
-                runAction('continue-priority', 'Continue highest priority', onContinueHighestPriority)
-              }
-              disabled={!onContinueHighestPriority || !!busyAction}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-            >
-              {busyAction === 'continue-priority' ? 'Dispatching…' : 'Continue Priority'}
-            </button>
-            <button
-              onClick={() => runAction('dispatch-session', 'Dispatch session', () => onDispatchSession?.(session))}
-              disabled={!onDispatchSession || !!busyAction}
-              className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
-            >
-              {busyAction === 'dispatch-session' ? 'Dispatching…' : 'Dispatch Session'}
-            </button>
-            <button
-              onClick={() => runAction('start-initiative', 'Start initiative', onStartInitiative)}
-              disabled={!onStartInitiative || !!busyAction}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-            >
-              {busyAction === 'start-initiative' ? 'Creating…' : 'Start Initiative'}
-            </button>
-            <button
-              onClick={() =>
-                runAction('start-workstream', 'Start workstream', () =>
-                  onStartWorkstream?.(session.initiativeId)
-                )
-              }
-              disabled={!onStartWorkstream || !!busyAction}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-            >
-              {busyAction === 'start-workstream' ? 'Creating…' : 'Start Workstream'}
-            </button>
+          <div className="space-y-3">
+            <div>
+              <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-white/40">
+                Quick actions
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() =>
+                    runAction('continue-priority', 'Continue highest priority', onContinueHighestPriority)
+                  }
+                  disabled={!onContinueHighestPriority || !!busyAction}
+                  className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                >
+                  {busyAction === 'continue-priority' ? 'Dispatching…' : 'Continue Priority'}
+                </button>
+                <button
+                  onClick={() =>
+                    runAction('dispatch-session', 'Dispatch session', () => onDispatchSession?.(session))
+                  }
+                  disabled={!onDispatchSession || !!busyAction}
+                  className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+                >
+                  {busyAction === 'dispatch-session' ? 'Dispatching…' : 'Dispatch Session'}
+                </button>
+              </div>
+            </div>
 
-            <button
-              onClick={() => runAction('pause-session', 'Pause session', () => onPauseSession?.(session))}
-              disabled={!onPauseSession || !canPause || !!busyAction}
-              className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-400/20 disabled:opacity-45"
-            >
-              {busyAction === 'pause-session' ? 'Pausing…' : 'Pause Session'}
-            </button>
+            <div>
+              <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-white/40">
+                Session controls
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => runAction('pause-session', 'Pause session', () => onPauseSession?.(session))}
+                  disabled={!onPauseSession || !canPause || !!busyAction}
+                  className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold text-amber-300 transition-colors hover:bg-amber-400/20 disabled:opacity-45"
+                >
+                  {busyAction === 'pause-session' ? 'Pausing…' : 'Pause'}
+                </button>
 
-            <button
-              onClick={() => runAction('resume-session', 'Resume session', () => onResumeSession?.(session))}
-              disabled={!onResumeSession || !canResume || !!busyAction}
-              className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
-            >
-              {busyAction === 'resume-session' ? 'Resuming…' : 'Resume Session'}
-            </button>
+                <button
+                  onClick={() => runAction('resume-session', 'Resume session', () => onResumeSession?.(session))}
+                  disabled={!onResumeSession || !canResume || !!busyAction}
+                  className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+                >
+                  {busyAction === 'resume-session' ? 'Resuming…' : 'Resume'}
+                </button>
 
-            <button
-              onClick={() => runAction('checkpoint-session', 'Checkpoint created', () => onCreateCheckpoint?.(session))}
-              disabled={!onCreateCheckpoint || !!busyAction}
-              className="rounded-md border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-45"
-            >
-              {busyAction === 'checkpoint-session' ? 'Creating…' : 'Create Checkpoint'}
-            </button>
+                <button
+                  onClick={() =>
+                    runAction('checkpoint-session', 'Checkpoint created', () => onCreateCheckpoint?.(session))
+                  }
+                  disabled={!onCreateCheckpoint || !!busyAction}
+                  className="rounded-md border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-45"
+                >
+                  {busyAction === 'checkpoint-session' ? 'Creating…' : 'Checkpoint'}
+                </button>
 
-            <button
-              onClick={() => runAction('rollback-session', 'Rollback requested', () => onRollbackSession?.(session))}
-              disabled={!onRollbackSession || !canRollback || !!busyAction}
-              className="rounded-md border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-2 text-[11px] font-semibold text-fuchsia-300 transition-colors hover:bg-fuchsia-400/20 disabled:opacity-45"
-            >
-              {busyAction === 'rollback-session' ? 'Rolling back…' : 'Rollback'}
-            </button>
+                <button
+                  onClick={() => runAction('rollback-session', 'Rollback requested', () => onRollbackSession?.(session))}
+                  disabled={!onRollbackSession || !canRollback || !!busyAction}
+                  className="rounded-md border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-2 text-[11px] font-semibold text-fuchsia-300 transition-colors hover:bg-fuchsia-400/20 disabled:opacity-45"
+                >
+                  {busyAction === 'rollback-session' ? 'Rolling back…' : 'Rollback'}
+                </button>
 
-            <button
-              onClick={() => runAction('cancel-session', 'Cancel session', () => onCancelSession?.(session))}
-              disabled={!onCancelSession || !canCancel || !!busyAction}
-              className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-[11px] font-semibold text-red-300 transition-colors hover:bg-red-400/20 disabled:opacity-45"
-            >
-              {busyAction === 'cancel-session' ? 'Cancelling…' : 'Cancel Session'}
-            </button>
+                <button
+                  onClick={() => runAction('cancel-session', 'Cancel session', () => onCancelSession?.(session))}
+                  disabled={!onCancelSession || !canCancel || !!busyAction}
+                  className="col-span-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-[11px] font-semibold text-red-300 transition-colors hover:bg-red-400/20 disabled:opacity-45"
+                >
+                  {busyAction === 'cancel-session' ? 'Cancelling…' : 'Cancel session'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-white/40">
+                Planning
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => runAction('start-initiative', 'Start initiative', onStartInitiative)}
+                  disabled={!onStartInitiative || !!busyAction}
+                  className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                >
+                  {busyAction === 'start-initiative' ? 'Creating…' : 'New initiative'}
+                </button>
+                <button
+                  onClick={() =>
+                    runAction('start-workstream', 'Start workstream', () =>
+                      onStartWorkstream?.(session.initiativeId)
+                    )
+                  }
+                  disabled={!onStartWorkstream || !!busyAction}
+                  className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                >
+                  {busyAction === 'start-workstream' ? 'Creating…' : 'New workstream'}
+                </button>
+              </div>
+            </div>
           </div>
 
           {notice && (

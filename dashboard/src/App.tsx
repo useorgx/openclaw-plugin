@@ -298,6 +298,19 @@ function DashboardShell({
     setActivityFilterSessionId(sessionId);
   }, []);
 
+  const focusActivityRunId = useCallback(
+    (runId: string) => {
+      const trimmed = runId.trim();
+      if (!trimmed) return;
+      const session =
+        data.sessions.nodes.find((node) => node.runId === trimmed || node.id === trimmed) ?? null;
+      if (!session) return;
+      handleSelectSession(session.id);
+      setOpsNotice(`Focused session: ${session.title}`);
+    },
+    [data.sessions.nodes, handleSelectSession]
+  );
+
   const selectedActivitySession = useMemo(
     () => data.sessions.nodes.find((n) => n.id === activityFilterSessionId) ?? null,
     [activityFilterSessionId, data.sessions.nodes]
@@ -1343,18 +1356,19 @@ function DashboardShell({
         </section>
 
         <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
-          <ActivityTimeline
-            activity={data.activity}
-            sessions={data.sessions.nodes}
-            selectedRunIds={
-              selectedActivitySession
-                ? [selectedActivitySession.runId, selectedActivitySession.id]
-                : []
-            }
-            selectedSessionLabel={selectedActivitySessionLabel}
-            onClearSelection={clearActivitySessionFilter}
-          />
-        </section>
+	          <ActivityTimeline
+	            activity={data.activity}
+	            sessions={data.sessions.nodes}
+	            selectedRunIds={
+	              selectedActivitySession
+	                ? [selectedActivitySession.runId, selectedActivitySession.id]
+	                : []
+	            }
+	            selectedSessionLabel={selectedActivitySessionLabel}
+	            onClearSelection={clearActivitySessionFilter}
+	            onFocusRunId={focusActivityRunId}
+	          />
+	        </section>
 
         <section className={`flex min-h-0 flex-col gap-2 lg:col-span-3 lg:gap-2 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
           {/* Initiatives — collapsible accordion panel */}

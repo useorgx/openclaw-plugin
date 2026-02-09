@@ -24,6 +24,7 @@ interface ActivityTimelineProps {
   selectedRunIds: string[];
   selectedSessionLabel?: string | null;
   onClearSelection: () => void;
+  onFocusRunId?: (runId: string) => void;
 }
 
 const MAX_RENDERED_ACTIVITY = 480;
@@ -371,12 +372,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   selectedRunIds,
   selectedSessionLabel = null,
   onClearSelection,
+  onFocusRunId,
 }: ActivityTimelineProps) {
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
   const [artifactViewMode, setArtifactViewMode] = useState<'structured' | 'json'>('structured');
   const [detailSummaryOverride, setDetailSummaryOverride] = useState<string | null>(null);
@@ -526,6 +529,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   const closeDetail = useCallback(() => {
     setActiveItemId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!copyNotice) return undefined;
+    const timer = window.setTimeout(() => setCopyNotice(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyNotice]);
+
+  const copyText = useCallback(async (label: string, value: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyNotice(`${label} copied`);
+    } catch {
+      setCopyNotice('Copy failed');
+    }
   }, []);
 
   useEffect(() => {
@@ -952,32 +971,78 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
             <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
 
-            <div className="relative z-10 flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
-              <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">Activity Detail</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
+	            <div className="relative z-10 flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+	              <div className="min-w-0">
+	                <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">Activity Detail</p>
+	                <div className="mt-1 flex items-center gap-2">
+	                  <span
+	                    className="h-2.5 w-2.5 rounded-full"
                     style={{
                       backgroundColor: bucketColor(activeDecorated.bucket),
                       boxShadow: `0 0 16px ${bucketColor(activeDecorated.bucket)}77`,
                     }}
-                  />
-                  <span className="text-[12px] text-white/70">
-                    {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
-                  </span>
-                </div>
-              </div>
+	                  />
+	                  <span className="text-[12px] text-white/70">
+	                    {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
+	                  </span>
+	                  {copyNotice && (
+	                    <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/60">
+	                      {copyNotice}
+	                    </span>
+	                  )}
+	                </div>
+	              </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => navigateDetail(-1)}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
-                  aria-label="Previous activity item"
-                >
-                  ← Prev
-                </button>
+	              <div className="flex flex-wrap items-center justify-end gap-2">
+	                {activeDecorated.runId && onFocusRunId && (
+	                  <button
+		                    type="button"
+		                    onClick={() => {
+		                      onFocusRunId(activeDecorated.runId!);
+		                      closeDetail();
+		                    }}
+	                    className="rounded-full border border-lime/25 bg-lime/10 px-3 py-1 text-[11px] font-semibold text-lime transition hover:bg-lime/20"
+	                  >
+	                    Focus session
+	                  </button>
+	                )}
+	                {activeDecorated.runId && (
+	                  <button
+	                    type="button"
+	                    onClick={() => void copyText('Run id', activeDecorated.runId ?? '')}
+	                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                    aria-label="Copy run id"
+	                  >
+	                    Copy run
+	                  </button>
+	                )}
+	                {activeDecorated.item.agentId && (
+	                  <button
+	                    type="button"
+	                    onClick={() => void copyText('Agent id', activeDecorated.item.agentId ?? '')}
+	                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                    aria-label="Copy agent id"
+	                  >
+	                    Copy agent
+	                  </button>
+	                )}
+	                <button
+	                  type="button"
+	                  onClick={() => void copyText('Event id', activeDecorated.item.id)}
+	                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                  aria-label="Copy event id"
+	                >
+	                  Copy event
+	                </button>
+
+	                <button
+	                  type="button"
+	                  onClick={() => navigateDetail(-1)}
+	                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                  aria-label="Previous activity item"
+	                >
+	                  ← Prev
+	                </button>
                 <button
                   type="button"
                   onClick={() => navigateDetail(1)}

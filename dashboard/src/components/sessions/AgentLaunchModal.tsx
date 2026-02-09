@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { InitiativeDetails, InitiativeTask, InitiativeWorkstream } from '@/types';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
@@ -122,6 +123,7 @@ export function AgentLaunchModal({
   const [upgradeActions, setUpgradeActions] = useState<UpgradeActions | null>(null);
   const [requiredPlan, setRequiredPlan] = useState<string>('starter');
   const [isLaunching, setIsLaunching] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   const selectedInitiative = useMemo(() => {
     const id = selectedInitiativeId.trim();
@@ -162,6 +164,16 @@ export function AgentLaunchModal({
 
   useEffect(() => {
     if (!open) return;
+    if (selectedInitiativeId.trim()) return;
+    const list = initiatives ?? [];
+    const only = list.length === 1 ? list[0] : null;
+    if (only) {
+      setSelectedInitiativeId(only.id);
+    }
+  }, [initiatives, open, selectedInitiativeId]);
+
+  useEffect(() => {
+    if (!open) return;
     const model = selectedAgent?.model ?? '';
     const inferred =
       model.includes('openrouter')
@@ -179,6 +191,7 @@ export function AgentLaunchModal({
     setLaunchError(null);
     setUpgradeActions(null);
     setRequiredPlan('starter');
+    setStep(1);
   }, [open]);
 
   useEffect(() => {
@@ -199,6 +212,12 @@ export function AgentLaunchModal({
   }, [message, open, selectedInitiative]);
 
   const canLaunch = Boolean(selectedAgentId.trim()) && Boolean(selectedInitiativeId.trim());
+  const canContinueStep =
+    step === 1
+      ? Boolean(selectedAgentId.trim())
+      : step === 2
+        ? Boolean(selectedInitiativeId.trim())
+        : canLaunch;
 
   const openCheckout = async () => {
     const checkoutPath = upgradeActions?.checkout ?? '/orgx/api/billing/checkout';
@@ -325,16 +344,37 @@ export function AgentLaunchModal({
     <Modal open={open} onClose={onClose} maxWidth="max-w-2xl">
       <div className="flex h-full min-h-0 flex-col">
         <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-[14px] font-semibold text-white">Launch OpenClaw Agent</h3>
-              <p className="mt-1 text-[12px] text-white/55">
-                Starts a background agent turn and scopes the resulting sessions/activity to the selected OrgX initiative.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
+	          <div className="flex items-start justify-between gap-4">
+	            <div>
+	              <h3 className="text-[14px] font-semibold text-white">Launch OpenClaw Agent</h3>
+	              <p className="mt-1 text-[12px] text-white/55">
+	                Starts a background agent turn and scopes the resulting sessions/activity to the selected OrgX initiative.
+	              </p>
+	              <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] p-1 text-[10px] uppercase tracking-[0.12em] text-white/55">
+	                {(
+	                  [
+	                    [1, 'Agent'],
+	                    [2, 'Scope'],
+	                    [3, 'Message'],
+	                  ] as const
+	                ).map(([value, label]) => (
+	                  <button
+	                    key={value}
+	                    type="button"
+	                    onClick={() => setStep(value)}
+	                    className={cn(
+	                      'rounded-full px-3 py-1 transition-colors',
+	                      step === value ? 'bg-white/[0.12] text-white' : 'hover:bg-white/[0.06]'
+	                    )}
+	                  >
+	                    {value}. {label}
+	                  </button>
+	                ))}
+	              </div>
+	            </div>
+	            <button
+	              type="button"
+	              onClick={onClose}
               className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.08] hover:text-white"
             >
               Close
@@ -349,187 +389,243 @@ export function AgentLaunchModal({
             </div>
           )}
 
-          {catalogQuery.error && (
-            <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-[12px] text-rose-100">
-              {(catalogQuery.error as Error).message}
-            </div>
-          )}
+	          {catalogQuery.error && (
+	            <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-[12px] text-rose-100">
+	              {(catalogQuery.error as Error).message}
+	            </div>
+	          )}
 
-          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Agent</label>
-              <select
-                value={selectedAgentId}
-                onChange={(e) => setSelectedAgentId(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
-              >
-                {catalogAgents.map((agent) => {
-                  const badge = toStatusBadge(agent.status);
-                  return (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name} ({agent.id}) · {badge.label}
-                    </option>
-                  );
-                })}
-              </select>
-              {selectedAgent && (
-                <div className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-white/60">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-white/80">{selectedAgent.name}</span>
-                    <span
-                      className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
-                      style={{
-                        borderColor: `${toStatusBadge(selectedAgent.status).color}55`,
-                        color: toStatusBadge(selectedAgent.status).color,
-                        backgroundColor: toStatusBadge(selectedAgent.status).bg,
-                      }}
-                    >
-                      {toStatusBadge(selectedAgent.status).label}
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    <p className="truncate">
-                      <span className="text-white/40">Model:</span> {selectedAgent.model ?? 'unknown'}
-                    </p>
-                    <p className="truncate">
-                      <span className="text-white/40">Workspace:</span> {selectedAgent.workspace ?? 'unknown'}
-                    </p>
-                    {selectedAgent.context?.initiativeId && (
-                      <p className="truncate">
-                        <span className="text-white/40">Scoped:</span>{' '}
-                        {selectedAgent.context.initiativeTitle ?? selectedAgent.context.initiativeId}
-                      </p>
-                    )}
+	          <AnimatePresence mode="wait">
+	            <motion.div
+	              key={step}
+	              initial={{ opacity: 0, y: 10 }}
+	              animate={{ opacity: 1, y: 0 }}
+	              exit={{ opacity: 0, y: -8 }}
+	              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+	              className="mt-3 space-y-4"
+	            >
+	              {step === 1 && (
+	                <div className="space-y-4">
+	                  <div>
+	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Agent</label>
+	                    <select
+	                      value={selectedAgentId}
+	                      onChange={(e) => setSelectedAgentId(e.target.value)}
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                    >
+	                      {catalogAgents.map((agent) => {
+	                        const badge = toStatusBadge(agent.status);
+	                        return (
+	                          <option key={agent.id} value={agent.id}>
+	                            {agent.name} ({agent.id}) · {badge.label}
+	                          </option>
+	                        );
+	                      })}
+	                    </select>
+	                  </div>
 
-                    <div>
-                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Provider</label>
-                      <select
-                        value={selectedProvider}
-                        onChange={(e) => setSelectedProvider(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
-                      >
-                        <option value="auto">Auto (keep agent model)</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="openrouter">OpenRouter</option>
-                        <option value="openai">OpenAI</option>
-                      </select>
-                      <p className="mt-1 text-[10px] text-white/35">
-                        Selecting a provider updates the agent&apos;s default model before launch.
-                      </p>
-                    </div>
+	                  {selectedAgent && (
+	                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-white/60">
+	                      <div className="flex items-center justify-between gap-2">
+	                        <span className="font-medium text-white/80">{selectedAgent.name}</span>
+	                        <span
+	                          className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+	                          style={{
+	                            borderColor: `${toStatusBadge(selectedAgent.status).color}55`,
+	                            color: toStatusBadge(selectedAgent.status).color,
+	                            backgroundColor: toStatusBadge(selectedAgent.status).bg,
+	                          }}
+	                        >
+	                          {toStatusBadge(selectedAgent.status).label}
+	                        </span>
+	                      </div>
+	                      <div className="mt-2 space-y-2">
+	                        <p className="truncate">
+	                          <span className="text-white/40">Model:</span> {selectedAgent.model ?? 'unknown'}
+	                        </p>
+	                        <p className="truncate">
+	                          <span className="text-white/40">Workspace:</span> {selectedAgent.workspace ?? 'unknown'}
+	                        </p>
+	                        {selectedAgent.context?.initiativeId && (
+	                          <p className="truncate">
+	                            <span className="text-white/40">Scoped:</span>{' '}
+	                            {selectedAgent.context.initiativeTitle ?? selectedAgent.context.initiativeId}
+	                          </p>
+	                        )}
 
-                    {selectedAgent.run && (
-                      <p className="truncate">
-                        <span className="text-white/40">Tracked run:</span>{' '}
-                        {selectedAgent.run.runId.slice(0, 8)}…{' '}
-                        <span className="text-white/35">({selectedAgent.run.status})</span>
-                      </p>
-                    )}
+	                        <div>
+	                          <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Provider</label>
+	                          <select
+	                            value={selectedProvider}
+	                            onChange={(e) => setSelectedProvider(e.target.value)}
+	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                          >
+	                            <option value="auto">Auto (keep agent model)</option>
+	                            <option value="anthropic">Anthropic</option>
+	                            <option value="openrouter">OpenRouter</option>
+	                            <option value="openai">OpenAI</option>
+	                          </select>
+	                          <p className="mt-1 text-[10px] text-white/35">
+	                            Selecting a provider updates the agent&apos;s default model before launch.
+	                          </p>
+	                        </div>
 
-                    {selectedAgent.run && (
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={stopRun}
-                          disabled={!canControlRun || isLaunching}
-                          className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
-                        >
-                          Stop Run
-                        </button>
-                        <button
-                          type="button"
-                          onClick={restartRun}
-                          disabled={isLaunching}
-                          className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                        >
-                          Restart
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+	                        {selectedAgent.run && (
+	                          <p className="truncate">
+	                            <span className="text-white/40">Tracked run:</span>{' '}
+	                            {selectedAgent.run.runId.slice(0, 8)}…{' '}
+	                            <span className="text-white/35">({selectedAgent.run.status})</span>
+	                          </p>
+	                        )}
 
-            <div>
-              <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Initiative Scope</label>
-              <select
-                value={selectedInitiativeId}
-                onChange={(e) => setSelectedInitiativeId(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
-              >
-                <option value="">Select an initiative…</option>
-                {(initiatives ?? []).map((initiative) => (
-                  <option key={initiative.id} value={initiative.id}>
-                    {initiative.name}
-                  </option>
-                ))}
-              </select>
+	                        {selectedAgent.run && (
+	                          <div className="grid grid-cols-2 gap-2 pt-1">
+	                            <button
+	                              type="button"
+	                              onClick={stopRun}
+	                              disabled={!canControlRun || isLaunching}
+	                              className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
+	                            >
+	                              Stop Run
+	                            </button>
+	                            <button
+	                              type="button"
+	                              onClick={restartRun}
+	                              disabled={isLaunching}
+	                              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+	                            >
+	                              Restart
+	                            </button>
+	                          </div>
+	                        )}
+	                      </div>
+	                    </div>
+	                  )}
+	                </div>
+	              )}
 
-              <div className="mt-3 grid grid-cols-1 gap-3">
-                <div>
-                  <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Workstream (optional)</label>
-                  <select
-                    value={selectedWorkstreamId}
-                    onChange={(e) => setSelectedWorkstreamId(e.target.value)}
-                    disabled={!selectedInitiative}
-                    className={cn(
-                      'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
-                      !selectedInitiative && 'opacity-50'
-                    )}
-                  >
-                    <option value="">Any workstream</option>
-                    {workstreams.map((ws) => (
-                      <option key={ws.id} value={ws.id}>
-                        {ws.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+	              {step === 2 && (
+	                <div className="space-y-4">
+	                  <div>
+	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Initiative Scope</label>
+	                    <select
+	                      value={selectedInitiativeId}
+	                      onChange={(e) => setSelectedInitiativeId(e.target.value)}
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                    >
+	                      <option value="">Select an initiative…</option>
+	                      {(initiatives ?? []).map((initiative) => (
+	                        <option key={initiative.id} value={initiative.id}>
+	                          {initiative.name}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  </div>
 
-                <div>
-                  <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Task (optional)</label>
-                  <select
-                    value={selectedTaskId}
-                    onChange={(e) => setSelectedTaskId(e.target.value)}
-                    disabled={!selectedInitiative}
-                    className={cn(
-                      'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
-                      !selectedInitiative && 'opacity-50'
-                    )}
-                  >
-                    <option value="">Any task</option>
-                    {tasks.slice(0, 80).map((task) => (
-                      <option key={task.id} value={task.id}>
-                        {task.title}
-                      </option>
-                    ))}
-                  </select>
-                  {tasks.length > 80 && (
-                    <p className="mt-1 text-[10px] text-white/35">
-                      Showing first 80 tasks to keep the menu usable.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+	                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+	                    <div>
+	                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Workstream (optional)</label>
+	                      <select
+	                        value={selectedWorkstreamId}
+	                        onChange={(e) => setSelectedWorkstreamId(e.target.value)}
+	                        disabled={!selectedInitiative}
+	                        className={cn(
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          !selectedInitiative && 'opacity-50'
+	                        )}
+	                      >
+	                        <option value="">Any workstream</option>
+	                        {workstreams.map((ws) => (
+	                          <option key={ws.id} value={ws.id}>
+	                            {ws.name}
+	                          </option>
+	                        ))}
+	                      </select>
+	                    </div>
 
-          <div className="mt-4">
-            <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Kickoff Message</label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
-              placeholder="Optional. If left blank, a default kickoff message is used."
-            />
-          </div>
+	                    <div>
+	                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Task (optional)</label>
+	                      <select
+	                        value={selectedTaskId}
+	                        onChange={(e) => setSelectedTaskId(e.target.value)}
+	                        disabled={!selectedInitiative}
+	                        className={cn(
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          !selectedInitiative && 'opacity-50'
+	                        )}
+	                      >
+	                        <option value="">Any task</option>
+	                        {tasks.slice(0, 80).map((task) => (
+	                          <option key={task.id} value={task.id}>
+	                            {task.title}
+	                          </option>
+	                        ))}
+	                      </select>
+	                      {tasks.length > 80 && (
+	                        <p className="mt-1 text-[10px] text-white/35">
+	                          Showing first 80 tasks to keep the menu usable.
+	                        </p>
+	                      )}
+	                    </div>
+	                  </div>
+	                </div>
+	              )}
 
-          {launchError && (
-            <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-[12px] text-rose-100">
-              <div className="flex flex-col gap-2">
-                <div>{launchError}</div>
+	              {step === 3 && (
+	                <div className="space-y-4">
+	                  <div>
+	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Kickoff Message</label>
+	                    <textarea
+	                      value={message}
+	                      onChange={(e) => setMessage(e.target.value)}
+	                      rows={4}
+	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      placeholder="Optional. If left blank, a default kickoff message is used."
+	                    />
+	                  </div>
+
+	                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-white/60">
+	                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/35">Review</p>
+	                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Agent</div>
+	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                          {(selectedAgent?.name ?? selectedAgentId.trim()) || '—'}
+	                        </div>
+	                      </div>
+	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Initiative</div>
+	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                          {(selectedInitiative?.name ?? selectedInitiativeId.trim()) || '—'}
+	                        </div>
+	                      </div>
+	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Workstream</div>
+	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                          {selectedWorkstreamId.trim()
+	                            ? workstreams.find((w) => w.id === selectedWorkstreamId)?.name ?? selectedWorkstreamId
+	                            : 'Any'}
+	                        </div>
+	                      </div>
+	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Task</div>
+	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                          {selectedTaskId.trim()
+	                            ? tasks.find((t) => t.id === selectedTaskId)?.title ?? selectedTaskId
+	                            : 'Any'}
+	                        </div>
+	                      </div>
+	                    </div>
+	                  </div>
+	                </div>
+	              )}
+	            </motion.div>
+	          </AnimatePresence>
+
+	          {launchError && (
+	            <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-[12px] text-rose-100">
+	              <div className="flex flex-col gap-2">
+	                <div>{launchError}</div>
                 {upgradeActions && (
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -563,25 +659,60 @@ export function AgentLaunchModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3.5 sm:px-6">
-          <div className="text-[11px] text-white/45">
-            {canLaunch ? 'Launch will update sessions/activity under the selected initiative.' : 'Select an agent and initiative to launch.'}
-          </div>
-          <button
-            type="button"
-            onClick={launch}
-            disabled={!canLaunch || isLaunching}
-            className={cn(
-              'rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors',
-              canLaunch && !isLaunching
-                ? 'text-black'
-                : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.05] text-white/40'
-            )}
-            style={canLaunch && !isLaunching ? { backgroundColor: colors.lime } : undefined}
-          >
-            {isLaunching ? 'Launching…' : 'Launch'}
-          </button>
-        </div>
+	        <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3.5 sm:px-6">
+	          <div className="text-[11px] text-white/45">
+	            {step === 1
+	              ? 'Pick an agent to configure.'
+	              : step === 2
+	                ? 'Select an initiative scope (required).'
+	                : canLaunch
+	                  ? 'Launch will update sessions/activity under the selected initiative.'
+	                  : 'Select an agent and initiative to launch.'}
+	          </div>
+	          <div className="flex items-center gap-2">
+	            {step > 1 && (
+	              <button
+	                type="button"
+	                onClick={() => setStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3) : prev))}
+	                disabled={isLaunching}
+	                className="rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+	              >
+	                Back
+	              </button>
+	            )}
+	            {step < 3 ? (
+	              <button
+	                type="button"
+	                onClick={() => setStep((prev) => (prev < 3 ? ((prev + 1) as 1 | 2 | 3) : prev))}
+	                disabled={!canContinueStep || isLaunching}
+	                className={cn(
+	                  'rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors',
+	                  canContinueStep && !isLaunching
+	                    ? 'text-black'
+	                    : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.05] text-white/40'
+	                )}
+	                style={canContinueStep && !isLaunching ? { backgroundColor: colors.lime } : undefined}
+	              >
+	                Next
+	              </button>
+	            ) : (
+	              <button
+	                type="button"
+	                onClick={launch}
+	                disabled={!canLaunch || isLaunching}
+	                className={cn(
+	                  'rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors',
+	                  canLaunch && !isLaunching
+	                    ? 'text-black'
+	                    : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.05] text-white/40'
+	                )}
+	                style={canLaunch && !isLaunching ? { backgroundColor: colors.lime } : undefined}
+	              >
+	                {isLaunching ? 'Launching…' : 'Launch'}
+	              </button>
+	            )}
+	          </div>
+	        </div>
       </div>
     </Modal>
   );
