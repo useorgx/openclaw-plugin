@@ -6,6 +6,7 @@ import {
   buildTaskQueue,
   extractPlanContext,
   buildCodexPrompt,
+  createReporter,
   classifyTaskState,
   summarizeTaskStatuses,
   computeMilestoneRollup,
@@ -114,6 +115,81 @@ test("buildCodexPrompt includes task and plan references", () => {
   assert.match(prompt, /Inject OrgXClient into orchestration/);
   assert.match(prompt, /two-tool reporting contract/i);
   assert.match(prompt, /codex-job-abc123/);
+});
+
+test("createReporter routes mutations through injected OrgXClient", async () => {
+  const calls = {
+    activity: [],
+    changesets: [],
+    updates: [],
+  };
+
+  const client = {
+    emitActivity: async (payload) => {
+      calls.activity.push(payload);
+      return { ok: true, run_id: "run_1" };
+    },
+    applyChangeset: async (payload) => {
+      calls.changesets.push(payload);
+      return { ok: true, run_id: "run_1" };
+    },
+    updateEntity: async (type, id, updates) => {
+      calls.updates.push({ type, id, updates });
+      return { ok: true, id };
+    },
+  };
+
+  const reporter = createReporter({
+    client,
+    initiativeId: "init_1",
+    sourceClient: "codex",
+    correlationId: "corr_1",
+    planPath: "/tmp/plan.md",
+    planHash: "hash_1",
+    jobId: "job_1",
+    dryRun: false,
+  });
+
+  await reporter.emit({ message: "hello", phase: "intent", level: "info", progressPct: 0 });
+
+  assert.equal(calls.activity.length, 1);
+  assert.equal(calls.activity[0].initiative_id, "init_1");
+  assert.equal(calls.activity[0].correlation_id, "corr_1");
+  assert.equal(calls.activity[0].source_client, "codex");
+
+  await reporter.taskStatus({
+    taskId: "task_1",
+    status: "done",
+    attempt: 1,
+    reason: "ok",
+  });
+
+  assert.equal(calls.changesets.length, 1);
+  assert.equal(calls.changesets[0].initiative_id, "init_1");
+  assert.equal(calls.changesets[0].run_id, "run_1");
+  assert.equal(calls.changesets[0].operations[0].op, "task.update");
+
+  await reporter.workstreamStatus({
+    workstreamId: "ws_1",
+    workstreamName: "Workstream",
+    status: "active",
+    statusChanged: true,
+    progressPct: 0,
+    done: 0,
+    total: 1,
+    blocked: 0,
+    active: 0,
+    todo: 1,
+    triggerTaskId: "task_1",
+    attempt: 1,
+  });
+
+  assert.equal(calls.updates.length, 1);
+  assert.deepEqual(calls.updates[0], {
+    type: "workstream",
+    id: "ws_1",
+    updates: { status: "active" },
+  });
 });
 
 test("classifyTaskState buckets task lifecycle states", () => {

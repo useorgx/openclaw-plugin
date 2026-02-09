@@ -34,10 +34,11 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:hooks": "node --test tests/**/*.test.mjs",
-    "job:dispatch": "node ./scripts/run-codex-dispatch-job.mjs",
+    "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
-    "build": "npm run build:dashboard && tsc && node ./scripts/copy-manifest.mjs",
+    "build:core": "tsc && node ./scripts/copy-manifest.mjs",
+    "build": "npm run build:dashboard && npm run build:core",
     "clean": "rm -rf dist",
     "pack": "npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts",
     "prepublishOnly": "npm run build"
