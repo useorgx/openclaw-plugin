@@ -230,7 +230,7 @@ export function HierarchyTreeTable({
         Hierarchy table
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1250px] border-separate border-spacing-y-1.5">
+        <table className="w-full min-w-[1250px] border-separate border-spacing-y-1">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
               <th className="px-2 py-1.5">Item</th>
@@ -272,7 +272,7 @@ export function HierarchyTreeTable({
                         : 'bg-white/[0.02] hover:bg-white/[0.07]'
                   }`}
                 >
-                  <td className="rounded-l-lg border border-white/[0.08] border-r-0 px-2 py-2">
+                  <td className="rounded-l-lg border border-white/[0.08] border-r-0 px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <div style={{ width: depth * 14 }} />
                       {canCollapse ? (
@@ -287,7 +287,8 @@ export function HierarchyTreeTable({
                               return next;
                             });
                           }}
-                          className="text-white/50"
+                          aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
+                          className="rounded text-white/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                         >
                           {expandedRows.has(node.id) ? '▾' : '▸'}
                         </button>
@@ -301,7 +302,8 @@ export function HierarchyTreeTable({
                           event.stopPropagation();
                           onOpenNode(node);
                         }}
-                        className="max-w-[320px] truncate text-[12px] text-white/85 hover:text-white"
+                        aria-label={`Open ${node.type} details: ${node.title}`}
+                        className="max-w-[320px] truncate rounded text-[12px] text-white/85 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                       >
                         {node.title}
                       </button>
@@ -317,7 +319,8 @@ export function HierarchyTreeTable({
                                 event.stopPropagation();
                                 void onUpdateNode(node, { status: 'in_progress' });
                               }}
-                              className="flex items-center justify-center w-5 h-5 rounded text-white/40 hover:text-[#BFFF00] hover:bg-white/[0.06] transition-colors"
+                              aria-label={`Start task: ${node.title}`}
+                              className="flex items-center justify-center w-5 h-5 rounded text-white/40 transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                             >
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                             </button>
@@ -329,7 +332,8 @@ export function HierarchyTreeTable({
                                 event.stopPropagation();
                                 void onUpdateNode(node, { status: 'done' });
                               }}
-                              className="flex items-center justify-center w-5 h-5 rounded text-white/40 hover:text-emerald-400 hover:bg-white/[0.06] transition-colors"
+                              aria-label={`Mark task done: ${node.title}`}
+                              className="flex items-center justify-center w-5 h-5 rounded text-white/40 transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                             >
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
                             </button>
@@ -339,7 +343,7 @@ export function HierarchyTreeTable({
                     </div>
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <select
                         defaultValue={node.status}
@@ -360,7 +364,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
                       <div className="flex items-center gap-2">
                         <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
@@ -381,7 +385,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <input
                         type="number"
@@ -402,7 +406,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <input
                         type="datetime-local"
@@ -419,7 +423,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode && node.type !== 'task' ? (
                       <input
                         type="number"
@@ -440,7 +444,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode && node.type !== 'task' ? (
                       <input
                         type="number"
@@ -464,7 +468,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <div onClick={(event) => event.stopPropagation()}>
                         <DependencyEditorPopover
@@ -484,7 +488,7 @@ export function HierarchyTreeTable({
                     )}
                   </td>
 
-                  <td className="rounded-r-lg border border-white/[0.08] border-l-0 px-2 py-2 text-[11px] text-white/75">
+                  <td className="rounded-r-lg border border-white/[0.08] border-l-0 px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <input
                         type="text"

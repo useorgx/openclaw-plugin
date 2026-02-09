@@ -259,9 +259,10 @@ function resolveApiKey(
     return { value: openclaw.apiKey, source: "openclaw-config-file" };
   }
 
-  const legacy = readLegacyEnvValue(
-    /^ORGX_(?:API_KEY|SERVICE_KEY)=["']?([^"'\n]+)["']?$/m
-  );
+  // For local dev convenience we read `ORGX_API_KEY` from `~/Code/orgx/orgx/.env.local`.
+  // Do not auto-consume `ORGX_SERVICE_KEY` because service keys often require `X-Orgx-User-Id`,
+  // and the dashboard/client flows are intended to run on user-scoped keys (`oxk_...`).
+  const legacy = readLegacyEnvValue(/^ORGX_API_KEY=["']?([^"'\n]+)["']?$/m);
   if (legacy) {
     return { value: legacy, source: "legacy-dev" };
   }

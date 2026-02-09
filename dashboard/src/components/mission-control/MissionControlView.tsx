@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ActivityItem, Agent, Initiative } from '@/types';
+import type { ActivityItem, Agent, ConnectionStatus, Initiative } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
@@ -18,6 +18,12 @@ interface MissionControlViewProps {
   authToken: string | null;
   embedMode: boolean;
   initialInitiativeId?: string | null;
+  connection?: ConnectionStatus;
+  lastSnapshotAt?: string | null;
+  error?: string | null;
+  hasApiKey?: boolean;
+  onOpenSettings?: () => void;
+  onRefresh?: () => void;
 }
 
 function toStatusKey(value: string | null | undefined): string {
@@ -159,6 +165,12 @@ export function MissionControlView({
   authToken,
   embedMode,
   initialInitiativeId,
+  connection,
+  lastSnapshotAt,
+  error,
+  hasApiKey,
+  onOpenSettings,
+  onRefresh,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
 
@@ -172,19 +184,48 @@ export function MissionControlView({
         initiatives={initiatives}
         isLoading={isLoading}
         initialInitiativeId={initialInitiativeId}
+        connection={connection}
+        lastSnapshotAt={lastSnapshotAt}
+        error={error}
+        hasApiKey={hasApiKey}
+        onOpenSettings={onOpenSettings}
+        onRefresh={onRefresh}
       />
     </MissionControlProvider>
   );
+}
+
+function formatLocalTimestamp(value: string | null | undefined): string {
+  if (!value) return 'unknown';
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return 'unknown';
+  try {
+    return new Date(parsed).toLocaleString();
+  } catch {
+    return 'unknown';
+  }
 }
 
 function MissionControlInner({
   initiatives,
   isLoading,
   initialInitiativeId,
+  connection,
+  lastSnapshotAt,
+  error,
+  hasApiKey,
+  onOpenSettings,
+  onRefresh,
 }: {
   initiatives: Initiative[];
   isLoading: boolean;
   initialInitiativeId?: string | null;
+  connection?: ConnectionStatus;
+  lastSnapshotAt?: string | null;
+  error?: string | null;
+  hasApiKey?: boolean;
+  onOpenSettings?: () => void;
+  onRefresh?: () => void;
 }) {
   const {
     searchQuery,
@@ -364,6 +405,43 @@ function MissionControlInner({
 
   const allExpanded = sortedInitiatives.length > 0 && expandedInitiatives.size >= sortedInitiatives.length;
 
+  const showConnectivityBanner = Boolean(
+    !isLoading &&
+      (connection === 'reconnecting' || connection === 'disconnected' || error)
+  );
+  const bannerTone =
+    connection === 'disconnected'
+      ? 'error'
+      : connection === 'reconnecting'
+        ? 'warn'
+        : error
+          ? 'warn'
+          : 'info';
+  const bannerTitle =
+    !hasApiKey
+      ? 'Connect OrgX'
+      : connection === 'disconnected'
+        ? 'Offline'
+        : connection === 'reconnecting'
+          ? 'Reconnecting'
+          : error
+            ? 'Live stream degraded'
+            : 'Status';
+  const bannerMessage =
+    !hasApiKey
+      ? 'No OrgX API key configured. Connect to see Mission Control live updates.'
+      : error
+        ? error
+        : connection === 'disconnected'
+          ? 'Mission Control is offline. Data may be stale until OrgX reconnects.'
+          : 'Live data is recovering. Some sections may lag.';
+  const bannerBorder =
+    bannerTone === 'error'
+      ? 'border-red-400/25 bg-red-500/10 text-red-100'
+      : bannerTone === 'warn'
+        ? 'border-amber-400/25 bg-amber-500/10 text-amber-100'
+        : 'border-white/[0.08] bg-white/[0.03] text-white/70';
+
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div className="relative flex-1 min-h-0">
@@ -372,56 +450,96 @@ function MissionControlInner({
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#02040A] to-transparent z-10" />
 
         <div className="h-full overflow-y-auto overflow-x-hidden">
-          <div className="mx-auto max-w-6xl space-y-4 px-4 py-4 pb-8 sm:px-6 lg:pb-6">
-            {/* Search + filters + expand/collapse (single row, compact) */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="min-w-[220px] flex-1">
-                <SearchInput
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="Search initiatives, status, or category..."
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="sticky top-0 z-20 -mx-4 px-4 pt-4 pb-3 sm:-mx-6 sm:px-6 bg-[#02040A]/75 backdrop-blur">
+              {showConnectivityBanner && (
+                <div className={`mb-3 rounded-2xl border px-4 py-3 ${bannerBorder}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-[220px]">
+                      <div className="text-[12px] font-semibold tracking-[-0.01em]">
+                        {bannerTitle}
+                      </div>
+                      <div className="mt-0.5 text-[12px] leading-relaxed opacity-90">
+                        {bannerMessage}
+                      </div>
+                      <div className="mt-1 text-[11px] opacity-70">
+                        Last snapshot: {formatLocalTimestamp(lastSnapshotAt)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {onRefresh && (
+                        <button
+                          type="button"
+                          onClick={onRefresh}
+                          className="h-9 rounded-full border border-white/[0.14] bg-white/[0.05] px-3 text-[11px] font-semibold text-white/80 transition-colors hover:bg-white/[0.1]"
+                        >
+                          Refresh
+                        </button>
+                      )}
+                      {onOpenSettings && (
+                        <button
+                          type="button"
+                          onClick={onOpenSettings}
+                          className="h-9 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 text-[11px] font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/20"
+                        >
+                          Settings
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Search + filters + expand/collapse (single row, compact) */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-[220px] flex-1">
+                  <SearchInput
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Search initiatives, status, or category..."
+                  />
+                </div>
+                <MissionControlFilters
+                  initiatives={initiatives}
+                  visibleCount={filteredInitiatives.length}
                 />
+                {/* Expand/Collapse All toggle */}
+                {sortedInitiatives.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (allExpanded) {
+                        collapseAll();
+                      } else {
+                        expandAll(sortedInitiatives.map((i) => i.id));
+                      }
+                    }}
+                    className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
+                  >
+                    {allExpanded ? 'Collapse All' : 'Expand All'}
+                  </button>
+                )}
+                {groups && groupIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (allGroupsExpanded) {
+                        setExpandedGroupIds(new Set());
+                      } else {
+                        setExpandedGroupIds(new Set(groupIds));
+                      }
+                    }}
+                    className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
+                  >
+                    {allGroupsExpanded ? 'Collapse Groups' : 'Expand Groups'}
+                  </button>
+                )}
               </div>
-              <MissionControlFilters
-                initiatives={initiatives}
-                visibleCount={filteredInitiatives.length}
-              />
-              {/* Expand/Collapse All toggle */}
-              {sortedInitiatives.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (allExpanded) {
-                      collapseAll();
-                    } else {
-                      expandAll(sortedInitiatives.map((i) => i.id));
-                    }
-                  }}
-                  className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
-                >
-                  {allExpanded ? 'Collapse All' : 'Expand All'}
-                </button>
-              )}
-              {groups && groupIds.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (allGroupsExpanded) {
-                      setExpandedGroupIds(new Set());
-                    } else {
-                      setExpandedGroupIds(new Set(groupIds));
-                    }
-                  }}
-                  className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
-                >
-                  {allGroupsExpanded ? 'Collapse Groups' : 'Expand Groups'}
-                </button>
-              )}
             </div>
 
             {/* Content */}
             {isLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-3 pb-8">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={`mc-skeleton-${i}`}
@@ -433,9 +551,33 @@ function MissionControlInner({
                 ))}
               </div>
             ) : initiatives.length === 0 ? (
-              <MissionControlEmpty />
+              !hasApiKey ? (
+                <div className="pb-8">
+                  <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-6 py-8 text-center">
+                    <div className="text-[14px] font-semibold text-white/85">Connect OrgX to get started</div>
+                    <div className="mt-1 text-[12px] text-white/55">
+                      Mission Control shows your initiative hierarchy once a user-scoped API key is configured.
+                    </div>
+                    {onOpenSettings && (
+                      <div className="mt-4 flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={onOpenSettings}
+                          className="h-10 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-4 text-[12px] font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/20"
+                        >
+                          Open settings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="pb-8">
+                  <MissionControlEmpty />
+                </div>
+              )
             ) : sortedInitiatives.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center">
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center pb-8">
                 <div className="text-[13px] font-medium text-white/85">
                   No initiatives match the current filters
                 </div>
@@ -447,7 +589,7 @@ function MissionControlInner({
               </div>
             ) : groups ? (
               /* Grouped initiative list */
-              <div className="space-y-4">
+              <div className="space-y-4 pb-8">
                 {groups.map((group) => {
                   const disclosureId = groupDisclosureId(groupBy, group.key);
                   const panelId = toDisclosureDomId(disclosureId);
@@ -485,7 +627,9 @@ function MissionControlInner({
                 })}
               </div>
             ) : (
-              <InitiativeOrbit initiatives={sortedInitiatives} />
+              <div className="pb-8">
+                <InitiativeOrbit initiatives={sortedInitiatives} />
+              </div>
             )}
           </div>
         </div>

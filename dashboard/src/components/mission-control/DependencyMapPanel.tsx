@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
 import { LevelIcon } from './LevelIcon';
@@ -26,6 +26,9 @@ export function DependencyMapPanel({
   onSelectNode,
 }: DependencyMapPanelProps) {
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const [query, setQuery] = useState('');
+  const [relatedOnly, setRelatedOnly] = useState(false);
+  const normalizedQuery = query.trim().toLowerCase();
 
   const visibleNodeIds = useMemo(() => {
     if (!focusedWorkstreamId) {
@@ -58,7 +61,46 @@ export function DependencyMapPanel({
     return ids;
   }, [focusedWorkstreamId, nodes, edges]);
 
-  const visibleNodes = nodes.filter((node) => visibleNodeIds.has(node.id));
+  const baseVisibleNodes = nodes.filter((node) => visibleNodeIds.has(node.id));
+  const baseVisibleEdges = edges.filter(
+    (edge) => visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to)
+  );
+
+  const relatedNodeIds = useMemo(() => {
+    if (!selectedNodeId) return new Set<string>();
+    const ids = new Set<string>([selectedNodeId]);
+    for (const edge of baseVisibleEdges) {
+      if (edge.from === selectedNodeId) ids.add(edge.to);
+      if (edge.to === selectedNodeId) ids.add(edge.from);
+    }
+    return ids;
+  }, [selectedNodeId, baseVisibleEdges]);
+
+  const filteredNodeIds = useMemo(() => {
+    let ids = new Set<string>(Array.from(visibleNodeIds));
+
+    if (relatedOnly && selectedNodeId) {
+      ids = new Set(Array.from(ids).filter((id) => relatedNodeIds.has(id)));
+    }
+
+    if (normalizedQuery.length > 0) {
+      ids = new Set(
+        Array.from(ids).filter((id) => {
+          const node = byId.get(id);
+          if (!node) return false;
+          return node.title.toLowerCase().includes(normalizedQuery);
+        })
+      );
+    }
+
+    return ids;
+  }, [byId, normalizedQuery, relatedNodeIds, relatedOnly, selectedNodeId, visibleNodeIds]);
+
+  const visibleNodes = nodes.filter((node) => filteredNodeIds.has(node.id));
+  const visibleEdges = edges.filter(
+    (edge) => filteredNodeIds.has(edge.from) && filteredNodeIds.has(edge.to)
+  );
+
   const grouped = {
     initiative: visibleNodes.filter((node) => node.type === 'initiative'),
     workstream: visibleNodes.filter((node) => node.type === 'workstream'),
@@ -66,18 +108,19 @@ export function DependencyMapPanel({
     task: visibleNodes.filter((node) => node.type === 'task'),
   };
 
-  const visibleEdges = edges.filter(
-    (edge) => visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to)
-  );
-
-  if (visibleNodes.length === 0) return null;
+  if (baseVisibleNodes.length === 0) return null;
 
   return (
     <section className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[11px] uppercase tracking-[0.08em] text-white/45">
-          Dependency map
-        </h4>
+        <div className="flex items-center gap-2">
+          <h4 className="text-[11px] uppercase tracking-[0.08em] text-white/45">
+            Dependency map
+          </h4>
+          <span className="text-[10px] uppercase tracking-[0.08em] text-white/30">
+            {visibleNodes.length}/{baseVisibleNodes.length} nodes &middot; {visibleEdges.length} links
+          </span>
+        </div>
         {focusedWorkstreamId && (
           <span className="text-[10px] rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-2 py-0.5 text-[#D8FFA1]">
             Focused workstream
@@ -85,37 +128,87 @@ export function DependencyMapPanel({
         )}
       </div>
 
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        {(Object.keys(grouped) as Array<keyof typeof grouped>).map((groupKey) => (
-          <div key={groupKey} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2">
-            <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/35">
-              {groupLabel(groupKey)}
-            </div>
-            <div className="space-y-1">
-              {grouped[groupKey].slice(0, 8).map((node) => (
-                <button
-                  key={node.id}
-                  type="button"
-                  onClick={() => onSelectNode(node.id)}
-                  className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
-                    selectedNodeId === node.id
-                      ? 'border-[#BFFF00]/35 bg-[#BFFF00]/10'
-                      : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08]'
-                  }`}
-                >
-                  <LevelIcon type={node.type} />
-                  <span className="truncate text-[11px] text-white/80">{node.title}</span>
-                </button>
-              ))}
-              {grouped[groupKey].length > 8 && (
-                <div className="px-1 text-[10px] text-white/35">
-                  +{grouped[groupKey].length - 8} more
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Filter nodes..."
+          className="h-9 flex-1 min-w-[200px] rounded-lg border border-white/[0.12] bg-black/30 px-3 text-[11px] text-white/80 placeholder:text-white/25 focus:border-[#BFFF00]/40 focus:outline-none"
+        />
+        {selectedNodeId && (
+          <button
+            type="button"
+            onClick={() => setRelatedOnly((prev) => !prev)}
+            aria-pressed={relatedOnly}
+            className={`h-9 rounded-full border px-3 text-[11px] font-semibold transition-colors ${
+              relatedOnly
+                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/15 text-[#D8FFA1]'
+                : 'border-white/[0.12] bg-white/[0.03] text-white/70 hover:bg-white/[0.06]'
+            }`}
+            title="Show only the selected node and its direct neighbors"
+          >
+            Related only
+          </button>
+        )}
+        {(query.trim().length > 0 || relatedOnly) && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setRelatedOnly(false);
+            }}
+            className="h-9 rounded-full border border-white/[0.12] bg-white/[0.03] px-3 text-[11px] text-white/70 transition-colors hover:bg-white/[0.06]"
+          >
+            Reset
+          </button>
+        )}
       </div>
+
+      {visibleNodes.length === 0 ? (
+        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[11px] text-white/55">
+          No nodes match the current filter.
+        </div>
+      ) : (
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {(Object.keys(grouped) as Array<keyof typeof grouped>).map((groupKey) => (
+            <div key={groupKey} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2">
+              <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/35">
+                {groupLabel(groupKey)} ({grouped[groupKey].length})
+              </div>
+              <div className="space-y-1">
+                {grouped[groupKey].slice(0, 10).map((node) => {
+                  const selected = selectedNodeId === node.id;
+                  const related = !selected && relatedNodeIds.has(node.id);
+
+                  return (
+                    <button
+                      key={node.id}
+                      type="button"
+                      onClick={() => onSelectNode(node.id)}
+                      title={node.title}
+                      className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
+                        selected
+                          ? 'border-[#BFFF00]/35 bg-[#BFFF00]/10'
+                          : related
+                            ? 'border-[#14B8A6]/35 bg-[#14B8A6]/10'
+                            : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08]'
+                      }`}
+                    >
+                      <LevelIcon type={node.type} />
+                      <span className="truncate text-[11px] text-white/80">{node.title}</span>
+                    </button>
+                  );
+                })}
+                {grouped[groupKey].length > 10 && (
+                  <div className="px-1 text-[10px] text-white/35">
+                    +{grouped[groupKey].length - 10} more
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {visibleEdges.length > 0 && (
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
@@ -153,4 +246,3 @@ export function DependencyMapPanel({
     </section>
   );
 }
-

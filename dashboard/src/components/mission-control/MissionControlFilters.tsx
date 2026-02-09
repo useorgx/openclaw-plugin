@@ -233,6 +233,41 @@ export function MissionControlFilters({
             transition={{ duration: 0.15 }}
             className="absolute right-0 top-12 z-30 w-[340px] max-w-[92vw] rounded-xl border border-white/[0.12] bg-[#090d14]/95 p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
+            {/* Group/sort live in the main bar on >=sm. Provide parity for mobile. */}
+            <div className="sm:hidden grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-white/45">Group</span>
+                <select
+                  value={groupBy}
+                  onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
+                  className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                >
+                  {GROUP_BY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-white/45">Sort</span>
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value as SortByOption)}
+                  className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                >
+                  {SORT_BY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="sm:hidden mt-3 border-t border-white/[0.08]" />
+
             <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Status</div>
             <div className="mt-2 max-h-44 space-y-1 overflow-auto pr-1">
               {statusOptions.map((option) => {
