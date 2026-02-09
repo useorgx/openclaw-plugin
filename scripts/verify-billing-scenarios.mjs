@@ -17,6 +17,9 @@ function usage() {
     "  --billing-cycle=<monthly|annual>  Billing cycle (default: monthly)",
     "  --expect-plan=<plan>        Fail if billing status plan differs",
     "  --assert-paid               Fail if plan=free or hasSubscription=false",
+    "  --wait-for-plan=<plan>      Poll billing status until plan matches (ex: starter, free)",
+    "  --timeout-ms=<ms>           Max time to wait when polling (default: 60000)",
+    "  --poll-interval-ms=<ms>     Poll interval when waiting for plan (default: 2000)",
     "  --skip-checkout             Skip checkout URL request",
     "  --skip-portal               Skip portal URL request",
     "  -h, --help                  Show this help",
@@ -30,6 +33,9 @@ function parseArgs(argv) {
     billingCycle: "monthly",
     expectPlan: null,
     assertPaid: false,
+    waitForPlan: null,
+    timeoutMs: 60_000,
+    pollIntervalMs: 2_000,
     skipCheckout: false,
     skipPortal: false,
     help: false,
@@ -67,12 +73,29 @@ function parseArgs(argv) {
       case "--expect-plan":
         args.expectPlan = value;
         break;
+      case "--wait-for-plan":
+        args.waitForPlan = value;
+        break;
+      case "--timeout-ms": {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed > 0) args.timeoutMs = Math.floor(parsed);
+        break;
+      }
+      case "--poll-interval-ms": {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed) && parsed > 0) args.pollIntervalMs = Math.floor(parsed);
+        break;
+      }
       default:
         break;
     }
   }
 
   return args;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function loadOrgXClient() {
@@ -154,6 +177,36 @@ async function main() {
     const portal = await client.createBillingPortal();
     const portalUrl = portal?.url ?? portal?.checkout_url ?? null;
     console.log(`[billing] portal url=${portalUrl ?? "null"}`);
+  }
+
+  if (args.waitForPlan) {
+    const expected = String(args.waitForPlan).trim().toLowerCase();
+    if (!expected) {
+      throw new Error("--wait-for-plan value is required.");
+    }
+
+    console.log(
+      `[billing] waiting for plan=${expected} (timeout=${args.timeoutMs}ms interval=${args.pollIntervalMs}ms)`
+    );
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < args.timeoutMs) {
+      const nextStatus = await client.getBillingStatus();
+      const okPlan = nextStatus.plan === expected;
+      const okSubscription =
+        expected === "free" ? true : Boolean(nextStatus.hasSubscription);
+      if (okPlan && okSubscription) {
+        console.log(
+          `[billing] plan reached: plan=${nextStatus.plan} hasSubscription=${nextStatus.hasSubscription} (${Date.now() - startedAt}ms)`
+        );
+        console.log("[billing] verification script completed");
+        return;
+      }
+      await sleep(args.pollIntervalMs);
+    }
+
+    throw new Error(
+      `Timed out waiting for plan=${expected} after ${args.timeoutMs}ms.`
+    );
   }
 
   console.log("[billing] verification script completed");

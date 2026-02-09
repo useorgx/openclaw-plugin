@@ -3,6 +3,27 @@
   "content_items": [
     {
       "channel": "twitter",
+      "title": "Story Thread: Tame The Claw (Harness + Cockpit)",
+      "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=tame_the_claw",
+      "media_brief": "Tweet 1: attach docs/launch/assets/mission-control-2026-02-09.gif. Optional: tweet 2 attach docs/launch/assets/openclaw-x-orgx-lockup-2026-02-09.png.",
+      "content": "1/ Stop running agents bareback.\n\nOpenClaw is a beast: fast, powerful, chaotic at scale.\n\n2/ The failure mode isn’t “bad prompts.”\nIt’s losing the thread:\n- what’s done?\n- what’s blocked?\n- what’s next?\n- what decision is pending?\n\n3/ OrgX is the harness + armor:\nMission Control (initiative -> workstream -> milestone -> task)\n+ a next-up queue\n+ decision checkpoints.\n\n4/ Then you drive like ops.\nYou check outputs, approve the decision, press continue, and the run keeps moving.\n\n5/ Proof: Mission Control inside OpenClaw.\n\n6/ Install in one line:\nopenclaw plugins install @useorgx/openclaw-plugin\n\n7/ Try it: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=tame_the_claw"
+    },
+    {
+      "channel": "twitter",
+      "title": "Story Thread: OpenClaw Hires The OrgX Crew",
+      "cta": "Meet the crew + install: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=meet_the_crew",
+      "media_brief": "Tweet 1: attach docs/launch/assets/crew-lineup-2026-02-09.png.",
+      "content": "1/ OpenClaw hired OrgX.\nNot a tool. A crew.\n\n2/ Launch Captain:\nTurns “ship this” into a sequence and keeps the run moving.\n\n3/ Control Tower:\nThe cockpit view: what’s active, blocked, and next.\n\n4/ Engineering Autopilot:\nExecutes tasks with quality gates + checkpoints.\n\n5/ Pipeline Intelligence:\nRoutes models + watches budget (so you don’t burn tokens blindly).\n\n6/ The point:\nYou stop holding coordination in your head.\nYou press continue.\n\n7/ Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=meet_the_crew"
+    },
+    {
+      "channel": "twitter",
+      "title": "Mechanic Thread: The Continue Button Is The Product",
+      "cta": "See how it works: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=press_continue",
+      "media_brief": "Tweet 1: attach docs/launch/assets/mission-control-2026-02-09.gif. Tweet 4: optionally attach a run-control screenshot (pause/resume/checkpoint/rollback).",
+      "content": "1/ The product isn’t the agent.\nIt’s the continue button.\n\n2/ If you can’t reliably answer “what’s next?”, your runs will always feel like babysitting.\n\n3/ OrgX gives you the missing control plane:\n- next-up queue (dependency-aware)\n- decisions + approvals\n- run controls (pause/resume/cancel/checkpoint/rollback)\n- quality gates + model routing\n- live dashboard + activity stream\n\n4/ Workflow:\nqueue -> run -> checkpoint -> approve -> continue -> ship.\n\n5/ Install:\nopenclaw plugins install @useorgx/openclaw-plugin\n\n6/ See the integration: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=press_continue"
+    },
+    {
+      "channel": "twitter",
       "title": "Launch Announcement Thread",
       "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement",
       "content": "1/ Launching: OrgX Integration for OpenClaw. Mission Control for your agents: orchestration, quality gates, model routing, and a live dashboard inside OpenClaw.\\n\\n2/ If you have ever run more than one agent, you know the failure mode: you lose the thread. What's done? What's blocked? What's next?\\n\\n3/ OrgX adds a hierarchy view (initiative -> workstream -> milestone -> task), a next-up queue, and a real-time activity stream, so execution stays legible.\\n\\n4/ Install in one line:\\nopenclaw plugins install @useorgx/openclaw-plugin\\n\\n5/ Then open:\\nhttp://127.0.0.1:18789/orgx/live\\nand click Connect OrgX (browser pairing recommended, manual key fallback supported).\\n\\n6/ Try it here: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement"
@@ -30,7 +51,20 @@
       "title": "Dev.to Article Draft",
       "cta": "Install the plugin: https://useorgx.com/integrations/openclaw?utm_source=devto&utm_medium=article&utm_campaign=openclaw_launch&utm_content=devto_article",
       "content": "# Mission Control for OpenClaw Agents: the OrgX Integration\\n\\nIf you are experimenting with agentic workflows, you quickly hit the same wall: execution becomes hard to reason about. You can launch agents, but you cannot easily answer: what is done, what is blocked, what is next, and what decisions are pending?\\n\\nOrgX is built to make agent execution legible. The OpenClaw plugin brings that into your local OpenClaw instance: orchestration, quality gates, model routing, and a live Mission Control dashboard.\\n\\n## What you get\\n- Mission Control: Initiative -> Workstream -> Milestone -> Task\\n- Dependency-aware next-up queue\\n- Live sessions + activity stream\\n- Spawn checks (quality gate) + model tier routing\\n- Offline-safe reporting with outbox replay\\n\\n## Install + connect\\n1. Install:\\n   openclaw plugins install @useorgx/openclaw-plugin\\n2. Open:\\n   http://127.0.0.1:18789/orgx/live\\n3. Click Connect OrgX and approve pairing at useorgx.com.\\n\\n## Why this matters\\nWhen you can see the work, you can improve the system. Mission Control turns agent runs into something closer to operations: a backlog, a control plane, and an audit trail of what happened and why.\\n\\n## Next steps\\nIf you want to try it, start here: https://useorgx.com/integrations/openclaw?utm_source=devto&utm_medium=article&utm_campaign=openclaw_launch&utm_content=devto_article\\n\\nFeedback welcome. If you run into anything confusing, tell us what you expected and what you saw."
+    },
+    {
+      "channel": "twitter_ads",
+      "title": "X Ads Variant A (Before/After)",
+      "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=ad&utm_campaign=openclaw_launch&utm_content=ad_before_after",
+      "media_brief": "Square image split: 'Bareback agent runs' (chaos) vs 'Harnessed' (Mission Control). Keep text minimal; headline in tweet copy.",
+      "content": "Before: you are the scheduler.\nAfter: Mission Control.\n\nOrgX for OpenClaw = harness + cockpit for your agents.\n\nInstall:\nopenclaw plugins install @useorgx/openclaw-plugin"
+    },
+    {
+      "channel": "twitter_ads",
+      "title": "X Ads Variant B (Press Continue)",
+      "cta": "See the loop: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=ad&utm_campaign=openclaw_launch&utm_content=ad_press_continue",
+      "media_brief": "5s loop or GIF: armor plates click on -> HUD appears -> Mission Control GIF. Minimal or no text in the asset; copy carries message.",
+      "content": "Press continue. The work keeps going.\n\nOrgX for OpenClaw adds:\nnext-up queue + decisions + quality gates + live dashboard.\n\nTry it in 60 seconds."
     }
   ]
 }
-
