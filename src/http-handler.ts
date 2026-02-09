@@ -57,6 +57,7 @@ import {
   readAgentRuns,
   upsertAgentRun,
 } from "./agent-run-store.js";
+import { readByokKeys, writeByokKeys } from "./byok-store.js";
 
 // =============================================================================
 // Helpers
@@ -80,14 +81,38 @@ function parseJsonSafe<T>(value: string): T | null {
   }
 }
 
+function maskSecret(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= 8) return `${trimmed[0]}…${trimmed.slice(-1)}`;
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
+function resolveByokEnvOverrides(): Record<string, string> {
+  const stored = readByokKeys();
+  const env: Record<string, string> = {};
+  const openai = stored?.openaiApiKey?.trim() ?? "";
+  const anthropic = stored?.anthropicApiKey?.trim() ?? "";
+  const openrouter = stored?.openrouterApiKey?.trim() ?? "";
+
+  if (openai) env.OPENAI_API_KEY = openai;
+  if (anthropic) env.ANTHROPIC_API_KEY = anthropic;
+  if (openrouter) env.OPENROUTER_API_KEY = openrouter;
+
+  return env;
+}
+
 async function runCommandCollect(input: {
   command: string;
   args: string[];
   timeoutMs?: number;
+  env?: Record<string, string | undefined>;
 }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   const timeoutMs = input.timeoutMs ?? 10_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
+      env: input.env ? { ...process.env, ...input.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -125,6 +150,7 @@ async function listOpenClawAgents(): Promise<Array<Record<string, unknown>>> {
     command: "openclaw",
     args: ["agents", "list", "--json"],
     timeoutMs: 5_000,
+    env: resolveByokEnvOverrides(),
   });
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || "openclaw agents list failed");
@@ -156,6 +182,7 @@ function spawnOpenClawAgentTurn(input: {
   }
 
   const child = spawn("openclaw", args, {
+    env: { ...process.env, ...resolveByokEnvOverrides() },
     stdio: "ignore",
     detached: true,
   });
@@ -187,6 +214,7 @@ async function setOpenClawAgentModel(input: { agentId: string; model: string }):
     command: "openclaw",
     args: ["models", "--agent", agentId, "set", model],
     timeoutMs: 10_000,
+    env: resolveByokEnvOverrides(),
   });
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || `openclaw models set failed for ${agentId}`);
@@ -209,6 +237,7 @@ async function listOpenClawProviderModels(input: {
       "--json",
     ],
     timeoutMs: 10_000,
+    env: resolveByokEnvOverrides(),
   });
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || "openclaw models list failed");
@@ -2897,6 +2926,7 @@ export function createHttpHandler(
       const isAgentLaunchRoute = route === "agents/launch";
       const isAgentStopRoute = route === "agents/stop";
       const isAgentRestartRoute = route === "agents/restart";
+      const isByokSettingsRoute = route === "settings/byok";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -3741,6 +3771,7 @@ export function createHttpHandler(
         !(isOnboardingStartRoute && method === "POST") &&
         !(isOnboardingManualKeyRoute && method === "POST") &&
         !(isOnboardingDisconnectRoute && method === "POST") &&
+        !(isByokSettingsRoute && method === "POST") &&
         !(isLiveActivityHeadlineRoute && method === "POST")
       ) {
         res.writeHead(405, {
@@ -3951,6 +3982,167 @@ export function createHttpHandler(
               tokenBudget: defaultAutoContinueTokenBudget(),
               tickMs: AUTO_CONTINUE_TICK_MS,
             },
+          });
+          return true;
+        }
+
+        case "settings/byok": {
+          const stored = readByokKeys();
+          const effectiveOpenai = stored?.openaiApiKey ?? process.env.OPENAI_API_KEY ?? null;
+          const effectiveAnthropic =
+            stored?.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? null;
+          const effectiveOpenrouter =
+            stored?.openrouterApiKey ?? process.env.OPENROUTER_API_KEY ?? null;
+
+          const toProvider = (input: {
+            storedValue: string | null | undefined;
+            envValue: string | undefined;
+            effective: string | null;
+          }) => {
+            const hasStored = typeof input.storedValue === "string" && input.storedValue.trim().length > 0;
+            const hasEnv = typeof input.envValue === "string" && input.envValue.trim().length > 0;
+            const source = hasStored ? "stored" : hasEnv ? "env" : "none";
+            return {
+              configured: Boolean(input.effective && input.effective.trim().length > 0),
+              source,
+              masked: maskSecret(input.effective),
+            };
+          };
+
+          if (method === "POST") {
+            try {
+              const payload = await parseJsonRequest(req);
+              const updates: Record<string, unknown> = {};
+
+              const setIfPresent = (key: string, aliases: string[]) => {
+                for (const alias of aliases) {
+                  if (!Object.prototype.hasOwnProperty.call(payload, alias)) continue;
+                  const raw = (payload as Record<string, unknown>)[alias];
+                  if (raw === null) {
+                    updates[key] = null;
+                    return;
+                  }
+                  if (typeof raw === "string") {
+                    updates[key] = raw;
+                    return;
+                  }
+                }
+              };
+
+              setIfPresent("openaiApiKey", ["openaiApiKey", "openai_api_key", "openaiKey", "openai_key"]);
+              setIfPresent("anthropicApiKey", [
+                "anthropicApiKey",
+                "anthropic_api_key",
+                "anthropicKey",
+                "anthropic_key",
+              ]);
+              setIfPresent("openrouterApiKey", [
+                "openrouterApiKey",
+                "openrouter_api_key",
+                "openrouterKey",
+                "openrouter_key",
+              ]);
+
+              const saved = writeByokKeys(updates as any);
+              const nextEffectiveOpenai = saved.openaiApiKey ?? process.env.OPENAI_API_KEY ?? null;
+              const nextEffectiveAnthropic =
+                saved.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? null;
+              const nextEffectiveOpenrouter =
+                saved.openrouterApiKey ?? process.env.OPENROUTER_API_KEY ?? null;
+
+              sendJson(res, 200, {
+                ok: true,
+                updatedAt: saved.updatedAt,
+                providers: {
+                  openai: toProvider({
+                    storedValue: saved.openaiApiKey,
+                    envValue: process.env.OPENAI_API_KEY,
+                    effective: nextEffectiveOpenai,
+                  }),
+                  anthropic: toProvider({
+                    storedValue: saved.anthropicApiKey,
+                    envValue: process.env.ANTHROPIC_API_KEY,
+                    effective: nextEffectiveAnthropic,
+                  }),
+                  openrouter: toProvider({
+                    storedValue: saved.openrouterApiKey,
+                    envValue: process.env.OPENROUTER_API_KEY,
+                    effective: nextEffectiveOpenrouter,
+                  }),
+                },
+              });
+            } catch (err: unknown) {
+              sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+            }
+            return true;
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            updatedAt: stored?.updatedAt ?? null,
+            providers: {
+              openai: toProvider({
+                storedValue: stored?.openaiApiKey,
+                envValue: process.env.OPENAI_API_KEY,
+                effective: effectiveOpenai,
+              }),
+              anthropic: toProvider({
+                storedValue: stored?.anthropicApiKey,
+                envValue: process.env.ANTHROPIC_API_KEY,
+                effective: effectiveAnthropic,
+              }),
+              openrouter: toProvider({
+                storedValue: stored?.openrouterApiKey,
+                envValue: process.env.OPENROUTER_API_KEY,
+                effective: effectiveOpenrouter,
+              }),
+            },
+          });
+          return true;
+        }
+
+        case "settings/byok/health": {
+          let agentId =
+            searchParams.get("agentId") ??
+            searchParams.get("agent_id") ??
+            "";
+          agentId = agentId.trim();
+
+          if (!agentId) {
+            try {
+              const agents = await listOpenClawAgents();
+              const defaultAgent =
+                agents.find((entry) => Boolean(entry.isDefault)) ?? agents[0] ?? null;
+              const candidate =
+                defaultAgent && typeof defaultAgent.id === "string" ? defaultAgent.id.trim() : "";
+              if (candidate) agentId = candidate;
+            } catch {
+              // ignore
+            }
+          }
+          if (!agentId) agentId = "main";
+
+          const providers: Record<string, unknown> = {};
+          for (const provider of ["openai", "anthropic", "openrouter"] as const) {
+            try {
+              const models = await listOpenClawProviderModels({ agentId, provider });
+              providers[provider] = {
+                ok: true,
+                modelCount: models.length,
+                sample: models.slice(0, 4).map((model) => model.key),
+              };
+            } catch (err: unknown) {
+              providers[provider] = {
+                ok: false,
+                error: safeErrorMessage(err),
+              };
+            }
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            agentId,
+            providers,
           });
           return true;
         }

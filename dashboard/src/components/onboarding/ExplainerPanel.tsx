@@ -58,6 +58,7 @@ const ladderFlow = [
 ] as const;
 
 const SETUP_COMMAND = 'openclaw plugins install @useorgx/openclaw-plugin';
+const DEMO_MODE_KEY = 'orgx.demo_mode';
 
 function keySourceLabel(source: OnboardingState['keySource']): string {
   switch (source) {
@@ -275,13 +276,36 @@ export function ExplainerPanel({
         variants={rise}
         className="mt-4 flex items-center justify-between border-t border-white/[0.05] px-6 py-4 sm:px-8"
       >
-        <button
-          type="button"
-          onClick={onContinueWithoutOrgX}
-          className="text-[12px] text-white/35 transition hover:text-white/60"
-        >
-          Continue without OrgX
-        </button>
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                window.localStorage.setItem(DEMO_MODE_KEY, '1');
+              } catch {
+                // ignore
+              }
+              onContinueWithoutOrgX();
+            }}
+            className="text-left text-[12px] text-white/35 transition hover:text-white/60"
+          >
+            Explore demo dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                window.localStorage.removeItem(DEMO_MODE_KEY);
+              } catch {
+                // ignore
+              }
+              onContinueWithoutOrgX();
+            }}
+            className="text-left text-[12px] text-white/25 transition hover:text-white/55"
+          >
+            Continue offline
+          </button>
+        </div>
         <a
           href={state.docsUrl}
           target="_blank"
