@@ -11,7 +11,24 @@ const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_ATTEMPTS = 2;
 const DEFAULT_POLL_INTERVAL_SEC = 10;
 const DEFAULT_HEARTBEAT_SEC = 45;
-const DEFAULT_ACTIVITY_TIMEOUT_MS = 12_000;
+
+async function createOrgXClient({ apiKey, baseUrl, userId }) {
+  // Orchestration uses the shared OrgXClient implementation from the built plugin.
+  // This keeps headers/timeouts consistent and prevents duplicate fetch logic in this script.
+  try {
+    const mod = await import(new URL("../dist/api.js", import.meta.url).href);
+    const OrgXClient = mod?.OrgXClient;
+    if (!OrgXClient) {
+      throw new Error("dist/api.js does not export OrgXClient");
+    }
+    return new OrgXClient(apiKey, baseUrl, userId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to load OrgXClient. Run "npm run build:core" first. (${message})`
+    );
+  }
+}
 
 const DEFAULT_TECHNICAL_WORKSTREAM_IDS = [
   "8832bb2b-f888-4119-a29c-31be9d61ac4f", // Agent Launcher & Runtime
@@ -389,85 +406,22 @@ export function buildCodexPrompt({
   ].join("\n");
 }
 
-async function requestJson({
-  method,
-  url,
-  apiKey,
-  userId,
-  body,
-  timeoutMs = DEFAULT_ACTIVITY_TIMEOUT_MS,
-}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    };
-    if (userId) {
-      headers["X-Orgx-User-Id"] = userId;
-    }
-
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-
-    const text = await response.text().catch(() => "");
-    let parsed = {};
-    if (text) {
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = { raw: text };
-      }
-    }
-
-    if (!response.ok) {
-      const message =
-        parsed?.message ||
-        parsed?.error ||
-        parsed?.raw ||
-        `${response.status} ${response.statusText}`;
-      throw new Error(String(message));
-    }
-
-    return parsed;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function listEntities({
-  baseUrl,
-  apiKey,
-  userId,
+  client,
   type,
   initiativeId,
   limit = 1_500,
 }) {
-  const query = new URLSearchParams({
-    type,
+  const response = await client.listEntities(type, {
     initiative_id: initiativeId,
-    limit: String(limit),
-  }).toString();
-  const url = `${baseUrl}/api/entities?${query}`;
-  const response = await requestJson({
-    method: "GET",
-    url,
-    apiKey,
-    userId,
+    limit,
   });
-  const rows = Array.isArray(response.data) ? response.data : [];
+  const rows = Array.isArray(response?.data) ? response.data : [];
   return rows;
 }
 
-function createReporter({
-  baseUrl,
-  apiKey,
-  userId,
+export function createReporter({
+  client,
   initiativeId,
   sourceClient,
   correlationId,
@@ -516,13 +470,7 @@ function createReporter({
       return { ok: true, dry_run: true, payload };
     }
 
-    const response = await requestJson({
-      method: "POST",
-      url: `${baseUrl}/api/client/live/activity`,
-      apiKey,
-      userId,
-      body: payload,
-    });
+    const response = await client.emitActivity(payload);
     if (response?.run_id) {
       runId = response.run_id;
     }
@@ -540,13 +488,7 @@ function createReporter({
       return { ok: true, dry_run: true, payload };
     }
 
-    const response = await requestJson({
-      method: "POST",
-      url: `${baseUrl}/api/client/live/changesets/apply`,
-      apiKey,
-      userId,
-      body: payload,
-    });
+    const response = await client.applyChangeset(payload);
     if (response?.run_id) {
       runId = response.run_id;
     }
@@ -681,13 +623,7 @@ function createReporter({
       if (dryRun) {
         response = { ok: true, dry_run: true, payload };
       } else {
-        response = await requestJson({
-          method: "PATCH",
-          url: `${baseUrl}/api/entities`,
-          apiKey,
-          userId,
-          body: payload,
-        });
+        response = await client.updateEntity("workstream", workstreamId, { status });
       }
     }
 
@@ -966,10 +902,10 @@ export async function main({
     pickString(args.state_file, join(logsDir, "job-state.json"))
   );
 
+  const client = await createOrgXClient({ apiKey, baseUrl, userId });
+
   const reporter = createReporter({
-    baseUrl,
-    apiKey,
-    userId,
+    client,
     initiativeId,
     sourceClient,
     correlationId,
@@ -985,25 +921,19 @@ export async function main({
 
   const [workstreams, milestones, tasks] = await Promise.all([
     listEntities({
-      baseUrl,
-      apiKey,
-      userId,
+      client,
       type: "workstream",
       initiativeId,
       limit: 500,
     }),
     listEntities({
-      baseUrl,
-      apiKey,
-      userId,
+      client,
       type: "milestone",
       initiativeId,
       limit: 4000,
     }),
     listEntities({
-      baseUrl,
-      apiKey,
-      userId,
+      client,
       type: "task",
       initiativeId,
       limit: 4000,
