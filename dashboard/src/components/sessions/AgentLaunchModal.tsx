@@ -52,6 +52,21 @@ type AgentCatalogResponse = {
   agents: OpenClawCatalogAgent[];
 };
 
+type UpgradeActions = {
+  checkout?: string;
+  portal?: string;
+  pricing?: string;
+};
+
+type LaunchErrorPayload = {
+  ok?: boolean;
+  error?: string;
+  code?: string;
+  requiredPlan?: string;
+  currentPlan?: string;
+  actions?: UpgradeActions;
+};
+
 function toStatusBadge(status: string | null) {
   const normalized = (status ?? '').toLowerCase();
   if (normalized === 'active') return { label: 'Active', color: colors.lime, bg: 'rgba(191,255,0,0.12)' };
@@ -104,6 +119,8 @@ export function AgentLaunchModal({
   const [selectedProvider, setSelectedProvider] = useState<string>('auto');
   const [message, setMessage] = useState<string>('');
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [upgradeActions, setUpgradeActions] = useState<UpgradeActions | null>(null);
+  const [requiredPlan, setRequiredPlan] = useState<string>('starter');
   const [isLaunching, setIsLaunching] = useState(false);
 
   const selectedInitiative = useMemo(() => {
@@ -160,6 +177,8 @@ export function AgentLaunchModal({
   useEffect(() => {
     if (!open) return;
     setLaunchError(null);
+    setUpgradeActions(null);
+    setRequiredPlan('starter');
   }, [open]);
 
   useEffect(() => {
@@ -181,9 +200,37 @@ export function AgentLaunchModal({
 
   const canLaunch = Boolean(selectedAgentId.trim()) && Boolean(selectedInitiativeId.trim());
 
+  const openCheckout = async () => {
+    const checkoutPath = upgradeActions?.checkout ?? '/orgx/api/billing/checkout';
+    const planId = requiredPlan && requiredPlan.trim().length > 0 ? requiredPlan.trim() : 'starter';
+    const res = await fetch(checkoutPath, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId, billingCycle: 'monthly' }),
+    });
+    const payload = (await res.json().catch(() => null)) as { ok?: boolean; data?: { url?: string | null }; url?: string | null; error?: string } | null;
+    const url = payload?.data?.url ?? payload?.url ?? null;
+    if (!url) {
+      throw new Error(payload?.error ?? 'Checkout unavailable');
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const openBillingPortal = async () => {
+    const portalPath = upgradeActions?.portal ?? '/orgx/api/billing/portal';
+    const res = await fetch(portalPath, { method: 'POST' });
+    const payload = (await res.json().catch(() => null)) as { ok?: boolean; data?: { url?: string | null }; url?: string | null; error?: string } | null;
+    const url = payload?.data?.url ?? payload?.url ?? null;
+    if (!url) {
+      throw new Error(payload?.error ?? 'Billing portal unavailable');
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const launch = async () => {
     if (!canLaunch || isLaunching) return;
     setLaunchError(null);
+    setUpgradeActions(null);
     setIsLaunching(true);
     try {
       const payload = {
@@ -209,8 +256,12 @@ export function AgentLaunchModal({
       const res = await fetch(`/orgx/api/agents/launch?${query.toString()}`, {
         method: 'POST',
       });
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      const json = (await res.json().catch(() => null)) as LaunchErrorPayload | null;
       if (!res.ok || !json?.ok) {
+        if (json?.code === 'upgrade_required') {
+          setUpgradeActions(json.actions ?? null);
+          setRequiredPlan(json.requiredPlan ?? 'starter');
+        }
         throw new Error(json?.error ?? `Launch failed (${res.status})`);
       }
       onClose();
@@ -477,7 +528,37 @@ export function AgentLaunchModal({
 
           {launchError && (
             <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-[12px] text-rose-100">
-              {launchError}
+              <div className="flex flex-col gap-2">
+                <div>{launchError}</div>
+                {upgradeActions && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void openCheckout().catch((err) => setLaunchError(err instanceof Error ? err.message : 'Checkout failed'))}
+                      className="rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
+                    >
+                      Upgrade
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openBillingPortal().catch((err) => setLaunchError(err instanceof Error ? err.message : 'Portal failed'))}
+                      className="rounded-full border border-white/[0.14] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                    >
+                      Billing portal
+                    </button>
+                    {upgradeActions.pricing && (
+                      <a
+                        href={upgradeActions.pricing}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-white/60 underline decoration-white/20 hover:text-white/80"
+                      >
+                        View pricing
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

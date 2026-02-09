@@ -32,6 +32,8 @@ import type {
   LiveActivityItem,
   SessionTreeResponse,
   HandoffSummary,
+  BillingStatus,
+  BillingCheckoutRequest,
 } from "./types.js";
 import {
   formatStatus,
@@ -87,6 +89,24 @@ function maskSecret(value: string | null): string | null {
   if (!trimmed) return null;
   if (trimmed.length <= 8) return `${trimmed[0]}…${trimmed.slice(-1)}`;
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
+function modelImpliesByok(model: string | null): boolean {
+  const lower = (model ?? "").trim().toLowerCase();
+  if (!lower) return false;
+  return (
+    lower.includes("openrouter") ||
+    lower.includes("anthropic") ||
+    lower.includes("openai")
+  );
+}
+
+async function fetchBillingStatusSafe(client: OrgXClient): Promise<BillingStatus | null> {
+  try {
+    return await client.getBillingStatus();
+  } catch {
+    return null;
+  }
 }
 
 function resolveByokEnvOverrides(): Record<string, string> {
@@ -3112,6 +3132,44 @@ export function createHttpHandler(
               "")
               .trim() || null;
 
+          let requiresPremiumLaunch = Boolean(provider) || modelImpliesByok(requestedModel);
+          if (!requiresPremiumLaunch) {
+            try {
+              const agents = await listOpenClawAgents();
+              const agentEntry =
+                agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
+                null;
+              const agentModel =
+                agentEntry && typeof agentEntry.model === "string"
+                  ? agentEntry.model
+                  : null;
+              requiresPremiumLaunch = modelImpliesByok(agentModel);
+            } catch {
+              // ignore
+            }
+          }
+
+          if (requiresPremiumLaunch) {
+            const billingStatus = await fetchBillingStatusSafe(client);
+            if (billingStatus && billingStatus.plan === "free") {
+              const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+              sendJson(res, 402, {
+                ok: false,
+                code: "upgrade_required",
+                error:
+                  "BYOK agent launch requires a paid OrgX plan. Upgrade, then retry.",
+                currentPlan: billingStatus.plan,
+                requiredPlan: "starter",
+                actions: {
+                  checkout: "/orgx/api/billing/checkout",
+                  portal: "/orgx/api/billing/portal",
+                  pricing: pricingUrl,
+                },
+              });
+              return true;
+            }
+          }
+
           const messageInput =
             (pickString(payload, ["message", "prompt", "text"]) ??
               searchParams.get("message") ??
@@ -3281,6 +3339,48 @@ export function createHttpHandler(
               "")
               .trim() || null;
 
+          let requiresPremiumRestart =
+            Boolean(providerOverride) ||
+            modelImpliesByok(requestedModel) ||
+            modelImpliesByok(record.model ?? null);
+          if (!requiresPremiumRestart) {
+            try {
+              const agents = await listOpenClawAgents();
+              const agentEntry =
+                agents.find(
+                  (entry) => String(entry.id ?? "").trim() === record.agentId
+                ) ?? null;
+              const agentModel =
+                agentEntry && typeof agentEntry.model === "string"
+                  ? agentEntry.model
+                  : null;
+              requiresPremiumRestart = modelImpliesByok(agentModel);
+            } catch {
+              // ignore
+            }
+          }
+
+          if (requiresPremiumRestart) {
+            const billingStatus = await fetchBillingStatusSafe(client);
+            if (billingStatus && billingStatus.plan === "free") {
+              const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+              sendJson(res, 402, {
+                ok: false,
+                code: "upgrade_required",
+                error:
+                  "BYOK agent launch requires a paid OrgX plan. Upgrade, then retry.",
+                currentPlan: billingStatus.plan,
+                requiredPlan: "starter",
+                actions: {
+                  checkout: "/orgx/api/billing/checkout",
+                  portal: "/orgx/api/billing/portal",
+                  pricing: pricingUrl,
+                },
+              });
+              return true;
+            }
+          }
+
           const sessionId = randomUUID();
           const message = messageOverride ?? record.message ?? `Restart agent ${record.agentId}`;
 
@@ -3368,6 +3468,42 @@ export function createHttpHandler(
               error: "agentId must be a simple identifier (letters, numbers, _ or -).",
             });
             return true;
+          }
+
+          let requiresPremiumAutoContinue = false;
+          try {
+            const agents = await listOpenClawAgents();
+            const agentEntry =
+              agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
+              null;
+            const agentModel =
+              agentEntry && typeof agentEntry.model === "string"
+                ? agentEntry.model
+                : null;
+            requiresPremiumAutoContinue = modelImpliesByok(agentModel);
+          } catch {
+            // ignore
+          }
+
+          if (requiresPremiumAutoContinue) {
+            const billingStatus = await fetchBillingStatusSafe(client);
+            if (billingStatus && billingStatus.plan === "free") {
+              const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+              sendJson(res, 402, {
+                ok: false,
+                code: "upgrade_required",
+                error:
+                  "Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.",
+                currentPlan: billingStatus.plan,
+                requiredPlan: "starter",
+                actions: {
+                  checkout: "/orgx/api/billing/checkout",
+                  portal: "/orgx/api/billing/portal",
+                  pricing: pricingUrl,
+                },
+              });
+              return true;
+            }
           }
 
           const tokenBudget =
@@ -3983,6 +4119,70 @@ export function createHttpHandler(
               tickMs: AUTO_CONTINUE_TICK_MS,
             },
           });
+          return true;
+        }
+
+        case "billing/status": {
+          if (method !== "GET") {
+            sendJson(res, 405, { ok: false, error: "Method not allowed" });
+            return true;
+          }
+
+          try {
+            const status = await client.getBillingStatus();
+            sendJson(res, 200, { ok: true, data: status });
+          } catch (err: unknown) {
+            sendJson(res, 200, { ok: false, error: safeErrorMessage(err) });
+          }
+          return true;
+        }
+
+        case "billing/checkout": {
+          if (method !== "POST") {
+            sendJson(res, 405, { ok: false, error: "Method not allowed" });
+            return true;
+          }
+
+          const basePricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+          try {
+            const payload = await parseJsonRequest(req);
+            const planIdRaw =
+              (pickString(payload, ["planId", "plan_id", "plan"]) ?? "starter").trim().toLowerCase();
+            const billingCycleRaw =
+              (pickString(payload, ["billingCycle", "billing_cycle"]) ?? "monthly").trim().toLowerCase();
+
+            const planId =
+              planIdRaw === "team" || planIdRaw === "enterprise" ? planIdRaw : "starter";
+            const billingCycle = billingCycleRaw === "annual" ? "annual" : "monthly";
+
+            const result = await client.createBillingCheckout({
+              planId,
+              billingCycle,
+            } satisfies BillingCheckoutRequest);
+
+            const url = result?.url ?? result?.checkout_url ?? null;
+            sendJson(res, 200, { ok: true, data: { url: url ?? basePricingUrl } });
+          } catch (err: unknown) {
+            // If the remote billing endpoints are not deployed yet, degrade gracefully.
+            sendJson(res, 200, { ok: true, data: { url: basePricingUrl } });
+          }
+          return true;
+        }
+
+        case "billing/portal": {
+          if (method !== "POST") {
+            sendJson(res, 405, { ok: false, error: "Method not allowed" });
+            return true;
+          }
+
+          const basePricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+          try {
+            const result = await client.createBillingPortal();
+            const url = result?.url ?? null;
+            sendJson(res, 200, { ok: true, data: { url: url ?? basePricingUrl } });
+          } catch (err: unknown) {
+            sendJson(res, 200, { ok: true, data: { url: basePricingUrl } });
+          }
           return true;
         }
 

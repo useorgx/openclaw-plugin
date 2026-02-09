@@ -172,6 +172,31 @@ export interface SyncResponse {
 }
 
 // =============================================================================
+// BILLING (API-KEY CLIENTS)
+// =============================================================================
+
+export type BillingPlan = "free" | "starter" | "team" | "enterprise";
+
+export interface BillingStatus {
+  plan: BillingPlan;
+  hasSubscription: boolean;
+  subscriptionStatus: string | null;
+  subscriptionCurrentPeriodEnd: string | null;
+}
+
+export type BillingCycle = "monthly" | "annual";
+
+export interface BillingCheckoutRequest {
+  planId: Exclude<BillingPlan, "free">;
+  billingCycle?: BillingCycle;
+}
+
+export interface BillingUrlResult {
+  url: string | null;
+  checkout_url?: string | null;
+}
+
+// =============================================================================
 // RUN PHASES + HANDOFF CONTINUITY
 // =============================================================================
 
