@@ -1,6 +1,9 @@
 {
   "campaign_name": "OrgX OpenClaw Plugin Launch (Saturday Launch)",
   "objective": "By 2026-02-14, drive 200 landing-page visits, 50 plugin installs, and 10 paid conversions to the $99/mo BYOK plan from OpenClaw users.",
+  "positioning_one_liner": "Armor + Mission Control for OpenClaw agents: harness the chaos, press continue, ship.",
+  "creative_primary_metaphor": "OpenClaw is the beast. OrgX is the harness/armor/cockpit.",
+  "tone": "High-signal technical credibility with a playful, character-driven story. Avoid generic SaaS vibes.",
   "target_audience": {
     "primary_icp": "Technical founders, indie hackers, and engineering leads experimenting with agentic workflows in OpenClaw who want control and visibility as their agent runs scale.",
     "pain_points": [
@@ -12,14 +15,28 @@
   },
   "messaging_pillars": [
     {
-      "pillar": "Mission Control: see the work, not the chaos",
+      "pillar": "Put a harness on the Claw (Mission Control: see the work, not the chaos)",
       "proof_points": [
         "Live dashboard shows Initiative -> Workstream -> Milestone -> Task hierarchy with progress and next-up queue.",
         "Real-time activity stream keeps execution state visible while agents run."
       ]
     },
     {
-      "pillar": "Quality gates and model routing built-in",
+      "pillar": "Press Continue: continuous execution without babysitting",
+      "proof_points": [
+        "Dependency-aware next-up queue keeps execution moving through a chain of tasks.",
+        "Run control shortcuts (pause/resume/cancel/checkpoint/rollback) let humans steer without killing momentum."
+      ]
+    },
+    {
+      "pillar": "Crew you can actually manage (agent characters + roles)",
+      "proof_points": [
+        "Use existing OrgX character set (Launch Captain, Control Tower, Engineering Autopilot, etc.) as the narrative wrapper for real product capabilities.",
+        "Posts anchor the story to a real artifact: Mission Control GIF + live dashboard screenshots."
+      ]
+    },
+    {
+      "pillar": "Quality gates and model routing built-in (real ops, not vibes)",
       "proof_points": [
         "Spawn checks can enforce rate limits and quality thresholds before sub-agent execution.",
         "Automatic tiered routing (local/sonnet/opus) reduces cost and improves output quality for the task at hand."
@@ -45,6 +62,17 @@
     "devto",
     "docs"
   ],
+  "primary_channel": "twitter",
+  "creative_assets_available": [
+    "docs/launch/assets/mission-control-2026-02-09.gif",
+    "dashboard/public/brand/launch-captain.png",
+    "dashboard/public/brand/control-tower.png",
+    "dashboard/public/brand/engineering-autopilot.png",
+    "dashboard/public/brand/design-codex.png",
+    "dashboard/public/brand/product-orchestrator.png",
+    "dashboard/public/brand/pipeline-intelligence.png",
+    "dashboard/public/brand/openclaw-mark.svg"
+  ],
   "success_metrics": [
     { "metric": "Landing page visits", "target": "200 visits by 2026-02-14" },
     { "metric": "Plugin installs", "target": "50 installs by 2026-02-14" },
@@ -56,11 +84,11 @@
   ],
   "hypotheses": [
     { "hypothesis": "A demo-first thread (with screenshot/GIF) converts >= 5% of link clicks into plugin installs." },
-    { "hypothesis": "A build-in-public thread drives >= 30% of total launch-day traffic with higher engagement than the announcement thread." }
+    { "hypothesis": "A build-in-public thread drives >= 30% of total launch-day traffic with higher engagement than the announcement thread." },
+    { "hypothesis": "A character-led story thread (harness/armor metaphor + crew lineup) increases engagement rate by >= 25% vs. a straight feature list." }
   ],
   "assumptions": [
     "Primary CTA landing page will be https://useorgx.com/integrations/openclaw",
     "OpenClaw plugin package is installable via `openclaw plugins install @useorgx/openclaw-plugin` or docs will be adjusted."
   ]
 }
-
