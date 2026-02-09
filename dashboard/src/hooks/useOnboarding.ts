@@ -210,7 +210,7 @@ export function useOnboarding() {
   }, [openPairingWindow]);
 
   const submitManualKey = useCallback(
-    async (apiKey: string, userId?: string) => {
+    async (apiKey: string) => {
       setIsSubmittingManual(true);
       try {
         const trimmedInput = apiKey.trim();
@@ -231,9 +231,6 @@ export function useOnboarding() {
             'X-OrgX-Api-Key': candidate,
             Authorization: `Bearer ${candidate}`,
           };
-          if (userId && userId.trim().length > 0) {
-            headers['X-OrgX-User-Id'] = userId.trim();
-          }
 
           const payload = await readJson<OnboardingState>(
             fetch('/orgx/api/onboarding/manual-key', {
@@ -241,7 +238,6 @@ export function useOnboarding() {
               headers,
               body: JSON.stringify({
                 apiKey: candidate,
-                userId,
               }),
             })
           );

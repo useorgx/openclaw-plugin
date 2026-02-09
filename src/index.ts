@@ -34,6 +34,11 @@ import {
   saveAuthStore,
 } from "./auth-store.js";
 import {
+  clearPersistedSnapshot,
+  readPersistedSnapshot,
+  writePersistedSnapshot,
+} from "./snapshot-store.js";
+import {
   appendToOutbox,
   readOutbox,
   readOutboxSummary,
@@ -123,6 +128,26 @@ interface ResolvedApiKey {
 
 const DEFAULT_BASE_URL = "https://www.useorgx.com";
 const DEFAULT_DOCS_URL = "https://orgx.mintlify.site/guides/openclaw-plugin-setup";
+
+function isUserScopedApiKey(apiKey: string): boolean {
+  return apiKey.trim().toLowerCase().startsWith("oxk_");
+}
+
+function resolveRuntimeUserId(
+  apiKey: string,
+  candidates: Array<string | null | undefined>
+): string {
+  if (isUserScopedApiKey(apiKey)) {
+    return "";
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+  }
+  return "";
+}
 
 function normalizeHost(value: string): string {
   return value.trim().toLowerCase().replace(/^\[|\]$/g, "");
@@ -282,12 +307,13 @@ function resolveConfig(
   const apiKey = apiKeyResolution.value;
 
   // Resolve user ID for X-Orgx-User-Id header
-  const userId =
-    pluginConf.userId?.trim() ||
-    process.env.ORGX_USER_ID?.trim() ||
-    input.persistedUserId?.trim() ||
-    openclaw.userId ||
-    readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m);
+  const userId = resolveRuntimeUserId(apiKey, [
+    pluginConf.userId,
+    process.env.ORGX_USER_ID,
+    input.persistedUserId,
+    openclaw.userId,
+    readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m),
+  ]);
 
   const baseUrl = normalizeBaseUrl(
     pluginConf.baseUrl || process.env.ORGX_BASE_URL || openclaw.baseUrl || DEFAULT_BASE_URL
@@ -481,6 +507,24 @@ function toReportingPhase(phase: string, progressPct?: number): ReportingPhase {
 let cachedSnapshot: OrgSnapshot | null = null;
 let lastSnapshotAt = 0;
 
+function updateCachedSnapshot(snapshot: OrgSnapshot): void {
+  cachedSnapshot = snapshot;
+  lastSnapshotAt = Date.now();
+  try {
+    writePersistedSnapshot(snapshot);
+  } catch {
+    // best effort
+  }
+}
+
+function hydrateCachedSnapshot(): void {
+  const persisted = readPersistedSnapshot();
+  if (!persisted?.snapshot) return;
+  cachedSnapshot = persisted.snapshot;
+  const ts = Date.parse(persisted.updatedAt);
+  lastSnapshotAt = Number.isFinite(ts) ? ts : 0;
+}
+
 // =============================================================================
 // PLUGIN ENTRY — DEFAULT EXPORT
 // =============================================================================
@@ -510,6 +554,8 @@ export default function register(api: PluginAPI): void {
       "[orgx] No API key. Set plugins.entries.orgx.config.apiKey, ORGX_API_KEY env, or ~/Code/orgx/orgx/.env.local"
     );
   }
+
+  hydrateCachedSnapshot();
 
   const client = new OrgXClient(config.apiKey, config.baseUrl, config.userId);
   let onboardingState: OnboardingState = {
@@ -693,9 +739,7 @@ export default function register(api: PluginAPI): void {
     const nextApiKey = input.apiKey.trim();
     config.apiKey = nextApiKey;
     config.apiKeySource = "persisted";
-    if (typeof input.userId === "string" && input.userId.trim().length > 0) {
-      config.userId = input.userId.trim();
-    }
+    config.userId = resolveRuntimeUserId(nextApiKey, [input.userId, config.userId]);
 
     client.setCredentials({
       apiKey: config.apiKey,
@@ -1123,8 +1167,7 @@ export default function register(api: PluginAPI): void {
       }
 
       try {
-        cachedSnapshot = await client.getOrgSnapshot();
-        lastSnapshotAt = Date.now();
+        updateCachedSnapshot(await client.getOrgSnapshot());
         updateOnboardingState({
           status: "connected",
           hasApiKey: true,
@@ -1387,20 +1430,19 @@ export default function register(api: PluginAPI): void {
     const probeClient = new OrgXClient(
       nextKey,
       config.baseUrl,
-      input.userId?.trim() || config.userId
+      resolveRuntimeUserId(nextKey, [input.userId, config.userId])
     );
     const snapshot = await probeClient.getOrgSnapshot();
 
     setRuntimeApiKey({
       apiKey: nextKey,
       source: "manual",
-      userId: input.userId?.trim() || null,
+      userId: resolveRuntimeUserId(nextKey, [input.userId, config.userId]) || null,
       workspaceName: onboardingState.workspaceName,
       keyPrefix: null,
     });
 
-    cachedSnapshot = snapshot;
-    lastSnapshotAt = Date.now();
+    updateCachedSnapshot(snapshot);
 
     return updateOnboardingState({
       status: "connected",
@@ -1427,8 +1469,10 @@ export default function register(api: PluginAPI): void {
 
     clearPairingState();
     clearPersistedApiKey();
+    clearPersistedSnapshot();
     config.apiKey = "";
-    client.setCredentials({ apiKey: "" });
+    config.userId = "";
+    client.setCredentials({ apiKey: "", userId: "" });
     cachedSnapshot = null;
     lastSnapshotAt = 0;
 
