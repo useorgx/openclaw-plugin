@@ -3,6 +3,11 @@
 This checklist covers launch verification scenarios 06, 07, 08, and 08b for
 the OpenClaw plugin billing + paywall integration.
 
+## Paywall Packaging (BYOK Launch)
+- Baseline plan: `starter` (monthly $98 in Stripe, marketed as ~$99 baseline).
+- Premium options: `team` ($298/mo) and `enterprise` ($1000/mo).
+- Gating rule: BYOK agent launch + auto-continue require plan >= `starter`.
+
 ## Prerequisites
 - User-scoped OrgX API key (`ORGX_API_KEY=oxk_...`)
 - Optional: `ORGX_BASE_URL` (defaults to `https://www.useorgx.com`)
