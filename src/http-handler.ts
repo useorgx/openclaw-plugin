@@ -3921,6 +3921,7 @@ export function createHttpHandler(
 
       if (
         method !== "GET" &&
+        method !== "HEAD" &&
         !(runCheckpointsMatch && method === "POST") &&
         !(runCheckpointRestoreMatch && method === "POST") &&
         !(runActionMatch && method === "POST") &&
@@ -3955,6 +3956,18 @@ export function createHttpHandler(
               // use null snapshot
             }
           }
+          if (method === "HEAD") {
+            // The dashboard uses a HEAD probe to determine connection state.
+            // Mirror the GET semantics (connected vs not) via status code,
+            // but omit a response body.
+            res.writeHead(snapshot ? 200 : 503, {
+              ...SECURITY_HEADERS,
+              ...CORS_HEADERS,
+            });
+            res.end();
+            return true;
+          }
+
           sendJson(res, 200, formatStatus(snapshot));
           return true;
         }
