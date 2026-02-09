@@ -428,6 +428,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
 
   const hasSessionFilter = selectedRunIdSet.size > 0;
+  const filteredSession = useMemo(() => {
+    if (!hasSessionFilter) return null;
+    for (const candidate of selectedRunIdSet) {
+      const match = sessions.find((session) => session.runId === candidate || session.id === candidate);
+      if (match) return match;
+    }
+    return null;
+  }, [hasSessionFilter, selectedRunIdSet, sessions]);
 
   const { filtered, truncatedCount } = useMemo(() => {
     const visible: DecoratedActivityItem[] = [];
@@ -830,11 +838,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               />
             </span>
 
-            {hasSessionFilter && (
-              <button onClick={onClearSelection} className="chip text-[11px]">
-                Session filtered{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
-              </button>
-            )}
+	            {hasSessionFilter && (
+	              <button
+	                onClick={onClearSelection}
+	                className="chip inline-flex items-center gap-2 text-[11px]"
+	                aria-label="Clear session filter"
+	              >
+	                <AgentAvatar
+	                  name={filteredSession?.agentName ?? 'OrgX'}
+	                  hint={selectedSessionLabel ?? null}
+	                  size="xs"
+	                />
+	                <span className="min-w-0 truncate">
+	                  Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+	                </span>
+	                <span className="text-white/35">Clear</span>
+	              </button>
+	            )}
           </div>
 
           <div className="flex items-center gap-1.5">
