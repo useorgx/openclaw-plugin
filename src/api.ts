@@ -25,6 +25,9 @@ import type {
   CheckpointSummary,
   RestoreRequest,
   DelegationPreflightResult,
+  BillingStatus,
+  BillingCheckoutRequest,
+  BillingUrlResult,
 } from "./types.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -332,6 +335,40 @@ export class OrgXClient {
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
     return this.get(`/api/entities?${params.toString()}`);
+  }
+
+  // ===========================================================================
+  // Billing (API-key clients)
+  // ===========================================================================
+
+  async getBillingStatus(): Promise<BillingStatus> {
+    const response = await this.get<{ ok?: boolean; data?: BillingStatus } | BillingStatus>(
+      "/api/client/billing/status"
+    );
+    if (response && typeof response === "object" && "data" in response && response.data) {
+      return response.data as BillingStatus;
+    }
+    return response as BillingStatus;
+  }
+
+  async createBillingCheckout(payload: BillingCheckoutRequest): Promise<BillingUrlResult> {
+    const response = await this.post<
+      BillingUrlResult | { ok?: boolean; data?: BillingUrlResult }
+    >("/api/client/billing/checkout", payload);
+    if (response && typeof response === "object" && "data" in response && response.data) {
+      return response.data as BillingUrlResult;
+    }
+    return response as BillingUrlResult;
+  }
+
+  async createBillingPortal(): Promise<BillingUrlResult> {
+    const response = await this.post<
+      BillingUrlResult | { ok?: boolean; data?: BillingUrlResult }
+    >("/api/client/billing/portal", {});
+    if (response && typeof response === "object" && "data" in response && response.data) {
+      return response.data as BillingUrlResult;
+    }
+    return response as BillingUrlResult;
   }
 
   // ===========================================================================
