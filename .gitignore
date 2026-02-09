@@ -54,6 +54,9 @@ jspm_packages/
 # Output of 'npm pack'
 *.tgz
 
+# QA capture scratch (mp4/gif are committed; frame directories are not)
+docs/qa/**/flow-*-frames/
+
 # Yarn Integrity file
 .yarn-integrity
 
