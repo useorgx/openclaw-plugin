@@ -50,7 +50,7 @@ import {
   toLocalLiveInitiatives,
   toLocalSessionTree,
 } from "./local-openclaw.js";
-import { readAllOutboxItems, readOutboxSummary } from "./outbox.js";
+import { defaultOutboxAdapter, type OutboxAdapter } from "./adapters/outbox.js";
 import { readAgentContexts, upsertAgentContext } from "./agent-context-store.js";
 import type { AgentLaunchContext } from "./agent-context-store.js";
 import {
@@ -2294,11 +2294,13 @@ export function createHttpHandler(
   client: OrgXClient,
   getSnapshot: () => OrgSnapshot | null,
   onboarding: OnboardingController,
-  diagnostics?: DiagnosticsProvider
+  diagnostics?: DiagnosticsProvider,
+  adapters?: { outbox?: OutboxAdapter }
 ) {
   const dashboardEnabled =
     (config as OrgXConfig & { dashboardEnabled?: boolean }).dashboardEnabled ??
     true;
+  const outboxAdapter = adapters?.outbox ?? defaultOutboxAdapter;
 
   // ---------------------------------------------------------------------------
   // Initiative Auto-Continue (Continuous Execution & Auto-Completion)
@@ -3983,7 +3985,7 @@ export function createHttpHandler(
               return true;
             }
 
-            const outbox = await readOutboxSummary();
+            const outbox = await outboxAdapter.readSummary();
             sendJson(res, 200, {
               ok: true,
               status: "ok",
@@ -4566,7 +4568,7 @@ export function createHttpHandler(
               }
             }
             if (!outboxStatus) {
-              const outbox = await readOutboxSummary();
+              const outbox = await outboxAdapter.readSummary();
               outboxStatus = {
                 pendingTotal: outbox.pendingTotal,
                 pendingByQueue: outbox.pendingByQueue,
@@ -4818,7 +4820,7 @@ export function createHttpHandler(
 
           // include locally buffered events so offline-generated actions are visible
           try {
-            const buffered = await readAllOutboxItems();
+            const buffered = await outboxAdapter.readAllItems();
             if (buffered.length > 0) {
               const merged = [...activity, ...buffered]
                 .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
