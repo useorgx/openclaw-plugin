@@ -1,0 +1,66 @@
+{
+  "campaign_name": "OrgX OpenClaw Plugin Launch (Saturday Launch)",
+  "objective": "By 2026-02-14, drive 200 landing-page visits, 50 plugin installs, and 10 paid conversions to the $99/mo BYOK plan from OpenClaw users.",
+  "target_audience": {
+    "primary_icp": "Technical founders, indie hackers, and engineering leads experimenting with agentic workflows in OpenClaw who want control and visibility as their agent runs scale.",
+    "pain_points": [
+      "Agent runs feel opaque: no shared view of what is happening, what is blocked, and what to do next.",
+      "Context and decisions get lost between runs; continuity across sessions is fragile.",
+      "Manual orchestration is brittle: launching agents, tracking progress, and enforcing quality gates is time-consuming.",
+      "Costs and model choice get harder to manage as agent execution scales."
+    ]
+  },
+  "messaging_pillars": [
+    {
+      "pillar": "Mission Control: see the work, not the chaos",
+      "proof_points": [
+        "Live dashboard shows Initiative -> Workstream -> Milestone -> Task hierarchy with progress and next-up queue.",
+        "Real-time activity stream keeps execution state visible while agents run."
+      ]
+    },
+    {
+      "pillar": "Quality gates and model routing built-in",
+      "proof_points": [
+        "Spawn checks can enforce rate limits and quality thresholds before sub-agent execution.",
+        "Automatic tiered routing (local/sonnet/opus) reduces cost and improves output quality for the task at hand."
+      ]
+    },
+    {
+      "pillar": "Onboarding that lands in minutes",
+      "proof_points": [
+        "Browser pairing stores a dedicated credential and runs first sync automatically.",
+        "Manual API key fallback is supported (user-scoped oxk_ keys; no X-Orgx-User-Id header required)."
+      ]
+    },
+    {
+      "pillar": "Offline-safe reporting with outbox replay",
+      "proof_points": [
+        "Local queue buffers events when offline and replays on reconnect.",
+        "Dashboard surfaces pending and replay indicators so you trust what you're seeing."
+      ]
+    }
+  ],
+  "channels": [
+    "twitter",
+    "devto",
+    "docs"
+  ],
+  "success_metrics": [
+    { "metric": "Landing page visits", "target": "200 visits by 2026-02-14" },
+    { "metric": "Plugin installs", "target": "50 installs by 2026-02-14" },
+    { "metric": "Paid conversions", "target": "10 paid conversions by 2026-02-14" }
+  ],
+  "timeline": [
+    { "milestone": "2026-02-11: Threads + dev.to draft ready; screenshots/GIFs captured" },
+    { "milestone": "2026-02-14: Publish launch thread + article; monitor signups and payments" }
+  ],
+  "hypotheses": [
+    { "hypothesis": "A demo-first thread (with screenshot/GIF) converts >= 5% of link clicks into plugin installs." },
+    { "hypothesis": "A build-in-public thread drives >= 30% of total launch-day traffic with higher engagement than the announcement thread." }
+  ],
+  "assumptions": [
+    "Primary CTA landing page will be https://useorgx.com/integrations/openclaw",
+    "OpenClaw plugin package is installable via `openclaw plugins install @useorgx/openclaw-plugin` or docs will be adjusted."
+  ]
+}
+

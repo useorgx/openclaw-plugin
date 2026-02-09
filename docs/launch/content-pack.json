@@ -1,0 +1,36 @@
+{
+  "campaign_id": "openclaw_launch_2026_02_14",
+  "content_items": [
+    {
+      "channel": "twitter",
+      "title": "Launch Announcement Thread",
+      "cta": "Install + connect: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement",
+      "content": "1/ Launching: OrgX Integration for OpenClaw. Mission Control for your agents: orchestration, quality gates, model routing, and a live dashboard inside OpenClaw.\\n\\n2/ If you have ever run more than one agent, you know the failure mode: you lose the thread. What's done? What's blocked? What's next?\\n\\n3/ OrgX adds a hierarchy view (initiative -> workstream -> milestone -> task), a next-up queue, and a real-time activity stream, so execution stays legible.\\n\\n4/ Install in one line:\\nopenclaw plugins install @useorgx/openclaw-plugin\\n\\n5/ Then open:\\nhttp://127.0.0.1:18789/orgx/live\\nand click Connect OrgX (browser pairing recommended, manual key fallback supported).\\n\\n6/ Try it here: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=launch_announcement"
+    },
+    {
+      "channel": "twitter",
+      "title": "Value Proposition Thread",
+      "cta": "See the integration: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=value_prop",
+      "content": "1/ Your agents do not need more prompting. They need guardrails + coordination.\\n\\n2/ Agent orchestration (in practice) is: decisions, dependencies, budgets, quality thresholds, and reliable reporting.\\n\\n3/ The OrgX OpenClaw plugin gives you:\\n- Mission Control (initiative -> workstream -> milestone -> task)\\n- Next-up queue (dependency-aware)\\n- Live activity + sessions\\n- Spawn checks (quality gate)\\n- Model tier routing\\n- Offline-safe outbox replay\\n\\n4/ Result: you spend less time babysitting runs and more time shipping.\\n\\n5/ See the integration: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=value_prop"
+    },
+    {
+      "channel": "twitter",
+      "title": "Build In Public Thread",
+      "cta": "Follow along + install: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=build_in_public",
+      "content": "1/ Build in public: shipping the OrgX OpenClaw plugin this week.\\n\\n2/ The hard parts weren't the UI. It was reliability: auth/pairing, outbox replay, live streaming, and keeping the control plane consistent.\\n\\n3/ One example: Mission Control looked stuck at 0% because it relied on a stale health field. We fixed it to compute completion from task/milestone/workstream status.\\n\\n4/ Another: the Codex dispatch job used duplicated HTTP logic. We refactored to inject a shared OrgXClient and added CI coverage for it.\\n\\n5/ If you're building agent workflows and want something that feels like real operations: try it. https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=build_in_public"
+    },
+    {
+      "channel": "twitter",
+      "title": "Demo Walkthrough Thread",
+      "cta": "Get started: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=demo_walkthrough",
+      "content": "1/ 60 seconds to value with the OrgX OpenClaw plugin.\\n\\n2/ Install:\\nopenclaw plugins install @useorgx/openclaw-plugin\\n\\n3/ Open Mission Control inside OpenClaw:\\nhttp://127.0.0.1:18789/orgx/live\\n\\n4/ Click Connect OrgX and approve pairing at useorgx.com.\\n\\n5/ Add provider keys (BYOK) for OpenAI/Anthropic/OpenRouter (or set env vars).\\n\\n6/ Launch an agent and watch live sessions + activity update.\\n\\n7/ Switch to Mission Control: pick the next-up task and run auto-continue to execute through the dependency chain.\\n\\n8/ Get started: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=openclaw_launch&utm_content=demo_walkthrough"
+    },
+    {
+      "channel": "devto",
+      "title": "Dev.to Article Draft",
+      "cta": "Install the plugin: https://useorgx.com/integrations/openclaw?utm_source=devto&utm_medium=article&utm_campaign=openclaw_launch&utm_content=devto_article",
+      "content": "# Mission Control for OpenClaw Agents: the OrgX Integration\\n\\nIf you are experimenting with agentic workflows, you quickly hit the same wall: execution becomes hard to reason about. You can launch agents, but you cannot easily answer: what is done, what is blocked, what is next, and what decisions are pending?\\n\\nOrgX is built to make agent execution legible. The OpenClaw plugin brings that into your local OpenClaw instance: orchestration, quality gates, model routing, and a live Mission Control dashboard.\\n\\n## What you get\\n- Mission Control: Initiative -> Workstream -> Milestone -> Task\\n- Dependency-aware next-up queue\\n- Live sessions + activity stream\\n- Spawn checks (quality gate) + model tier routing\\n- Offline-safe reporting with outbox replay\\n\\n## Install + connect\\n1. Install:\\n   openclaw plugins install @useorgx/openclaw-plugin\\n2. Open:\\n   http://127.0.0.1:18789/orgx/live\\n3. Click Connect OrgX and approve pairing at useorgx.com.\\n\\n## Why this matters\\nWhen you can see the work, you can improve the system. Mission Control turns agent runs into something closer to operations: a backlog, a control plane, and an audit trail of what happened and why.\\n\\n## Next steps\\nIf you want to try it, start here: https://useorgx.com/integrations/openclaw?utm_source=devto&utm_medium=article&utm_campaign=openclaw_launch&utm_content=devto_article\\n\\nFeedback welcome. If you run into anything confusing, tell us what you expected and what you saw."
+    }
+  ]
+}
+
