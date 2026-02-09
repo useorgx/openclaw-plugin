@@ -1341,6 +1341,12 @@ function DashboardShell({
             isLoading={isLoading}
             authToken={null}
             embedMode={false}
+            connection={data.connection}
+            lastSnapshotAt={data.lastSnapshotAt}
+            error={error}
+            hasApiKey={onboardingState.hasApiKey}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onRefresh={refetch}
           />
         </div>
       ) : (

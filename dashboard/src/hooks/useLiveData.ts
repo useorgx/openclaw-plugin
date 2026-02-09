@@ -48,6 +48,7 @@ const DEFAULT_MAX_ACTIVITY_ITEMS = 600;
 const DEFAULT_MAX_HANDOFFS = 120;
 const DEFAULT_MAX_DECISIONS = 120;
 const DEFAULT_BATCH_WINDOW_MS = 90;
+const DISCONNECT_AFTER_MS = 60_000;
 const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   pendingTotal: 0,
   pendingByQueue: {},
@@ -671,6 +672,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const inFlightSnapshotRef = useRef<Promise<void> | null>(null);
   const [pollingEnabled, setPollingEnabled] = useState(false);
+  const lastSuccessAtRef = useRef<number>(0);
+  const authBlockedRef = useRef<boolean>(false);
 
   const applySnapshot = useCallback(
     (
@@ -681,6 +684,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       outboxInput: OutboxStatus | null = null,
       generatedAtInput: string | null = null
     ) => {
+      lastSuccessAtRef.current = Date.now();
+      authBlockedRef.current = false;
       const sessions = trimSessions(sessionsInput, maxSessions);
       const activity = normalizeActivity(activityInput, maxActivityItems);
       const handoffs = trimHandoffs(handoffInput, maxHandoffs);
@@ -754,6 +759,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         ];
         const errors: string[] = [];
         let snapshot: LiveSnapshotResponse | null = null;
+        let sawAuthFailure = false;
 
         for (const endpoint of endpoints) {
           const snapshotRes = await fetchJson<LiveSnapshotResponse>(endpoint.url);
@@ -761,10 +767,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             snapshot = snapshotRes.data;
             break;
           }
+          if (snapshotRes.status === 401 || snapshotRes.status === 403) {
+            sawAuthFailure = true;
+          }
           errors.push(`${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`);
         }
 
         if (!snapshot) {
+          if (sawAuthFailure) {
+            const authErr = new Error(
+              'Unauthorized. Update your OrgX API key in Settings (use a user-scoped oxk_... key; userId should be blank).'
+            );
+            (authErr as Error & { code?: string }).code = 'ORGX_AUTH';
+            throw authErr;
+          }
           throw new Error(errors.length > 0 ? errors.join(' | ') : 'Snapshot endpoint unavailable');
         }
         const activity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
@@ -810,12 +826,30 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           );
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-        setData((prev) =>
-          prev.connection === 'reconnecting'
-            ? prev
-            : { ...prev, connection: 'reconnecting' }
-        );
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const isAuthBlocked =
+          Boolean(err && typeof err === 'object' && 'code' in err && (err as any).code === 'ORGX_AUTH');
+
+        if (isAuthBlocked) {
+          authBlockedRef.current = true;
+        }
+
+        const shouldDisconnect =
+          lastSuccessAtRef.current > 0 &&
+          Date.now() - lastSuccessAtRef.current > DISCONNECT_AFTER_MS;
+
+        setError(message);
+        setData((prev) => {
+          const nextConnection: LiveData['connection'] = isAuthBlocked || shouldDisconnect
+            ? 'disconnected'
+            : 'reconnecting';
+          return prev.connection === nextConnection ? prev : { ...prev, connection: nextConnection };
+        });
+        if (!isAuthBlocked) {
+          setPollingEnabled(true);
+        } else {
+          setPollingEnabled(false);
+        }
         setIsLoading(false);
       } finally {
         inFlightSnapshotRef.current = null;
@@ -1028,6 +1062,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       flushTimer = undefined;
 
       if (pendingSnapshot) {
+        lastSuccessAtRef.current = Date.now();
+        authBlockedRef.current = false;
         const snapshot = pendingSnapshot;
         pendingSnapshot = null;
         pendingSessions = null;
@@ -1053,6 +1089,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       ) {
         return;
       }
+
+      lastSuccessAtRef.current = Date.now();
+      authBlockedRef.current = false;
 
       setData((prev) => {
         let next = prev;
@@ -1120,6 +1159,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     };
 
     eventSource.onopen = () => {
+      lastSuccessAtRef.current = Date.now();
+      authBlockedRef.current = false;
       setPollingEnabled(false);
       setData((prev) =>
         prev.connection === 'connected'
@@ -1130,10 +1171,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     };
 
     eventSource.onerror = () => {
+      if (authBlockedRef.current) {
+        setData((prev) =>
+          prev.connection === 'disconnected' ? prev : { ...prev, connection: 'disconnected' }
+        );
+        setPollingEnabled(false);
+        return;
+      }
+      const shouldDisconnect =
+        lastSuccessAtRef.current > 0 &&
+        Date.now() - lastSuccessAtRef.current > DISCONNECT_AFTER_MS;
       setData((prev) =>
-        prev.connection === 'reconnecting'
+        prev.connection === (shouldDisconnect ? 'disconnected' : 'reconnecting')
           ? prev
-          : { ...prev, connection: 'reconnecting' }
+          : { ...prev, connection: shouldDisconnect ? 'disconnected' : 'reconnecting' }
       );
       setPollingEnabled(true);
     };
