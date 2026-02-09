@@ -271,11 +271,28 @@ async function readLocalOpenClawSnapshot(
   }
 
   const defaultAgentId = coerceSafePathSegment(resolveDefaultAgentId(config), "main");
-  const sessionsPath = join(baseDir, "agents", defaultAgentId, "sessions", "sessions.json");
-  const sessionMap = await readJsonFile<SessionMap>(sessionsPath);
+  const agentIds = Array.from(new Set([defaultAgentId, ...configuredAgents.keys()]));
 
-  const sessions = normalizeSessions(sessionMap, configuredAgents).slice(0, Math.max(1, limit));
-  const agents = buildAgentList(config, sessions);
+  const sessionMaps = await Promise.all(
+    agentIds.map(async (agentId) => {
+      const sessionsPath = join(baseDir, "agents", agentId, "sessions", "sessions.json");
+      return await readJsonFile<SessionMap>(sessionsPath);
+    })
+  );
+
+  const mergedByKey = new Map<string, LocalSession>();
+  for (const sessionMap of sessionMaps) {
+    for (const session of normalizeSessions(sessionMap, configuredAgents)) {
+      const existing = mergedByKey.get(session.key);
+      if (!existing || session.updatedAtMs > existing.updatedAtMs) {
+        mergedByKey.set(session.key, session);
+      }
+    }
+  }
+
+  const mergedSessions = Array.from(mergedByKey.values()).sort((a, b) => b.updatedAtMs - a.updatedAtMs);
+  const agents = buildAgentList(config, mergedSessions);
+  const sessions = mergedSessions.slice(0, Math.max(1, limit));
 
   return {
     fetchedAt: new Date().toISOString(),
