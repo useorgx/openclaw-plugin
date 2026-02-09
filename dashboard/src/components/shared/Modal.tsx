@@ -29,6 +29,13 @@ export function Modal({
     const focusDialog = () => {
       const dialog = dialogRef.current;
       if (!dialog) return;
+      // Prefer explicit autofocus target inside the modal content.
+      // This prevents opening modals with the "Close" button focused by default.
+      const autofocus = dialog.querySelector<HTMLElement>('[data-modal-autofocus="true"]');
+      if (autofocus) {
+        autofocus.focus();
+        return;
+      }
       const focusable = dialog.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
