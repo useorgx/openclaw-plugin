@@ -29,6 +29,7 @@ Thumbs.db
 # Logs
 logs
 *.log
+!docs/ops/**/*.log
 
 # Runtime data
 pids

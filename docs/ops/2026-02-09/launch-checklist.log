@@ -1,0 +1,216 @@
+
+===== typecheck (2026-02-09T20:15:35.651Z) =====
+
+> @useorgx/openclaw-plugin@0.3.0 typecheck
+> tsc --noEmit
+
+
+[exit] code=0
+
+===== test:hooks (2026-02-09T20:15:36.577Z) =====
+
+> @useorgx/openclaw-plugin@0.3.0 test:hooks
+> npm run build:core && node --test tests/**/*.test.mjs
+
+
+> @useorgx/openclaw-plugin@0.3.0 build:core
+> tsc && node ./scripts/copy-manifest.mjs
+
+✔ parseArgs parses --key=value pairs (0.8055ms)
+✔ buildActivityPayload sets expected telemetry envelope (0.220375ms)
+✔ buildCompletionChangesetPayload emits a done task.update op (0.731125ms)
+✔ main returns early when API key is missing (0.368667ms)
+✔ main posts activity and optional completion changeset (0.80775ms)
+✔ Premium gating blocks free plan BYOK launch (402 upgrade_required) (4.375ms)
+✔ Premium gating allows paid plan BYOK launch in dry-run mode (1.76975ms)
+✔ parseArgs parses --key=value pairs (1.616792ms)
+✔ buildTaskQueue filters by workstream/task and sorts by due + priority (0.922875ms)
+✔ extractPlanContext prefers task/workstream match (0.517334ms)
+✔ buildCodexPrompt includes task and plan references (0.154833ms)
+✔ createReporter routes mutations through injected OrgXClient (0.723125ms)
+✔ classifyTaskState buckets task lifecycle states (0.099583ms)
+✔ summarizeTaskStatuses returns deterministic counts (0.102917ms)
+✔ computeMilestoneRollup derives status + percent from task states (0.134375ms)
+✔ computeWorkstreamRollup derives status + percent from task states (0.103458ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69.501833
+
+[exit] code=0
+
+===== verify:clean-install (2026-02-09T20:15:37.792Z) =====
+
+> @useorgx/openclaw-plugin@0.3.0 verify:clean-install
+> node ./scripts/verify-clean-install.mjs
+
+[verify] packing plugin...
+
+> @useorgx/openclaw-plugin@0.3.0 pack
+> npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts
+
+
+> @useorgx/openclaw-plugin@0.3.0 build
+> npm run build:dashboard && npm run build:core
+
+
+> @useorgx/openclaw-plugin@0.3.0 build:dashboard
+> npm run install:dashboard && npm --prefix dashboard run build
+
+
+> @useorgx/openclaw-plugin@0.3.0 install:dashboard
+> npm --prefix dashboard ci
+
+
+added 142 packages, and audited 143 packages in 2s
+
+27 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+> @orgx/dashboard@1.0.0 build
+> node ./node_modules/typescript/lib/tsc.js && node ./node_modules/vite/bin/vite.js build
+
+vite v6.4.1 building for production...
+transforming...
+✓ 495 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                         0.64 kB │ gzip:   0.38 kB
+dist/assets/orgx-logo-QSE5QWy4.png  1,746.96 kB
+dist/assets/index-BjqNjHpY.css         47.48 kB │ gzip:   9.82 kB
+dist/assets/index-DCLkU4AM.js         603.38 kB │ gzip: 170.94 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.57s
+
+> @useorgx/openclaw-plugin@0.3.0 build:core
+> tsc && node ./scripts/copy-manifest.mjs
+
+npm notice
+npm notice 📦  @useorgx/openclaw-plugin@0.3.0
+npm notice Tarball Contents
+npm notice 1.1kB LICENSE
+npm notice 6.5kB README.md
+npm notice 47.5kB dashboard/dist/assets/index-BjqNjHpY.css
+npm notice 603.4kB dashboard/dist/assets/index-DCLkU4AM.js
+npm notice 1.7MB dashboard/dist/assets/orgx-logo-QSE5QWy4.png
+npm notice 550B dashboard/dist/brand/anthropic-mark.svg
+npm notice 1.3MB dashboard/dist/brand/control-tower.png
+npm notice 1.3MB dashboard/dist/brand/design-codex.png
+npm notice 1.2MB dashboard/dist/brand/engineering-autopilot.png
+npm notice 1.2MB dashboard/dist/brand/launch-captain.png
+npm notice 666B dashboard/dist/brand/openai-mark.svg
+npm notice 658B dashboard/dist/brand/openclaw-mark.svg
+npm notice 1.7MB dashboard/dist/brand/orgx-logo.png
+npm notice 1.3MB dashboard/dist/brand/pipeline-intelligence.png
+npm notice 1.2MB dashboard/dist/brand/product-orchestrator.png
+npm notice 637B dashboard/dist/index.html
+npm notice 817B dist/agent-context-store.d.ts
+npm notice 865B dist/agent-context-store.d.ts.map
+npm notice 3.4kB dist/agent-context-store.js
+npm notice 3.9kB dist/agent-context-store.js.map
+npm notice 1.1kB dist/agent-run-store.d.ts
+npm notice 1.2kB dist/agent-run-store.d.ts.map
+npm notice 5.3kB dist/agent-run-store.js
+npm notice 6.0kB dist/agent-run-store.js.map
+npm notice 249B dist/api.d.ts
+npm notice 135B dist/api.d.ts.map
+npm notice 247B dist/api.js
+npm notice 133B dist/api.js.map
+npm notice 975B dist/auth-store.d.ts
+npm notice 864B dist/auth-store.d.ts.map
+npm notice 4.3kB dist/auth-store.js
+npm notice 4.3kB dist/auth-store.js.map
+npm notice 425B dist/byok-store.d.ts
+npm notice 448B dist/byok-store.d.ts.map
+npm notice 2.8kB dist/byok-store.js
+npm notice 3.0kB dist/byok-store.js.map
+npm notice 5.2kB dist/contracts/client.d.ts
+npm notice 4.6kB dist/contracts/client.d.ts.map
+npm notice 16.0kB dist/contracts/client.js
+npm notice 13.4kB dist/contracts/client.js.map
+npm notice 12.0kB dist/contracts/types.d.ts
+npm notice 11.8kB dist/contracts/types.d.ts.map
+npm notice 227B dist/contracts/types.js
+npm notice 128B dist/contracts/types.js.map
+npm notice 1.6kB dist/dashboard-api.d.ts
+npm notice 1.4kB dist/dashboard-api.d.ts.map
+npm notice 3.3kB dist/dashboard-api.js
+npm notice 2.9kB dist/dashboard-api.js.map
+npm notice 2.6kB dist/http-handler.d.ts
+npm notice 2.1kB dist/http-handler.d.ts.map
+npm notice 196.4kB dist/http-handler.js
+npm notice 156.7kB dist/http-handler.js.map
+npm notice 2.0kB dist/index.d.ts
+npm notice 1.8kB dist/index.d.ts.map
+npm notice 86.6kB dist/index.js
+npm notice 66.0kB dist/index.js.map
+npm notice 2.6kB dist/local-openclaw.d.ts
+npm notice 2.8kB dist/local-openclaw.d.ts.map
+npm notice 31.5kB dist/local-openclaw.js
+npm notice 30.9kB dist/local-openclaw.js.map
+npm notice 1.8kB dist/openclaw.plugin.json
+npm notice 1.2kB dist/outbox.d.ts
+npm notice 1.0kB dist/outbox.d.ts.map
+npm notice 5.4kB dist/outbox.js
+npm notice 5.5kB dist/outbox.js.map
+npm notice 405B dist/snapshot-store.d.ts
+npm notice 383B dist/snapshot-store.d.ts.map
+npm notice 1.7kB dist/snapshot-store.js
+npm notice 1.8kB dist/snapshot-store.js.map
+npm notice 333B dist/types.d.ts
+npm notice 140B dist/types.d.ts.map
+npm notice 331B dist/types.js
+npm notice 138B dist/types.js.map
+npm notice 1.8kB openclaw.plugin.json
+npm notice 2.5kB package.json
+npm notice 6.5kB skills/orgx/SKILL.md
+npm notice Tarball Details
+npm notice name: @useorgx/openclaw-plugin
+npm notice version: 0.3.0
+npm notice filename: useorgx-openclaw-plugin-0.3.0.tgz
+npm notice package size: 11.3 MB
+npm notice unpacked size: 12.3 MB
+npm notice shasum: a2f69de773c0cb9aed0407d5e21280a9955b887a
+npm notice integrity: sha512-E2izcBJC5FXsn[...]3IxN7pIfvW+GA==
+npm notice total files: 76
+npm notice
+useorgx-openclaw-plugin-0.3.0.tgz
+[verify] temp dir: /var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-bl0DnQ
+[verify] npm init...
+Wrote to /private/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-bl0DnQ/package.json:
+
+{
+  "name": "orgx-openclaw-plugin-install-bl0dnq",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
+
+
+
+[verify] npm install tgz...
+[verify] import package...
+import-ok
+[verify] ok: clean install + import succeeded
+
+[exit] code=0
+
+===== verify:billing (2026-02-09T20:15:48.696Z) =====
+[skip] ORGX_API_KEY not set
