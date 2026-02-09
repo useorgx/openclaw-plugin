@@ -63,6 +63,16 @@ function toEpoch(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatAbsoluteTimestamp(value: string | null | undefined): string {
+  const epoch = toEpoch(value);
+  if (!epoch) return 'unknown';
+  try {
+    return new Date(epoch).toLocaleString();
+  } catch {
+    return 'unknown';
+  }
+}
+
 function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number {
   const aPriority = SESSION_PRIORITY[a.status] ?? 99;
   const bPriority = SESSION_PRIORITY[b.status] ?? 99;
@@ -1008,7 +1018,22 @@ function DashboardShell({
             <h1 className="text-[17px] font-semibold tracking-tight text-white">
               OrgX<span className="ml-1.5 text-white/50">Live</span>
             </h1>
-            <Badge color={CONNECTION_COLOR[data.connection]} pulse={data.connection === 'connected'}>
+            <Badge
+              color={CONNECTION_COLOR[data.connection]}
+              pulse={data.connection === 'connected'}
+              title={[
+                `Status: ${CONNECTION_LABEL[data.connection] ?? data.connection}`,
+                data.connection === 'connected'
+                  ? 'Meaning: receiving live updates.'
+                  : data.connection === 'reconnecting'
+                    ? 'Meaning: retrying live stream (data may be stale).'
+                    : 'Meaning: offline (data is stale).',
+                `Last snapshot: ${formatAbsoluteTimestamp(data.lastSnapshotAt)}`,
+                error ? `Error: ${error}` : null,
+              ]
+                .filter(Boolean)
+                .join('\n')}
+            >
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
             {(data.outbox.pendingTotal > 0 || data.outbox.replayStatus === 'error') && (
