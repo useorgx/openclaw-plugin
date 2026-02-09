@@ -37,6 +37,7 @@
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
+    "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "tsc && node ./scripts/copy-manifest.mjs",
@@ -78,6 +79,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.30",
+    "playwright-core": "^1.58.2",
     "typescript": "^5.9.3"
   }
 }
