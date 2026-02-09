@@ -6,6 +6,7 @@ import { resolveProvider } from '@/lib/providers';
 import type { LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
+import { AgentLaunchModal } from './AgentLaunchModal';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
@@ -92,6 +93,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   onReconnect,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [offlineDateFilter, setOfflineDateFilter] =
     useState<(typeof OFFLINE_DATE_FILTERS)[number]['id']>('all');
   const [showArchived, setShowArchived] = useState(false);
@@ -258,6 +260,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+      <AgentLaunchModal
+        open={launchModalOpen}
+        onClose={() => setLaunchModalOpen(false)}
+        onLaunched={() => onReconnect?.()}
+      />
       <div className="border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -266,6 +273,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               {visibleSessionCount}/{sessions.nodes.length}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => setLaunchModalOpen(true)}
+            className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
+            Launch
+          </button>
         </div>
         <div className="mt-1.5 flex items-center gap-2">
           <label htmlFor="offline-date-filter" className="text-[11px] text-white/45">

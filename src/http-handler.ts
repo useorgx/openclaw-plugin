@@ -19,7 +19,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { OrgXClient } from "./api.js";
 import type {
@@ -47,6 +48,8 @@ import {
   toLocalSessionTree,
 } from "./local-openclaw.js";
 import { readAllOutboxItems, readOutboxSummary } from "./outbox.js";
+import { readAgentContexts, upsertAgentContext } from "./agent-context-store.js";
+import type { AgentLaunchContext } from "./agent-context-store.js";
 
 // =============================================================================
 // Helpers
@@ -60,6 +63,281 @@ function safeErrorMessage(err: unknown): string {
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
+}
+
+function parseJsonSafe<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function runCommandCollect(input: {
+  command: string;
+  args: string[];
+  timeoutMs?: number;
+}): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  const timeoutMs = input.timeoutMs ?? 10_000;
+  return await new Promise((resolve, reject) => {
+    const child = spawn(input.command, input.args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // best effort
+          }
+          reject(new Error(`Command timed out after ${timeoutMs}ms`));
+        }, timeoutMs)
+      : null;
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ stdout, stderr, exitCode: typeof code === "number" ? code : null });
+    });
+  });
+}
+
+async function listOpenClawAgents(): Promise<Array<Record<string, unknown>>> {
+  const result = await runCommandCollect({
+    command: "openclaw",
+    args: ["agents", "list", "--json"],
+    timeoutMs: 5_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || "openclaw agents list failed");
+  }
+  const parsed = parseJsonSafe<unknown>(result.stdout);
+  if (!Array.isArray(parsed)) {
+    throw new Error("openclaw agents list returned invalid JSON");
+  }
+  return parsed.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"));
+}
+
+function spawnOpenClawAgentTurn(input: {
+  agentId: string;
+  sessionId: string;
+  message: string;
+  thinking?: string | null;
+}): { pid: number | null } {
+  const args = [
+    "agent",
+    "--agent",
+    input.agentId,
+    "--session-id",
+    input.sessionId,
+    "--message",
+    input.message,
+  ];
+  if (input.thinking) {
+    args.push("--thinking", input.thinking);
+  }
+
+  const child = spawn("openclaw", args, {
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+  return { pid: child.pid ?? null };
+}
+
+function getScopedAgentIds(contexts: Record<string, AgentLaunchContext>): Set<string> {
+  const scoped = new Set<string>();
+  for (const [key, ctx] of Object.entries(contexts)) {
+    if (!ctx || typeof ctx !== "object") continue;
+    const agentId = (ctx.agentId ?? key).trim();
+    if (!agentId) continue;
+    const initiativeId = ctx.initiativeId?.trim() ?? "";
+    if (initiativeId) {
+      scoped.add(agentId);
+    }
+  }
+  return scoped;
+}
+
+function applyAgentContextsToSessionTree(
+  input: SessionTreeResponse,
+  contexts: Record<string, AgentLaunchContext>
+): SessionTreeResponse {
+  if (!input || !Array.isArray(input.nodes)) return input;
+
+  const groupsById = new Map<string, { id: string; label: string; status: string | null }>();
+  for (const group of input.groups ?? []) {
+    if (!group) continue;
+    groupsById.set(group.id, {
+      id: group.id,
+      label: group.label,
+      status: group.status ?? null,
+    });
+  }
+
+  const nodes = input.nodes.map((node) => {
+    const agentId = node.agentId?.trim() ?? "";
+    if (!agentId) return node;
+    const ctx = contexts[agentId];
+    const initiativeId = ctx?.initiativeId?.trim() ?? "";
+    if (!initiativeId) return node;
+
+    const groupId = initiativeId;
+    const ctxTitle = (ctx as AgentLaunchContext).initiativeTitle?.trim() ?? "";
+    const groupLabel = ctxTitle || node.groupLabel || initiativeId;
+
+    const existing = groupsById.get(groupId);
+    if (!existing) {
+      groupsById.set(groupId, {
+        id: groupId,
+        label: groupLabel,
+        status: node.status ?? null,
+      });
+    } else if (ctxTitle && (existing.label === groupId || existing.label.startsWith("Agent "))) {
+      groupsById.set(groupId, { ...existing, label: groupLabel });
+    }
+
+    return {
+      ...node,
+      initiativeId,
+      workstreamId: ctx.workstreamId ?? node.workstreamId ?? null,
+      groupId,
+      groupLabel,
+    };
+  });
+
+  // Ensure every node's group exists.
+  for (const node of nodes) {
+    if (!groupsById.has(node.groupId)) {
+      groupsById.set(node.groupId, {
+        id: node.groupId,
+        label: node.groupLabel || node.groupId,
+        status: node.status ?? null,
+      });
+    }
+  }
+
+  return {
+    ...input,
+    nodes,
+    groups: Array.from(groupsById.values()),
+  };
+}
+
+function applyAgentContextsToActivity(
+  input: LiveActivityItem[],
+  contexts: Record<string, AgentLaunchContext>
+): LiveActivityItem[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((item) => {
+    const agentId = item.agentId?.trim() ?? "";
+    if (!agentId) return item;
+    const ctx = contexts[agentId];
+    const initiativeId = ctx?.initiativeId?.trim() ?? "";
+    if (!initiativeId) return item;
+
+    const metadata =
+      item.metadata && typeof item.metadata === "object"
+        ? { ...(item.metadata as Record<string, unknown>) }
+        : {};
+    metadata.orgx_context = {
+      initiativeId,
+      workstreamId: ctx.workstreamId ?? null,
+      taskId: ctx.taskId ?? null,
+      updatedAt: ctx.updatedAt,
+    };
+
+    return {
+      ...item,
+      initiativeId,
+      metadata,
+    };
+  });
+}
+
+function mergeSessionTrees(
+  base: SessionTreeResponse,
+  extra: SessionTreeResponse
+): SessionTreeResponse {
+  const seenNodes = new Set<string>();
+  const nodes: SessionTreeResponse["nodes"] = [];
+
+  for (const node of base.nodes ?? []) {
+    seenNodes.add(node.id);
+    nodes.push(node);
+  }
+  for (const node of extra.nodes ?? []) {
+    if (seenNodes.has(node.id)) continue;
+    seenNodes.add(node.id);
+    nodes.push(node);
+  }
+
+  const seenEdges = new Set<string>();
+  const edges: SessionTreeResponse["edges"] = [];
+  for (const edge of base.edges ?? []) {
+    const key = `${edge.parentId}→${edge.childId}`;
+    seenEdges.add(key);
+    edges.push(edge);
+  }
+  for (const edge of extra.edges ?? []) {
+    const key = `${edge.parentId}→${edge.childId}`;
+    if (seenEdges.has(key)) continue;
+    seenEdges.add(key);
+    edges.push(edge);
+  }
+
+  const groupsById = new Map<string, { id: string; label: string; status: string | null }>();
+  for (const group of base.groups ?? []) {
+    groupsById.set(group.id, group);
+  }
+  for (const group of extra.groups ?? []) {
+    const existing = groupsById.get(group.id);
+    if (!existing) {
+      groupsById.set(group.id, group);
+      continue;
+    }
+    const nextLabel =
+      existing.label === existing.id && group.label && group.label !== group.id
+        ? group.label
+        : existing.label;
+    groupsById.set(group.id, { ...existing, label: nextLabel });
+  }
+
+  return {
+    nodes,
+    edges,
+    groups: Array.from(groupsById.values()),
+  };
+}
+
+function mergeActivities(
+  base: LiveActivityItem[],
+  extra: LiveActivityItem[],
+  limit: number
+): LiveActivityItem[] {
+  const merged = [...(base ?? []), ...(extra ?? [])].sort(
+    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
+  );
+  const deduped: LiveActivityItem[] = [];
+  const seen = new Set<string>();
+  for (const item of merged) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    deduped.push(item);
+    if (deduped.length >= limit) break;
+  }
+  return deduped;
 }
 
 const ACTIVITY_HEADLINE_TIMEOUT_MS = 4_000;
@@ -529,6 +807,26 @@ function parseJsonBody(body: unknown): Record<string, unknown> {
   if (Buffer.isBuffer(body)) {
     try {
       const parsed = JSON.parse(body.toString("utf8"));
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (body instanceof Uint8Array) {
+    try {
+      const parsed = JSON.parse(Buffer.from(body).toString("utf8"));
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  if (body instanceof ArrayBuffer) {
+    try {
+      const parsed = JSON.parse(Buffer.from(body).toString("utf8"));
       return typeof parsed === "object" && parsed !== null
         ? (parsed as Record<string, unknown>)
         : {};
@@ -1756,6 +2054,7 @@ export function createHttpHandler(
       const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
       const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
       const isLiveActivityHeadlineRoute = route === "live/activity/headline";
+      const isAgentLaunchRoute = route === "agents/launch";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -1855,6 +2154,117 @@ export function createHttpHandler(
           sendJson(res, 200, {
             ok: true,
             data: getOnboardingState(state),
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, {
+            ok: false,
+            error: safeErrorMessage(err),
+          });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isAgentLaunchRoute) {
+        try {
+          const payload = parseJsonBody(req.body);
+          const agentId =
+            (pickString(payload, ["agentId", "agent_id", "id"]) ??
+              searchParams.get("agentId") ??
+              searchParams.get("agent_id") ??
+              searchParams.get("id") ??
+              "")
+              .trim();
+          if (!agentId) {
+            sendJson(res, 400, { ok: false, error: "agentId is required" });
+            return true;
+          }
+          if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "agentId must be a simple identifier (letters, numbers, _ or -).",
+            });
+            return true;
+          }
+
+          const sessionId =
+            (pickString(payload, ["sessionId", "session_id"]) ??
+              searchParams.get("sessionId") ??
+              searchParams.get("session_id") ??
+              "")
+              .trim() ||
+            randomUUID();
+          const initiativeId =
+            pickString(payload, ["initiativeId", "initiative_id"]) ??
+            searchParams.get("initiativeId") ??
+            searchParams.get("initiative_id") ??
+            null;
+          const initiativeTitle =
+            pickString(payload, [
+              "initiativeTitle",
+              "initiative_title",
+              "initiativeName",
+              "initiative_name",
+            ]) ??
+            searchParams.get("initiativeTitle") ??
+            searchParams.get("initiative_title") ??
+            searchParams.get("initiativeName") ??
+            searchParams.get("initiative_name") ??
+            null;
+          const workstreamId =
+            pickString(payload, ["workstreamId", "workstream_id"]) ??
+            searchParams.get("workstreamId") ??
+            searchParams.get("workstream_id") ??
+            null;
+          const taskId =
+            pickString(payload, ["taskId", "task_id"]) ??
+            searchParams.get("taskId") ??
+            searchParams.get("task_id") ??
+            null;
+          const thinking =
+            (pickString(payload, ["thinking"]) ??
+              searchParams.get("thinking") ??
+              "")
+              .trim() || null;
+
+          const messageInput =
+            (pickString(payload, ["message", "prompt", "text"]) ??
+              searchParams.get("message") ??
+              searchParams.get("prompt") ??
+              searchParams.get("text") ??
+              "")
+              .trim();
+          const message =
+            messageInput ||
+            (initiativeTitle
+              ? `Kick off: ${initiativeTitle}`
+              : initiativeId
+                ? `Kick off initiative ${initiativeId}`
+                : `Kick off agent ${agentId}`);
+
+          upsertAgentContext({
+            agentId,
+            initiativeId,
+            initiativeTitle,
+            workstreamId,
+            taskId,
+          });
+
+          const spawned = spawnOpenClawAgentTurn({
+            agentId,
+            sessionId,
+            message,
+            thinking,
+          });
+
+          sendJson(res, 202, {
+            ok: true,
+            agentId,
+            sessionId,
+            pid: spawned.pid,
+            initiativeId,
+            workstreamId,
+            taskId,
+            startedAt: new Date().toISOString(),
           });
         } catch (err: unknown) {
           sendJson(res, 500, {
@@ -2189,6 +2599,72 @@ export function createHttpHandler(
           sendJson(res, 200, formatAgents(getSnapshot()));
           return true;
 
+        case "agents/catalog": {
+          try {
+            const [openclawAgents, localSnapshot] = await Promise.all([
+              listOpenClawAgents(),
+              loadLocalOpenClawSnapshot(240).catch(() => null),
+            ]);
+
+            const localById = new Map<
+              string,
+              {
+                status: string;
+                currentTask: string | null;
+                runId: string | null;
+                startedAt: string | null;
+                blockers: string[];
+              }
+            >();
+            if (localSnapshot) {
+              for (const agent of localSnapshot.agents) {
+                localById.set(agent.id, {
+                  status: agent.status,
+                  currentTask: agent.currentTask,
+                  runId: agent.runId,
+                  startedAt: agent.startedAt,
+                  blockers: agent.blockers,
+                });
+              }
+            }
+
+            const contexts = readAgentContexts().agents;
+
+            const agents = openclawAgents.map((entry) => {
+              const id = typeof entry.id === "string" ? entry.id.trim() : "";
+              const name =
+                typeof entry.name === "string" && entry.name.trim().length > 0
+                  ? entry.name.trim()
+                  : id || "unknown";
+              const local = id ? localById.get(id) ?? null : null;
+              const context = id ? contexts[id] ?? null : null;
+              return {
+                id,
+                name,
+                workspace: typeof entry.workspace === "string" ? entry.workspace : null,
+                model: typeof entry.model === "string" ? entry.model : null,
+                isDefault: Boolean(entry.isDefault),
+                status: local?.status ?? null,
+                currentTask: local?.currentTask ?? null,
+                runId: local?.runId ?? null,
+                startedAt: local?.startedAt ?? null,
+                blockers: local?.blockers ?? [],
+                context,
+              };
+            });
+
+            sendJson(res, 200, {
+              generatedAt: new Date().toISOString(),
+              agents,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
         case "activity":
           sendJson(res, 200, formatActivity(getSnapshot()));
           return true;
@@ -2367,6 +2843,8 @@ export function createHttpHandler(
           const includeIdle =
             includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
           const degraded: string[] = [];
+          const agentContexts = readAgentContexts().agents;
+          const scopedAgentIds = getScopedAgentIds(agentContexts);
 
           let outboxStatus: Record<string, unknown> | null = null;
           try {
@@ -2456,6 +2934,8 @@ export function createHttpHandler(
                 sessionsLimit
               );
 
+              local = applyAgentContextsToSessionTree(local, agentContexts);
+
               if (initiative && initiative.trim().length > 0) {
                 const filteredNodes = local.nodes.filter(
                   (node) => node.initiativeId === initiative || node.groupId === initiative
@@ -2507,6 +2987,7 @@ export function createHttpHandler(
                 }
               }
 
+              filtered = applyAgentContextsToActivity(filtered, agentContexts);
               activity = filtered.slice(0, activityLimit);
             } catch (localErr: unknown) {
               degraded.push(`activity local fallback failed (${safeErrorMessage(localErr)})`);
@@ -2562,6 +3043,68 @@ export function createHttpHandler(
               agents = localAgents as Array<Record<string, unknown>>;
             } catch (localErr: unknown) {
               degraded.push(`agents local fallback failed (${safeErrorMessage(localErr)})`);
+            }
+          }
+
+          // Merge locally-launched OpenClaw agent sessions/activity into the snapshot so
+          // the UI reflects one-click launches even when the cloud reporting plane is reachable.
+          if (scopedAgentIds.size > 0) {
+            try {
+              const minimum = Math.max(Math.max(sessionsLimit, activityLimit), 240);
+              const snapshot = await ensureLocalSnapshot(minimum);
+              const scopedSnapshot = {
+                ...snapshot,
+                sessions: snapshot.sessions.filter(
+                  (session) => Boolean(session.agentId && scopedAgentIds.has(session.agentId))
+                ),
+                agents: snapshot.agents.filter((agent) => scopedAgentIds.has(agent.id)),
+              };
+
+              // Sessions
+              let localSessions = applyAgentContextsToSessionTree(
+                toLocalSessionTree(scopedSnapshot, sessionsLimit),
+                agentContexts
+              );
+              if (initiative && initiative.trim().length > 0) {
+                const filteredNodes = localSessions.nodes.filter(
+                  (node) => node.initiativeId === initiative || node.groupId === initiative
+                );
+                const filteredIds = new Set(filteredNodes.map((node) => node.id));
+                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+
+                localSessions = {
+                  nodes: filteredNodes,
+                  edges: localSessions.edges.filter(
+                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
+                  ),
+                  groups: localSessions.groups.filter((group) => filteredGroupIds.has(group.id)),
+                };
+              }
+              sessions = mergeSessionTrees(sessions, localSessions);
+
+              // Activity
+              const localActivity = await toLocalLiveActivity(
+                scopedSnapshot,
+                Math.max(activityLimit, 240)
+              );
+              let localItems = applyAgentContextsToActivity(
+                localActivity.activities,
+                agentContexts
+              );
+              if (run && run.trim().length > 0) {
+                localItems = localItems.filter((item) => item.runId === run);
+              }
+              if (since && since.trim().length > 0) {
+                const sinceEpoch = Date.parse(since);
+                if (Number.isFinite(sinceEpoch)) {
+                  localItems = localItems.filter(
+                    (item) => Date.parse(item.timestamp) >= sinceEpoch
+                  );
+                }
+              }
+              activity = mergeActivities(activity, localItems, activityLimit);
+            } catch (err: unknown) {
+              degraded.push(`local agent merge failed (${safeErrorMessage(err)})`);
             }
           }
 
@@ -2622,6 +3165,8 @@ export function createHttpHandler(
                 await loadLocalOpenClawSnapshot(Math.max(limit, 200)),
                 limit
               );
+
+              local = applyAgentContextsToSessionTree(local, readAgentContexts().agents);
 
               if (initiative && initiative.trim().length > 0) {
                 const filteredNodes = local.nodes.filter(
@@ -2695,8 +3240,12 @@ export function createHttpHandler(
                 }
               }
 
+              const activitiesWithContexts = applyAgentContextsToActivity(
+                local.activities,
+                readAgentContexts().agents
+              );
               sendJson(res, 200, {
-                activities: local.activities.slice(0, limit),
+                activities: activitiesWithContexts.slice(0, limit),
                 total: local.total,
               });
             } catch (localErr: unknown) {
