@@ -16,6 +16,22 @@ type AgentContext = {
   updatedAt: string;
 };
 
+type AgentRunRecord = {
+  runId: string;
+  agentId: string;
+  pid: number | null;
+  message: string | null;
+  provider: string | null;
+  model: string | null;
+  initiativeId: string | null;
+  initiativeTitle: string | null;
+  workstreamId: string | null;
+  taskId: string | null;
+  startedAt: string;
+  stoppedAt: string | null;
+  status: 'running' | 'stopped';
+};
+
 type OpenClawCatalogAgent = {
   id: string;
   name: string;
@@ -28,6 +44,7 @@ type OpenClawCatalogAgent = {
   startedAt: string | null;
   blockers: string[];
   context: AgentContext | null;
+  run?: AgentRunRecord | null;
 };
 
 type AgentCatalogResponse = {
@@ -84,6 +101,7 @@ export function AgentLaunchModal({
   const [selectedInitiativeId, setSelectedInitiativeId] = useState<string>('');
   const [selectedWorkstreamId, setSelectedWorkstreamId] = useState<string>('');
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+  const [selectedProvider, setSelectedProvider] = useState<string>('auto');
   const [message, setMessage] = useState<string>('');
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -127,6 +145,20 @@ export function AgentLaunchModal({
 
   useEffect(() => {
     if (!open) return;
+    const model = selectedAgent?.model ?? '';
+    const inferred =
+      model.includes('openrouter')
+        ? 'openrouter'
+        : model.includes('anthropic')
+          ? 'anthropic'
+          : model.includes('openai')
+            ? 'openai'
+            : 'auto';
+    setSelectedProvider(inferred);
+  }, [open, selectedAgent?.model, selectedAgentId]);
+
+  useEffect(() => {
+    if (!open) return;
     setLaunchError(null);
   }, [open]);
 
@@ -161,6 +193,7 @@ export function AgentLaunchModal({
         initiativeTitle: selectedInitiative?.name ?? null,
         workstreamId: selectedWorkstreamId.trim() ? selectedWorkstreamId.trim() : null,
         taskId: selectedTaskId.trim() ? selectedTaskId.trim() : null,
+        provider: selectedProvider !== 'auto' ? selectedProvider : null,
       };
       const query = new URLSearchParams();
       query.set('agentId', payload.agentId);
@@ -169,6 +202,7 @@ export function AgentLaunchModal({
       if (payload.workstreamId) query.set('workstreamId', payload.workstreamId);
       if (payload.taskId) query.set('taskId', payload.taskId);
       if (payload.message) query.set('message', payload.message);
+      if (payload.provider) query.set('provider', payload.provider);
 
       // Some OpenClaw gateway builds do not expose request bodies to plugin HTTP handlers.
       // We send launch parameters via query string (and keep the request as POST).
@@ -183,6 +217,52 @@ export function AgentLaunchModal({
       onLaunched?.();
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : 'Launch failed');
+    } finally {
+      setIsLaunching(false);
+    }
+  };
+
+  const canControlRun = Boolean(selectedAgent?.run?.runId) && Boolean(selectedAgent?.run?.pid);
+
+  const stopRun = async () => {
+    if (!selectedAgent?.run?.runId || !canControlRun || isLaunching) return;
+    setLaunchError(null);
+    setIsLaunching(true);
+    try {
+      const res = await fetch(`/orgx/api/agents/stop?runId=${encodeURIComponent(selectedAgent.run.runId)}`, {
+        method: 'POST',
+      });
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? `Stop failed (${res.status})`);
+      }
+      await catalogQuery.refetch();
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : 'Stop failed');
+    } finally {
+      setIsLaunching(false);
+    }
+  };
+
+  const restartRun = async () => {
+    if (!selectedAgent?.run?.runId || isLaunching) return;
+    setLaunchError(null);
+    setIsLaunching(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('runId', selectedAgent.run.runId);
+      if (message.trim()) query.set('message', message.trim());
+      if (selectedProvider && selectedProvider !== 'auto') query.set('provider', selectedProvider);
+
+      const res = await fetch(`/orgx/api/agents/restart?${query.toString()}`, { method: 'POST' });
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error ?? `Restart failed (${res.status})`);
+      }
+      onClose();
+      onLaunched?.();
+    } catch (err) {
+      setLaunchError(err instanceof Error ? err.message : 'Restart failed');
     } finally {
       setIsLaunching(false);
     }
@@ -256,7 +336,7 @@ export function AgentLaunchModal({
                       {toStatusBadge(selectedAgent.status).label}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-2">
                     <p className="truncate">
                       <span className="text-white/40">Model:</span> {selectedAgent.model ?? 'unknown'}
                     </p>
@@ -268,6 +348,52 @@ export function AgentLaunchModal({
                         <span className="text-white/40">Scoped:</span>{' '}
                         {selectedAgent.context.initiativeTitle ?? selectedAgent.context.initiativeId}
                       </p>
+                    )}
+
+                    <div>
+                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Provider</label>
+                      <select
+                        value={selectedProvider}
+                        onChange={(e) => setSelectedProvider(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+                      >
+                        <option value="auto">Auto (keep agent model)</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
+                      <p className="mt-1 text-[10px] text-white/35">
+                        Selecting a provider updates the agent&apos;s default model before launch.
+                      </p>
+                    </div>
+
+                    {selectedAgent.run && (
+                      <p className="truncate">
+                        <span className="text-white/40">Tracked run:</span>{' '}
+                        {selectedAgent.run.runId.slice(0, 8)}…{' '}
+                        <span className="text-white/35">({selectedAgent.run.status})</span>
+                      </p>
+                    )}
+
+                    {selectedAgent.run && (
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={stopRun}
+                          disabled={!canControlRun || isLaunching}
+                          className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
+                        >
+                          Stop Run
+                        </button>
+                        <button
+                          type="button"
+                          onClick={restartRun}
+                          disabled={isLaunching}
+                          className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                        >
+                          Restart
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
