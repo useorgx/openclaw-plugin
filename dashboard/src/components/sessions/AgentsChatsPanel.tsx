@@ -82,7 +82,7 @@ function summaryForNode(node: SessionTreeNode, summaryByRunId: Map<string, strin
 
   const summary = fallback.trim();
   if (summary.length > 0) return summary;
-  return 'No run summary yet. Open session to inspect messages and outputs.';
+  return 'No summary yet. Open the session to inspect messages and outputs.';
 }
 
 export const AgentsChatsPanel = memo(function AgentsChatsPanel({
@@ -281,9 +281,35 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             Launch
           </button>
         </div>
-        <div className="mt-1.5 flex items-center gap-2">
-          <label htmlFor="offline-date-filter" className="text-[11px] text-white/45">
-            Offline
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-white/45">Offline</span>
+          <div
+            className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
+            role="group"
+            aria-label="Offline session filter"
+          >
+            {OFFLINE_DATE_FILTERS.map((option) => {
+              const active = offlineDateFilter === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setOfflineDateFilter(option.id)}
+                  aria-pressed={active}
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[-0.01em] transition-colors',
+                    active
+                      ? 'border border-lime/25 bg-lime/[0.12] text-lime'
+                      : 'border border-transparent text-white/55 hover:bg-white/[0.06] hover:text-white/80'
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <label htmlFor="offline-date-filter" className="sr-only">
+            Offline session filter
           </label>
           <select
             id="offline-date-filter"
@@ -293,7 +319,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 event.target.value as (typeof OFFLINE_DATE_FILTERS)[number]['id']
               )
             }
-            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[11px] text-white/75 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[11px] text-white/75 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
           >
             {OFFLINE_DATE_FILTERS.map((option) => (
               <option key={option.id} value={option.id}>
@@ -398,11 +424,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         <span className="truncate text-[13px] font-semibold text-white">
                           {group.agentName}
                         </span>
-                        {lead.progress !== null && (
-                          <span className="text-[11px] font-medium text-white/60">
-                            {Math.round(lead.progress)}%
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {hasChildren && (
+                            <span className="rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
+                              {group.nodes.length} sessions
+                            </span>
+                          )}
+                          {lead.progress !== null && (
+                            <span className="text-[11px] font-medium text-white/60">
+                              {Math.round(lead.progress)}%
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {lead.progress !== null && (
                         <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
@@ -425,6 +458,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           }}
                         >
                           {provider.label}
+                        </span>
+                        <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
+                          {lead.status}
                         </span>
                         <span className="text-[11px]">{formatRelativeTime(lead.updatedAt ?? lead.lastEventAt ?? lead.startedAt ?? Date.now())}</span>
                       </div>
@@ -490,9 +526,16 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-[12px] text-white/90">{node.title}</p>
                               <p className="text-[10px] uppercase tracking-[0.08em] text-white/45">
-                                {childProvider.label} · {node.status}
+                                {childProvider.label} · {node.status} ·{' '}
+                                {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                               </p>
                             </div>
+                            <span
+                              className="h-2 w-2 flex-shrink-0 rounded-full"
+                              style={{ backgroundColor: statusColor(node.status) }}
+                              aria-label={node.status}
+                              title={node.status}
+                            />
                           </div>
                         </button>
                       );

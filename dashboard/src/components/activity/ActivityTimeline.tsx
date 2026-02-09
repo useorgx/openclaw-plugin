@@ -397,6 +397,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return map;
   }, [sessions]);
 
+  const sessionStatusById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const session of sessions) {
+      if (session.status) {
+        map.set(session.runId, session.status);
+        map.set(session.id, session.status);
+      }
+    }
+    return map;
+  }, [sessions]);
+
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
       const runId = resolveRunId(item);
@@ -421,6 +432,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       } satisfies DecoratedActivityItem;
     });
   }, [activity]);
+
+  const isLive = useMemo(() => {
+    let newest = 0;
+    for (const item of decoratedActivity) {
+      newest = Math.max(newest, item.timestampEpoch);
+    }
+    if (newest <= 0) return false;
+    return Date.now() - newest < 60_000;
+  }, [decoratedActivity]);
 
   const selectedRunIdSet = useMemo(
     () => new Set(selectedRunIds.filter((value) => value && value.trim().length > 0)),
@@ -714,6 +734,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const bucket = decorated.bucket;
     const runId = decorated.runId;
     const runLabel = runId ? runLabelById.get(runId) ?? humanizeText(runId) : 'Workspace';
+    const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
 
     const displayTitle = humanizeText(item.title ?? '');
     const displaySummary = humanizeActivityBody(item.summary);
@@ -721,6 +742,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const kindColor = bucketColor(bucket);
     const kindLabel = bucketLabel(bucket);
     const metadataJson = metadataToJson(item.metadata as Record<string, unknown> | undefined);
+    const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
     return (
       <motion.button
@@ -731,8 +756,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         animate="animate"
         exit="exit"
         transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-        layout
-        whileHover={{ y: -1.5, scale: 1.005 }}
+        whileHover={{ y: -1.5 }}
         whileTap={{ scale: 0.995 }}
         onClick={() => {
           setDetailDirection(1);
@@ -741,7 +765,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         className="group w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45"
         aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
       >
-        <div className="flex items-start gap-2.5">
+        <div className="flex items-start gap-3">
           <div className="mt-0.5 flex flex-col items-center gap-1.5">
             <AgentAvatar
               name={item.agentName ?? 'OrgX'}
@@ -757,13 +781,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <p className="line-clamp-2 text-[13px] text-white/90">
-                {displayTitle}
-              </p>
-              <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
-                {labelForType(item.type)}
-              </span>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/90">
+                  {displayTitle || humanizeText(item.title || labelForType(item.type))}
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/45">
+                  {item.agentName ?? 'OrgX'}
+                  {sessionStatus ? ` · ${sessionStatus}` : ''}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1 text-right">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
+                  {labelForType(item.type)}
+                </span>
+                <span className="text-[11px] text-white/55">{timeLabel}</span>
+              </div>
             </div>
 
             {(displaySummary || displayDesc) && (
@@ -775,7 +808,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </div>
             )}
 
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
               <span
                 className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
                 style={{
@@ -788,22 +821,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <span className="rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/55">
                 {runLabel}
               </span>
-              <span className="text-white/50">
-                {new Date(item.timestamp).toLocaleTimeString([], {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </span>
+              {sessionStatus && (
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
+                  {sessionStatus}
+                </span>
+              )}
               <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
               {metadataJson && (
                 <span className="text-white/35">meta</span>
               )}
-            </div>
-            <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-white/0 transition-colors group-hover:text-white/45">
-              <span>Open details</span>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
             </div>
           </div>
         </div>
@@ -824,60 +850,62 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ) : (
       <>
       <div className="border-b border-white/[0.06] px-4 py-3.5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="text-[14px] font-semibold text-white">Activity</h2>
-            <span className="relative flex h-1.5 w-1.5">
-              <span
-                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
-                style={{ backgroundColor: colors.lime }}
-              />
-              <span
-                className="relative inline-flex h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: colors.lime }}
-              />
-            </span>
+            <span className="chip">{filtered.length}</span>
+            {truncatedCount > 0 && (
+              <span className="chip text-white/60">+{truncatedCount} hidden</span>
+            )}
+            <span
+              className={cn('h-1.5 w-1.5 rounded-full', isLive && 'pulse-soft')}
+              style={{ backgroundColor: colors.lime }}
+              aria-label="Live"
+              title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
+            />
 
-	            {hasSessionFilter && (
-	              <button
-	                onClick={onClearSelection}
-	                className="chip inline-flex items-center gap-2 text-[11px]"
-	                aria-label="Clear session filter"
-	              >
-	                <AgentAvatar
-	                  name={filteredSession?.agentName ?? 'OrgX'}
-	                  hint={selectedSessionLabel ?? null}
-	                  size="xs"
-	                />
-	                <span className="min-w-0 truncate">
-	                  Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
-	                </span>
-	                <span className="text-white/35">Clear</span>
-	              </button>
-	            )}
+            {hasSessionFilter && (
+              <button
+                onClick={onClearSelection}
+                className="chip inline-flex min-w-0 items-center gap-2"
+                aria-label="Clear session filter"
+              >
+                <AgentAvatar
+                  name={filteredSession?.agentName ?? 'OrgX'}
+                  hint={selectedSessionLabel ?? null}
+                  size="xs"
+                />
+                <span className="min-w-0 truncate">
+                  Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+                </span>
+                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  ×
+                </span>
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-              className="rounded-md border border-white/[0.1] bg-white/[0.03] px-2 py-1 text-[10px] text-white/60 transition-colors hover:text-white"
+              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
               aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
             >
-              {sortOrder === 'newest' ? 'New\u2192Old' : 'Old\u2192New'}
+              {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
             </button>
             <button
               type="button"
               onClick={() => setCollapsed((prev) => !prev)}
-              className="rounded-md border border-white/[0.1] bg-white/[0.03] px-2 py-1 text-[10px] text-white/55 transition-colors hover:text-white"
+              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
               aria-pressed={collapsed}
             >
-              {collapsed ? 'Expand' : 'Collapse'}
+              {collapsed ? 'Expand' : 'Compact'}
             </button>
           </div>
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <svg
               width="14"
@@ -899,23 +927,31 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               aria-label="Search activity"
             />
           </div>
-          <div className="flex flex-shrink-0 items-center gap-1" role="group" aria-label="Activity filters">
-            {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => (
-              <button
-                type="button"
-                key={filterId}
-                onClick={() => setActiveFilter(filterId)}
-                aria-pressed={activeFilter === filterId}
-                className={cn(
-                  'rounded-full px-2 py-1 text-[10px] font-medium transition-all duration-200',
-                  activeFilter === filterId
-                    ? 'border border-lime/25 bg-lime/[0.12] text-lime shadow-[0_0_10px_rgba(191,255,0,0.08)]'
-                    : 'border border-transparent bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white/80'
-                )}
-              >
-                {filterLabels[filterId]}
-              </button>
-            ))}
+
+          <div
+            className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-black/30 p-0.5"
+            role="group"
+            aria-label="Activity filters"
+          >
+            {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
+              const active = activeFilter === filterId;
+              return (
+                <button
+                  type="button"
+                  key={filterId}
+                  onClick={() => setActiveFilter(filterId)}
+                  aria-pressed={active}
+                  className={cn(
+                    'rounded-full px-3 py-1 text-[10px] font-semibold transition-colors',
+                    active
+                      ? 'border border-lime/25 bg-lime/[0.12] text-lime'
+                      : 'border border-transparent text-white/60 hover:bg-white/[0.06] hover:text-white/80'
+                  )}
+                >
+                  {filterLabels[filterId]}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
