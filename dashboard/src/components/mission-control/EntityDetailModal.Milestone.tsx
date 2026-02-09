@@ -6,6 +6,7 @@ import {
   getTaskStatusClass,
   formatEntityStatus,
 } from '@/lib/entityStatusColors';
+import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { useMissionControl } from './MissionControlContext';
 
 interface MilestoneDetailProps {
@@ -29,6 +30,13 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const isDone =
     milestone.status.toLowerCase() === 'done' ||
     milestone.status.toLowerCase() === 'completed';
+  const doneTaskCount = associatedTasks.filter((t) => isDoneStatus(t.status)).length;
+  const progressValue =
+    associatedTasks.length > 0
+      ? completionPercent(doneTaskCount, associatedTasks.length)
+      : isDone
+        ? 100
+        : 0;
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
@@ -74,7 +82,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
       </div>
 
       {/* Details */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {milestone.dueDate && (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
             <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due Date</div>
@@ -87,6 +95,23 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Associated Tasks</div>
           <div className="text-[15px] font-medium text-white/80 mt-0.5">
             {associatedTasks.length}
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+          <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Completion</div>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
+              />
+            </div>
+            <div className="text-[12px] text-white/75" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {progressValue}%
+            </div>
+          </div>
+          <div className="mt-1 text-[10px] text-white/35">
+            {doneTaskCount}/{associatedTasks.length} done
           </div>
         </div>
       </div>
@@ -132,9 +157,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           {!isDone && (milestone.status.toLowerCase() === 'in_progress' || milestone.status.toLowerCase() === 'at_risk') && (
             <button
               onClick={() => {
-                const allDone = associatedTasks.length === 0 || associatedTasks.every((t) =>
-                  ['done', 'completed'].includes(t.status.toLowerCase())
-                );
+                const allDone = associatedTasks.length === 0 || associatedTasks.every((t) => isDoneStatus(t.status));
                 mutations.entityAction.mutate({
                   type: 'milestone',
                   id: milestone.id,
@@ -147,7 +170,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
               style={{ backgroundColor: colors.teal, color: '#05060A', borderColor: `${colors.teal}CC` }}
             >
               {associatedTasks.length > 0 &&
-                !associatedTasks.every((t) => ['done', 'completed'].includes(t.status.toLowerCase()))
+                !associatedTasks.every((t) => isDoneStatus(t.status))
                 ? 'Complete (force)'
                 : 'Complete'}
             </button>

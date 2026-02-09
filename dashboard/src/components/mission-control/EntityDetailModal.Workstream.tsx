@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import type { Initiative, InitiativeWorkstream } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
@@ -9,6 +9,7 @@ import {
   formatEntityStatus,
   statusRank,
 } from '@/lib/entityStatusColors';
+import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
@@ -30,18 +31,39 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
     embedMode,
   });
 
-  const tasks = details.tasks
-    .filter((t) => t.workstreamId === workstream.id)
-    .sort((a, b) => {
-      const rankDiff = statusRank(a.status) - statusRank(b.status);
-      if (rankDiff !== 0) return rankDiff;
-      const dateA = a.createdAt ? Date.parse(a.createdAt) : 0;
-      const dateB = b.createdAt ? Date.parse(b.createdAt) : 0;
-      return dateB - dateA;
-    });
-  const milestones = details.milestones.filter(
-    (m) => m.workstreamId === workstream.id
-  );
+  const milestones = useMemo(() => {
+    return details.milestones.filter((m) => m.workstreamId === workstream.id);
+  }, [details.milestones, workstream.id]);
+
+  const milestoneIdSet = useMemo(() => new Set(milestones.map((m) => m.id)), [milestones]);
+
+  const tasks = useMemo(() => {
+    return details.tasks
+      .filter(
+        (t) =>
+          t.workstreamId === workstream.id ||
+          (t.milestoneId !== null && milestoneIdSet.has(t.milestoneId))
+      )
+      .sort((a, b) => {
+        const rankDiff = statusRank(a.status) - statusRank(b.status);
+        if (rankDiff !== 0) return rankDiff;
+        const dateA = a.createdAt ? Date.parse(a.createdAt) : 0;
+        const dateB = b.createdAt ? Date.parse(b.createdAt) : 0;
+        return dateB - dateA;
+      });
+  }, [details.tasks, milestoneIdSet, workstream.id]);
+
+  const doneTaskCount = tasks.filter((t) => isDoneStatus(t.status)).length;
+  const progressValue =
+    tasks.length > 0
+      ? completionPercent(doneTaskCount, tasks.length)
+      : typeof workstream.progress === 'number'
+        ? clampPercent(
+            workstream.progress <= 1 ? workstream.progress * 100 : workstream.progress
+          )
+        : isDoneStatus(workstream.status)
+          ? 100
+          : null;
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
@@ -86,16 +108,16 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
       </div>
 
       {/* Progress */}
-      {workstream.progress !== null && (
+      {progressValue !== null && (
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-white/30 uppercase tracking-wider">Progress</span>
-            <span className="text-[12px] text-white/60">{Math.round(workstream.progress)}%</span>
+            <span className="text-[12px] text-white/60">{progressValue}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
-              style={{ width: `${Math.round(workstream.progress)}%`, backgroundColor: colors.lime }}
+              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
             />
           </div>
         </div>
@@ -114,7 +136,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
           <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Progress</div>
           <div className="text-[15px] font-medium text-white/80 mt-0.5">
-            {workstream.progress !== null ? `${Math.round(workstream.progress)}%` : '\u2014'}
+            {progressValue !== null ? `${progressValue}%` : '\u2014'}
           </div>
         </div>
       </div>

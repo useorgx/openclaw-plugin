@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
 import { formatEntityStatus } from '@/lib/entityStatusColors';
+import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { LevelIcon } from './LevelIcon';
 import { DependencyEditorPopover } from './DependencyEditorPopover';
 import type { useEntityMutations } from '@/hooks/useEntityMutations';
@@ -189,17 +190,52 @@ export function HierarchyTreeTable({
 
   const dependencyCount = (node: MissionControlNode) => node.dependencyIds.length;
 
+  const progressByNodeId = useMemo(() => {
+    const map = new Map<string, number>();
+
+    const progressFromTasks = (tasks: MissionControlNode[], fallbackStatus: string): number => {
+      if (tasks.length > 0) {
+        const doneCount = tasks.filter((task) => isDoneStatus(task.status)).length;
+        return completionPercent(doneCount, tasks.length);
+      }
+      return isDoneStatus(fallbackStatus) ? 100 : 0;
+    };
+
+    for (const milestone of nodes.filter((node) => node.type === 'milestone')) {
+      const tasks = tasksByMilestone.get(milestone.id) ?? [];
+      map.set(milestone.id, progressFromTasks(tasks, milestone.status));
+    }
+
+    for (const ws of workstreams) {
+      const wsMilestones = milestonesByWorkstream.get(ws.id) ?? [];
+      const milestoneTasks = wsMilestones.flatMap(
+        (milestone) => tasksByMilestone.get(milestone.id) ?? []
+      );
+      const directTasks = directTasksByWorkstream.get(ws.id) ?? [];
+      map.set(ws.id, progressFromTasks([...directTasks, ...milestoneTasks], ws.status));
+    }
+
+    return map;
+  }, [
+    directTasksByWorkstream,
+    milestonesByWorkstream,
+    nodes,
+    tasksByMilestone,
+    workstreams,
+  ]);
+
   return (
     <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
       <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-white/45">
         Hierarchy table
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
+        <table className="w-full min-w-[1250px] border-separate border-spacing-y-1.5">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
               <th className="px-2 py-1.5">Item</th>
               <th className="px-2 py-1.5">Status</th>
+              <th className="px-2 py-1.5">Progress</th>
               <th className="px-2 py-1.5">Priority</th>
               <th className="px-2 py-1.5">ETA</th>
               <th className="px-2 py-1.5">Duration (h)</th>
@@ -217,6 +253,7 @@ export function HierarchyTreeTable({
                 .map((id) => nodeById.get(id)?.title ?? id)
                 .slice(0, 3)
                 .join(', ');
+              const completion = progressByNodeId.get(node.id);
 
               return (
                 <tr
@@ -320,6 +357,27 @@ export function HierarchyTreeTable({
                       </select>
                     ) : (
                       <span>{formatEntityStatus(node.status)}</span>
+                    )}
+                  </td>
+
+                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                    {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${completion}%`,
+                              backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {completion}%
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-white/35">—</span>
                     )}
                   </td>
 

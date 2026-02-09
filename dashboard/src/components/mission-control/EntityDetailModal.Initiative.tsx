@@ -7,6 +7,7 @@ import {
   formatEntityStatus,
   getWorkstreamStatusClass,
 } from '@/lib/entityStatusColors';
+import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
@@ -33,9 +34,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   const blockedTasks = details.tasks.filter(
     (t) => t.status.toLowerCase() === 'blocked'
   ).length;
-  const doneTasks = details.tasks.filter((t) =>
-    ['done', 'completed'].includes(t.status.toLowerCase())
-  ).length;
+  const doneTasks = details.tasks.filter((t) => isDoneStatus(t.status)).length;
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
@@ -88,9 +87,16 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             <div className="space-y-2">
               <SectionLabel title="Workstreams" count={details.workstreams.length} />
               {details.workstreams.map((ws) => {
-                const taskCount = details.tasks.filter(
-                  (t) => t.workstreamId === ws.id
-                ).length;
+                const wsTasks = details.tasks.filter((t) => t.workstreamId === ws.id);
+                const doneWsTasks = wsTasks.filter((t) => isDoneStatus(t.status)).length;
+                const completion =
+                  wsTasks.length > 0
+                    ? completionPercent(doneWsTasks, wsTasks.length)
+                    : typeof ws.progress === 'number'
+                      ? clampPercent(ws.progress <= 1 ? ws.progress * 100 : ws.progress)
+                      : isDoneStatus(ws.status)
+                        ? 100
+                        : null;
                 return (
                   <button
                     key={ws.id}
@@ -114,10 +120,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-3 text-[10px] text-white/35 uppercase tracking-[0.08em]">
-                      <span>{taskCount} tasks</span>
-                      {ws.progress !== null && (
-                        <span>{Math.round(ws.progress)}%</span>
-                      )}
+                      <span>{wsTasks.length} tasks</span>
+                      {completion !== null && <span>{completion}%</span>}
                     </div>
                   </button>
                 );
