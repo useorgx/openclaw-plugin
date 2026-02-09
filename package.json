@@ -35,8 +35,10 @@
     "typecheck": "tsc --noEmit",
     "test:hooks": "node --test tests/**/*.test.mjs",
     "job:dispatch": "node ./scripts/run-codex-dispatch-job.mjs",
-    "build": "tsc && node ./scripts/copy-manifest.mjs",
+    "build:dashboard": "npm --prefix dashboard run build",
+    "build": "npm run build:dashboard && tsc && node ./scripts/copy-manifest.mjs",
     "clean": "rm -rf dist",
+    "pack": "npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

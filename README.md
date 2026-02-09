@@ -30,7 +30,7 @@ Or manually add to your OpenClaw config:
       "orgx": {
         "enabled": true,
         "config": {
-          "apiKey": "oxk-your-api-key"
+          "apiKey": "oxk_..."
         }
       }
     }
