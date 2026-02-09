@@ -38,6 +38,7 @@ export function FirstRunGuideModal({
   open,
   onClose,
   onOpenSettings,
+  onOpenOrgxSettings,
   onOpenMissionControl,
   demoMode,
   connectionVerified,
@@ -46,6 +47,7 @@ export function FirstRunGuideModal({
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenOrgxSettings?: () => void;
   onOpenMissionControl: () => void;
   demoMode: boolean;
   connectionVerified: boolean;
@@ -69,6 +71,10 @@ export function FirstRunGuideModal({
       detail: demoMode
         ? 'Demo mode shows sample data. Connect OrgX to sync initiatives/tasks.'
         : 'Approve the pairing flow so your initiatives, tasks, and activity can sync.',
+      action:
+        !demoMode && !connectionVerified && onOpenOrgxSettings
+          ? { label: 'Connect', onClick: onOpenOrgxSettings }
+          : null,
     },
     {
       label: 'Add provider key(s)',

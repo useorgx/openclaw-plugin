@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { colors } from '@/lib/tokens';
-import type { Initiative, OnboardingState, SessionTreeNode } from '@/types';
+import type { Initiative, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
@@ -18,10 +18,11 @@ import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MissionControlView } from '@/components/mission-control';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
-import { ByokSettingsModal } from '@/components/settings/ByokSettingsModal';
+import { SettingsModal, type SettingsTab } from '@/components/settings/SettingsModal';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
+type OnboardingController = ReturnType<typeof useOnboarding>;
 
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
@@ -104,10 +105,7 @@ export function App() {
   }
 
   return (
-    <DashboardShell
-      onboardingState={onboarding.state}
-      onReconnect={onboarding.resumeGate}
-    />
+    <DashboardShell onboarding={onboarding} />
   );
 }
 
@@ -140,11 +138,9 @@ type EntityModalState = {
 } | null;
 
 function DashboardShell({
-  onboardingState,
-  onReconnect,
+  onboarding,
 }: {
-  onboardingState: OnboardingState;
-  onReconnect?: () => void;
+  onboarding: OnboardingController;
 }) {
   const [demoMode, setDemoMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -158,7 +154,7 @@ function DashboardShell({
   });
 
   const shouldAttemptDecisions =
-    demoMode || (onboardingState.hasApiKey && onboardingState.connectionVerified);
+    demoMode || (onboarding.state.hasApiKey && onboarding.state.connectionVerified);
 
   const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
     useMock: demoMode,
@@ -173,7 +169,10 @@ function DashboardShell({
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsState, setSettingsState] = useState<{ open: boolean; tab: SettingsTab }>({
+    open: false,
+    tab: 'orgx',
+  });
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions'>('initiatives');
@@ -215,7 +214,7 @@ function DashboardShell({
     } catch {
       // ignore
     }
-    if (demoMode || onboardingState.connectionVerified) {
+    if (demoMode || onboarding.state.connectionVerified) {
       setFirstRunGuideOpen(true);
       try {
         window.sessionStorage.setItem(FIRST_RUN_GUIDE_SESSION_KEY, '1');
@@ -223,7 +222,18 @@ function DashboardShell({
         // ignore
       }
     }
-  }, [demoMode, firstRunGuideOpen, onboardingState.connectionVerified]);
+  }, [demoMode, firstRunGuideOpen, onboarding.state.connectionVerified]);
+
+  const openSettings = useCallback((tab?: SettingsTab) => {
+    setSettingsState((previous) => ({
+      open: true,
+      tab: tab ?? previous.tab,
+    }));
+  }, []);
+
+  const handleReconnect = useCallback(() => {
+    openSettings('orgx');
+  }, [openSettings]);
 
   // Dashboard view toggle: Activity (3-column) vs Mission Control
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
@@ -701,7 +711,7 @@ function DashboardShell({
   }, [data.activity, selectedActivitySession]);
 
   const showMissionControlWelcome =
-    onboardingState.connectionVerified && !dismissedMissionControlWelcome;
+    onboarding.state.connectionVerified && !dismissedMissionControlWelcome;
 
   const continueHighestPriority = useCallback(async () => {
     if (data.sessions.nodes.length === 0) {
@@ -1108,7 +1118,7 @@ function DashboardShell({
                 type="button"
                 onClick={() => {
                   setDemoMode(false);
-                  onReconnect?.();
+                  handleReconnect();
                 }}
                 className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
                 title="Exit demo mode"
@@ -1138,7 +1148,7 @@ function DashboardShell({
             </button>
             <button
               type="button"
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => openSettings('orgx')}
               title="Settings"
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
             >
@@ -1344,8 +1354,8 @@ function DashboardShell({
             connection={data.connection}
             lastSnapshotAt={data.lastSnapshotAt}
             error={error}
-            hasApiKey={onboardingState.hasApiKey}
-            onOpenSettings={() => setSettingsOpen(true)}
+            hasApiKey={onboarding.state.hasApiKey}
+            onOpenSettings={() => openSettings('orgx')}
             onRefresh={refetch}
           />
         </div>
@@ -1357,7 +1367,7 @@ function DashboardShell({
             activity={data.activity}
             selectedSessionId={selectedSessionId}
             onSelectSession={handleSelectSession}
-            onReconnect={onReconnect}
+            onReconnect={handleReconnect}
           />
         </section>
 
@@ -1425,12 +1435,12 @@ function DashboardShell({
                   </div>
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
                     <p className="text-[12px] text-white/45">Connect OrgX to review and approve live decisions.</p>
-                    {onReconnect && (
-                      <button onClick={onReconnect}
-                        className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20">
-                        Connect OrgX
-                      </button>
-                    )}
+                    <button
+                      onClick={handleReconnect}
+                      className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20"
+                    >
+                      Connect OrgX
+                    </button>
                   </div>
                 </PremiumCard>
               )
@@ -1533,9 +1543,12 @@ function DashboardShell({
         </div>
       </Modal>
 
-      <ByokSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+      <SettingsModal
+        open={settingsState.open}
+        onClose={() => setSettingsState((previous) => ({ ...previous, open: false }))}
+        activeTab={settingsState.tab}
+        onChangeTab={(tab) => setSettingsState((previous) => ({ ...previous, tab }))}
+        onboarding={onboarding}
         authToken={null}
         embedMode={false}
       />
@@ -1543,13 +1556,14 @@ function DashboardShell({
       <FirstRunGuideModal
         open={firstRunGuideOpen}
         onClose={() => setFirstRunGuideOpen(false)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => openSettings('providers')}
+        onOpenOrgxSettings={() => openSettings('orgx')}
         onOpenMissionControl={() => {
           switchDashboardView('mission-control');
           setFirstRunGuideOpen(false);
         }}
         demoMode={demoMode}
-        connectionVerified={onboardingState.connectionVerified}
+        connectionVerified={onboarding.state.connectionVerified}
         hasSessions={data.sessions.nodes.length > 0}
       />
     </div>
