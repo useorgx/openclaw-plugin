@@ -828,6 +828,50 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         return { updated: 0, failed: 0 };
       }
 
+      if (useMock) {
+        const resolvedIds = new Set(ids);
+        setData((prev) => {
+          const approvedDecisions = prev.decisions.filter((decision) =>
+            resolvedIds.has(decision.id)
+          );
+          if (approvedDecisions.length === 0) {
+            return prev;
+          }
+
+          const now = new Date().toISOString();
+          const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
+            id: `decision:${action}:${decision.id}:${Date.now()}`,
+            type: 'decision_resolved',
+            title:
+              action === 'approve'
+                ? `Approved: ${decision.title}`
+                : `Rejected: ${decision.title}`,
+            description: decision.context,
+            agentId: null,
+            agentName: decision.agentName,
+            runId: null,
+            initiativeId: null,
+            timestamp: now,
+            metadata: {
+              decisionId: decision.id,
+              action,
+            },
+          }));
+
+          const mergedActivity = normalizeActivity(
+            decisionEvents.concat(prev.activity),
+            maxActivityItems
+          );
+          return {
+            ...prev,
+            decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
+            activity: mergedActivity,
+            lastActivity: formatRelativeTime(now),
+          };
+        });
+        return { updated: resolvedIds.size, failed: 0 };
+      }
+
       const response = await fetch('/orgx/api/live/decisions/approve', {
         method: 'POST',
         headers: {
@@ -906,7 +950,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
       return { updated, failed };
     },
-    [enableDecisions, maxActivityItems]
+    [enableDecisions, maxActivityItems, useMock]
   );
 
   const approveDecision = useCallback(

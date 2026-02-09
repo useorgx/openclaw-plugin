@@ -4,6 +4,7 @@ import { useOnboarding } from '@/hooks/useOnboarding';
 import { colors } from '@/lib/tokens';
 import type { Initiative, OnboardingState, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
+import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
 import { Modal } from '@/components/shared/Modal';
 import { MobileTabBar } from '@/components/shared/MobileTabBar';
@@ -17,6 +18,7 @@ import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MissionControlView } from '@/components/mission-control';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
+import { ByokSettingsModal } from '@/components/settings/ByokSettingsModal';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -34,6 +36,7 @@ const CONNECTION_COLOR: Record<string, string> = {
 };
 
 const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
+const DEMO_MODE_KEY = 'orgx.demo_mode';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -132,10 +135,22 @@ function DashboardShell({
   onboardingState: OnboardingState;
   onReconnect?: () => void;
 }) {
-  const shouldAttemptDecisions = onboardingState.hasApiKey && onboardingState.connectionVerified;
+  const [demoMode, setDemoMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo') === '1') return true;
+    try {
+      return window.localStorage.getItem(DEMO_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const shouldAttemptDecisions =
+    demoMode || (onboardingState.hasApiKey && onboardingState.connectionVerified);
 
   const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
-    useMock: false,
+    useMock: demoMode,
     enabled: true,
     enableDecisions: shouldAttemptDecisions,
   });
@@ -147,6 +162,8 @@ function DashboardShell({
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions'>('initiatives');
   const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
@@ -162,6 +179,28 @@ function DashboardShell({
       window.localStorage.removeItem(MC_WELCOME_DISMISS_KEY);
     }
   }, [dismissedMissionControlWelcome]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (demoMode) {
+        window.localStorage.setItem(DEMO_MODE_KEY, '1');
+      } else {
+        window.localStorage.removeItem(DEMO_MODE_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  }, [demoMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (firstRunGuideOpen) return;
+    if (getFirstRunGuideDismissed()) return;
+    if (demoMode || onboardingState.connectionVerified) {
+      setFirstRunGuideOpen(true);
+    }
+  }, [demoMode, firstRunGuideOpen, onboardingState.connectionVerified]);
 
   // Dashboard view toggle: Activity (3-column) vs Mission Control
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
@@ -1013,6 +1052,19 @@ function DashboardShell({
                 Replay: {data.outbox.replayStatus}
               </span>
             )}
+            {demoMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDemoMode(false);
+                  onReconnect?.();
+                }}
+                className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
+                title="Exit demo mode"
+              >
+                Exit demo
+              </button>
+            )}
             <button
               type="button"
               ref={notificationButtonRef}
@@ -1032,6 +1084,29 @@ function DashboardShell({
                   {visibleNotifications.length}
                 </span>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              title="Settings"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+                <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.05.05a2.2 2.2 0 0 1-1.56 3.76 2.2 2.2 0 0 1-1.56-.64l-.05-.05a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.1 1.63V22a2.2 2.2 0 0 1-4.4 0v-.07a1.8 1.8 0 0 0-1.1-1.63 1.8 1.8 0 0 0-2 .36l-.05.05a2.2 2.2 0 1 1-3.12-3.12l.05-.05a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.63-1.1H2a2.2 2.2 0 0 1 0-4.4h.07a1.8 1.8 0 0 0 1.63-1.1 1.8 1.8 0 0 0-.36-2l-.05-.05a2.2 2.2 0 1 1 3.12-3.12l.05.05a1.8 1.8 0 0 0 2 .36 1.8 1.8 0 0 0 1.1-1.63V2a2.2 2.2 0 0 1 4.4 0v.07a1.8 1.8 0 0 0 1.1 1.63 1.8 1.8 0 0 0 2-.36l.05-.05a2.2 2.2 0 0 1 3.12 3.12l-.05.05a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.63 1.1H22a2.2 2.2 0 0 1 0 4.4h-.07a1.8 1.8 0 0 0-1.63 1.1z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFirstRunGuideOpen(true)}
+              title="Help"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
+                <path d="M12 17h.01" />
+                <circle cx="12" cy="12" r="9" />
+              </svg>
             </button>
             <button
               type="button"
@@ -1396,6 +1471,26 @@ function DashboardShell({
           </button>
         </div>
       </Modal>
+
+      <ByokSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        authToken={null}
+        embedMode={false}
+      />
+
+      <FirstRunGuideModal
+        open={firstRunGuideOpen}
+        onClose={() => setFirstRunGuideOpen(false)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenMissionControl={() => {
+          switchDashboardView('mission-control');
+          setFirstRunGuideOpen(false);
+        }}
+        demoMode={demoMode}
+        connectionVerified={onboardingState.connectionVerified}
+        hasSessions={data.sessions.nodes.length > 0}
+      />
     </div>
   );
 }

@@ -383,6 +383,43 @@ export interface AutoContinueStatusResponse {
   error?: string;
 }
 
+export type ByokKeySource = 'stored' | 'env' | 'none';
+
+export interface ByokProviderStatus {
+  configured: boolean;
+  source: ByokKeySource;
+  masked: string | null;
+}
+
+export interface ByokSettingsResponse {
+  ok: boolean;
+  updatedAt: string | null;
+  providers: {
+    openai: ByokProviderStatus;
+    anthropic: ByokProviderStatus;
+    openrouter: ByokProviderStatus;
+  };
+  error?: string;
+}
+
+export interface ByokProviderHealth {
+  ok: boolean;
+  modelCount?: number;
+  sample?: string[];
+  error?: string;
+}
+
+export interface ByokHealthResponse {
+  ok: boolean;
+  agentId: string;
+  providers: {
+    openai: ByokProviderHealth;
+    anthropic: ByokProviderHealth;
+    openrouter: ByokProviderHealth;
+  };
+  error?: string;
+}
+
 export interface Decision {
   id: string;
   title: string;
