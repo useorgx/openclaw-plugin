@@ -36,6 +36,7 @@
     "test:hooks": "node --test tests/**/*.test.mjs",
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
+    "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "tsc && node ./scripts/copy-manifest.mjs",
