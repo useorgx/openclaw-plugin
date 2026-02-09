@@ -12,7 +12,7 @@
 export interface OrgXConfig {
   /** OrgX API key */
   apiKey: string;
-  /** OrgX user ID for X-Orgx-User-Id header */
+  /** Optional legacy user ID for service-key mode (unused for oxk_ keys) */
   userId: string;
   /** OrgX API base URL */
   baseUrl: string;

@@ -32,6 +32,10 @@ const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 const DECISION_MUTATION_CONCURRENCY = 6;
 const DEFAULT_CLIENT_BASE_URL = "https://www.useorgx.com";
 
+function isUserScopedApiKey(apiKey: string): boolean {
+  return apiKey.trim().toLowerCase().startsWith("oxk_");
+}
+
 function normalizeHost(value: string): string {
   return value.trim().toLowerCase().replace(/^\[|\]$/g, "");
 }
@@ -82,15 +86,18 @@ export class OrgXClient {
   constructor(apiKey: string, baseUrl: string, userId?: string) {
     this.apiKey = apiKey;
     this.baseUrl = normalizeClientBaseUrl(baseUrl, DEFAULT_CLIENT_BASE_URL);
-    this.userId = userId || "";
+    this.userId = isUserScopedApiKey(apiKey) ? "" : userId || "";
   }
 
   setCredentials(input: { apiKey?: string; userId?: string; baseUrl?: string }) {
     if (typeof input.apiKey === "string") {
       this.apiKey = input.apiKey;
+      if (isUserScopedApiKey(this.apiKey)) {
+        this.userId = "";
+      }
     }
     if (typeof input.userId === "string") {
-      this.userId = input.userId;
+      this.userId = isUserScopedApiKey(this.apiKey) ? "" : input.userId;
     }
     if (typeof input.baseUrl === "string" && input.baseUrl.trim().length > 0) {
       this.baseUrl = normalizeClientBaseUrl(input.baseUrl, this.baseUrl);
@@ -120,7 +127,7 @@ export class OrgXClient {
         "User-Agent": USER_AGENT,
         Authorization: `Bearer ${this.apiKey}`,
       };
-      if (this.userId) {
+      if (this.userId && !isUserScopedApiKey(this.apiKey)) {
         headers["X-Orgx-User-Id"] = this.userId;
       }
 

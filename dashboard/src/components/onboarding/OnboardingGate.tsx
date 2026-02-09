@@ -11,7 +11,7 @@ interface OnboardingGateProps {
   isSubmittingManual: boolean;
   onRefresh: () => Promise<unknown>;
   onStartPairing: () => Promise<void>;
-  onSubmitManualKey: (apiKey: string, userId?: string) => Promise<unknown>;
+  onSubmitManualKey: (apiKey: string) => Promise<unknown>;
   onBackToPairing: () => void;
   onUseManualKey: () => void;
   onSkip: () => void;

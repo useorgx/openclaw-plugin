@@ -132,7 +132,6 @@ Reusable orchestration job to dispatch/monitor parallel `codex --full-auto` work
 
 ```bash
 export ORGX_API_KEY=oxk_...
-export ORGX_USER_ID=user_...
 
 npm run job:dispatch -- \
   --initiative_id=aa6d16dc-d450-417f-8a17-fd89bd597195 \
@@ -147,6 +146,10 @@ Key behavior:
 - Retries failures with backoff up to `--max_attempts`
 - Emits activity and task status transitions into OrgX DB
 - Persists resumable state to `.orgx-codex-jobs/<job-id>/job-state.json`
+
+Notes:
+- `ORGX_USER_ID` is legacy and only needed with legacy service-key flows.
+- User-scoped `oxk_...` API keys should not send `X-Orgx-User-Id`.
 
 ## API Endpoints
 

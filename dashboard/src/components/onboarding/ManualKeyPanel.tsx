@@ -4,7 +4,7 @@ import orgxLogo from '@/assets/orgx-logo.png';
 
 interface ManualKeyPanelProps {
   isSubmitting: boolean;
-  onSubmit: (apiKey: string, userId?: string) => Promise<unknown>;
+  onSubmit: (apiKey: string) => Promise<unknown>;
   onBack: () => void;
 }
 
@@ -24,7 +24,6 @@ const rise = {
 
 export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPanelProps) {
   const [apiKey, setApiKey] = useState('');
-  const [userId, setUserId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -41,7 +40,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       : `oxk_${trimmed}`;
 
     try {
-      await onSubmit(normalizedApiKey, userId.trim() || undefined);
+      await onSubmit(normalizedApiKey);
       setApiKey('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to validate API key.');
@@ -106,17 +105,10 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
           )}
         </label>
 
-        <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">
-            User ID <span className="normal-case tracking-normal text-white/25">(optional)</span>
-          </span>
-          <input
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            placeholder="user_..."
-            className="w-full rounded-xl border border-white/[0.08] bg-transparent px-3 py-2.5 font-mono text-[13px] text-white outline-none transition placeholder:text-white/15 focus:border-[#BFFF00]/40"
-          />
-        </label>
+        <p className="text-[12px] text-white/35">
+          User-scoped keys (<span className="font-mono text-white/50">oxk_...</span>)
+          do not require a separate user ID header.
+        </p>
       </motion.div>
 
       {/* ── Actions ─────────────────────────────────────────────── */}

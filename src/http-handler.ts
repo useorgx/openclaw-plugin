@@ -58,6 +58,10 @@ function safeErrorMessage(err: unknown): string {
   return "Unexpected error";
 }
 
+function isUserScopedApiKey(apiKey: string): boolean {
+  return apiKey.trim().toLowerCase().startsWith("oxk_");
+}
+
 const ACTIVITY_HEADLINE_TIMEOUT_MS = 4_000;
 const ACTIVITY_HEADLINE_CACHE_TTL_MS = 12 * 60 * 60_000;
 const ACTIVITY_HEADLINE_CACHE_MAX = 1_000;
@@ -1822,10 +1826,11 @@ export function createHttpHandler(
             return true;
           }
 
-          const userId =
+          const requestedUserId =
             pickString(payload, ["userId", "user_id"]) ??
             pickHeaderString(req.headers, ["x-orgx-user-id", "x-user-id"]) ??
             undefined;
+          const userId = isUserScopedApiKey(apiKey) ? undefined : requestedUserId;
           const state = await onboarding.submitManualKey({
             apiKey,
             userId,
@@ -2340,6 +2345,7 @@ export function createHttpHandler(
           return true;
         }
 
+        case "dashboard-bundle":
         case "live/snapshot": {
           const sessionsLimit = parsePositiveInt(
             searchParams.get("sessionsLimit") ?? searchParams.get("sessions_limit"),
@@ -2934,12 +2940,15 @@ export function createHttpHandler(
           };
 
           try {
+            const includeUserHeader =
+              Boolean(config.userId && config.userId.trim().length > 0) &&
+              !isUserScopedApiKey(config.apiKey);
             const upstream = await fetch(target, {
               method: "GET",
               headers: {
                 Authorization: `Bearer ${config.apiKey}`,
                 Accept: "text/event-stream",
-                ...(config.userId
+                ...(includeUserHeader
                   ? { "X-Orgx-User-Id": config.userId }
                   : {}),
               },

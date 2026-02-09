@@ -24,6 +24,10 @@ interface InstallationRecord {
   updatedAt: string;
 }
 
+function isUserScopedApiKey(apiKey: string): boolean {
+  return apiKey.trim().toLowerCase().startsWith('oxk_');
+}
+
 function ensureAuthDir(): void {
   mkdirSync(AUTH_DIR, { recursive: true, mode: 0o700 });
   try {
@@ -52,6 +56,27 @@ export function readPersistedAuth(): PersistedAuthRecord | null {
     if (!parsed || typeof parsed.apiKey !== 'string' || parsed.apiKey.trim().length === 0) {
       return null;
     }
+    if (
+      isUserScopedApiKey(parsed.apiKey) &&
+      typeof parsed.userId === 'string' &&
+      parsed.userId.trim().length > 0
+    ) {
+      const sanitized: PersistedAuthRecord = {
+        ...parsed,
+        userId: null,
+        updatedAt: new Date().toISOString(),
+      };
+      writeFileSync(AUTH_FILE, JSON.stringify(sanitized, null, 2), {
+        mode: 0o600,
+        encoding: 'utf8',
+      });
+      try {
+        chmodSync(AUTH_FILE, 0o600);
+      } catch {
+        // best effort
+      }
+      return sanitized;
+    }
     return parsed;
   } catch {
     return null;
@@ -64,11 +89,14 @@ export function writePersistedAuth(
   ensureAuthDir();
   const now = new Date().toISOString();
   const existing = readPersistedAuth();
+  const normalizedUserId = isUserScopedApiKey(input.apiKey)
+    ? null
+    : input.userId ?? null;
   const next: PersistedAuthRecord = {
     apiKey: input.apiKey,
     source: input.source,
     installationId: input.installationId,
-    userId: input.userId ?? null,
+    userId: normalizedUserId,
     workspaceName: input.workspaceName ?? null,
     keyPrefix: input.keyPrefix ?? null,
     createdAt: existing?.createdAt ?? now,

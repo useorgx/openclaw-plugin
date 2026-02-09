@@ -69,6 +69,7 @@ Scope: current repository state in `src/` and `dashboard/src/`
   - `GET /orgx/api/entities?type=...`
   - `POST /orgx/api/entities`
 - Live endpoints:
+  - `GET /orgx/api/dashboard-bundle`
   - `GET /orgx/api/live/snapshot`
   - `GET /orgx/api/live/sessions`
   - `GET /orgx/api/live/activity`

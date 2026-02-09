@@ -737,15 +737,25 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisionsLimit: String(maxDecisions),
           include_idle: 'true',
         });
-        const snapshotRes = await fetchJson<LiveSnapshotResponse>(
-          `/orgx/api/live/snapshot?${query.toString()}`
-        );
+        const endpoints = [
+          { label: 'dashboard-bundle', url: `/orgx/api/dashboard-bundle?${query.toString()}` },
+          { label: 'live/snapshot', url: `/orgx/api/live/snapshot?${query.toString()}` },
+        ];
+        const errors: string[] = [];
+        let snapshot: LiveSnapshotResponse | null = null;
 
-        if (!snapshotRes.ok || !snapshotRes.data) {
-          throw new Error(snapshotRes.error ?? 'Snapshot endpoint unavailable');
+        for (const endpoint of endpoints) {
+          const snapshotRes = await fetchJson<LiveSnapshotResponse>(endpoint.url);
+          if (snapshotRes.ok && snapshotRes.data) {
+            snapshot = snapshotRes.data;
+            break;
+          }
+          errors.push(`${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`);
         }
 
-        const snapshot = snapshotRes.data;
+        if (!snapshot) {
+          throw new Error(errors.length > 0 ? errors.join(' | ') : 'Snapshot endpoint unavailable');
+        }
         const activity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
         const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
         const decisions = enableDecisions && Array.isArray(snapshot.decisions)
