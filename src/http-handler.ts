@@ -3131,6 +3131,16 @@ export function createHttpHandler(
               searchParams.get("model_id") ??
               "")
               .trim() || null;
+          const dryRunRaw =
+            payload.dryRun ??
+            (payload as Record<string, unknown>).dry_run ??
+            searchParams.get("dryRun") ??
+            searchParams.get("dry_run") ??
+            null;
+          const dryRun =
+            typeof dryRunRaw === "boolean"
+              ? dryRunRaw
+              : parseBooleanQuery(typeof dryRunRaw === "string" ? dryRunRaw : null);
 
           let requiresPremiumLaunch = Boolean(provider) || modelImpliesByok(requestedModel);
           if (!requiresPremiumLaunch) {
@@ -3184,6 +3194,21 @@ export function createHttpHandler(
               : initiativeId
                 ? `Kick off initiative ${initiativeId}`
                 : `Kick off agent ${agentId}`);
+
+          if (dryRun) {
+            sendJson(res, 200, {
+              ok: true,
+              dryRun: true,
+              agentId,
+              initiativeId,
+              workstreamId,
+              taskId,
+              requiresPremiumLaunch,
+              startedAt: new Date().toISOString(),
+              message,
+            });
+            return true;
+          }
 
           let routedProvider: string | null = null;
           let routedModel: string | null = null;
