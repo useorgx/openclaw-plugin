@@ -60,6 +60,7 @@ export function FirstRunGuideModal({
   }, [byok.status]);
 
   const hasProviderKeys = configuredProviders > 0;
+  const recommendedAction: 'settings' | 'mission-control' = hasProviderKeys ? 'mission-control' : 'settings';
 
   const steps = [
     {
@@ -73,6 +74,10 @@ export function FirstRunGuideModal({
       label: 'Add provider key(s)',
       done: hasProviderKeys,
       detail: 'Set OpenAI / Anthropic / OpenRouter keys for agent launches, or rely on env vars.',
+      action:
+        !hasProviderKeys
+          ? { label: 'Open settings', onClick: onOpenSettings }
+          : null,
     },
     {
       label: 'Launch your first agent',
@@ -83,8 +88,12 @@ export function FirstRunGuideModal({
       label: 'Open Mission Control',
       done: false,
       detail: 'Track dependency-ready next-up tasks and start auto-continue for execution.',
+      action: { label: 'Open', onClick: onOpenMissionControl },
     },
   ];
+
+  const doneCount = steps.filter((s) => s.done).length;
+  const progressPct = Math.round((doneCount / steps.length) * 100);
 
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-2xl">
@@ -92,18 +101,49 @@ export function FirstRunGuideModal({
         <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-[14px] font-semibold text-white">First Run Checklist</h3>
-              <p className="mt-1 text-[12px] text-white/55">
-                Quick path to seeing OrgX value inside OpenClaw.
+              <h3 className="text-[15px] font-semibold text-white">First run checklist</h3>
+              <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+                A fast path to seeing OrgX value inside OpenClaw.
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="chip">
+                  {doneCount} / {steps.length} complete
+                </span>
+                <span className="text-[11px] text-white/35">
+                  {progressPct}% done
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full max-w-[340px] overflow-hidden rounded-full bg-white/[0.08]">
+                <div
+                  className="h-full rounded-full bg-[#BFFF00]/80"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.08] hover:text-white"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFirstRunGuideDismissed(true);
+                  onClose();
+                }}
+                className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                title="Don't show automatically again"
+              >
+                Don't show again
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close checklist"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -111,14 +151,41 @@ export function FirstRunGuideModal({
           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
             <div className="space-y-3">
               {steps.map((step) => (
-                <div key={step.label} className="flex items-start gap-3">
-                  <div className="pt-1">{stepDot(step.done)}</div>
-                  <div className="min-w-0">
-                    <p className={cn('text-[13px] font-semibold', step.done ? 'text-white/80' : 'text-white')}>
-                      {step.label}
-                    </p>
-                    <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{step.detail}</p>
+                <div
+                  key={step.label}
+                  className={cn(
+                    'flex items-start justify-between gap-3 rounded-xl border p-3',
+                    step.done
+                      ? 'border-white/[0.06] bg-white/[0.02]'
+                      : 'border-white/[0.10] bg-white/[0.03]'
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="pt-1">{stepDot(step.done)}</div>
+                    <div className="min-w-0">
+                      <p className={cn('text-[13px] font-semibold', step.done ? 'text-white/80' : 'text-white')}>
+                        {step.label}
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{step.detail}</p>
+                    </div>
                   </div>
+
+                  {step.action && !step.done ? (
+                    <button
+                      type="button"
+                      onClick={step.action.onClick}
+                      data-modal-autofocus={
+                        recommendedAction === 'settings' && step.label === 'Add provider key(s)'
+                          ? 'true'
+                          : recommendedAction === 'mission-control' && step.label === 'Open Mission Control'
+                            ? 'true'
+                            : undefined
+                      }
+                      className="shrink-0 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
+                    >
+                      {step.action.label}
+                    </button>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -127,27 +194,26 @@ export function FirstRunGuideModal({
               <button
                 type="button"
                 onClick={onOpenSettings}
+                data-modal-autofocus={recommendedAction === 'settings' ? 'true' : undefined}
                 className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
               >
-                Open Settings
+                Open settings
               </button>
               <button
                 type="button"
                 onClick={onOpenMissionControl}
+                data-modal-autofocus={recommendedAction === 'mission-control' ? 'true' : undefined}
                 className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
               >
                 Open Mission Control
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setFirstRunGuideDismissed(true);
-                  onClose();
-                }}
+                onClick={onClose}
                 className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
-                title="Don't show automatically again"
+                title="Hide for now"
               >
-                Dismiss forever
+                Not now
               </button>
             </div>
           </div>
@@ -162,4 +228,3 @@ export function FirstRunGuideModal({
     </Modal>
   );
 }
-
