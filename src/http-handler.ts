@@ -1010,6 +1010,95 @@ function parseJsonBody(body: unknown): Record<string, unknown> {
   return {};
 }
 
+const MAX_JSON_BODY_BYTES = 1_000_000;
+const JSON_BODY_TIMEOUT_MS = 2_000;
+
+function chunkToBuffer(chunk: unknown): Buffer {
+  if (!chunk) return Buffer.alloc(0);
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (typeof chunk === "string") return Buffer.from(chunk, "utf8");
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
+  try {
+    return Buffer.from(JSON.stringify(chunk), "utf8");
+  } catch {
+    return Buffer.from(String(chunk), "utf8");
+  }
+}
+
+async function readRequestBodyBuffer(req: PluginRequest): Promise<Buffer | null> {
+  const on = req.on ? req.on.bind(req) : null;
+  if (!on) return null;
+
+  return await new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let finished = false;
+
+    const finish = (buffer: Buffer | null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve(buffer);
+    };
+
+    const timer = setTimeout(() => finish(null), JSON_BODY_TIMEOUT_MS);
+
+    on("data", (chunk: unknown) => {
+      const buf = chunkToBuffer(chunk);
+      if (buf.length === 0) return;
+      totalBytes += buf.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        finish(null);
+        return;
+      }
+      chunks.push(buf);
+    });
+
+    const onDone = () => {
+      if (chunks.length === 0) {
+        finish(Buffer.alloc(0));
+      } else {
+        finish(Buffer.concat(chunks, totalBytes));
+      }
+    };
+
+    const once = (req.once ?? req.on)?.bind(req) ?? null;
+    if (once) {
+      once("end", onDone);
+      once("error", () => finish(null));
+    } else {
+      on("end", onDone);
+      on("error", () => finish(null));
+    }
+  });
+}
+
+async function parseJsonRequest(req: PluginRequest): Promise<Record<string, unknown>> {
+  const body = req.body;
+
+  if (typeof body === "string" && body.length > 0) {
+    return parseJsonBody(body);
+  }
+  if (Buffer.isBuffer(body) && body.length > 0) {
+    return parseJsonBody(body);
+  }
+  if (body instanceof Uint8Array && body.byteLength > 0) {
+    return parseJsonBody(body);
+  }
+  if (body instanceof ArrayBuffer && body.byteLength > 0) {
+    return parseJsonBody(body);
+  }
+  if (body && typeof body === "object" && !Buffer.isBuffer(body)) {
+    return parseJsonBody(body);
+  }
+
+  const streamed = await readRequestBodyBuffer(req);
+  if (!streamed || streamed.length === 0) {
+    return {};
+  }
+  return parseJsonBody(streamed);
+}
+
 function pickString(record: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = record[key];
@@ -2811,7 +2900,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const started = await onboarding.startPairing({
             openclawVersion:
               pickString(payload, ["openclawVersion", "openclaw_version"]) ??
@@ -2856,7 +2945,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isOnboardingManualKeyRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const authHeader = pickHeaderString(req.headers, ["authorization"]);
           const bearerApiKey =
             authHeader && authHeader.toLowerCase().startsWith("bearer ")
@@ -2919,7 +3008,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isAgentLaunchRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const agentId =
             (pickString(payload, ["agentId", "agent_id", "id"]) ??
               searchParams.get("agentId") ??
@@ -3073,7 +3162,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isAgentStopRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const runId =
             (pickString(payload, ["runId", "run_id", "sessionId", "session_id"]) ??
               searchParams.get("runId") ??
@@ -3117,7 +3206,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isAgentRestartRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const previousRunId =
             (pickString(payload, ["runId", "run_id", "sessionId", "session_id"]) ??
               searchParams.get("runId") ??
@@ -3223,7 +3312,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isMissionControlAutoContinueStartRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const initiativeId =
             (pickString(payload, ["initiativeId", "initiative_id"]) ??
               searchParams.get("initiativeId") ??
@@ -3366,7 +3455,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isMissionControlAutoContinueStopRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const initiativeId =
             (pickString(payload, ["initiativeId", "initiative_id"]) ??
               searchParams.get("initiativeId") ??
@@ -3412,7 +3501,7 @@ export function createHttpHandler(
         (route === "live/decisions/approve" || decisionApproveMatch)
       ) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const action = payload.action === "reject" ? "reject" : "approve";
           const note =
             typeof payload.note === "string" && payload.note.trim().length > 0
@@ -3460,7 +3549,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isDelegationPreflight) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const intent = pickString(payload, ["intent"]);
           if (!intent) {
             sendJson(res, 400, { error: "intent is required" });
@@ -3490,7 +3579,7 @@ export function createHttpHandler(
 
       if (method === "POST" && isMissionControlAutoAssignmentRoute) {
         try {
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const entityId = pickString(payload, ["entity_id", "entityId"]);
           const entityType = pickString(payload, ["entity_type", "entityType"]);
           const initiativeId =
@@ -3529,7 +3618,7 @@ export function createHttpHandler(
       if (runCheckpointsMatch && method === "POST") {
         try {
           const runId = decodeURIComponent(runCheckpointsMatch[1]);
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const reason = pickString(payload, ["reason"]) ?? undefined;
           const rawPayload = payload.payload;
           const checkpointPayload =
@@ -3554,7 +3643,7 @@ export function createHttpHandler(
         try {
           const runId = decodeURIComponent(runCheckpointRestoreMatch[1]);
           const checkpointId = decodeURIComponent(runCheckpointRestoreMatch[2]);
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const reason = pickString(payload, ["reason"]) ?? undefined;
           const data = await client.restoreRunCheckpoint(runId, {
             checkpointId,
@@ -3577,7 +3666,7 @@ export function createHttpHandler(
             | "resume"
             | "cancel"
             | "rollback";
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
           const checkpointId = pickString(payload, ["checkpointId", "checkpoint_id"]);
           const reason = pickString(payload, ["reason"]);
 
@@ -3600,7 +3689,7 @@ export function createHttpHandler(
           const entityType = decodeURIComponent(entityActionMatch[1]);
           const entityId = decodeURIComponent(entityActionMatch[2]);
           const entityAction = decodeURIComponent(entityActionMatch[3]);
-          const payload = parseJsonBody(req.body);
+          const payload = await parseJsonRequest(req);
 
           if (entityAction === "delete") {
             // Delete via status update
@@ -3891,7 +3980,7 @@ export function createHttpHandler(
         case "entities": {
           if (method === "POST") {
             try {
-              const payload = parseJsonBody(req.body);
+              const payload = await parseJsonRequest(req);
               const type = pickString(payload, ["type"]);
               const title = pickString(payload, ["title", "name"]);
 
@@ -3953,7 +4042,7 @@ export function createHttpHandler(
 
           if (method === "PATCH") {
             try {
-              const payload = parseJsonBody(req.body);
+              const payload = await parseJsonRequest(req);
               const type = pickString(payload, ["type"]);
               const id = pickString(payload, ["id"]);
 
@@ -4486,7 +4575,7 @@ export function createHttpHandler(
           }
 
           try {
-            const payload = parseJsonBody(req.body);
+            const payload = await parseJsonRequest(req);
             const text = pickString(payload, ["text", "summary", "detail", "content"]);
             if (!text) {
               sendJson(res, 400, { error: "text is required" });
