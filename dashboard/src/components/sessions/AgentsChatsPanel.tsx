@@ -1,11 +1,12 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { colors } from '@/lib/tokens';
+import { colors, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { resolveProvider } from '@/lib/providers';
 import type { LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { AgentLaunchModal } from './AgentLaunchModal';
 
 interface AgentsChatsPanelProps {
@@ -13,6 +14,8 @@ interface AgentsChatsPanelProps {
   activity: LiveActivityItem[];
   selectedSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
+  onAgentFilter?: (agentName: string | null) => void;
+  agentFilter?: string | null;
   onReconnect?: () => void;
 }
 
@@ -20,7 +23,7 @@ const MAX_VISIBLE_GROUPS = 120;
 const MAX_VISIBLE_CHILD_SESSIONS = 10;
 const ONLINE_STATUSES = new Set(['running', 'queued', 'pending', 'blocked']);
 const OFFLINE_DATE_FILTERS = [
-  { id: 'all', label: 'All offline', minutes: null },
+  { id: 'all', label: 'All', minutes: null },
   { id: '24h', label: '24h', minutes: 24 * 60 },
   { id: '3d', label: '3d', minutes: 3 * 24 * 60 },
   { id: '7d', label: '7d', minutes: 7 * 24 * 60 },
@@ -90,6 +93,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   activity,
   selectedSessionId,
   onSelectSession,
+  onAgentFilter,
+  agentFilter,
   onReconnect,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -131,7 +136,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
-      const key = node.agentId ?? node.agentName ?? node.id;
+      const key = node.agentName ?? node.agentId ?? 'Xandy';
       const existing = map.get(key);
 
       if (existing) {
@@ -139,7 +144,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       } else {
         map.set(key, {
           agentId: node.agentId,
-          agentName: node.agentName ?? 'Unassigned',
+          agentName: node.agentName ?? 'Xandy',
           nodes: [node],
           latest: node,
         });
@@ -282,7 +287,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </button>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-white/45">Offline</span>
+          <span className="text-[11px] text-white/45">History</span>
           <div
             className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
             role="group"
@@ -373,182 +378,190 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </div>
         )}
 
+        {agentFilter && onAgentFilter && (
+          <div className="flex items-center justify-between rounded-lg bg-[#0AD4C4]/[0.08] px-3 py-1.5 text-[11px] text-[#0AD4C4]">
+            <span>Filtered: {agentFilter}</span>
+            <button
+              type="button"
+              onClick={() => onAgentFilter(null)}
+              className="text-[10px] underline underline-offset-2"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {agents.map((group) => {
-          const agentKey = group.agentId ?? group.agentName;
+          const agentKey = group.agentName;
           const isCollapsed = collapsed.has(agentKey);
-          const hasChildren = group.nodes.length > 1;
           const lead = group.latest;
           const active = selectedSessionId === lead.id;
           const visibleChildren = isCollapsed
             ? []
-            : group.nodes.slice(1, 1 + MAX_VISIBLE_CHILD_SESSIONS);
+            : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
           const hiddenChildren = Math.max(
             0,
-            group.nodes.length - 1 - visibleChildren.length
+            group.nodes.length - visibleChildren.length
           );
-          const summary = summaryForNode(lead, summaryByRunId);
-          const provider = resolveProvider(
-            group.agentName,
-            lead.title,
-            lead.lastEventSummary,
-            summary,
-            lead
-          );
+          const isFiltered = agentFilter === group.agentName;
 
           return (
             <div
               key={agentKey}
               className={cn(
                 'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
-                active && 'border-white/20 bg-white/[0.05]'
+                active && 'border-white/20 bg-white/[0.05]',
+                isFiltered && 'border-[#0AD4C4]/30'
               )}
             >
-              <div className="flex items-stretch">
+              {/* Simplified agent group header: avatar + name + status dot + session count */}
+              <div className="flex items-center gap-2.5 px-3 py-2.5">
                 <button
-                  onClick={() => onSelectSession(lead.id)}
-                  className="flex-1 px-3 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
+                  type="button"
+                  onClick={() => {
+                    if (onAgentFilter) {
+                      onAgentFilter(isFiltered ? null : group.agentName);
+                    } else {
+                      onSelectSession(lead.id);
+                    }
+                  }}
+                  className="flex flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
                 >
-                  <div className="flex items-start gap-2.5">
-                    <div className="relative mt-0.5 flex-shrink-0">
-                      <ProviderLogo provider={provider.id} size="sm" />
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
-                        style={{
-                          backgroundColor: statusColor(lead.status),
-                          borderColor: colors.cardBg,
-                        }}
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-semibold text-white">
-                          {group.agentName}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {hasChildren && (
-                            <span className="rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
-                              {group.nodes.length} sessions
-                            </span>
-                          )}
-                          {lead.progress !== null && (
-                            <span className="text-[11px] font-medium text-white/60">
-                              {Math.round(lead.progress)}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {lead.progress !== null && (
-                        <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
-                          <div
-                            className="h-0.5 rounded-full"
+                  <div className="relative flex-shrink-0">
+                    <AgentAvatar name={group.agentName} size="sm" hint={group.agentName} />
+                    <span
+                      className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
+                      style={{
+                        backgroundColor: statusColor(lead.status),
+                        borderColor: colors.cardBg,
+                      }}
+                    />
+                  </div>
+                  <span className="min-w-0 truncate">
+                    <span className="text-[13px] font-semibold text-white">{group.agentName}</span>
+                    {getAgentRole(group.agentName) && (
+                      <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(group.agentName)}</span>
+                    )}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
+                      {(() => {
+                        const counts: Record<string, number> = {};
+                        for (const node of group.nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
+                        const total = group.nodes.length;
+                        return Object.entries(counts).map(([status, count]) => (
+                          <span
+                            key={status}
                             style={{
-                              width: `${Math.round(lead.progress)}%`,
-                              background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                              width: `${(count / total) * 100}%`,
+                              backgroundColor: statusColor(status),
                             }}
                           />
-                        </div>
-                      )}
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-white/45">
-                        <span
-                          className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                          style={{
-                            borderColor: `${provider.accent}66`,
-                            color: provider.accent,
-                            backgroundColor: provider.tint,
-                          }}
-                        >
-                          {provider.label}
-                        </span>
-                        <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
-                          {lead.status}
-                        </span>
-                        <span className="text-[11px]">{formatRelativeTime(lead.updatedAt ?? lead.lastEventAt ?? lead.startedAt ?? Date.now())}</span>
-                      </div>
-                      <p className="mt-1 truncate text-[12px] text-white/78">{lead.title}</p>
-                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-white/48">
-                        {summary}
-                      </p>
-                    </div>
-                  </div>
+                        ));
+                      })()}
+                    </span>
+                    <span className="text-[10px] text-white/55" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {group.nodes.length}
+                    </span>
+                  </span>
                 </button>
 
-                {hasChildren && (
-                  <button
-                    type="button"
-                    onClick={() => toggleCollapse(agentKey)}
-                    aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
-                    className="flex w-10 items-center justify-center border-l border-white/[0.06] text-white/50 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+                <button
+                  type="button"
+                  onClick={() => toggleCollapse(agentKey)}
+                  aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className={cn('transition-transform', isCollapsed ? '-rotate-90' : 'rotate-0')}
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className={cn('transition-transform', isCollapsed ? '-rotate-90' : 'rotate-0')}
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                )}
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
               </div>
 
-              {hasChildren && (
-                <div
-                  className={cn(
-                    'overflow-hidden border-t border-white/[0.06] transition-all',
-                    isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[360px] opacity-100'
-                  )}
-                >
-                  <div className="space-y-1.5 p-2">
-                    {visibleChildren.map((node) => {
-                      const childActive = selectedSessionId === node.id;
-                      const childProvider = resolveProvider(
-                        node.agentName,
-                        node.title,
-                        node.lastEventSummary,
-                        node
-                      );
-                      return (
-                        <button
-                          key={node.id}
-                          onClick={() => onSelectSession(node.id)}
-                          className={cn(
-                            'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
-                            childActive
-                              ? 'bg-white/[0.09]'
-                              : 'bg-white/[0.02] hover:bg-white/[0.05]'
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <ProviderLogo provider={childProvider.id} size="xs" />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[12px] text-white/90">{node.title}</p>
-                              <p className="text-[10px] uppercase tracking-[0.08em] text-white/45">
-                                {childProvider.label} · {node.status} ·{' '}
+              <div
+                className={cn(
+                  'overflow-hidden border-t border-white/[0.06] transition-all',
+                  isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 overflow-y-auto'
+                )}
+              >
+                <div className="space-y-1.5 p-2">
+                  {visibleChildren.map((node) => {
+                    const childActive = selectedSessionId === node.id;
+                    const childProvider = resolveProvider(
+                      node.agentName,
+                      node.title,
+                      node.lastEventSummary,
+                      node
+                    );
+                    return (
+                      <button
+                        key={node.id}
+                        onClick={() => onSelectSession(node.id)}
+                        className={cn(
+                          'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
+                          childActive
+                            ? 'bg-white/[0.09]'
+                            : 'bg-white/[0.02] hover:bg-white/[0.05]'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ProviderLogo provider={childProvider.id} size="xs" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[12px] text-white/90">{node.title}</p>
+                            <div className="flex items-center gap-1.5 text-[10px] text-white/45">
+                              <span
+                                className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
+                                style={{
+                                  borderColor: `${childProvider.accent}66`,
+                                  color: childProvider.accent,
+                                  backgroundColor: childProvider.tint,
+                                }}
+                              >
+                                {childProvider.label}
+                              </span>
+                              <span className="uppercase tracking-[0.08em]">{node.status}</span>
+                              <span>
                                 {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
-                              </p>
+                              </span>
                             </div>
-                            <span
-                              className="h-2 w-2 flex-shrink-0 rounded-full"
-                              style={{ backgroundColor: statusColor(node.status) }}
-                              aria-label={node.status}
-                              title={node.status}
-                            />
+                            {node.progress !== null && (
+                              <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
+                                <div
+                                  className="h-0.5 rounded-full"
+                                  style={{
+                                    width: `${Math.round(node.progress)}%`,
+                                    background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                  }}
+                                />
+                              </div>
+                            )}
                           </div>
-                        </button>
-                      );
-                    })}
+                          <span
+                            className="h-2 w-2 flex-shrink-0 rounded-full"
+                            style={{ backgroundColor: statusColor(node.status) }}
+                            aria-label={node.status}
+                            title={node.status}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
 
-                    {hiddenChildren > 0 && !isCollapsed && (
-                      <p className="px-1 text-[10px] text-white/40">
-                        +{hiddenChildren} older sessions hidden for smooth rendering
-                      </p>
-                    )}
-                  </div>
+                  {hiddenChildren > 0 && !isCollapsed && (
+                    <p className="px-1 text-[10px] text-white/40">
+                      +{hiddenChildren} older sessions hidden
+                    </p>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           );
         })}

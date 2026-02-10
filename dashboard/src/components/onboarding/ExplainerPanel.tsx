@@ -126,7 +126,7 @@ export function ExplainerPanel({
       variants={stagger}
       initial="hidden"
       animate="visible"
-      className="glass-panel soft-shadow rounded-2xl"
+      className="bg-[--orgx-surface-elevated] border border-[--orgx-border] soft-shadow rounded-2xl"
     >
       {/* ── Header zone ─────────────────────────────────────────── */}
       <div className="px-6 pt-6 sm:px-8 sm:pt-8">
@@ -156,7 +156,7 @@ export function ExplainerPanel({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.18 + i * 0.08, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="hover-lift rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3.5"
+            className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3.5"
           >
             <div style={{ color: f.accent }} className="mb-2.5 opacity-80">{f.icon}</div>
             <p className="text-[13px] font-semibold text-white">{f.label}</p>

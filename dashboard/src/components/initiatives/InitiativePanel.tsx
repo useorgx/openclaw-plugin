@@ -118,12 +118,12 @@ export function InitiativePanel({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex-shrink-0 border-t border-white/[0.06] px-4 py-2.5">
-          <div className="flex items-center justify-between">
+        <div className="flex-shrink-0 overflow-visible border-t border-white/[0.06] px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2">
             <button
               onClick={() => setPage(Math.max(0, safePage - 1))}
               disabled={safePage === 0}
-              className="rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
+              className="flex-shrink-0 rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
             >
               <svg
                 width="14"
@@ -136,7 +136,7 @@ export function InitiativePanel({
                 <path d="m15 18-6-6 6-6" />
               </svg>
             </button>
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5 overflow-x-auto">
               {Array.from({ length: totalPages }).map((_, i) => (
                 <button
                   key={i}
@@ -157,7 +157,7 @@ export function InitiativePanel({
             <button
               onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
               disabled={safePage >= totalPages - 1}
-              className="rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
+              className="flex-shrink-0 rounded p-1.5 text-white/45 transition-colors hover:text-white disabled:opacity-30"
             >
               <svg
                 width="14"

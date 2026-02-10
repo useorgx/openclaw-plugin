@@ -159,7 +159,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={ms.id}
                   onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-all hover:bg-white/[0.06] hover-lift"
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] text-white/90">{ms.title}</span>
@@ -182,7 +182,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={task.id}
                   onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-all hover:bg-white/[0.06] hover-lift"
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[12px] text-white/90">{task.title}</span>

@@ -35,7 +35,7 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
   return (
     <motion.button
       onClick={() => openModal({ type: 'workstream', entity: workstream, initiative })}
-      className="w-[260px] flex-shrink-0 text-left glass-panel soft-shadow rounded-xl p-3.5 transition-all hover-lift"
+      className="w-[260px] flex-shrink-0 text-left bg-[--orgx-surface-elevated] border border-[--orgx-border] soft-shadow rounded-xl p-3.5 transition-all hover-lift"
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15 }}
     >

@@ -111,14 +111,14 @@ export function DependencyMapPanel({
   if (baseVisibleNodes.length === 0) return null;
 
   return (
-    <section className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
+    <section className="space-y-2 rounded-xl bg-white/[0.02] p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h4 className="text-[11px] uppercase tracking-[0.08em] text-white/45">
+          <h4 className="text-[13px] font-semibold tracking-[-0.01em] text-white/70">
             Dependency map
           </h4>
-          <span className="text-[10px] uppercase tracking-[0.08em] text-white/30">
-            {visibleNodes.length}/{baseVisibleNodes.length} nodes &middot; {visibleEdges.length} links
+          <span className="text-[10px] text-white/30">
+            {visibleNodes.length} nodes &middot; {visibleEdges.length} links
           </span>
         </div>
         {focusedWorkstreamId && (
@@ -165,13 +165,13 @@ export function DependencyMapPanel({
       </div>
 
       {visibleNodes.length === 0 ? (
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[11px] text-white/55">
+        <div className="rounded-lg bg-white/[0.02] px-3 py-3 text-[11px] text-white/40">
           No nodes match the current filter.
         </div>
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {(Object.keys(grouped) as Array<keyof typeof grouped>).map((groupKey) => (
-            <div key={groupKey} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2">
+        <div className={`grid gap-2 ${Object.values(grouped).filter(g => g.length > 0).length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
+          {(Object.keys(grouped) as Array<keyof typeof grouped>).filter((groupKey) => grouped[groupKey].length > 0).map((groupKey) => (
+            <div key={groupKey} className="rounded-lg bg-white/[0.02] p-2">
               <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/35">
                 {groupLabel(groupKey)} ({grouped[groupKey].length})
               </div>

@@ -17,7 +17,7 @@ export function DecisionModal({
   if (!decision) return null;
 
   return (
-    <Modal open={!!decision} onClose={onClose} maxWidth="max-w-md">
+    <Modal open={!!decision} onClose={onClose} maxWidth="max-w-md" fitContent>
       <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <div

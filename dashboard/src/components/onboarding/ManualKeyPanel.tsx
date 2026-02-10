@@ -54,7 +54,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       variants={stagger}
       initial="hidden"
       animate="visible"
-      className="glass-panel soft-shadow rounded-2xl"
+      className="bg-[--orgx-surface-elevated] border border-[--orgx-border] soft-shadow rounded-2xl"
     >
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="px-6 pt-6 sm:px-8 sm:pt-8">

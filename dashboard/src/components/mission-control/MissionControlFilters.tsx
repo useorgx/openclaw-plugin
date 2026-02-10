@@ -149,8 +149,6 @@ export function MissionControlFilters({
     setDatePreset('any');
   }, [datePreset, datePresetOptions, setDatePreset]);
 
-  const badgeLabel = activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters';
-
   const GROUP_BY_OPTIONS: Array<{ value: GroupByOption; label: string }> = [
     { value: 'none', label: 'None' },
     { value: 'status', label: 'Status' },
@@ -164,61 +162,39 @@ export function MissionControlFilters({
     { value: 'date_desc', label: 'Date (latest)' },
   ];
 
+  const hasNonDefaultViewOptions = groupBy !== 'none' || sortBy !== 'default';
+  const totalActiveCount = activeFilterCount + (hasNonDefaultViewOptions ? 1 : 0);
+
   return (
-    <div ref={containerRef} className="relative flex items-center gap-2">
-      {/* Group-by selector */}
-      <div className="hidden sm:flex items-center gap-1">
-        <span className="text-[10px] uppercase tracking-[0.08em] text-white/40">Group</span>
-        <select
-          value={groupBy}
-          onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
-          className="h-8 rounded-lg border border-white/[0.12] bg-white/[0.03] px-2 text-[11px] text-white/75 focus:border-[#BFFF00]/40 focus:outline-none"
-        >
-          {GROUP_BY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Sort-by selector */}
-      <div className="hidden sm:flex items-center gap-1">
-        <span className="text-[10px] uppercase tracking-[0.08em] text-white/40">Sort</span>
-        <select
-          value={sortBy}
-          onChange={(event) => setSortBy(event.target.value as SortByOption)}
-          className="h-8 rounded-lg border border-white/[0.12] bg-white/[0.03] px-2 text-[11px] text-white/75 focus:border-[#BFFF00]/40 focus:outline-none"
-        >
-          {SORT_BY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
+    <div ref={containerRef} className="relative flex items-center gap-1.5">
       <button
         type="button"
         onClick={() => setOpen((previous) => !previous)}
-        className={`h-10 rounded-lg border px-3 text-[11px] uppercase tracking-[0.08em] transition-colors ${
-          open || activeFilterCount > 0
-            ? 'border-[#BFFF00]/40 bg-[#BFFF00]/12 text-[#D8FFA1]'
-            : 'border-white/[0.12] text-white/75 hover:border-white/[0.2] hover:text-white'
+        className={`flex items-center gap-1.5 h-9 rounded-lg px-2.5 text-[11px] transition-colors ${
+          open || totalActiveCount > 0
+            ? 'bg-[#BFFF00]/10 text-[#D8FFA1]'
+            : 'text-white/50 hover:text-white/75 hover:bg-white/[0.04]'
         }`}
       >
-        {badgeLabel}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+        </svg>
+        {totalActiveCount > 0 && (
+          <span className="text-[10px]">{totalActiveCount}</span>
+        )}
       </button>
 
-      <div className="hidden lg:block text-[11px] text-white/55 whitespace-nowrap">
-        {visibleCount}/{initiatives.length}
-      </div>
+      {visibleCount < initiatives.length && (
+        <span className="text-[10px] text-white/35 whitespace-nowrap">
+          {visibleCount}/{initiatives.length}
+        </span>
+      )}
 
       {hasActiveFilters && (
         <button
           type="button"
           onClick={clearFilters}
-          className="h-10 rounded-lg border border-white/[0.12] px-2.5 text-[10px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
+          className="text-[10px] text-white/40 hover:text-white/70 transition-colors whitespace-nowrap"
         >
           Clear
         </button>
@@ -233,14 +209,13 @@ export function MissionControlFilters({
             transition={{ duration: 0.15 }}
             className="absolute right-0 top-12 z-30 w-[340px] max-w-[92vw] rounded-xl border border-white/[0.12] bg-[#090d14]/95 p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
-            {/* Group/sort live in the main bar on >=sm. Provide parity for mobile. */}
-            <div className="sm:hidden grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <label className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-[0.1em] text-white/45">Group</span>
+                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Group</span>
                 <select
                   value={groupBy}
                   onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
-                  className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                  className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
                 >
                   {GROUP_BY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -251,11 +226,11 @@ export function MissionControlFilters({
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-[0.1em] text-white/45">Sort</span>
+                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Sort</span>
                 <select
                   value={sortBy}
                   onChange={(event) => setSortBy(event.target.value as SortByOption)}
-                  className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                  className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
                 >
                   {SORT_BY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -266,9 +241,9 @@ export function MissionControlFilters({
               </label>
             </div>
 
-            <div className="sm:hidden mt-3 border-t border-white/[0.08]" />
+            <div className="mt-3 section-divider" />
 
-            <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Status</div>
+            <div className="mt-3 text-[10px] uppercase tracking-[0.08em] text-white/35">Status</div>
             <div className="mt-2 max-h-44 space-y-1 overflow-auto pr-1">
               {statusOptions.map((option) => {
                 const checked = statusFilters.includes(option.key);

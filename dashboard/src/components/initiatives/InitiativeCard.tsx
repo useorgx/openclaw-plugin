@@ -73,7 +73,9 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
             <h4 className="mt-1 text-[13px] font-semibold text-white">{initiative.name}</h4>
           </div>
         </div>
-        <span className="text-[12px] text-white/45" style={{ fontVariantNumeric: 'tabular-nums' }}>{initiative.health}%</span>
+        <span className="text-[12px] text-white/45" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {initiative.health === 0 && workstreamCount === 0 ? 'Awaiting setup' : `${initiative.health}%`}
+        </span>
       </div>
 
       {initiative.description && (
@@ -82,6 +84,10 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
 
       {phases.length > 0 && (
         <PhaseProgress phases={phases} currentPhase={currentPhase} health={initiative.health} />
+      )}
+
+      {initiative.health === 0 && workstreamCount === 0 && initiative.activeAgents === 0 && (
+        <p className="mt-1.5 text-[10px] text-white/30">No workstreams started. Create a workstream to begin.</p>
       )}
 
       <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-[10px] uppercase tracking-[0.08em]">
@@ -95,7 +101,9 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
         </div>
         <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
           <p className="text-white/35">Workstreams</p>
-          <p className="text-[12px] font-semibold text-white">{workstreamCount}</p>
+          <p className={`text-[12px] font-semibold ${workstreamCount === 0 ? 'text-white/35' : 'text-white'}`}>
+            {workstreamCount === 0 ? 'None yet' : workstreamCount}
+          </p>
         </div>
       </div>
     </button>

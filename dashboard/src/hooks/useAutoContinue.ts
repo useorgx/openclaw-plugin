@@ -4,7 +4,7 @@ import type { AutoContinueStatusResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 
 interface UseAutoContinueOptions {
-  initiativeId: string | null;
+  initiativeId?: string | null;
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
@@ -23,7 +23,7 @@ function buildHeaders(input: { authToken: string | null; embedMode: boolean }): 
 }
 
 export function useAutoContinue({
-  initiativeId,
+  initiativeId = null,
   authToken = null,
   embedMode = false,
   enabled = true,
@@ -31,19 +31,18 @@ export function useAutoContinue({
   const queryClient = useQueryClient();
 
   const statusQueryKey = useMemo(
-    () => queryKeys.autoContinueStatus({ initiativeId, authToken, embedMode }),
+    () => queryKeys.autoContinueStatus({ initiativeId: initiativeId ?? '__global__', authToken, embedMode }),
     [initiativeId, authToken, embedMode]
   );
 
   const statusQuery = useQuery<AutoContinueStatusResponse, Error>({
     queryKey: statusQueryKey,
-    enabled: enabled && Boolean(initiativeId),
+    enabled: enabled && (Boolean(initiativeId) || initiativeId === null),
     queryFn: async () => {
-      if (!initiativeId) {
-        throw new Error('initiativeId is required');
+      const params = new URLSearchParams();
+      if (initiativeId) {
+        params.set('initiative_id', initiativeId);
       }
-
-      const params = new URLSearchParams({ initiative_id: initiativeId });
       const response = await fetch(
         `/orgx/api/mission-control/auto-continue/status?${params.toString()}`,
         { headers: buildHeaders({ authToken, embedMode }) }
@@ -85,13 +84,10 @@ export function useAutoContinue({
 
   const startMutation = useMutation<AutoContinueStatusResponse, Error, AutoContinueStartInput | void>({
     mutationFn: async (input) => {
-      if (!initiativeId) {
-        throw new Error('initiativeId is required');
+      const payload: Record<string, unknown> = {};
+      if (initiativeId) {
+        payload.initiativeId = initiativeId;
       }
-
-      const payload: Record<string, unknown> = {
-        initiativeId,
-      };
       if (input && typeof input === 'object') {
         if (typeof input.tokenBudgetTokens === 'number') {
           payload.tokenBudgetTokens = input.tokenBudgetTokens;
@@ -143,8 +139,9 @@ export function useAutoContinue({
 
   const stopMutation = useMutation<AutoContinueStatusResponse, Error, void>({
     mutationFn: async () => {
-      if (!initiativeId) {
-        throw new Error('initiativeId is required');
+      const payload: Record<string, unknown> = {};
+      if (initiativeId) {
+        payload.initiativeId = initiativeId;
       }
 
       const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
@@ -153,7 +150,7 @@ export function useAutoContinue({
           'Content-Type': 'application/json',
           ...(buildHeaders({ authToken, embedMode }) ?? {}),
         },
-        body: JSON.stringify({ initiativeId }),
+        body: JSON.stringify(payload),
       });
 
       const body = (await response.json().catch(() => null)) as
