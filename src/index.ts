@@ -45,6 +45,7 @@ import {
   replaceOutbox,
 } from "./outbox.js";
 import type { OutboxEvent } from "./outbox.js";
+import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -961,8 +962,8 @@ export default function register(api: PluginAPI): void {
     const payload = event.payload ?? {};
 
     if (event.type === "progress") {
-      const summary = pickStringField(payload, "summary");
-      if (!summary) {
+      const message = extractProgressOutboxMessage(payload);
+      if (!message) {
         api.log?.warn?.("[orgx] Dropping invalid progress outbox event", {
           eventId: event.id,
         });
@@ -989,7 +990,7 @@ export default function register(api: PluginAPI): void {
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
         source_client: context.value.sourceClient,
-        message: summary,
+        message,
         phase,
         progress_pct: progressPct,
         level: pickStringField(payload, "level") as "info" | "warn" | "error" | undefined,
