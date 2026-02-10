@@ -6,7 +6,16 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  chmod,
+  rename,
+  unlink,
+  readdir,
+} from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type { LiveActivityItem } from "./types.js";
 
 const OUTBOX_DIR = join(homedir(), ".openclaw", "orgx-outbox");
@@ -66,10 +75,62 @@ function outboxPath(sessionId: string): string {
   return join(OUTBOX_DIR, `${normalizeSessionId(sessionId)}.json`);
 }
 
-export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
+async function backupCorruptOutboxFile(targetPath: string): Promise<void> {
+  // Preserve the corrupted file for debugging, but move it out of the hot path.
+  const suffix = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const backupPath = `${targetPath}.corrupt.${suffix}`;
   try {
-    const raw = await readFile(outboxPath(sessionId), "utf8");
-    return JSON.parse(raw) as OutboxEvent[];
+    await rename(targetPath, backupPath);
+    await hardenPath(backupPath, 0o600);
+  } catch {
+    // best effort
+  }
+}
+
+async function writeFileAtomic(
+  targetPath: string,
+  content: string,
+  mode: number
+): Promise<void> {
+  // Atomic write to avoid partial JSON files if we crash mid-write.
+  const tmpPath = `${targetPath}.tmp.${process.pid}.${randomUUID().slice(
+    0,
+    8
+  )}`;
+  await writeFile(tmpPath, content, { encoding: "utf8", mode });
+  await hardenPath(tmpPath, mode);
+  try {
+    await rename(tmpPath, targetPath);
+  } catch (err: unknown) {
+    // On Windows, rename can fail if the destination exists. Best-effort fallback:
+    // remove the destination and retry. This is not strictly atomic, but avoids
+    // leaving the outbox unreadable.
+    const code = err && typeof err === "object" ? (err as any).code : null;
+    if (code === "EEXIST" || code === "EPERM" || code === "EACCES") {
+      try {
+        await unlink(targetPath);
+      } catch {
+        // ignore
+      }
+      await rename(tmpPath, targetPath);
+    } else {
+      throw err;
+    }
+  }
+  await hardenPath(targetPath, mode);
+}
+
+export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
+  const targetPath = outboxPath(sessionId);
+  try {
+    const raw = await readFile(targetPath, "utf8");
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? (parsed as OutboxEvent[]) : [];
+    } catch {
+      await backupCorruptOutboxFile(targetPath);
+      return [];
+    }
   } catch {
     return [];
   }
@@ -82,12 +143,13 @@ export async function appendToOutbox(
   await ensureDir();
   const targetPath = outboxPath(sessionId);
   const existing = await readOutbox(sessionId);
-  existing.push(event);
-  await writeFile(targetPath, JSON.stringify(existing, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await hardenPath(targetPath, 0o600);
+  const idx = existing.findIndex((item) => item.id === event.id);
+  if (idx >= 0) {
+    existing[idx] = event;
+  } else {
+    existing.push(event);
+  }
+  await writeFileAtomic(targetPath, JSON.stringify(existing, null, 2), 0o600);
 }
 
 export async function replaceOutbox(
@@ -98,7 +160,6 @@ export async function replaceOutbox(
   const targetPath = outboxPath(sessionId);
   if (events.length === 0) {
     try {
-      const { unlink } = await import("node:fs/promises");
       await unlink(targetPath);
       return;
     } catch {
@@ -106,24 +167,19 @@ export async function replaceOutbox(
       return;
     }
   }
-  await writeFile(targetPath, JSON.stringify(events, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await hardenPath(targetPath, 0o600);
+  await writeFileAtomic(targetPath, JSON.stringify(events, null, 2), 0o600);
 }
 
 export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
   try {
     await ensureDir();
-    const { readdir } = await import("node:fs/promises");
     const files = await readdir(OUTBOX_DIR);
     const items: LiveActivityItem[] = [];
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
+      const sessionId = file.slice(0, -5);
       try {
-        const raw = await readFile(join(OUTBOX_DIR, file), "utf8");
-        const events = JSON.parse(raw) as OutboxEvent[];
+        const events = await readOutbox(sessionId);
         for (const evt of events) {
           items.push(evt.activityItem);
         }
@@ -142,7 +198,6 @@ export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
 export async function readOutboxSummary(): Promise<OutboxSummary> {
   try {
     await ensureDir();
-    const { readdir } = await import("node:fs/promises");
     const files = await readdir(OUTBOX_DIR);
     const pendingByQueue: Record<string, number> = {};
     let pendingTotal = 0;
@@ -153,8 +208,7 @@ export async function readOutboxSummary(): Promise<OutboxSummary> {
       if (!file.endsWith(".json")) continue;
       const queueId = file.slice(0, -5);
       try {
-        const raw = await readFile(join(OUTBOX_DIR, file), "utf8");
-        const events = JSON.parse(raw) as OutboxEvent[];
+        const events = await readOutbox(queueId);
         const count = Array.isArray(events) ? events.length : 0;
         pendingByQueue[queueId] = count;
         pendingTotal += count;
@@ -191,7 +245,6 @@ export async function readOutboxSummary(): Promise<OutboxSummary> {
 
 export async function clearOutbox(sessionId: string): Promise<void> {
   try {
-    const { unlink } = await import("node:fs/promises");
     await unlink(outboxPath(sessionId));
   } catch {
     // File may not exist
