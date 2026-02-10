@@ -1442,6 +1442,7 @@ function DashboardShell({
             onAgentFilter={setAgentFilter}
             agentFilter={agentFilter}
             onReconnect={handleReconnect}
+            connectionStatus={data.connection}
           />
         </section>
 

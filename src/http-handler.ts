@@ -60,6 +60,10 @@ import {
   upsertAgentRun,
 } from "./agent-run-store.js";
 import { readByokKeys, writeByokKeys } from "./byok-store.js";
+import {
+  computeMilestoneRollup,
+  computeWorkstreamRollup,
+} from "./reporting/rollups.js";
 
 // =============================================================================
 // Helpers
@@ -374,6 +378,18 @@ async function stopDetachedProcess(pid: number): Promise<{ stopped: boolean; was
 
   return { stopped: !isPidAlive(pid), wasRunning: true };
 }
+
+type OpenClawAdapter = {
+  listAgents?: () => Promise<Array<Record<string, unknown>>>;
+  spawnAgentTurn?: (input: {
+    agentId: string;
+    sessionId: string;
+    message: string;
+    thinking?: string | null;
+  }) => { pid: number | null };
+  stopDetachedProcess?: (pid: number) => Promise<{ stopped: boolean; wasRunning: boolean }>;
+  isPidAlive?: (pid: number) => boolean;
+};
 
 function getScopedAgentIds(contexts: Record<string, AgentLaunchContext>): Set<string> {
   const scoped = new Set<string>();
@@ -1270,6 +1286,17 @@ function parseBooleanQuery(raw: string | null): boolean {
     normalized === "yes" ||
     normalized === "on"
   );
+}
+
+function stableHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function idempotencyKey(parts: Array<string | null | undefined>): string {
+  const raw = parts.filter((part): part is string => typeof part === "string" && part.length > 0).join(":");
+  const cleaned = raw.replace(/[^a-zA-Z0-9:_-]/g, "-").slice(0, 84);
+  const suffix = stableHash(raw).slice(0, 20);
+  return `${cleaned}:${suffix}`.slice(0, 120);
 }
 
 type MissionControlNodeType = "initiative" | "workstream" | "milestone" | "task";
@@ -2295,12 +2322,145 @@ export function createHttpHandler(
   getSnapshot: () => OrgSnapshot | null,
   onboarding: OnboardingController,
   diagnostics?: DiagnosticsProvider,
-  adapters?: { outbox?: OutboxAdapter }
+  adapters?: { outbox?: OutboxAdapter; openclaw?: OpenClawAdapter }
 ) {
   const dashboardEnabled =
     (config as OrgXConfig & { dashboardEnabled?: boolean }).dashboardEnabled ??
     true;
   const outboxAdapter = adapters?.outbox ?? defaultOutboxAdapter;
+  const openclawAdapter = adapters?.openclaw ?? {};
+
+  const listAgents = openclawAdapter.listAgents ?? listOpenClawAgents;
+  const spawnAgentTurn = openclawAdapter.spawnAgentTurn ?? spawnOpenClawAgentTurn;
+  const stopProcess = openclawAdapter.stopDetachedProcess ?? stopDetachedProcess;
+  const pidAlive = openclawAdapter.isPidAlive ?? isPidAlive;
+
+  async function emitActivitySafe(input: {
+    initiativeId: string | null;
+    runId?: string | null;
+    correlationId?: string | null;
+    phase: "intent" | "execution" | "blocked" | "review" | "handoff" | "completed";
+    message: string;
+    level?: "info" | "warn" | "error";
+    progressPct?: number;
+    nextStep?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const initiativeId = input.initiativeId?.trim() ?? "";
+    if (!initiativeId) return;
+    const message = input.message.trim();
+    if (!message) return;
+
+    try {
+      await client.emitActivity({
+        initiative_id: initiativeId,
+        run_id: input.runId ?? undefined,
+        correlation_id: input.runId
+          ? undefined
+          : (input.correlationId?.trim() || `openclaw-${Date.now()}`),
+        source_client: "openclaw",
+        message,
+        phase: input.phase,
+        progress_pct:
+          typeof input.progressPct === "number" && Number.isFinite(input.progressPct)
+            ? Math.max(0, Math.min(100, Math.round(input.progressPct)))
+            : undefined,
+        level: input.level,
+        next_step: input.nextStep,
+        metadata: input.metadata,
+      });
+    } catch {
+      // best effort
+    }
+  }
+
+  async function syncParentRollupsForTask(input: {
+    initiativeId: string | null;
+    taskId: string | null;
+    workstreamId?: string | null;
+    milestoneId?: string | null;
+    correlationId?: string | null;
+  }): Promise<void> {
+    const initiativeId = input.initiativeId?.trim() ?? "";
+    const taskId = input.taskId?.trim() ?? "";
+    if (!initiativeId || !taskId) return;
+
+    let tasks: Array<Record<string, unknown>> = [];
+    try {
+      const response = await client.listEntities("task", {
+        initiative_id: initiativeId,
+        limit: 4000,
+      });
+      tasks = Array.isArray((response as any)?.data)
+        ? ((response as any).data as Array<Record<string, unknown>>)
+        : [];
+    } catch {
+      return;
+    }
+
+    const task = tasks.find((row) => String(row.id ?? "").trim() === taskId) ?? null;
+    const resolvedMilestoneId =
+      (input.milestoneId?.trim() || "") ||
+      (task ? pickString(task, ["milestone_id", "milestoneId"]) ?? "" : "");
+    const resolvedWorkstreamId =
+      (input.workstreamId?.trim() || "") ||
+      (task ? pickString(task, ["workstream_id", "workstreamId"]) ?? "" : "");
+
+    if (resolvedMilestoneId) {
+      const milestoneTaskStatuses = tasks
+        .filter(
+          (row) =>
+            pickString(row, ["milestone_id", "milestoneId"]) === resolvedMilestoneId
+        )
+        .map((row) => pickString(row, ["status"]) ?? "todo");
+      const rollup = computeMilestoneRollup(milestoneTaskStatuses);
+
+      try {
+        await client.applyChangeset({
+          initiative_id: initiativeId,
+          correlation_id: input.correlationId?.trim() || undefined,
+          source_client: "openclaw",
+          idempotency_key: idempotencyKey([
+            "openclaw",
+            "rollup",
+            "milestone",
+            resolvedMilestoneId,
+            rollup.status,
+            String(rollup.progressPct),
+            String(rollup.done),
+            String(rollup.total),
+          ]),
+          operations: [
+            {
+              op: "milestone.update",
+              milestone_id: resolvedMilestoneId,
+              status: rollup.status,
+            },
+          ],
+        });
+      } catch {
+        // best effort
+      }
+    }
+
+    if (resolvedWorkstreamId) {
+      const workstreamTaskStatuses = tasks
+        .filter(
+          (row) =>
+            pickString(row, ["workstream_id", "workstreamId"]) === resolvedWorkstreamId
+        )
+        .map((row) => pickString(row, ["status"]) ?? "todo");
+      const rollup = computeWorkstreamRollup(workstreamTaskStatuses);
+
+      try {
+        await client.updateEntity("workstream", resolvedWorkstreamId, {
+          status: rollup.status,
+        });
+      } catch {
+        // best effort
+      }
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Initiative Auto-Continue (Continuous Execution & Auto-Completion)
@@ -2602,7 +2762,7 @@ export function createHttpHandler(
     if (run.activeRunId) {
       const record = getAgentRun(run.activeRunId);
       const pid = record?.pid ?? null;
-      if (pid && isPidAlive(pid)) {
+      if (pid && pidAlive(pid)) {
         return;
       }
 
@@ -2633,6 +2793,36 @@ export function createHttpHandler(
             run.lastError = safeErrorMessage(err);
           }
         }
+
+        if (record.taskId) {
+          await syncParentRollupsForTask({
+            initiativeId: run.initiativeId,
+            taskId: record.taskId,
+            workstreamId: record.workstreamId,
+            correlationId: record.runId,
+          });
+        }
+
+        await emitActivitySafe({
+          initiativeId: run.initiativeId,
+          correlationId: record.runId,
+          phase: summary.hadError ? "blocked" : "completed",
+          level: summary.hadError ? "warn" : "info",
+          message: record.taskId
+            ? `Auto-continue ${summary.hadError ? "blocked" : "completed"} task ${record.taskId}.`
+            : `Auto-continue run finished (${summary.hadError ? "blocked" : "completed"}).`,
+          metadata: {
+            event: "auto_continue_task_finished",
+            agent_id: record.agentId,
+            session_id: record.runId,
+            task_id: record.taskId,
+            workstream_id: record.workstreamId,
+            tokens: summary.tokens,
+            cost_usd: summary.costUsd,
+            had_error: summary.hadError,
+            error_message: summary.errorMessage,
+          },
+        });
 
         run.lastRunId = record.runId;
         run.lastTaskId = record.taskId ?? run.lastTaskId;
@@ -2803,6 +2993,33 @@ export function createHttpHandler(
       return;
     }
 
+    await syncParentRollupsForTask({
+      initiativeId: run.initiativeId,
+      taskId: nextTaskNode.id,
+      workstreamId: nextTaskNode.workstreamId,
+      milestoneId: nextTaskNode.milestoneId,
+      correlationId: sessionId,
+    });
+
+    await emitActivitySafe({
+      initiativeId: run.initiativeId,
+      correlationId: sessionId,
+      phase: "execution",
+      level: "info",
+      message: `Auto-continue started task ${nextTaskNode.id}.`,
+      metadata: {
+        event: "auto_continue_task_started",
+        agent_id: agentId,
+        session_id: sessionId,
+        task_id: nextTaskNode.id,
+        task_title: nextTaskNode.title,
+        workstream_id: nextTaskNode.workstreamId,
+        workstream_title: workstreamTitle,
+        milestone_id: nextTaskNode.milestoneId,
+        milestone_title: milestoneTitle,
+      },
+    });
+
     upsertAgentContext({
       agentId,
       initiativeId: run.initiativeId,
@@ -2811,7 +3028,7 @@ export function createHttpHandler(
       taskId: nextTaskNode.id,
     });
 
-    const spawned = spawnOpenClawAgentTurn({
+    const spawned = spawnAgentTurn({
       agentId,
       sessionId,
       message,
@@ -3147,7 +3364,7 @@ export function createHttpHandler(
           let requiresPremiumLaunch = Boolean(provider) || modelImpliesByok(requestedModel);
           if (!requiresPremiumLaunch) {
             try {
-              const agents = await listOpenClawAgents();
+              const agents = await listAgents();
               const agentEntry =
                 agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
                 null;
@@ -3212,6 +3429,48 @@ export function createHttpHandler(
             return true;
           }
 
+          if (initiativeId) {
+            try {
+              await client.updateEntity("initiative", initiativeId, { status: "active" });
+            } catch {
+              // best effort
+            }
+          }
+
+          if (taskId) {
+            try {
+              await client.updateEntity("task", taskId, { status: "in_progress" });
+            } catch {
+              // best effort
+            }
+
+            await syncParentRollupsForTask({
+              initiativeId,
+              taskId,
+              workstreamId,
+              correlationId: sessionId,
+            });
+          }
+
+          await emitActivitySafe({
+            initiativeId,
+            correlationId: sessionId,
+            phase: "execution",
+            message: taskId
+              ? `Launched agent ${agentId} for task ${taskId}.`
+              : `Launched agent ${agentId}.`,
+            level: "info",
+            metadata: {
+              event: "agent_launch",
+              agent_id: agentId,
+              session_id: sessionId,
+              workstream_id: workstreamId,
+              task_id: taskId,
+              provider,
+              model: requestedModel,
+            },
+          });
+
           let routedProvider: string | null = null;
           let routedModel: string | null = null;
           if (provider) {
@@ -3232,7 +3491,7 @@ export function createHttpHandler(
             taskId,
           });
 
-          const spawned = spawnOpenClawAgentTurn({
+          const spawned = spawnAgentTurn({
             agentId,
             sessionId,
             message,
@@ -3301,7 +3560,7 @@ export function createHttpHandler(
             return true;
           }
 
-          const result = await stopDetachedProcess(record.pid);
+          const result = await stopProcess(record.pid);
           const updated = markAgentRunStopped(runId);
 
           sendJson(res, 200, {
@@ -3372,7 +3631,7 @@ export function createHttpHandler(
             modelImpliesByok(record.model ?? null);
           if (!requiresPremiumRestart) {
             try {
-              const agents = await listOpenClawAgents();
+              const agents = await listAgents();
               const agentEntry =
                 agents.find(
                   (entry) => String(entry.id ?? "").trim() === record.agentId
@@ -3431,7 +3690,7 @@ export function createHttpHandler(
             taskId: record.taskId,
           });
 
-          const spawned = spawnOpenClawAgentTurn({
+          const spawned = spawnAgentTurn({
             agentId: record.agentId,
             sessionId,
             message,
@@ -3499,7 +3758,7 @@ export function createHttpHandler(
 
           let requiresPremiumAutoContinue = false;
           try {
-            const agents = await listOpenClawAgents();
+            const agents = await listAgents();
             const agentEntry =
               agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
               null;
@@ -4030,7 +4289,7 @@ export function createHttpHandler(
         case "agents/catalog": {
           try {
             const [openclawAgents, localSnapshot] = await Promise.all([
-              listOpenClawAgents(),
+              listAgents(),
               loadLocalOpenClawSnapshot(240).catch(() => null),
             ]);
 
@@ -4350,7 +4609,7 @@ export function createHttpHandler(
 
           if (!agentId) {
             try {
-              const agents = await listOpenClawAgents();
+              const agents = await listAgents();
               const defaultAgent =
                 agents.find((entry) => Boolean(entry.isDefault)) ?? agents[0] ?? null;
               const candidate =

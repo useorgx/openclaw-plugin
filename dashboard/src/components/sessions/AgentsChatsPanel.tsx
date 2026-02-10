@@ -3,11 +3,13 @@ import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { resolveProvider } from '@/lib/providers';
-import type { LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
+import type { ConnectionStatus, LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { AgentLaunchModal } from './AgentLaunchModal';
+import { AgentDetailModal } from './AgentDetailModal';
+import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
@@ -17,6 +19,7 @@ interface AgentsChatsPanelProps {
   onAgentFilter?: (agentName: string | null) => void;
   agentFilter?: string | null;
   onReconnect?: () => void;
+  connectionStatus?: ConnectionStatus;
 }
 
 const MAX_VISIBLE_GROUPS = 120;
@@ -60,7 +63,8 @@ type AgentGroup = {
   agentId: string | null;
   agentName: string;
   nodes: SessionTreeNode[];
-  latest: SessionTreeNode;
+  latest: SessionTreeNode | null;
+  catalogAgent?: OpenClawCatalogAgent | null;
 };
 
 function toEpoch(value: string | null | undefined): number {
@@ -96,6 +100,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   onAgentFilter,
   agentFilter,
   onReconnect,
+  connectionStatus,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
@@ -103,6 +108,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     useState<(typeof OFFLINE_DATE_FILTERS)[number]['id']>('all');
   const [showArchived, setShowArchived] = useState(false);
   const [archivedPage, setArchivedPage] = useState(0);
+  const [detailAgent, setDetailAgent] = useState<string | null>(null);
+
+  const catalogQuery = useAgentCatalog({ enabled: true });
+  const catalogAgents = catalogQuery.data?.agents ?? [];
 
   const summaryByRunId = useMemo(() => {
     const map = new Map<string, string>();
@@ -151,14 +160,41 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
     }
 
-    for (const group of map.values()) {
-      group.nodes.sort(sortByUpdated);
-      group.latest = group.nodes[0];
+    // Merge catalog agents: add groups for agents not already in the session map
+    for (const catAgent of catalogAgents) {
+      const matchKey = Array.from(map.keys()).find(
+        (k) => k.toLowerCase() === catAgent.name.toLowerCase() || k.toLowerCase() === catAgent.id.toLowerCase()
+      );
+      if (matchKey) {
+        // Attach catalog reference to existing group
+        const group = map.get(matchKey)!;
+        group.catalogAgent = catAgent;
+      } else {
+        // Synthetic group for catalog-only agent (0 sessions)
+        map.set(catAgent.name, {
+          agentId: catAgent.id,
+          agentName: catAgent.name,
+          nodes: [],
+          latest: null,
+          catalogAgent: catAgent,
+        });
+      }
     }
 
-    const sortedGroups = Array.from(map.values()).sort((a, b) =>
-      sortByUpdated(a.latest, b.latest)
-    );
+    for (const group of map.values()) {
+      if (group.nodes.length > 0) {
+        group.nodes.sort(sortByUpdated);
+        group.latest = group.nodes[0];
+      }
+    }
+
+    // Sort: groups with sessions first (by latest update), then 0-session groups
+    const sortedGroups = Array.from(map.values()).sort((a, b) => {
+      if (a.latest && b.latest) return sortByUpdated(a.latest, b.latest);
+      if (a.latest && !b.latest) return -1;
+      if (!a.latest && b.latest) return 1;
+      return a.agentName.localeCompare(b.agentName);
+    });
 
     const selectedWindow =
       OFFLINE_DATE_FILTERS.find((item) => item.id === offlineDateFilter) ??
@@ -174,6 +210,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     let filteredOutSessionsByDate = 0;
 
     for (const group of sortedGroups) {
+      // Always include 0-session catalog agents
+      if (group.nodes.length === 0) {
+        filteredGroups.push(group);
+        continue;
+      }
+
       if (cutoffEpoch === null) {
         filteredGroups.push(group);
         continue;
@@ -225,7 +267,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         .reduce((sum, group) => sum + group.nodes.length, 0),
       archivedGroups: archivedGroupsList,
     };
-  }, [offlineDateFilter, sessions.nodes]);
+  }, [offlineDateFilter, sessions.nodes, catalogAgents]);
 
   // Reset archived disclosure when filter changes
   useEffect(() => {
@@ -261,7 +303,31 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     });
   };
 
+  // Detail modal data
+  const detailGroup = useMemo(
+    () => (detailAgent ? agents.find((g) => g.agentName === detailAgent) ?? null : null),
+    [agents, detailAgent]
+  );
+
+  const detailSessions = useMemo(
+    () => detailGroup?.nodes ?? [],
+    [detailGroup]
+  );
+
+  const detailActivity = useMemo(
+    () =>
+      detailAgent
+        ? activity.filter(
+            (item) =>
+              item.agentName?.toLowerCase() === detailAgent.toLowerCase() ||
+              item.agentId?.toLowerCase() === detailAgent.toLowerCase()
+          )
+        : [],
+    [activity, detailAgent]
+  );
+
   const hasNoSessions = sessions.nodes.length === 0;
+  const hasCatalogAgents = catalogAgents.length > 0;
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -269,6 +335,16 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         open={launchModalOpen}
         onClose={() => setLaunchModalOpen(false)}
         onLaunched={() => onReconnect?.()}
+      />
+      <AgentDetailModal
+        open={detailAgent !== null}
+        onClose={() => setDetailAgent(null)}
+        agentName={detailAgent ?? ''}
+        catalogAgent={detailGroup?.catalogAgent ?? null}
+        sessions={detailSessions}
+        activity={detailActivity}
+        onSelectSession={onSelectSession}
+        onRefresh={() => catalogQuery.refetch()}
       />
       <div className="border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-2">
@@ -395,7 +471,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const agentKey = group.agentName;
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
-          const active = selectedSessionId === lead.id;
+          const hasSessions = group.nodes.length > 0;
+          const active = lead ? selectedSessionId === lead.id : false;
           const visibleChildren = isCollapsed
             ? []
             : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
@@ -411,17 +488,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               className={cn(
                 'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
-                isFiltered && 'border-[#0AD4C4]/30'
+                isFiltered && 'border-[#0AD4C4]/30',
+                !hasSessions && 'opacity-55'
               )}
             >
-              {/* Simplified agent group header: avatar + name + status dot + session count */}
+              {/* Agent group header: avatar + name + status dot + session count + detail + collapse */}
               <div className="flex items-center gap-2.5 px-3 py-2.5">
                 <button
                   type="button"
                   onClick={() => {
                     if (onAgentFilter) {
                       onAgentFilter(isFiltered ? null : group.agentName);
-                    } else {
+                    } else if (lead) {
                       onSelectSession(lead.id);
                     }
                   }}
@@ -429,13 +507,24 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 >
                   <div className="relative flex-shrink-0">
                     <AgentAvatar name={group.agentName} size="sm" hint={group.agentName} />
-                    <span
-                      className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
-                      style={{
-                        backgroundColor: statusColor(lead.status),
-                        borderColor: colors.cardBg,
-                      }}
-                    />
+                    {lead && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
+                        style={{
+                          backgroundColor: statusColor(lead.status),
+                          borderColor: colors.cardBg,
+                        }}
+                      />
+                    )}
+                    {!lead && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
+                        style={{
+                          backgroundColor: 'rgba(255,255,255,0.2)',
+                          borderColor: colors.cardBg,
+                        }}
+                      />
+                    )}
                   </div>
                   <span className="min-w-0 truncate">
                     <span className="text-[13px] font-semibold text-white">{group.agentName}</span>
@@ -443,125 +532,161 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(group.agentName)}</span>
                     )}
                   </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
-                      {(() => {
-                        const counts: Record<string, number> = {};
-                        for (const node of group.nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
-                        const total = group.nodes.length;
-                        return Object.entries(counts).map(([status, count]) => (
-                          <span
-                            key={status}
-                            style={{
-                              width: `${(count / total) * 100}%`,
-                              backgroundColor: statusColor(status),
-                            }}
-                          />
-                        ));
-                      })()}
+                  {hasSessions ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
+                        {(() => {
+                          const counts: Record<string, number> = {};
+                          for (const node of group.nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
+                          const total = group.nodes.length;
+                          return Object.entries(counts).map(([status, count]) => (
+                            <span
+                              key={status}
+                              style={{
+                                width: `${(count / total) * 100}%`,
+                                backgroundColor: statusColor(status),
+                              }}
+                            />
+                          ));
+                        })()}
+                      </span>
+                      <span className="text-[10px] text-white/55" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {group.nodes.length}
+                      </span>
                     </span>
-                    <span className="text-[10px] text-white/55" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {group.nodes.length}
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]" />
+                      <span className="text-[10px] text-white/35" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        0
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </button>
 
+                {/* Info/detail button */}
                 <button
                   type="button"
-                  onClick={() => toggleCollapse(agentKey)}
-                  aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
+                  onClick={() => setDetailAgent(agentKey)}
+                  aria-label={`View ${group.agentName} details`}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
                 >
                   <svg
-                    width="12"
-                    height="12"
+                    width="13"
+                    height="13"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
-                    className={cn('transition-transform', isCollapsed ? '-rotate-90' : 'rotate-0')}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    <path d="m6 9 6 6 6-6" />
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4" />
+                    <path d="M12 8h.01" />
                   </svg>
                 </button>
-              </div>
 
-              <div
-                className={cn(
-                  'overflow-hidden border-t border-white/[0.06] transition-all',
-                  isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 overflow-y-auto'
+                {hasSessions && (
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(agentKey)}
+                    aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className={cn('transition-transform', isCollapsed ? '-rotate-90' : 'rotate-0')}
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
                 )}
-              >
-                <div className="space-y-1.5 p-2">
-                  {visibleChildren.map((node) => {
-                    const childActive = selectedSessionId === node.id;
-                    const childProvider = resolveProvider(
-                      node.agentName,
-                      node.title,
-                      node.lastEventSummary,
-                      node
-                    );
-                    return (
-                      <button
-                        key={node.id}
-                        onClick={() => onSelectSession(node.id)}
-                        className={cn(
-                          'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
-                          childActive
-                            ? 'bg-white/[0.09]'
-                            : 'bg-white/[0.02] hover:bg-white/[0.05]'
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          <ProviderLogo provider={childProvider.id} size="xs" />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[12px] text-white/90">{node.title}</p>
-                            <div className="flex items-center gap-1.5 text-[10px] text-white/45">
-                              <span
-                                className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                                style={{
-                                  borderColor: `${childProvider.accent}66`,
-                                  color: childProvider.accent,
-                                  backgroundColor: childProvider.tint,
-                                }}
-                              >
-                                {childProvider.label}
-                              </span>
-                              <span className="uppercase tracking-[0.08em]">{node.status}</span>
-                              <span>
-                                {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
-                              </span>
-                            </div>
-                            {node.progress !== null && (
-                              <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
-                                <div
-                                  className="h-0.5 rounded-full"
-                                  style={{
-                                    width: `${Math.round(node.progress)}%`,
-                                    background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                          <span
-                            className="h-2 w-2 flex-shrink-0 rounded-full"
-                            style={{ backgroundColor: statusColor(node.status) }}
-                            aria-label={node.status}
-                            title={node.status}
-                          />
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                  {hiddenChildren > 0 && !isCollapsed && (
-                    <p className="px-1 text-[10px] text-white/40">
-                      +{hiddenChildren} older sessions hidden
-                    </p>
-                  )}
-                </div>
               </div>
+
+              {hasSessions && (
+                <div
+                  className={cn(
+                    'overflow-hidden border-t border-white/[0.06] transition-all',
+                    isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 overflow-y-auto'
+                  )}
+                >
+                  <div className="space-y-1.5 p-2">
+                    {visibleChildren.map((node) => {
+                      const childActive = selectedSessionId === node.id;
+                      const childProvider = resolveProvider(
+                        node.agentName,
+                        node.title,
+                        node.lastEventSummary,
+                        node
+                      );
+                      return (
+                        <button
+                          key={node.id}
+                          onClick={() => onSelectSession(node.id)}
+                          className={cn(
+                            'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
+                            childActive
+                              ? 'bg-white/[0.09]'
+                              : 'bg-white/[0.02] hover:bg-white/[0.05]'
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <ProviderLogo provider={childProvider.id} size="xs" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[12px] text-white/90">{node.title}</p>
+                              <div className="flex items-center gap-1.5 text-[10px] text-white/45">
+                                <span
+                                  className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
+                                  style={{
+                                    borderColor: `${childProvider.accent}66`,
+                                    color: childProvider.accent,
+                                    backgroundColor: childProvider.tint,
+                                  }}
+                                >
+                                  {childProvider.label}
+                                </span>
+                                <span className="uppercase tracking-[0.08em]">{node.status}</span>
+                                <span>
+                                  {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
+                                </span>
+                              </div>
+                              {node.progress !== null && (
+                                <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
+                                  <div
+                                    className="h-0.5 rounded-full"
+                                    style={{
+                                      width: `${Math.round(node.progress)}%`,
+                                      background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            <span
+                              className="h-2 w-2 flex-shrink-0 rounded-full"
+                              style={{ backgroundColor: statusColor(node.status) }}
+                              aria-label={node.status}
+                              title={node.status}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {hiddenChildren > 0 && !isCollapsed && (
+                      <p className="px-1 text-[10px] text-white/40">
+                        +{hiddenChildren} older sessions hidden
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -572,7 +697,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </div>
         )}
 
-        {onReconnect && (
+        {onReconnect && connectionStatus !== 'connected' && !hasCatalogAgents && (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] text-[11px] text-white/45">
             <p className="px-3 pt-2 pb-1.5 text-[10px] uppercase tracking-[0.1em] text-white/30">
               OrgX Agent Roster
