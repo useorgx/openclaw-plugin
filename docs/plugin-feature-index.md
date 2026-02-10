@@ -32,7 +32,6 @@ Scope: current repository state in `src/` and `dashboard/src/`
 ## 3) MCP Tool Inventory (Current)
 
 - `orgx_status`
-- `orgx_status_json`
 - `orgx_sync`
 - `orgx_delegation_preflight`
 - `orgx_run_action`
@@ -46,7 +45,6 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - `orgx_report_progress`
 - `orgx_request_decision`
 - `orgx_register_artifact`
-- `orgx_live_app`
 
 ## 4) CLI Surface (Current)
 

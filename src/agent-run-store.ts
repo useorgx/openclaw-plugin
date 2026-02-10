@@ -32,22 +32,14 @@ type PersistedAgentRuns = {
   runs: Record<string, AgentRunRecord>;
 };
 
+const RUN_DIR = join(homedir(), ".config", "useorgx", "openclaw-plugin");
+const RUN_FILE = join(RUN_DIR, "agent-runs.json");
 const MAX_RUNS = 240;
 
-function resolveRunDir(): string {
-  // Do not compute this at module load time. Some tests override HOME after imports,
-  // and OpenClaw can also run in environments where HOME is set late.
-  return join(homedir(), ".config", "useorgx", "openclaw-plugin");
-}
-
-function resolveRunFile(): string {
-  return join(resolveRunDir(), "agent-runs.json");
-}
-
-function ensureRunDir(runDir: string): void {
-  mkdirSync(runDir, { recursive: true, mode: 0o700 });
+function ensureRunDir(): void {
+  mkdirSync(RUN_DIR, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(runDir, 0o700);
+    chmodSync(RUN_DIR, 0o700);
   } catch {
     // best effort
   }
@@ -86,12 +78,11 @@ function normalizeRecord(input: AgentRunRecord): AgentRunRecord {
 }
 
 export function readAgentRuns(): PersistedAgentRuns {
-  const runFile = resolveRunFile();
   try {
-    if (!existsSync(runFile)) {
+    if (!existsSync(RUN_FILE)) {
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
-    const parsed = parseJson<PersistedAgentRuns>(readFileSync(runFile, "utf8"));
+    const parsed = parseJson<PersistedAgentRuns>(readFileSync(RUN_FILE, "utf8"));
     if (!parsed || typeof parsed !== "object") {
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
@@ -118,15 +109,13 @@ export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppe
   stoppedAt?: string | null;
   status?: AgentRunStatus;
 }): PersistedAgentRuns {
-  const runDir = resolveRunDir();
-  const runFile = join(runDir, "agent-runs.json");
   const runId = input.runId.trim();
   const agentId = input.agentId.trim();
   if (!runId || !agentId) {
     return readAgentRuns();
   }
 
-  ensureRunDir(runDir);
+  ensureRunDir();
   const next = readAgentRuns();
 
   const existing = next.runs[runId];
@@ -163,12 +152,12 @@ export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppe
     }
   }
 
-  writeFileSync(runFile, JSON.stringify(next, null, 2), {
+  writeFileSync(RUN_FILE, JSON.stringify(next, null, 2), {
     mode: 0o600,
     encoding: "utf8",
   });
   try {
-    chmodSync(runFile, 0o600);
+    chmodSync(RUN_FILE, 0o600);
   } catch {
     // best effort
   }
@@ -205,10 +194,10 @@ export function markAgentRunStopped(runId: string): AgentRunRecord | null {
 }
 
 export function clearAgentRuns(): void {
-  const runFile = resolveRunFile();
   try {
-    rmSync(runFile, { force: true });
+    rmSync(RUN_FILE, { force: true });
   } catch {
     // best effort
   }
 }
+
