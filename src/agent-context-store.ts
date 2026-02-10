@@ -23,14 +23,22 @@ type PersistedAgentContexts = {
   agents: Record<string, AgentLaunchContext>;
 };
 
-const CONTEXT_DIR = join(homedir(), ".config", "useorgx", "openclaw-plugin");
-const CONTEXT_FILE = join(CONTEXT_DIR, "agent-contexts.json");
 const MAX_AGENTS = 120;
 
-function ensureContextDir(): void {
-  mkdirSync(CONTEXT_DIR, { recursive: true, mode: 0o700 });
+function resolveContextDir(): string {
+  // Do not compute this at module load time. Some tests override HOME after imports,
+  // and OpenClaw can also run in environments where HOME is set late.
+  return join(homedir(), ".config", "useorgx", "openclaw-plugin");
+}
+
+function resolveContextFile(): string {
+  return join(resolveContextDir(), "agent-contexts.json");
+}
+
+function ensureContextDir(contextDir: string): void {
+  mkdirSync(contextDir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(CONTEXT_DIR, 0o700);
+    chmodSync(contextDir, 0o700);
   } catch {
     // best effort
   }
@@ -56,12 +64,13 @@ function normalizeContext(input: AgentLaunchContext): AgentLaunchContext {
 }
 
 export function readAgentContexts(): PersistedAgentContexts {
+  const contextFile = resolveContextFile();
   try {
-    if (!existsSync(CONTEXT_FILE)) {
+    if (!existsSync(contextFile)) {
       return { updatedAt: new Date().toISOString(), agents: {} };
     }
     const parsed = parseJson<PersistedAgentContexts>(
-      readFileSync(CONTEXT_FILE, "utf8")
+      readFileSync(contextFile, "utf8")
     );
     if (!parsed || typeof parsed !== "object") {
       return { updatedAt: new Date().toISOString(), agents: {} };
@@ -95,11 +104,13 @@ export function upsertAgentContext(input: {
   workstreamId?: string | null;
   taskId?: string | null;
 }): PersistedAgentContexts {
+  const contextDir = resolveContextDir();
+  const contextFile = join(contextDir, "agent-contexts.json");
   const agentId = input.agentId.trim();
   if (!agentId) {
     return readAgentContexts();
   }
-  ensureContextDir();
+  ensureContextDir(contextDir);
 
   const next = readAgentContexts();
   next.agents[agentId] = normalizeContext({
@@ -124,12 +135,12 @@ export function upsertAgentContext(input: {
     }
   }
 
-  writeFileSync(CONTEXT_FILE, JSON.stringify(next, null, 2), {
+  writeFileSync(contextFile, JSON.stringify(next, null, 2), {
     mode: 0o600,
     encoding: "utf8",
   });
   try {
-    chmodSync(CONTEXT_FILE, 0o600);
+    chmodSync(contextFile, 0o600);
   } catch {
     // best effort
   }
@@ -137,8 +148,9 @@ export function upsertAgentContext(input: {
 }
 
 export function clearAgentContexts(): void {
+  const contextFile = resolveContextFile();
   try {
-    rmSync(CONTEXT_FILE, { force: true });
+    rmSync(contextFile, { force: true });
   } catch {
     // best effort
   }
