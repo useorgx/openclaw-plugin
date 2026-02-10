@@ -121,13 +121,6 @@ export function OnboardingGate({
       className="relative flex min-h-screen items-center justify-center px-4 py-10 sm:py-16"
       style={{ backgroundColor: '#02040A' }}
     >
-      {/* Background atmosphere */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="ambient-orb orb-lime" style={{ width: 500, height: 500, top: -200, left: -160 }} />
-        <div className="ambient-orb orb-teal" style={{ width: 560, height: 560, bottom: -240, right: -170 }} />
-        <div className="ambient-orb orb-iris" style={{ width: 340, height: 340, bottom: '20%', left: '50%', animationDelay: '3s' }} />
-        <div className="grain-overlay absolute inset-0" />
-      </div>
 
       <motion.div
         initial={{ opacity: 0 }}
@@ -137,7 +130,7 @@ export function OnboardingGate({
       >
         {isLoading ? (
           /* ── Loading skeleton ─────────────────────────────────── */
-          <div className="glass-panel rounded-2xl p-6 sm:p-8">
+          <div className="bg-[--orgx-surface-elevated] border border-[--orgx-border] rounded-2xl p-6 sm:p-8">
             <div className="shimmer-skeleton h-7 w-28 rounded-lg" />
             <div className="shimmer-skeleton mt-5 h-8 w-3/4 rounded-lg" />
             <div className="shimmer-skeleton mt-3 h-4 w-2/3 rounded-lg" />

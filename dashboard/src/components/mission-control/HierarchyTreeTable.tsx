@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
-import { formatEntityStatus } from '@/lib/entityStatusColors';
+import { formatEntityStatus, statusRank } from '@/lib/entityStatusColors';
 import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { LevelIcon } from './LevelIcon';
 import { DependencyEditorPopover } from './DependencyEditorPopover';
+import { SearchInput } from '@/components/shared/SearchInput';
 import type { useEntityMutations } from '@/hooks/useEntityMutations';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
@@ -31,6 +32,9 @@ type FlatRow = {
   canCollapse: boolean;
 };
 
+type SortField = 'title' | 'status' | 'priority' | 'eta' | null;
+type SortDir = 'asc' | 'desc';
+
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return '';
   const date = new Date(iso);
@@ -45,6 +49,47 @@ function toLocalInputValue(iso: string | null): string {
 
 const STATUS_OPTIONS = ['not_started', 'planned', 'todo', 'in_progress', 'active', 'blocked', 'done'];
 
+function ancestorIds(nodeId: string, nodes: MissionControlNode[]): Set<string> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const ancestors = new Set<string>();
+  const queue = [nodeId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    const node = byId.get(id);
+    if (!node) continue;
+    if (node.parentId && !ancestors.has(node.parentId)) {
+      ancestors.add(node.parentId);
+      queue.push(node.parentId);
+    }
+    // Also include workstream/milestone parent chain
+    if (node.workstreamId && !ancestors.has(node.workstreamId)) {
+      ancestors.add(node.workstreamId);
+      queue.push(node.workstreamId);
+    }
+    if (node.milestoneId && !ancestors.has(node.milestoneId)) {
+      ancestors.add(node.milestoneId);
+      queue.push(node.milestoneId);
+    }
+  }
+  return ancestors;
+}
+
+function compareByField(a: MissionControlNode, b: MissionControlNode, field: SortField, dir: SortDir): number {
+  let cmp = 0;
+  if (field === 'title') {
+    cmp = a.title.localeCompare(b.title);
+  } else if (field === 'status') {
+    cmp = statusRank(a.status) - statusRank(b.status);
+  } else if (field === 'priority') {
+    cmp = a.priorityNum - b.priorityNum;
+  } else if (field === 'eta') {
+    const aEta = a.etaEndAt ? Date.parse(a.etaEndAt) : Infinity;
+    const bEta = b.etaEndAt ? Date.parse(b.etaEndAt) : Infinity;
+    cmp = aEta - bEta;
+  }
+  return dir === 'desc' ? -cmp : cmp;
+}
+
 export function HierarchyTreeTable({
   nodes,
   edges,
@@ -57,11 +102,45 @@ export function HierarchyTreeTable({
   onUpdateNode,
   mutations,
 }: HierarchyTreeTableProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeStatusFilters, setActiveStatusFilters] = useState<Set<string>>(new Set());
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDir>('asc');
+
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const allNodeHints = useMemo(
     () => nodes.map((node) => ({ id: node.id, title: node.title })),
     [nodes]
   );
+
+  // Compute which nodes match search/filter, plus their ancestors
+  const matchingNodeIds = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const hasQuery = query.length > 0;
+    const hasStatusFilter = activeStatusFilters.size > 0;
+
+    if (!hasQuery && !hasStatusFilter) return null; // null = show all
+
+    const directMatches = new Set<string>();
+    for (const node of nodes) {
+      const matchesQuery = !hasQuery || node.title.toLowerCase().includes(query) ||
+        node.assignedAgents.some((a) => a.name.toLowerCase().includes(query));
+      const matchesStatus = !hasStatusFilter || activeStatusFilters.has(node.status.toLowerCase());
+
+      if (matchesQuery && matchesStatus) {
+        directMatches.add(node.id);
+      }
+    }
+
+    // Include all ancestors to preserve tree context
+    const allVisible = new Set(directMatches);
+    for (const id of directMatches) {
+      for (const ancestorId of ancestorIds(id, nodes)) {
+        allVisible.add(ancestorId);
+      }
+    }
+    return allVisible;
+  }, [nodes, searchQuery, activeStatusFilters]);
 
   const workstreams = useMemo(
     () =>
@@ -125,11 +204,19 @@ export function HierarchyTreeTable({
     setExpandedRows(defaultExpanded);
   }, [defaultExpanded]);
 
+  const sortSiblings = (items: MissionControlNode[]): MissionControlNode[] => {
+    if (!sortField) return items;
+    return [...items].sort((a, b) => compareByField(a, b, sortField, sortDirection));
+  };
+
   const rows = useMemo(() => {
     const flat: FlatRow[] = [];
-    for (const ws of workstreams) {
-      const wsMilestones = milestonesByWorkstream.get(ws.id) ?? [];
-      const wsDirectTasks = directTasksByWorkstream.get(ws.id) ?? [];
+    const isVisible = (id: string) => matchingNodeIds === null || matchingNodeIds.has(id);
+
+    for (const ws of sortSiblings(workstreams)) {
+      if (!isVisible(ws.id)) continue;
+      const wsMilestones = sortSiblings(milestonesByWorkstream.get(ws.id) ?? []);
+      const wsDirectTasks = sortSiblings(directTasksByWorkstream.get(ws.id) ?? []);
       const wsHasChildren = wsMilestones.length > 0 || wsDirectTasks.length > 0;
       flat.push({
         node: ws,
@@ -139,7 +226,8 @@ export function HierarchyTreeTable({
       if (!expandedRows.has(ws.id)) continue;
 
       for (const milestone of wsMilestones) {
-        const milestoneTasks = tasksByMilestone.get(milestone.id) ?? [];
+        if (!isVisible(milestone.id)) continue;
+        const milestoneTasks = sortSiblings(tasksByMilestone.get(milestone.id) ?? []);
         flat.push({
           node: milestone,
           depth: 1,
@@ -147,12 +235,14 @@ export function HierarchyTreeTable({
         });
         if (expandedRows.has(milestone.id)) {
           for (const task of milestoneTasks) {
+            if (!isVisible(task.id)) continue;
             flat.push({ node: task, depth: 2, canCollapse: false });
           }
         }
       }
 
       for (const task of wsDirectTasks) {
+        if (!isVisible(task.id)) continue;
         flat.push({
           node: task,
           depth: 1,
@@ -161,21 +251,24 @@ export function HierarchyTreeTable({
       }
     }
 
-    const unscopedMilestones = milestonesByWorkstream.get('unscoped') ?? [];
-    const unscopedTasks = directTasksByWorkstream.get('unscoped') ?? [];
+    const unscopedMilestones = sortSiblings(milestonesByWorkstream.get('unscoped') ?? []);
+    const unscopedTasks = sortSiblings(directTasksByWorkstream.get('unscoped') ?? []);
     for (const milestone of unscopedMilestones) {
+      if (!isVisible(milestone.id)) continue;
       flat.push({
         node: milestone,
         depth: 0,
         canCollapse: (tasksByMilestone.get(milestone.id) ?? []).length > 0,
       });
       if (expandedRows.has(milestone.id)) {
-        for (const task of tasksByMilestone.get(milestone.id) ?? []) {
+        for (const task of sortSiblings(tasksByMilestone.get(milestone.id) ?? [])) {
+          if (!isVisible(task.id)) continue;
           flat.push({ node: task, depth: 1, canCollapse: false });
         }
       }
     }
     for (const task of unscopedTasks) {
+      if (!isVisible(task.id)) continue;
       flat.push({ node: task, depth: 0, canCollapse: false });
     }
 
@@ -183,7 +276,10 @@ export function HierarchyTreeTable({
   }, [
     directTasksByWorkstream,
     expandedRows,
+    matchingNodeIds,
     milestonesByWorkstream,
+    sortField,
+    sortDirection,
     tasksByMilestone,
     workstreams,
   ]);
@@ -224,24 +320,98 @@ export function HierarchyTreeTable({
     workstreams,
   ]);
 
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const toggleStatusFilter = (status: string) => {
+    setActiveStatusFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      return next;
+    });
+  };
+
+  const SortChevron = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <span className="text-white/20 ml-0.5">↕</span>;
+    return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
+  };
+
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-      <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-white/45">
-        Hierarchy table
+    <section className="rounded-sm bg-white/[0.02] p-3">
+      <div className="mb-2 text-[13px] font-semibold tracking-[-0.01em] text-white/70">
+        Hierarchy
       </div>
+
+      {/* Search */}
+      <div className="mb-2 max-w-[320px]">
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search items or agents..."
+        />
+      </div>
+
+      {/* Status filter chips */}
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {STATUS_OPTIONS.map((status) => {
+          const isActive = activeStatusFilters.has(status);
+          return (
+            <button
+              key={status}
+              type="button"
+              onClick={() => toggleStatusFilter(status)}
+              className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+                isActive
+                  ? 'bg-[#BFFF00]/10 text-[#D8FFA1] border border-[#BFFF00]/25'
+                  : 'bg-white/[0.03] text-white/50 border border-transparent hover:bg-white/[0.06]'
+              }`}
+            >
+              {formatEntityStatus(status)}
+            </button>
+          );
+        })}
+        {activeStatusFilters.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveStatusFilters(new Set())}
+            className="rounded-full px-2 py-1 text-[10px] text-white/40 hover:text-white/70 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1250px] border-separate border-spacing-y-1">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
-              <th className="px-2 py-1.5">Item</th>
-              <th className="px-2 py-1.5">Status</th>
+              <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('title')}>
+                Item <SortChevron field="title" />
+              </th>
+              <th className="px-2 py-1.5">Assigned</th>
+              <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('status')}>
+                Status <SortChevron field="status" />
+              </th>
               <th className="px-2 py-1.5">Progress</th>
-              <th className="px-2 py-1.5">Priority</th>
-              <th className="px-2 py-1.5">ETA</th>
+              <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('priority')}>
+                Priority <SortChevron field="priority" />
+              </th>
+              <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('eta')}>
+                ETA <SortChevron field="eta" />
+              </th>
               <th className="px-2 py-1.5">Duration (h)</th>
               <th className="px-2 py-1.5">Budget ($)</th>
               <th className="px-2 py-1.5">Dependencies</th>
-              <th className="px-2 py-1.5">Assigned</th>
             </tr>
           </thead>
           <tbody>
@@ -272,7 +442,8 @@ export function HierarchyTreeTable({
                         : 'bg-white/[0.02] hover:bg-white/[0.07]'
                   }`}
                 >
-                  <td className="rounded-l-lg border border-white/[0.08] border-r-0 px-2 py-1.5">
+                  {/* Item */}
+                  <td className="rounded-l-lg px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <div style={{ width: depth * 14 }} />
                       {canCollapse ? (
@@ -343,152 +514,8 @@ export function HierarchyTreeTable({
                     </div>
                   </td>
 
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
-                      <select
-                        defaultValue={node.status}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => {
-                          void onUpdateNode(node, { status: event.target.value });
-                        }}
-                        className="rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
-                      >
-                        {STATUS_OPTIONS.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>{formatEntityStatus(node.status)}</span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
-                      <div className="flex items-center gap-2">
-                        <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${completion}%`,
-                              backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
-                            }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {completion}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-white/35">—</span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        defaultValue={node.priorityNum}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const next = Number(event.currentTarget.value);
-                          if (Number.isFinite(next)) {
-                            void onUpdateNode(node, { priority_num: next });
-                          }
-                        }}
-                        className="w-[66px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
-                      />
-                    ) : (
-                      <span>P{node.priorityNum}</span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
-                      <input
-                        type="datetime-local"
-                        defaultValue={toLocalInputValue(node.etaEndAt)}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = event.currentTarget.value;
-                          void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
-                        }}
-                        className="w-[170px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
-                      />
-                    ) : (
-                      <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode && node.type !== 'task' ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        defaultValue={node.expectedDurationHours}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = Number(event.currentTarget.value);
-                          if (Number.isFinite(value)) {
-                            void onUpdateNode(node, { expected_duration_hours: value });
-                          }
-                        }}
-                        className="w-[82px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
-                      />
-                    ) : (
-                      <span>{node.expectedDurationHours}</span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode && node.type !== 'task' ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        defaultValue={node.expectedBudgetUsd}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = Number(event.currentTarget.value);
-                          if (Number.isFinite(value)) {
-                            void onUpdateNode(node, { expected_budget_usd: value });
-                          }
-                        }}
-                        className="w-[88px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
-                      />
-                    ) : (
-                      <span>
-                        ${node.expectedBudgetUsd.toLocaleString()}
-                        {editMode && node.type === 'task' ? ' (from task spec)' : ''}
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
-                      <div onClick={(event) => event.stopPropagation()}>
-                        <DependencyEditorPopover
-                          dependencies={node.dependencyIds}
-                          allNodes={allNodeHints}
-                          onSave={(nextDependencyIds) =>
-                            void onUpdateNode(node, { depends_on: nextDependencyIds })
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className="max-w-[250px] truncate">
-                        {dependencyCount(node) > 0
-                          ? `${dependencyCount(node)} · ${dependencyLabels}`
-                          : '—'}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="rounded-r-lg border border-white/[0.08] border-l-0 px-2 py-1.5 text-[11px] text-white/75">
+                  {/* Assigned (moved to position 2) */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
                     {editMode ? (
                       <input
                         type="text"
@@ -506,7 +533,7 @@ export function HierarchyTreeTable({
                             assignment_source: 'manual',
                           });
                         }}
-                        className="w-[220px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[180px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
                       />
                     ) : (
                       <div className="flex items-center gap-1.5">
@@ -530,6 +557,158 @@ export function HierarchyTreeTable({
                       </div>
                     )}
                   </td>
+
+                  {/* Status */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode ? (
+                      <select
+                        defaultValue={node.status}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          void onUpdateNode(node, { status: event.target.value });
+                        }}
+                        className="rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      >
+                        {STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span>{formatEntityStatus(node.status)}</span>
+                    )}
+                  </td>
+
+                  {/* Progress */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${completion}%`,
+                              backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {completion}%
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-white/35">—</span>
+                    )}
+                  </td>
+
+                  {/* Priority */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode ? (
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        defaultValue={node.priorityNum}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          const next = Number(event.currentTarget.value);
+                          if (Number.isFinite(next)) {
+                            void onUpdateNode(node, { priority_num: next });
+                          }
+                        }}
+                        className="w-[66px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      />
+                    ) : (
+                      <span>P{node.priorityNum}</span>
+                    )}
+                  </td>
+
+                  {/* ETA */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode ? (
+                      <input
+                        type="datetime-local"
+                        defaultValue={toLocalInputValue(node.etaEndAt)}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value;
+                          void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
+                        }}
+                        className="w-[170px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      />
+                    ) : (
+                      <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
+                    )}
+                  </td>
+
+                  {/* Duration */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode && node.type !== 'task' ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        defaultValue={node.expectedDurationHours}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value)) {
+                            void onUpdateNode(node, { expected_duration_hours: value });
+                          }
+                        }}
+                        className="w-[82px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      />
+                    ) : (
+                      <span>{node.expectedDurationHours}</span>
+                    )}
+                  </td>
+
+                  {/* Budget */}
+                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode && node.type !== 'task' ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={node.expectedBudgetUsd}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (Number.isFinite(value)) {
+                            void onUpdateNode(node, { expected_budget_usd: value });
+                          }
+                        }}
+                        className="w-[88px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                      />
+                    ) : (
+                      <span>
+                        ${node.expectedBudgetUsd.toLocaleString()}
+                        {editMode && node.type === 'task' ? ' (from task spec)' : ''}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Dependencies */}
+                  <td className="rounded-r-lg px-2 py-1.5 text-[11px] text-white/75">
+                    {editMode ? (
+                      <div onClick={(event) => event.stopPropagation()}>
+                        <DependencyEditorPopover
+                          dependencies={node.dependencyIds}
+                          allNodes={allNodeHints}
+                          onSave={(nextDependencyIds) =>
+                            void onUpdateNode(node, { depends_on: nextDependencyIds })
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="max-w-[250px] truncate">
+                        {dependencyCount(node) > 0
+                          ? `${dependencyCount(node)} · ${dependencyLabels}`
+                          : '—'}
+                      </div>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -538,22 +717,24 @@ export function HierarchyTreeTable({
       </div>
 
       {rows.length === 0 && (
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-6 text-center">
-          <div className="text-[12px] text-white/60">No workstreams, milestones, or tasks yet</div>
-          <div className="mt-1 text-[11px] text-white/35">
-            Create workstreams and tasks to see them here, or reconnect the OrgX API key.
+        <div className="flex flex-col items-center py-10">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/20">
+            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+            <rect x="9" y="3" width="6" height="4" rx="1" />
+            <path d="M9 14h6M9 18h4" />
+          </svg>
+          <div className="mt-3 text-[13px] font-medium text-white/50">
+            {searchQuery || activeStatusFilters.size > 0
+              ? 'No items match the current filters'
+              : 'No work items yet'}
+          </div>
+          <div className="mt-1 text-[11px] text-white/30">
+            {searchQuery || activeStatusFilters.size > 0
+              ? 'Try adjusting your search or filter criteria.'
+              : 'Workstreams, milestones, and tasks will appear here.'}
           </div>
         </div>
       )}
-
-      {edges.length > 0 && (
-        <div className="mt-2 text-[10px] text-white/35">
-          Showing {rows.length} rows and {edges.length} dependency links.
-        </div>
-      )}
-      <div className="mt-1 text-[10px] text-white/30">
-        Workstream rows set dependency-map focus. Milestone/task rows highlight dependency path.
-      </div>
     </section>
   );
 }

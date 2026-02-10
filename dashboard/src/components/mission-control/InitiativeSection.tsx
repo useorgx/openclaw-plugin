@@ -19,12 +19,12 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
-import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { EditModeToolbar } from './EditModeToolbar';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+import { CollapsibleSection } from './CollapsibleSection';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
@@ -275,6 +275,24 @@ function toTaskEntity(node: MissionControlNode, initiative: Initiative): Initiat
   };
 }
 
+function humanizeWarning(raw: string): string {
+  if (/unknown api endpoint/i.test(raw)) return 'Graph API unavailable — showing session-derived data';
+  if (/401|unauthorized/i.test(raw)) return 'Auth expired — reconnect to load full data';
+  if (/failed to list initiative/i.test(raw)) return 'Initiative data unavailable';
+  if (/failed to list workstream/i.test(raw)) return 'Workstream data unavailable';
+  if (/failed to list milestone/i.test(raw)) return 'Milestone data unavailable';
+  if (/failed to list task/i.test(raw)) return 'Task data unavailable';
+  if (/500 internal server/i.test(raw)) return 'Server error — some data may be incomplete';
+  if (/entity data partially unavailable/i.test(raw)) return 'Entity data partially unavailable';
+  if (raw.length > 80) return raw.slice(0, 72).replace(/[^a-zA-Z0-9]$/, '') + '...';
+  return raw;
+}
+
+const staggerItem = {
+  hidden: { opacity: 0, y: 6 },
+  show: { opacity: 1, y: 0 },
+};
+
 export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const {
     expandedInitiatives,
@@ -289,6 +307,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const [editMode, setEditMode] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [focusedWorkstreamId, setFocusedWorkstreamId] = useState<string | null>(null);
+  const [warningsExpanded, setWarningsExpanded] = useState(false);
 
   const isExpanded = expandedInitiatives.has(initiative.id);
   const { graph, isLoading, degraded, error } = useMissionControlGraph({
@@ -302,13 +321,6 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
     isLoading: isLegacyLoading,
     error: legacyError,
   } = useInitiativeDetails({
-    initiativeId: initiative.id,
-    authToken,
-    embedMode,
-    enabled: isExpanded,
-  });
-
-  const autoContinue = useAutoContinue({
     initiativeId: initiative.id,
     authToken,
     embedMode,
@@ -479,9 +491,10 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`glass-panel soft-shadow rounded-2xl overflow-hidden border-l-2 transition-colors ${
-        isExpanded ? 'border-l-[#BFFF00]/60' : 'border-l-transparent'
+      className={`rounded-2xl overflow-hidden border border-[--orgx-border] transition-colors ${
+        isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
       }`}
+      style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04)' }}
     >
       <div
         role="button"
@@ -546,33 +559,6 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
         {/* Quick actions — shown on hover */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              const action = autoContinue.isRunning ? autoContinue.stop : autoContinue.start;
-              void action().catch((err) => {
-                console.warn('[auto-continue] action failed', err);
-              });
-            }}
-            title={
-              autoContinue.isRunning
-                ? 'Stop auto-continue'
-                : 'Start auto-continue (dispatch next-up tasks)'
-            }
-            disabled={authUnavailable || autoContinue.isStarting || autoContinue.isStopping}
-            className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            {autoContinue.isRunning ? (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="7" y="7" width="10" height="10" rx="2" />
-              </svg>
-            ) : (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            )}
-          </button>
           {effectiveInitiativeStatus === 'active' && (
             <button
               type="button"
@@ -606,21 +592,24 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
           </button>
         </div>
 
-        <div className="flex-1 max-w-[200px] hidden sm:block">
-          <div className="h-[2px] w-full rounded-full bg-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${progress}%`,
-                backgroundColor: statusColor(effectiveInitiativeStatus),
-              }}
-            />
-          </div>
-        </div>
-
-        <span className="text-[11px] text-white/40 flex-shrink-0 hidden sm:block">
-          {progress}%
-        </span>
+        {progress > 0 && (
+          <>
+            <div className="flex-1 max-w-[200px] hidden sm:block">
+              <div className="h-[2px] w-full rounded-full bg-white/[0.06] overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${progress}%`,
+                    backgroundColor: statusColor(effectiveInitiativeStatus),
+                  }}
+                />
+              </div>
+            </div>
+            <span className="text-[11px] text-white/40 flex-shrink-0 hidden sm:block">
+              {progress}%
+            </span>
+          </>
+        )}
 
         <div className="flex-shrink-0 ml-auto">
           <InferredAgentAvatars agents={agents} max={5} />
@@ -647,37 +636,92 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                   ))}
                 </div>
               ) : (
-                <>
+                <motion.div
+                  initial="hidden"
+                  animate="show"
+                  variants={{
+                    hidden: {},
+                    show: { transition: { staggerChildren: 0.08 } },
+                  }}
+                  className="space-y-3"
+                >
                   <EditModeToolbar
                     editMode={editMode}
                     onToggleEditMode={() => setEditMode((prev) => !prev)}
                   />
 
                   {warnings.length > 0 && (
-                    <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200/90">
-                      Partial data: {warnings.join(' | ')}
-                    </div>
+                    <motion.div
+                      variants={staggerItem}
+                      className="rounded-lg bg-white/[0.03] overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setWarningsExpanded((prev) => !prev)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
+                      >
+                        <span className="text-[11px] text-white/40">
+                          {warnings.length} data source{warnings.length > 1 ? 's' : ''} unavailable
+                        </span>
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          className={`text-white/25 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                        >
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </button>
+                      <AnimatePresence>
+                        {warningsExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-3 pb-2 space-y-1">
+                              {warnings.map((w, i) => (
+                                <div key={i} className="text-[10px] text-white/30">
+                                  {humanizeWarning(w)}
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
                   )}
 
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Next-Up Queue</div>
-                      <div className="mt-1 text-[12px] text-white/85">
-                        {todoTaskCount} todo • {activeTaskCount} active
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Expected Duration</div>
-                      <div className="mt-1 text-[12px] text-white/85">{totalExpectedDurationHours}h</div>
-                    </div>
-                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-[0.08em] text-white/45">Expected Budget</div>
-                      <div className="mt-1 text-[12px] text-white/85">${totalExpectedBudgetUsd.toLocaleString()}</div>
-                    </div>
-                  </div>
+                  {(todoTaskCount > 0 || activeTaskCount > 0 || totalExpectedDurationHours > 0 || totalExpectedBudgetUsd > 0) && (
+                    <motion.div variants={staggerItem}>
+                      <CollapsibleSection title="Stats" storageKey={`stats.${initiative.id}`} defaultOpen>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-[11px]">
+                          <span>
+                            <span className="text-white/50">Queue</span>{' '}
+                            <span className="text-white/85">{todoTaskCount} todo &middot; {activeTaskCount} active</span>
+                          </span>
+                          <span className="text-white/20">&middot;</span>
+                          <span>
+                            <span className="text-white/50">Duration</span>{' '}
+                            <span className="text-white/85">{totalExpectedDurationHours}h</span>
+                          </span>
+                          <span className="text-white/20">&middot;</span>
+                          <span>
+                            <span className="text-white/50">Budget</span>{' '}
+                            <span className="text-white/85">${totalExpectedBudgetUsd.toLocaleString()}</span>
+                          </span>
+                        </div>
+                      </CollapsibleSection>
+                    </motion.div>
+                  )}
 
                   {focusedWorkstreamId && (
-                    <div className="flex items-center justify-between rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-3 py-1.5 text-[11px] text-[#D8FFA1]">
+                    <div className="flex items-center justify-between rounded-lg bg-[#BFFF00]/[0.08] px-3 py-1.5 text-[11px] text-[#D8FFA1]">
                       <span>
                         Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
                       </span>
@@ -691,46 +735,58 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                     </div>
                   )}
 
-                  <DependencyMapPanel
-                    nodes={nodes}
-                    edges={edges}
-                    selectedNodeId={selectedNodeId}
-                    focusedWorkstreamId={focusedWorkstreamId}
-                    onSelectNode={(nodeId) => {
-                      setSelectedNodeId(nodeId);
-                      const node = nodeById.get(nodeId);
-                      if (node?.type === 'workstream') {
-                        setFocusedWorkstreamId(node.id);
-                      }
-                    }}
-                  />
+                  <motion.div variants={staggerItem}>
+                    <CollapsibleSection title="Dependency Map" storageKey={`depmap.${initiative.id}`} defaultOpen>
+                    <DependencyMapPanel
+                      nodes={nodes}
+                      edges={edges}
+                      selectedNodeId={selectedNodeId}
+                      focusedWorkstreamId={focusedWorkstreamId}
+                      onSelectNode={(nodeId) => {
+                        setSelectedNodeId(nodeId);
+                        const node = nodeById.get(nodeId);
+                        if (node?.type === 'workstream') {
+                          setFocusedWorkstreamId(node.id);
+                        }
+                      }}
+                    />
+                    </CollapsibleSection>
+                  </motion.div>
 
-                  <RecentTodosRail
-                    recentTodoIds={recentTodoIds}
-                    nodesById={nodeById}
-                    selectedNodeId={selectedNodeId}
-                    onSelectNode={(nodeId) => {
-                      setSelectedNodeId(nodeId);
-                      const node = nodeById.get(nodeId);
-                      if (node?.type === 'workstream') {
-                        setFocusedWorkstreamId(node.id);
-                      }
-                    }}
-                  />
+                  <motion.div variants={staggerItem}>
+                    <CollapsibleSection title="Next Up" storageKey={`nextup.${initiative.id}`} defaultOpen>
+                    <RecentTodosRail
+                      recentTodoIds={recentTodoIds}
+                      nodesById={nodeById}
+                      selectedNodeId={selectedNodeId}
+                      onSelectNode={(nodeId) => {
+                        setSelectedNodeId(nodeId);
+                        const node = nodeById.get(nodeId);
+                        if (node?.type === 'workstream') {
+                          setFocusedWorkstreamId(node.id);
+                        }
+                      }}
+                    />
+                    </CollapsibleSection>
+                  </motion.div>
 
-                  <HierarchyTreeTable
-                    nodes={nodes}
-                    edges={edges}
-                    selectedNodeId={selectedNodeId}
-                    highlightedNodeIds={highlightedNodeIds}
-                    editMode={editMode}
-                    onSelectNode={setSelectedNodeId}
-                    onFocusWorkstream={setFocusedWorkstreamId}
-                    onOpenNode={openNodeModal}
-                    onUpdateNode={updateNode}
-                    mutations={mutations}
-                  />
-                </>
+                  <motion.div variants={staggerItem}>
+                    <CollapsibleSection title="Hierarchy" storageKey={`hierarchy.${initiative.id}`} defaultOpen>
+                    <HierarchyTreeTable
+                      nodes={nodes}
+                      edges={edges}
+                      selectedNodeId={selectedNodeId}
+                      highlightedNodeIds={highlightedNodeIds}
+                      editMode={editMode}
+                      onSelectNode={setSelectedNodeId}
+                      onFocusWorkstream={setFocusedWorkstreamId}
+                      onOpenNode={openNodeModal}
+                      onUpdateNode={updateNode}
+                      mutations={mutations}
+                    />
+                    </CollapsibleSection>
+                  </motion.div>
+                </motion.div>
               )}
 
               {/* Collapse hint at bottom */}

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel } from '@/lib/humanize';
-import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
+import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
@@ -21,9 +21,12 @@ const itemVariants = {
 interface ActivityTimelineProps {
   activity: LiveActivityItem[];
   sessions: SessionTreeNode[];
+  initiatives?: Initiative[];
   selectedRunIds: string[];
   selectedSessionLabel?: string | null;
+  agentFilter?: string | null;
   onClearSelection: () => void;
+  onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
 }
 
@@ -40,6 +43,14 @@ interface DecoratedActivityItem {
   searchText: string;
 }
 type HeadlineSource = 'llm' | 'heuristic' | null;
+
+interface DeduplicatedCluster {
+  key: string;
+  representative: DecoratedActivityItem;
+  count: number;
+  firstTimestamp: number;
+  allItems: DecoratedActivityItem[];
+}
 
 const filterLabels: Record<ActivityFilterId, string> = {
   all: 'All',
@@ -369,14 +380,18 @@ function summarizeDetailHeadline(
 export const ActivityTimeline = memo(function ActivityTimeline({
   activity,
   sessions,
+  initiatives = [],
   selectedRunIds,
   selectedSessionLabel = null,
+  agentFilter = null,
   onClearSelection,
+  onClearAgentFilter,
   onFocusRunId,
 }: ActivityTimelineProps) {
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
@@ -407,6 +422,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return map;
   }, [sessions]);
+
+  const initiativeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const init of initiatives) {
+      map.set(init.id, init.name);
+    }
+    return map;
+  }, [initiatives]);
+
+  const runningSessions = useMemo(
+    () => sessions.filter((s) => s.status === 'running'),
+    [sessions]
+  );
 
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
@@ -442,6 +470,25 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return Date.now() - newest < 60_000;
   }, [decoratedActivity]);
 
+  const typeSummary = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const decorated of decoratedActivity) {
+      counts[decorated.item.type] = (counts[decorated.item.type] ?? 0) + 1;
+    }
+    const buckets: Array<{ id: string; label: string; count: number; color: string; types: string[] }> = [];
+    const errorCount = (counts['run_failed'] ?? 0) + (counts['blocker_created'] ?? 0);
+    if (errorCount > 0) buckets.push({ id: 'errors', label: 'errors', count: errorCount, color: colors.red, types: ['run_failed', 'blocker_created'] });
+    const completionCount = (counts['run_completed'] ?? 0) + (counts['milestone_completed'] ?? 0);
+    if (completionCount > 0) buckets.push({ id: 'completions', label: 'completions', count: completionCount, color: colors.lime, types: ['run_completed', 'milestone_completed'] });
+    const artifactCount = counts['artifact_created'] ?? 0;
+    if (artifactCount > 0) buckets.push({ id: 'artifacts', label: 'artifacts', count: artifactCount, color: colors.cyan, types: ['artifact_created'] });
+    const decisionCount = (counts['decision_requested'] ?? 0) + (counts['decision_resolved'] ?? 0);
+    if (decisionCount > 0) buckets.push({ id: 'decisions', label: 'decisions', count: decisionCount, color: colors.amber, types: ['decision_requested', 'decision_resolved'] });
+    const handoffCount = (counts['handoff_requested'] ?? 0) + (counts['handoff_claimed'] ?? 0) + (counts['handoff_fulfilled'] ?? 0);
+    if (handoffCount > 0) buckets.push({ id: 'handoffs', label: 'handoffs', count: handoffCount, color: colors.iris, types: ['handoff_requested', 'handoff_claimed', 'handoff_fulfilled'] });
+    return buckets;
+  }, [decoratedActivity]);
+
   const selectedRunIdSet = useMemo(
     () => new Set(selectedRunIds.filter((value) => value && value.trim().length > 0)),
     [selectedRunIds]
@@ -465,6 +512,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     for (const decorated of decoratedActivity) {
       const runId = decorated.runId;
       if (hasSessionFilter && (!runId || !selectedRunIdSet.has(runId))) {
+        continue;
+      }
+
+      if (agentFilter && decorated.item.agentName !== agentFilter) {
         continue;
       }
 
@@ -497,6 +548,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     };
   }, [
     activeFilter,
+    agentFilter,
     decoratedActivity,
     hasSessionFilter,
     query,
@@ -528,6 +580,49 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       items: map.get(key) ?? [],
     }));
   }, [filtered, sortOrder]);
+
+  const deduplicatedGrouped = useMemo(() => {
+    return grouped.map((group) => {
+      const clusterMap = new Map<string, DeduplicatedCluster>();
+      for (const decorated of group.items) {
+        const clusterKey = `${decorated.item.type}::${decorated.item.title}`;
+        const existing = clusterMap.get(clusterKey);
+        if (existing) {
+          existing.count += 1;
+          existing.firstTimestamp = Math.min(existing.firstTimestamp, decorated.timestampEpoch);
+          existing.allItems.push(decorated);
+          // Keep the latest item as representative (items are already sorted)
+          if (decorated.timestampEpoch > existing.representative.timestampEpoch) {
+            existing.representative = decorated;
+          }
+        } else {
+          clusterMap.set(clusterKey, {
+            key: clusterKey,
+            representative: decorated,
+            count: 1,
+            firstTimestamp: decorated.timestampEpoch,
+            allItems: [decorated],
+          });
+        }
+      }
+      return {
+        ...group,
+        clusters: Array.from(clusterMap.values()),
+      };
+    });
+  }, [grouped]);
+
+  const toggleCluster = useCallback((clusterKey: string) => {
+    setExpandedClusters((prev) => {
+      const next = new Set(prev);
+      if (next.has(clusterKey)) {
+        next.delete(clusterKey);
+      } else {
+        next.add(clusterKey);
+      }
+      return next;
+    });
+  }, []);
 
   const activeIndex = useMemo(() => {
     if (!activeItemId) return -1;
@@ -739,6 +834,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const displayTitle = humanizeText(item.title ?? '');
     const displaySummary = humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
+    const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
     const kindColor = bucketColor(bucket);
     const kindLabel = bucketLabel(bucket);
     const metadataJson = metadataToJson(item.metadata as Record<string, unknown> | undefined);
@@ -827,6 +923,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 </span>
               )}
               <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
+              {initiativeName && (
+                <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-1.5 py-0.5 text-white/35 truncate max-w-[120px]" title={initiativeName}>
+                  {initiativeName}
+                </span>
+              )}
               {metadataJson && (
                 <span className="text-white/35">meta</span>
               )}
@@ -849,6 +950,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         />
       ) : (
       <>
+      {runningSessions.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] px-4 py-2 scrollbar-none">
+          <span className="flex-shrink-0 text-[10px] uppercase tracking-[0.08em] text-white/35">In Progress</span>
+          {runningSessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              onClick={() => onFocusRunId?.(session.runId)}
+              className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 transition-colors hover:bg-white/[0.06]"
+            >
+              <AgentAvatar name={session.agentName ?? 'OrgX'} size="xs" hint={session.agentName} />
+              <span className="max-w-[140px] truncate text-[11px] text-white/70">{session.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -883,6 +1000,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 </span>
               </button>
             )}
+            {agentFilter && (
+              <button
+                onClick={onClearAgentFilter}
+                className="chip inline-flex min-w-0 items-center gap-2"
+                style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
+                aria-label="Clear agent filter"
+              >
+                <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                <span className="min-w-0 truncate">Agent: {agentFilter}</span>
+                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  ×
+                </span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -904,6 +1035,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </button>
           </div>
         </div>
+
+        {typeSummary.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {typeSummary.map((bucket) => (
+              <button
+                key={bucket.id}
+                type="button"
+                onClick={() => {
+                  if (bucket.id === 'errors') setActiveFilter('messages');
+                  else if (bucket.id === 'completions') setActiveFilter('messages');
+                  else if (bucket.id === 'artifacts') setActiveFilter('artifacts');
+                  else if (bucket.id === 'decisions') setActiveFilter('decisions');
+                  else setActiveFilter('all');
+                }}
+                className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.06]"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: bucket.color }} />
+                <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{bucket.count}</span>
+                <span className="text-white/45">{bucket.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
@@ -990,8 +1144,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
         {filtered.length > 0 && (
           <div className="space-y-4">
-            {grouped.map((group) => {
-              const visibleItems = collapsed ? group.items.slice(0, 4) : group.items;
+            {deduplicatedGrouped.map((group) => {
+              const visibleClusters = collapsed ? group.clusters.slice(0, 4) : group.clusters;
               return (
                 <section key={group.key}>
                   <h3 className="mb-2.5 border-b border-white/[0.06] pb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/35">
@@ -999,12 +1153,39 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   </h3>
                   <AnimatePresence mode="popLayout">
                     <div className="space-y-2">
-                      {visibleItems.map((item, index) => renderItem(item, index))}
+                      {visibleClusters.map((cluster, index) => {
+                        const isExpanded = expandedClusters.has(cluster.key);
+                        if (cluster.count === 1) {
+                          return renderItem(cluster.representative, index);
+                        }
+                        return (
+                          <div key={cluster.key}>
+                            {renderItem(cluster.representative, index)}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
+                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+                            >
+                              <span className="font-semibold">×{cluster.count}</span>
+                              <span className="text-white/35">·</span>
+                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </button>
+                            {isExpanded && (
+                              <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
+                                {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </AnimatePresence>
-                  {collapsed && group.items.length > visibleItems.length && (
+                  {collapsed && group.clusters.length > visibleClusters.length && (
                     <p className="mt-1.5 text-[11px] text-white/35">
-                      +{group.items.length - visibleItems.length} more
+                      +{group.clusters.length - visibleClusters.length} more
                     </p>
                   )}
                 </section>

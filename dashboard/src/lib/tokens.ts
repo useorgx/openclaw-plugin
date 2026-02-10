@@ -24,10 +24,30 @@ export const agentColors: Record<string, string> = {
   Dana: '#FF00D4',
   Mark: '#F5B700',
   System: '#14B8A6',
+  Sage: '#0AD4C4',
+  Orion: '#14B8A6',
+  Xandy: '#FF6B88',
+  Nova: '#A78BFA',
+};
+
+export const agentRoles: Record<string, string> = {
+  Pace: 'Engineering',
+  Eli: 'Engineering',
+  Dana: 'Product Design',
+  Mark: 'Marketing',
+  System: 'System',
+  Sage: 'Strategy',
+  Orion: 'Operations',
+  Xandy: 'Orchestrator',
+  Nova: 'Research',
 };
 
 export function getAgentColor(name: string): string {
   return agentColors[name] ?? colors.teal;
+}
+
+export function getAgentRole(name: string): string | null {
+  return agentRoles[name] ?? null;
 }
 
 export function getInitials(name: string): string {

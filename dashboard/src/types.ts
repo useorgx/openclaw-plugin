@@ -375,7 +375,7 @@ export interface AutoContinueRun {
 
 export interface AutoContinueStatusResponse {
   ok: boolean;
-  initiativeId: string;
+  initiativeId: string | null;
   run: AutoContinueRun | null;
   defaults: {
     tokenBudget: number;

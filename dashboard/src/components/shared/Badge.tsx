@@ -18,7 +18,6 @@ export function Badge({ children, color, pulse, title }: BadgeProps) {
         backgroundColor: `${c}22`,
         border: `1px solid ${c}5a`,
         color: c,
-        boxShadow: `0 8px 20px ${c}24`,
       }}
     >
       <span className="relative flex h-1.5 w-1.5">

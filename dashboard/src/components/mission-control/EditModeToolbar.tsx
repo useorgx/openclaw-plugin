@@ -5,22 +5,20 @@ interface EditModeToolbarProps {
 
 export function EditModeToolbar({ editMode, onToggleEditMode }: EditModeToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5">
-      <div className="text-[11px] text-white/45">
-        {editMode
-          ? 'Edit mode enabled: status, priority, ETA, duration, dependencies, assignments'
-          : 'Read mode: click rows to drill in and inspect dependency paths'}
-      </div>
+    <div className="flex items-center justify-end">
       <button
         type="button"
         onClick={onToggleEditMode}
-        className={`rounded-md border px-3 py-1.5 text-[11px] transition-colors ${
+        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
           editMode
-            ? 'border-[#BFFF00]/30 bg-[#BFFF00]/15 text-[#D8FFA1]'
-            : 'border-white/[0.12] bg-white/[0.05] text-white/65 hover:bg-white/[0.1]'
+            ? 'bg-[#BFFF00]/12 text-[#D8FFA1]'
+            : 'text-white/40 hover:text-white/65 hover:bg-white/[0.04]'
         }`}
       >
-        {editMode ? 'Exit edit mode' : 'Edit mode'}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+        </svg>
+        {editMode ? 'Editing' : 'Edit'}
       </button>
     </div>
   );

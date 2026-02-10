@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityItem, Agent, ConnectionStatus, Initiative } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
+import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { MissionControlProvider, useMissionControl } from './MissionControlContext';
@@ -244,8 +245,17 @@ function MissionControlInner({
     modalTarget,
     closeModal,
     expandInitiative,
+    authToken,
+    embedMode,
   } = useMissionControl();
   const didAutoExpand = useRef(false);
+
+  const autopilot = useAutoContinue({
+    initiativeId: null,
+    authToken,
+    embedMode,
+    enabled: true,
+  });
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
   const filteredInitiatives = useMemo(() => {
@@ -347,8 +357,6 @@ function MissionControlInner({
       groups?.map((group) => groupDisclosureId(groupBy, group.key)) ?? [],
     [groupBy, groups],
   );
-
-  const allGroupsExpanded = groupIds.length > 0 && groupIds.every((id) => expandedGroupIds.has(id));
 
   const toggleGroupExpanded = useCallback((id: string) => {
     setExpandedGroupIds((previous) => {
@@ -490,48 +498,73 @@ function MissionControlInner({
                 </div>
               )}
 
-              {/* Search + filters + expand/collapse (single row, compact) */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
                 <div className="min-w-[220px] flex-1">
                   <SearchInput
                     value={searchQuery}
                     onChange={setSearchQuery}
-                    placeholder="Search initiatives, status, or category..."
+                    placeholder="Search initiatives..."
                   />
                 </div>
                 <MissionControlFilters
                   initiatives={initiatives}
                   visibleCount={filteredInitiatives.length}
                 />
-                {/* Expand/Collapse All toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const action = autopilot.isRunning ? autopilot.stop : autopilot.start;
+                    void action().catch((err) => {
+                      console.warn('[autopilot] toggle failed', err);
+                    });
+                  }}
+                  disabled={autopilot.isStarting || autopilot.isStopping}
+                  title={autopilot.isRunning ? 'Stop Autopilot' : 'Start Autopilot'}
+                  className={`flex items-center gap-1.5 h-9 rounded-lg px-3 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
+                    autopilot.isRunning
+                      ? 'bg-[#0AD4C4]/15 text-[#0AD4C4] border border-[#0AD4C4]/30 hover:bg-[#0AD4C4]/25'
+                      : 'bg-white/[0.04] text-white/50 border border-white/[0.08] hover:text-white/70 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className={autopilot.isRunning ? 'status-breathe' : ''}
+                  >
+                    {/* Infinity loop icon */}
+                    <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8Z" />
+                  </svg>
+                  <span>Autopilot</span>
+                  {autopilot.isRunning && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
+                  )}
+                </button>
                 {sortedInitiatives.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
                       if (allExpanded) {
                         collapseAll();
+                        if (groups && groupIds.length > 0) setExpandedGroupIds(new Set());
                       } else {
                         expandAll(sortedInitiatives.map((i) => i.id));
+                        if (groups && groupIds.length > 0) setExpandedGroupIds(new Set(groupIds));
                       }
                     }}
-                    className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
+                    title={allExpanded ? 'Collapse all' : 'Expand all'}
+                    className="flex items-center justify-center w-9 h-9 rounded-lg text-white/40 transition-colors hover:text-white/70 hover:bg-white/[0.04]"
                   >
-                    {allExpanded ? 'Collapse All' : 'Expand All'}
-                  </button>
-                )}
-                {groups && groupIds.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (allGroupsExpanded) {
-                        setExpandedGroupIds(new Set());
-                      } else {
-                        setExpandedGroupIds(new Set(groupIds));
-                      }
-                    }}
-                    className="h-10 rounded-lg border border-white/[0.12] px-3 text-[11px] uppercase tracking-[0.08em] text-white/70 transition-colors hover:border-white/[0.2] hover:text-white whitespace-nowrap"
-                  >
-                    {allGroupsExpanded ? 'Collapse Groups' : 'Expand Groups'}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {allExpanded ? (
+                        <><path d="M4 14h16" /><path d="M4 10h16" /></>
+                      ) : (
+                        <><path d="M4 12h16" /><path d="M12 4v16" /></>
+                      )}
+                    </svg>
                   </button>
                 )}
               </div>
@@ -543,7 +576,7 @@ function MissionControlInner({
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={`mc-skeleton-${i}`}
-                    className="glass-panel soft-shadow rounded-2xl p-4"
+                    className="bg-[--orgx-surface] border border-[--orgx-border] soft-shadow rounded-2xl p-4"
                   >
                     <Skeleton className="h-4 w-2/5 rounded" />
                     <Skeleton className="h-1 w-full rounded mt-3" />

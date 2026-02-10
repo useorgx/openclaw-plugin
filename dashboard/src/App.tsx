@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
+import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import type { Initiative, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
@@ -56,6 +58,8 @@ type HeaderNotification = {
   kind: 'error' | 'info';
   title: string;
   message: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 function toEpoch(value: string | null | undefined): number {
@@ -163,7 +167,9 @@ function DashboardShell({
   });
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
+  const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
@@ -175,7 +181,7 @@ function DashboardShell({
   });
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<'initiatives' | 'decisions'>('initiatives');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<string>('decisions');
   const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(MC_WELCOME_DISMISS_KEY) === '1';
@@ -305,6 +311,7 @@ function DashboardShell({
 
   const handleSelectSession = useCallback((sessionId: string) => {
     setSelectedSessionId(sessionId);
+    setSessionDrawerOpen(true);
     setActivityFilterSessionId(sessionId);
   }, []);
 
@@ -341,6 +348,11 @@ function DashboardShell({
     [data.sessions.nodes]
   );
 
+  const failedCount = useMemo(
+    () => data.sessions.nodes.filter((node) => node.status === 'failed').length,
+    [data.sessions.nodes]
+  );
+
   const compactMetrics = useMemo(() => {
     const metrics: Array<{
       id: string;
@@ -365,6 +377,12 @@ function DashboardShell({
         label: 'Blocked',
         value: blockedCount,
         color: blockedCount > 0 ? colors.red : colors.textMuted,
+      },
+      {
+        id: 'failed',
+        label: 'Failed',
+        value: failedCount,
+        color: failedCount > 0 ? colors.red : colors.textMuted,
       },
       {
         id: 'decisions',
@@ -399,6 +417,7 @@ function DashboardShell({
   }, [
     activeSessionCount,
     blockedCount,
+    failedCount,
     data.decisions.length,
     data.handoffs.length,
     data.outbox.pendingTotal,
@@ -406,6 +425,11 @@ function DashboardShell({
     data.sessions.nodes.length,
     decisionsVisible,
   ]);
+
+  const longestWaitMinutes = useMemo(
+    () => data.decisions.length > 0 ? Math.max(0, ...data.decisions.map((d) => d.waitingMinutes)) : 0,
+    [data.decisions]
+  );
 
   const headerNotifications = useMemo(() => {
     const items: HeaderNotification[] = [];
@@ -415,6 +439,8 @@ function DashboardShell({
         kind: 'error',
         title: 'Live stream degraded',
         message: error,
+        actionLabel: 'Settings',
+        onAction: () => openSettings('orgx'),
       });
     }
     if (data.connection !== 'connected') {
@@ -426,6 +452,8 @@ function DashboardShell({
           data.connection === 'disconnected'
             ? 'Dashboard is offline. Some data may be stale.'
             : 'Live data is recovering. Some sections may be delayed.',
+        actionLabel: 'Reconnect',
+        onAction: handleReconnect,
       });
     }
     if (data.outbox.pendingTotal > 0) {
@@ -442,6 +470,8 @@ function DashboardShell({
         kind: 'error',
         title: 'Outbox replay failed',
         message: data.outbox.lastReplayError,
+        actionLabel: 'Settings',
+        onAction: () => openSettings('orgx'),
       });
     }
     if (opsNotice) {
@@ -459,6 +489,8 @@ function DashboardShell({
     data.outbox.pendingTotal,
     data.outbox.replayStatus,
     error,
+    handleReconnect,
+    openSettings,
     opsNotice,
   ]);
 
@@ -1021,18 +1053,6 @@ function DashboardShell({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-0">
-        <div className="ambient-orb orb-lime" style={{ width: 460, height: 460, top: -180, left: -120 }} />
-        <div
-          className="ambient-orb orb-teal"
-          style={{ width: 520, height: 520, top: -220, right: -180, animationDelay: '2s' }}
-        />
-        <div
-          className="ambient-orb orb-iris"
-          style={{ width: 420, height: 420, bottom: -180, left: '30%', animationDelay: '4s' }}
-        />
-        <div className="grain-overlay absolute inset-0" />
-      </div>
 
       <header className="relative z-[180] border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
         <div className="grid items-center gap-2.5 lg:grid-cols-[1fr_auto_1fr]">
@@ -1265,6 +1285,15 @@ function DashboardShell({
                               {item.title}
                             </p>
                             <p className="mt-0.5 text-[12px] leading-snug text-white/65">{item.message}</p>
+                            {item.onAction && (
+                              <button
+                                type="button"
+                                onClick={() => { item.onAction?.(); setNotificationTrayOpen(false); }}
+                                className="mt-1.5 rounded-md border border-white/[0.12] bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/75 transition-colors hover:bg-white/[0.1] hover:text-white"
+                              >
+                                {item.actionLabel ?? 'View'}
+                              </button>
+                            )}
                           </div>
                           <button
                             type="button"
@@ -1342,6 +1371,22 @@ function DashboardShell({
         )}
       </header>
 
+      {/* System Health Summary Bar */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
+        {compactMetrics.map((metric) => (
+          <span
+            key={metric.id}
+            className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px]"
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
+            <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {metric.value}
+            </span>
+            <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
+          </span>
+        ))}
+      </div>
+
       {dashboardView === 'mission-control' ? (
         <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
           <MissionControlView
@@ -1361,12 +1406,41 @@ function DashboardShell({
         </div>
       ) : (
       <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
+        {/* Decision Urgency Banner */}
+        {decisionsVisible && data.decisions.length > 0 && expandedRightPanel !== 'decisions' && (
+          <button
+            type="button"
+            onClick={() => setExpandedRightPanel('decisions')}
+            className={cn(
+              'col-span-full flex items-center gap-2 rounded-xl border px-4 py-2.5 text-left transition-colors hover:bg-white/[0.03]',
+              data.decisions.length >= 20
+                ? 'border-red-400/30 bg-red-500/[0.08]'
+                : 'border-amber-300/30 bg-amber-400/[0.08]'
+            )}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={data.decisions.length >= 20 ? 'text-red-300' : 'text-amber-300'}>
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span className={`text-[12px] font-medium ${data.decisions.length >= 20 ? 'text-red-200' : 'text-amber-200'}`}>
+              {data.decisions.length} decision{data.decisions.length === 1 ? '' : 's'} waiting
+              {longestWaitMinutes > 0 ? ` · longest: ${longestWaitMinutes}m` : ''}
+            </span>
+            <span className={`ml-auto text-[11px] ${data.decisions.length >= 20 ? 'text-red-300/70' : 'text-amber-300/70'}`}>
+              Click to review →
+            </span>
+          </button>
+        )}
+
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
           <AgentsChatsPanel
             sessions={data.sessions}
             activity={data.activity}
             selectedSessionId={selectedSessionId}
             onSelectSession={handleSelectSession}
+            onAgentFilter={setAgentFilter}
+            agentFilter={agentFilter}
             onReconnect={handleReconnect}
           />
         </section>
@@ -1375,19 +1449,22 @@ function DashboardShell({
 	          <ActivityTimeline
 	            activity={data.activity}
 	            sessions={data.sessions.nodes}
+	            initiatives={initiatives}
 	            selectedRunIds={
 	              selectedActivitySession
 	                ? [selectedActivitySession.runId, selectedActivitySession.id]
 	                : []
 	            }
 	            selectedSessionLabel={selectedActivitySessionLabel}
+	            agentFilter={agentFilter}
 	            onClearSelection={clearActivitySessionFilter}
+	            onClearAgentFilter={() => setAgentFilter(null)}
 	            onFocusRunId={focusActivityRunId}
 	          />
 	        </section>
 
         <section className={`flex min-h-0 flex-col gap-2 lg:col-span-3 lg:gap-2 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
-          {/* Initiatives — collapsible accordion panel */}
+          {/* Initiatives — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
               <InitiativePanel
@@ -1416,7 +1493,7 @@ function DashboardShell({
             )}
           </div>
 
-          {/* Decisions — collapsible accordion panel */}
+          {/* Decisions — accordion panel */}
           <div className={`min-h-0 ${expandedRightPanel === 'decisions' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
             {expandedRightPanel === 'decisions' ? (
               decisionsVisible ? (
@@ -1469,26 +1546,64 @@ function DashboardShell({
             )}
           </div>
 
-          {/* Session Detail — always available on desktop to reduce context switching */}
-          <div className="hidden min-h-0 lg:flex lg:flex-1">
-            <SessionInspector
-              session={selectedSession}
-              activity={data.activity}
-              initiatives={initiatives}
-              onContinueHighestPriority={continueHighestPriority}
-              onDispatchSession={dispatchSession}
-              onPauseSession={pauseSession}
-              onResumeSession={resumeSession}
-              onCancelSession={cancelSession}
-              onCreateCheckpoint={createSessionCheckpoint}
-              onRollbackSession={rollbackSession}
-              onStartInitiative={startInitiative}
-              onStartWorkstream={startWorkstream}
-            />
-          </div>
         </section>
       </main>
       )}
+
+      {/* Session Inspector slide-over drawer */}
+      <AnimatePresence>
+        {sessionDrawerOpen && selectedSession && (
+          <>
+            <motion.div
+              key="session-drawer-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm hidden lg:block"
+              onClick={() => setSessionDrawerOpen(false)}
+            />
+            <motion.div
+              key="session-drawer-panel"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', stiffness: 400, damping: 35 }}
+              className="fixed inset-y-0 right-0 z-[210] hidden w-[480px] flex-col lg:flex"
+              style={{ backgroundColor: colors.cardBg }}
+            >
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
+                <h3 className="text-[13px] font-semibold text-white/70">Session Detail</h3>
+                <button
+                  type="button"
+                  onClick={() => setSessionDrawerOpen(false)}
+                  aria-label="Close session inspector"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <SessionInspector
+                  session={selectedSession}
+                  activity={data.activity}
+                  initiatives={initiatives}
+                  onContinueHighestPriority={continueHighestPriority}
+                  onDispatchSession={dispatchSession}
+                  onPauseSession={pauseSession}
+                  onResumeSession={resumeSession}
+                  onCancelSession={cancelSession}
+                  onCreateCheckpoint={createSessionCheckpoint}
+                  onRollbackSession={rollbackSession}
+                  onStartInitiative={startInitiative}
+                  onStartWorkstream={startWorkstream}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <MobileTabBar
         activeTab={mobileTab}
@@ -1500,46 +1615,50 @@ function DashboardShell({
         open={entityModal !== null}
         onClose={closeEntityModal}
         maxWidth="max-w-sm"
+        fitContent
       >
-        <div className="px-5 pt-5 pb-1">
-          <h3 className="text-[15px] font-semibold text-white">
-            {entityModal?.type === 'workstream' ? 'New Workstream' : 'New Initiative'}
-          </h3>
-          <p className="mt-1 text-[12px] text-white/45">
-            {entityModal?.type === 'workstream'
-              ? 'Create a new workstream under the selected initiative.'
-              : 'Create a new initiative to organize your work.'}
-          </p>
-        </div>
-        <div className="px-5 py-3">
-          <label className="mb-1.5 block text-[11px] uppercase tracking-[0.1em] text-white/45">
-            Name
-          </label>
-          <input
-            value={entityName}
-            onChange={(e) => setEntityName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') confirmCreateEntity();
-            }}
-            autoFocus
-            placeholder={entityModal?.type === 'workstream' ? 'e.g. User Onboarding Flow' : 'e.g. Q1 Product Launch'}
-            className="w-full rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
-          />
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
-          <button
-            onClick={closeEntityModal}
-            className="rounded-md px-3 py-1.5 text-[12px] text-white/60 transition-colors hover:text-white"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={confirmCreateEntity}
-            disabled={entityName.trim().length === 0 || entityCreating}
-            className="rounded-md border border-lime/25 bg-lime/10 px-4 py-1.5 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
-          >
-            {entityCreating ? 'Creating…' : 'Create'}
-          </button>
+        <div className="flex w-full flex-col">
+          <div className="px-5 pt-5 pb-1">
+            <h3 className="text-[15px] font-semibold text-white">
+              {entityModal?.type === 'workstream' ? 'New Workstream' : 'New Initiative'}
+            </h3>
+            <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+              {entityModal?.type === 'workstream'
+                ? 'Create a new workstream under the selected initiative.'
+                : 'Create a new initiative to organize your work.'}
+            </p>
+          </div>
+          <div className="px-5 py-4">
+            <label className="mb-1.5 block text-[11px] uppercase tracking-[0.1em] text-white/45">
+              Name
+            </label>
+            <input
+              value={entityName}
+              onChange={(e) => setEntityName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmCreateEntity();
+              }}
+              autoFocus
+              data-modal-autofocus="true"
+              placeholder={entityModal?.type === 'workstream' ? 'e.g. User Onboarding Flow' : 'e.g. Q1 Product Launch'}
+              className="w-full rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
+            <button
+              onClick={closeEntityModal}
+              className="rounded-md px-3 py-1.5 text-[12px] text-white/60 transition-colors hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmCreateEntity}
+              disabled={entityName.trim().length === 0 || entityCreating}
+              className="rounded-md border border-lime/25 bg-lime/10 px-4 py-1.5 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            >
+              {entityCreating ? 'Creating…' : 'Create'}
+            </button>
+          </div>
         </div>
       </Modal>
 

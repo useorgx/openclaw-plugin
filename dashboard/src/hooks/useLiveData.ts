@@ -996,13 +996,23 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
           return next;
         });
+      } else if (response.ok && ids.length > 0) {
+        // API returned 200 but no individual results — clear optimistically
+        // and schedule a refetch to reconcile.
+        setData((prev) => ({
+          ...prev,
+          decisions: prev.decisions.filter((d) => !ids.includes(d.id)),
+        }));
       }
+
+      // Force a refetch to reconcile server state after mutation
+      void fetchSnapshot();
 
       const updated = payload?.updated ?? resolvedIds.size;
       const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
       return { updated, failed };
     },
-    [enableDecisions, maxActivityItems, useMock]
+    [enableDecisions, fetchSnapshot, maxActivityItems, useMock]
   );
 
   const approveDecision = useCallback(
@@ -1013,9 +1023,17 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   );
 
   const approveAllDecisions = useCallback(async () => {
-    const allDecisionIds = data.decisions.map((decision) => decision.id);
+    // Read decisions from latest state to avoid stale-closure issues
+    let allDecisionIds: string[] = [];
+    setData((prev) => {
+      allDecisionIds = prev.decisions.map((decision) => decision.id);
+      return prev;
+    });
+    if (allDecisionIds.length === 0) {
+      return { updated: 0, failed: 0 };
+    }
     return applyDecisionMutation(allDecisionIds, 'approve');
-  }, [applyDecisionMutation, data.decisions]);
+  }, [applyDecisionMutation]);
 
   useEffect(() => {
     if (enableDecisions) return;

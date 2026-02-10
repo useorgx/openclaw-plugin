@@ -107,7 +107,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                         initiative,
                       })
                     }
-                    className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 transition-all hover:bg-white/[0.06] hover-lift"
+                    className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 transition-colors hover:bg-white/[0.06]"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[12px] text-white/90 break-words">
@@ -139,7 +139,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                   onClick={() =>
                     openModal({ type: 'milestone', entity: ms, initiative })
                   }
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-all hover:bg-white/[0.06] hover-lift"
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center gap-2">
                       <span className="text-[12px] text-white/90 break-words">

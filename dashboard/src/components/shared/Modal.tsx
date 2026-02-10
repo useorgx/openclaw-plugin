@@ -8,6 +8,8 @@ interface ModalProps {
   onClose: () => void;
   children: React.ReactNode;
   maxWidth?: string;
+  /** When true, modal height fits its content instead of stretching to 88vh. Use for small form dialogs. */
+  fitContent?: boolean;
 }
 
 export function Modal({
@@ -15,6 +17,7 @@ export function Modal({
   onClose,
   children,
   maxWidth = 'max-w-2xl',
+  fitContent = false,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -107,7 +110,11 @@ export function Modal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-            className={`glass-panel soft-shadow relative flex h-[100dvh] max-h-[100dvh] w-full ${maxWidth} overflow-hidden rounded-none sm:h-[88vh] sm:max-h-[88vh] sm:rounded-2xl`}
+            className={`glass-panel soft-shadow relative flex w-full ${maxWidth} overflow-hidden ${
+              fitContent
+                ? 'h-auto max-h-[100dvh] rounded-none sm:max-h-[88vh] sm:rounded-2xl'
+                : 'h-[100dvh] max-h-[100dvh] rounded-none sm:h-[88vh] sm:max-h-[88vh] sm:rounded-2xl'
+            }`}
             style={{ backgroundColor: colors.cardBgElevated, borderColor: colors.cardBorderStrong }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"

@@ -13,7 +13,7 @@ export function TaskChip({ task, initiative }: TaskChipProps) {
   return (
     <button
       onClick={() => openModal({ type: 'task', entity: task, initiative })}
-      className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-left transition-all hover:bg-white/[0.06] hover-lift min-w-0"
+      className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.06] min-w-0"
     >
       <span
         className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
