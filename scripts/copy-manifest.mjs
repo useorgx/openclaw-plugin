@@ -19,6 +19,19 @@ if (!existsSync(distDir)) {
   mkdirSync(distDir, { recursive: true });
 }
 
+// Copy MCP Apps single-file widgets (served via tool results + ui:// resource URIs).
+// These must live under dist/ so they're included in the published package.
+const mcpAppsSource = resolve(rootDir, 'templates', 'mcp-apps', 'orgx-live.html');
+const mcpAppsDir = resolve(distDir, 'mcp-apps');
+const mcpAppsTarget = resolve(mcpAppsDir, 'orgx-live.html');
+
+if (existsSync(mcpAppsSource)) {
+  if (!existsSync(mcpAppsDir)) {
+    mkdirSync(mcpAppsDir, { recursive: true });
+  }
+  writeFileSync(mcpAppsTarget, readFileSync(mcpAppsSource, 'utf8'), 'utf8');
+}
+
 const raw = readFileSync(source, 'utf8');
 const manifest = JSON.parse(raw);
 

@@ -81,6 +81,7 @@ export interface PluginAPI {
       name: string;
       description: string;
       parameters: Record<string, unknown>;
+      _meta?: Record<string, unknown>;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       execute: (callId: string, params?: any) => Promise<ToolResult>;
     },
@@ -94,8 +95,22 @@ export interface PluginAPI {
   registerHttpHandler: (handler: unknown) => void;
 }
 
+export type ToolContent =
+  | { type: "text"; text: string }
+  | {
+      type: "resource";
+      resource: {
+        uri: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+      };
+    };
+
 export interface ToolResult {
-  content: Array<{ type: "text"; text: string }>;
+  content: ToolContent[];
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
 }
 
 // =============================================================================
@@ -129,6 +144,10 @@ interface ResolvedApiKey {
 
 const DEFAULT_BASE_URL = "https://www.useorgx.com";
 const DEFAULT_DOCS_URL = "https://orgx.mintlify.site/guides/openclaw-plugin-setup";
+
+const MCP_APP_HTML_MIME_TYPE = "text/html;profile=mcp-app";
+const ORGX_LIVE_MCP_APP_URI = "ui://orgx/live";
+const ORGX_LIVE_MCP_APP_DIST_PATH = "./mcp-apps/orgx-live.html";
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
@@ -282,6 +301,15 @@ function resolvePluginVersion(): string {
       : "dev";
   } catch {
     return "dev";
+  }
+}
+
+function tryReadBundledTextAsset(relativePath: string): string | null {
+  try {
+    const assetPath = fileURLToPath(new URL(relativePath, import.meta.url));
+    return readFileSync(assetPath, "utf8");
+  } catch {
+    return null;
   }
 }
 
@@ -1676,6 +1704,95 @@ export default function register(api: PluginAPI): void {
           );
         }
         return text(formatSnapshot(cachedSnapshot));
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_status_json ---
+  api.registerTool(
+    {
+      name: "orgx_status_json",
+      description:
+        "Get current OrgX org status as JSON (for MCP Apps / programmatic consumers).",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      async execute(_callId: string) {
+        if (
+          !cachedSnapshot ||
+          Date.now() - lastSnapshotAt > config.syncIntervalMs
+        ) {
+          await doSync();
+        }
+        if (!cachedSnapshot) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: "Failed to fetch OrgX status. Check API key and connectivity.",
+              },
+            ],
+          };
+        }
+        return text(
+          JSON.stringify(
+            {
+              baseUrl: config.baseUrl,
+              docsUrl: config.docsUrl,
+              fetchedAt: new Date().toISOString(),
+              snapshot: cachedSnapshot,
+            },
+            null,
+            2
+          )
+        );
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_live_app ---
+  api.registerTool(
+    {
+      name: "orgx_live_app",
+      description:
+        "Open the OrgX Live MCP App (interactive widget for OrgX status).",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      _meta: {
+        ui: { resourceUri: ORGX_LIVE_MCP_APP_URI },
+        "ui/resourceUri": ORGX_LIVE_MCP_APP_URI,
+      },
+      async execute(_callId: string) {
+        const template = tryReadBundledTextAsset(ORGX_LIVE_MCP_APP_DIST_PATH);
+        const html =
+          template?.replaceAll("__ORGX_PLUGIN_VERSION__", config.pluginVersion) ??
+          `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OrgX Live</title></head><body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 16px;"><h1 style="margin:0 0 8px 0;">OrgX Live</h1><p>Missing bundled MCP App HTML. Run <code>npm run build:core</code> (or reinstall the plugin).</p></body></html>`;
+
+        return {
+          content: [
+            {
+              type: "resource",
+              resource: {
+                uri: ORGX_LIVE_MCP_APP_URI,
+                mimeType: MCP_APP_HTML_MIME_TYPE,
+                text: html,
+              },
+            },
+            {
+              type: "text",
+              text:
+                "If your client cannot render MCP Apps, use the OrgX Live dashboard in OpenClaw at /orgx/live.",
+            },
+          ],
+        };
       },
     },
     { optional: true }
