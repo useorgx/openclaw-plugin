@@ -491,10 +491,9 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`rounded-2xl overflow-hidden border border-[--orgx-border] transition-colors ${
+      className={`surface-tier-1 overflow-hidden rounded-2xl transition-colors ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
       }`}
-      style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04)' }}
     >
       <div
         role="button"
@@ -507,7 +506,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             toggleExpanded(initiative.id);
           }
         }}
-        className="group flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.04]"
+        className="group flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.035]"
       >
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
@@ -643,7 +642,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                     hidden: {},
                     show: { transition: { staggerChildren: 0.08 } },
                   }}
-                  className="space-y-3"
+                  className="space-y-3.5"
                 >
                   <EditModeToolbar
                     editMode={editMode}
@@ -721,7 +720,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                   )}
 
                   {focusedWorkstreamId && (
-                    <div className="flex items-center justify-between rounded-lg bg-[#BFFF00]/[0.08] px-3 py-1.5 text-[11px] text-[#D8FFA1]">
+                    <div className="surface-hero flex items-center justify-between rounded-lg px-3 py-2 text-[11px] text-[#D8FFA1]">
                       <span>
                         Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
                       </span>

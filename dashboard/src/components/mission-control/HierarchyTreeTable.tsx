@@ -49,6 +49,22 @@ function toLocalInputValue(iso: string | null): string {
 
 const STATUS_OPTIONS = ['not_started', 'planned', 'todo', 'in_progress', 'active', 'blocked', 'done'];
 
+function statusTone(status: string): 'planned' | 'active' | 'blocked' | 'done' {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'blocked') return 'blocked';
+  if (normalized === 'done' || normalized === 'completed') return 'done';
+  if (normalized === 'in_progress' || normalized === 'active' || normalized === 'running' || normalized === 'queued') return 'active';
+  return 'planned';
+}
+
+function normalizeStatusKey(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'completed') return 'done';
+  if (normalized === 'running' || normalized === 'queued') return 'active';
+  if (normalized === 'pending' || normalized === 'backlog') return 'todo';
+  return normalized;
+}
+
 function ancestorIds(nodeId: string, nodes: MissionControlNode[]): Set<string> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const ancestors = new Set<string>();
@@ -125,7 +141,7 @@ export function HierarchyTreeTable({
     for (const node of nodes) {
       const matchesQuery = !hasQuery || node.title.toLowerCase().includes(query) ||
         node.assignedAgents.some((a) => a.name.toLowerCase().includes(query));
-      const matchesStatus = !hasStatusFilter || activeStatusFilters.has(node.status.toLowerCase());
+      const matchesStatus = !hasStatusFilter || activeStatusFilters.has(normalizeStatusKey(node.status));
 
       if (matchesQuery && matchesStatus) {
         directMatches.add(node.id);
@@ -347,8 +363,8 @@ export function HierarchyTreeTable({
   };
 
   return (
-    <section className="rounded-sm bg-white/[0.02] p-3">
-      <div className="mb-2 text-[13px] font-semibold tracking-[-0.01em] text-white/70">
+    <section className="surface-tier-1 rounded-xl p-3">
+      <div className="mb-2 text-[13px] font-semibold tracking-[-0.01em] text-white/82">
         Hierarchy
       </div>
 
@@ -370,11 +386,8 @@ export function HierarchyTreeTable({
               key={status}
               type="button"
               onClick={() => toggleStatusFilter(status)}
-              className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors ${
-                isActive
-                  ? 'bg-[#BFFF00]/10 text-[#D8FFA1] border border-[#BFFF00]/25'
-                  : 'bg-white/[0.03] text-white/50 border border-transparent hover:bg-white/[0.06]'
-              }`}
+              data-state={isActive ? 'active' : 'idle'}
+              className="control-pill h-7 rounded-full px-2.5 text-[10px] font-semibold"
             >
               {formatEntityStatus(status)}
             </button>
@@ -391,10 +404,16 @@ export function HierarchyTreeTable({
         )}
       </div>
 
+      {editMode && (
+        <div className="mb-2 text-[10px] text-white/45">
+          Edit mode: select a row to edit its fields inline.
+        </div>
+      )}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1250px] border-separate border-spacing-y-1">
+        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
+            <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/42">
               <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('title')}>
                 Item <SortChevron field="title" />
               </th>
@@ -424,6 +443,7 @@ export function HierarchyTreeTable({
                 .slice(0, 3)
                 .join(', ');
               const completion = progressByNodeId.get(node.id);
+              const editableRow = editMode && selected;
 
               return (
                 <tr
@@ -436,10 +456,10 @@ export function HierarchyTreeTable({
                   }}
                   className={`group/row cursor-pointer rounded-lg border transition-colors ${
                     selected
-                      ? 'bg-[#BFFF00]/10'
+                      ? 'border-[#BFFF00]/[0.22] bg-[#BFFF00]/[0.08]'
                       : highlighted
-                        ? 'bg-[#14B8A6]/10'
-                        : 'bg-white/[0.02] hover:bg-white/[0.07]'
+                        ? 'border-[#14B8A6]/[0.2] bg-[#14B8A6]/[0.08]'
+                        : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.05]'
                   }`}
                 >
                   {/* Item */}
@@ -474,7 +494,7 @@ export function HierarchyTreeTable({
                           onOpenNode(node);
                         }}
                         aria-label={`Open ${node.type} details: ${node.title}`}
-                        className="max-w-[320px] truncate rounded text-[12px] text-white/85 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                        className="max-w-[320px] truncate rounded text-[12px] text-white/88 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                       >
                         {node.title}
                       </button>
@@ -516,7 +536,7 @@ export function HierarchyTreeTable({
 
                   {/* Assigned (moved to position 2) */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editableRow ? (
                       <input
                         type="text"
                         defaultValue={assignedNames}
@@ -533,7 +553,7 @@ export function HierarchyTreeTable({
                             assignment_source: 'manual',
                           });
                         }}
-                        className="w-[180px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[190px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
                       <div className="flex items-center gap-1.5">
@@ -560,23 +580,25 @@ export function HierarchyTreeTable({
 
                   {/* Status */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editableRow ? (
                       <select
-                        defaultValue={node.status}
+                        defaultValue={normalizeStatusKey(node.status)}
                         onClick={(event) => event.stopPropagation()}
                         onChange={(event) => {
                           void onUpdateNode(node, { status: event.target.value });
                         }}
-                        className="rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       >
                         {STATUS_OPTIONS.map((status) => (
                           <option key={status} value={status}>
-                            {status}
+                            {formatEntityStatus(status)}
                           </option>
                         ))}
                       </select>
                     ) : (
-                      <span>{formatEntityStatus(node.status)}</span>
+                      <span className="status-pill" data-tone={statusTone(node.status)}>
+                        {formatEntityStatus(node.status)}
+                      </span>
                     )}
                   </td>
 
@@ -604,7 +626,7 @@ export function HierarchyTreeTable({
 
                   {/* Priority */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editableRow ? (
                       <input
                         type="number"
                         min={1}
@@ -617,7 +639,7 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { priority_num: next });
                           }
                         }}
-                        className="w-[66px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[72px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
                       <span>P{node.priorityNum}</span>
@@ -626,7 +648,7 @@ export function HierarchyTreeTable({
 
                   {/* ETA */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editableRow ? (
                       <input
                         type="datetime-local"
                         defaultValue={toLocalInputValue(node.etaEndAt)}
@@ -635,7 +657,7 @@ export function HierarchyTreeTable({
                           const value = event.currentTarget.value;
                           void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
                         }}
-                        className="w-[170px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[176px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
                       <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
@@ -644,7 +666,7 @@ export function HierarchyTreeTable({
 
                   {/* Duration */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode && node.type !== 'task' ? (
+                    {editableRow && node.type !== 'task' ? (
                       <input
                         type="number"
                         min={0}
@@ -657,7 +679,7 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { expected_duration_hours: value });
                           }
                         }}
-                        className="w-[82px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[82px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
                       <span>{node.expectedDurationHours}</span>
@@ -666,7 +688,7 @@ export function HierarchyTreeTable({
 
                   {/* Budget */}
                   <td className="px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode && node.type !== 'task' ? (
+                    {editableRow && node.type !== 'task' ? (
                       <input
                         type="number"
                         min={0}
@@ -679,19 +701,19 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { expected_budget_usd: value });
                           }
                         }}
-                        className="w-[88px] rounded border border-white/[0.14] bg-white/[0.05] px-1.5 py-1 text-[10px] text-white/80"
+                        className="w-[92px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
                       <span>
                         ${node.expectedBudgetUsd.toLocaleString()}
-                        {editMode && node.type === 'task' ? ' (from task spec)' : ''}
+                        {editableRow && node.type === 'task' ? ' (from task spec)' : ''}
                       </span>
                     )}
                   </td>
 
                   {/* Dependencies */}
                   <td className="rounded-r-lg px-2 py-1.5 text-[11px] text-white/75">
-                    {editMode ? (
+                    {editableRow ? (
                       <div onClick={(event) => event.stopPropagation()}>
                         <DependencyEditorPopover
                           dependencies={node.dependencyIds}

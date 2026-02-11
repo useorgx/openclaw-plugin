@@ -166,21 +166,21 @@ export function MissionControlFilters({
   const totalActiveCount = activeFilterCount + (hasNonDefaultViewOptions ? 1 : 0);
 
   return (
-    <div ref={containerRef} className="relative flex items-center gap-1.5">
+    <div ref={containerRef} className="relative flex items-center gap-2">
       <button
         type="button"
         onClick={() => setOpen((previous) => !previous)}
-        className={`flex items-center gap-1.5 h-9 rounded-lg px-2.5 text-[11px] transition-colors ${
-          open || totalActiveCount > 0
-            ? 'bg-[#BFFF00]/10 text-[#D8FFA1]'
-            : 'text-white/50 hover:text-white/75 hover:bg-white/[0.04]'
-        }`}
+        data-state={open || totalActiveCount > 0 ? 'active' : 'idle'}
+        className="control-pill flex items-center gap-1.5 px-2.5 text-[11px] font-semibold"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
         </svg>
+        <span>Filters</span>
         {totalActiveCount > 0 && (
-          <span className="text-[10px]">{totalActiveCount}</span>
+          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-[10px] leading-4">
+            {totalActiveCount}
+          </span>
         )}
       </button>
 
@@ -206,8 +206,8 @@ export function MissionControlFilters({
             initial={{ opacity: 0, y: -4, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-12 z-30 w-[340px] max-w-[92vw] rounded-xl border border-white/[0.12] bg-[#090d14]/95 p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+            className="surface-tier-2 absolute right-0 top-12 z-30 w-[340px] max-w-[92vw] rounded-xl p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
             <div className="grid grid-cols-2 gap-2">
               <label className="flex flex-col gap-1">

@@ -48,7 +48,7 @@ export function CollapsibleSection({
       <button
         type="button"
         onClick={toggle}
-        className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left transition-colors hover:bg-white/[0.03]"
+        className="flex w-full items-center gap-2 rounded-lg px-1.5 py-2 text-left transition-colors hover:bg-white/[0.03]"
       >
         <svg
           width="10"
@@ -61,7 +61,7 @@ export function CollapsibleSection({
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/40">
+        <span className="text-[11px] font-semibold tracking-[0.02em] text-white/62">
           {title}
         </span>
       </button>

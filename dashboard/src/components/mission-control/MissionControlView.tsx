@@ -412,6 +412,13 @@ function MissionControlInner({
   }, [initialInitiativeId, isLoading, initiatives.length, expandInitiative, groupBy, groups]);
 
   const allExpanded = sortedInitiatives.length > 0 && expandedInitiatives.size >= sortedInitiatives.length;
+  const nextActionInitiative = useMemo(
+    () =>
+      sortedInitiatives.find((initiative) => initiative.status !== 'completed') ??
+      sortedInitiatives[0] ??
+      null,
+    [sortedInitiatives]
+  );
 
   const showConnectivityBanner = Boolean(
     !isLoading &&
@@ -498,8 +505,8 @@ function MissionControlInner({
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
-                <div className="min-w-[220px] flex-1">
+              <div className="toolbar-shell flex flex-wrap items-center gap-2">
+                <div className="min-w-[240px] flex-1">
                   <SearchInput
                     value={searchQuery}
                     onChange={setSearchQuery}
@@ -520,11 +527,9 @@ function MissionControlInner({
                   }}
                   disabled={autopilot.isStarting || autopilot.isStopping}
                   title={autopilot.isRunning ? 'Stop Autopilot' : 'Start Autopilot'}
-                  className={`flex items-center gap-1.5 h-9 rounded-lg px-3 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
-                    autopilot.isRunning
-                      ? 'bg-[#0AD4C4]/15 text-[#0AD4C4] border border-[#0AD4C4]/30 hover:bg-[#0AD4C4]/25'
-                      : 'bg-white/[0.04] text-white/50 border border-white/[0.08] hover:text-white/70 hover:bg-white/[0.08]'
-                  }`}
+                  data-state={autopilot.isRunning ? 'active' : 'idle'}
+                  data-tone="teal"
+                  className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold disabled:opacity-40"
                 >
                   <svg
                     width="14"
@@ -556,7 +561,7 @@ function MissionControlInner({
                       }
                     }}
                     title={allExpanded ? 'Collapse all' : 'Expand all'}
-                    className="flex items-center justify-center w-9 h-9 rounded-lg text-white/40 transition-colors hover:text-white/70 hover:bg-white/[0.04]"
+                    className="control-pill flex h-9 w-9 items-center justify-center text-white/55"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       {allExpanded ? (
@@ -571,6 +576,40 @@ function MissionControlInner({
             </div>
 
             {/* Content */}
+            {!isLoading && nextActionInitiative && (
+              <div className="surface-hero mb-4 rounded-2xl p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-[220px]">
+                    <p className="text-[10px] uppercase tracking-[0.11em] text-white/55">Next action</p>
+                    <p className="mt-1 text-[14px] font-semibold text-white">
+                      {nextActionInitiative.name}
+                    </p>
+                    <p className="mt-1 text-[12px] text-white/65">
+                      {nextActionInitiative.status === 'blocked'
+                        ? 'Blocked work needs a decision. Open this initiative and clear dependencies first.'
+                        : nextActionInitiative.status === 'paused'
+                          ? 'Resume this initiative to restart queued workstreams and task execution.'
+                          : 'Open this initiative and work the top items in Next Up.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      expandInitiative(nextActionInitiative.id);
+                      requestAnimationFrame(() => {
+                        const el = document.getElementById(`initiative-${nextActionInitiative.id}`);
+                        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      });
+                    }}
+                    className="control-pill px-3 text-[11px] font-semibold"
+                    data-state="active"
+                  >
+                    Open initiative
+                  </button>
+                </div>
+              </div>
+            )}
+
             {isLoading ? (
               <div className="space-y-3 pb-8">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -634,11 +673,11 @@ function MissionControlInner({
                         aria-expanded={isGroupExpanded}
                         aria-controls={panelId}
                         onClick={() => toggleGroupExpanded(disclosureId)}
-                        className="mb-2 flex w-full items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]"
+                        className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.015] px-3 py-2 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
                       >
                         <span
                           aria-hidden
-                          className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-white/[0.1] bg-white/[0.03] text-[11px] text-white/55 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`}
+                          className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.04] text-[11px] text-white/55 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`}
                         >
                           ▶
                         </span>

@@ -111,18 +111,18 @@ export function DependencyMapPanel({
   if (baseVisibleNodes.length === 0) return null;
 
   return (
-    <section className="space-y-2 rounded-xl bg-white/[0.02] p-3.5">
+    <section className="surface-tier-1 space-y-2.5 rounded-xl p-3.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h4 className="text-[13px] font-semibold tracking-[-0.01em] text-white/70">
+          <h4 className="text-[13px] font-semibold tracking-[-0.01em] text-white/82">
             Dependency map
           </h4>
-          <span className="text-[10px] text-white/30">
+          <span className="text-[10px] text-white/45">
             {visibleNodes.length} nodes &middot; {visibleEdges.length} links
           </span>
         </div>
         {focusedWorkstreamId && (
-          <span className="text-[10px] rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-2 py-0.5 text-[#D8FFA1]">
+          <span className="status-pill" data-tone="active">
             Focused workstream
           </span>
         )}
@@ -133,18 +133,15 @@ export function DependencyMapPanel({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Filter nodes..."
-          className="h-9 flex-1 min-w-[200px] rounded-lg border border-white/[0.12] bg-black/30 px-3 text-[11px] text-white/80 placeholder:text-white/25 focus:border-[#BFFF00]/40 focus:outline-none"
+          className="h-9 flex-1 min-w-[200px] rounded-lg border border-white/[0.12] bg-black/30 px-3 text-[11px] text-white/80 placeholder:text-white/25 transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
         />
         {selectedNodeId && (
           <button
             type="button"
             onClick={() => setRelatedOnly((prev) => !prev)}
             aria-pressed={relatedOnly}
-            className={`h-9 rounded-full border px-3 text-[11px] font-semibold transition-colors ${
-              relatedOnly
-                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/15 text-[#D8FFA1]'
-                : 'border-white/[0.12] bg-white/[0.03] text-white/70 hover:bg-white/[0.06]'
-            }`}
+            data-state={relatedOnly ? 'active' : 'idle'}
+            className="control-pill px-3 text-[11px] font-semibold"
             title="Show only the selected node and its direct neighbors"
           >
             Related only
@@ -157,7 +154,7 @@ export function DependencyMapPanel({
               setQuery('');
               setRelatedOnly(false);
             }}
-            className="h-9 rounded-full border border-white/[0.12] bg-white/[0.03] px-3 text-[11px] text-white/70 transition-colors hover:bg-white/[0.06]"
+            className="control-pill px-3 text-[11px]"
           >
             Reset
           </button>
@@ -165,14 +162,14 @@ export function DependencyMapPanel({
       </div>
 
       {visibleNodes.length === 0 ? (
-        <div className="rounded-lg bg-white/[0.02] px-3 py-3 text-[11px] text-white/40">
-          No nodes match the current filter.
+        <div className="rounded-lg border border-white/[0.1] bg-black/20 px-3 py-3 text-[11px] text-white/48">
+          No nodes match this view. Clear filters or select a different node to see connected work.
         </div>
       ) : (
         <div className={`grid gap-2 ${Object.values(grouped).filter(g => g.length > 0).length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
           {(Object.keys(grouped) as Array<keyof typeof grouped>).filter((groupKey) => grouped[groupKey].length > 0).map((groupKey) => (
-            <div key={groupKey} className="rounded-lg bg-white/[0.02] p-2">
-              <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/35">
+            <div key={groupKey} className="rounded-lg border border-white/[0.08] bg-black/20 p-2.5">
+              <div className="mb-1.5 text-[10px] uppercase tracking-[0.09em] text-white/45">
                 {groupLabel(groupKey)} ({grouped[groupKey].length})
               </div>
               <div className="space-y-1">
@@ -188,10 +185,10 @@ export function DependencyMapPanel({
                       title={node.title}
                       className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
                         selected
-                          ? 'border-[#BFFF00]/35 bg-[#BFFF00]/10'
+                          ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12'
                           : related
-                            ? 'border-[#14B8A6]/35 bg-[#14B8A6]/10'
-                            : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08]'
+                            ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12'
+                            : 'border-white/[0.12] bg-white/[0.03] hover:bg-white/[0.08]'
                       }`}
                     >
                       <LevelIcon type={node.type} />

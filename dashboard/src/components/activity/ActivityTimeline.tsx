@@ -59,21 +59,6 @@ const filterLabels: Record<ActivityFilterId, string> = {
   decisions: 'Decisions',
 };
 
-const typeColor: Record<LiveActivityType, string> = {
-  run_started: colors.teal,
-  run_completed: colors.lime,
-  run_failed: colors.red,
-  artifact_created: colors.cyan,
-  decision_requested: colors.amber,
-  decision_resolved: colors.lime,
-  handoff_requested: colors.iris,
-  handoff_claimed: colors.teal,
-  handoff_fulfilled: colors.lime,
-  blocker_created: colors.red,
-  milestone_completed: colors.cyan,
-  delegation: colors.iris,
-};
-
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -202,6 +187,28 @@ function bucketLabel(bucket: ActivityBucket): string {
 function bucketColor(bucket: ActivityBucket): string {
   if (bucket === 'artifact') return colors.cyan;
   if (bucket === 'decision') return colors.amber;
+  return colors.teal;
+}
+
+type ActivitySeverity = 'critical' | 'positive' | 'warning' | 'neutral';
+
+function activitySeverity(item: LiveActivityItem): ActivitySeverity {
+  if (item.type === 'run_failed' || item.type === 'blocker_created') return 'critical';
+  if (item.type === 'decision_requested') return 'warning';
+  if (
+    item.type === 'run_completed' ||
+    item.type === 'milestone_completed' ||
+    item.type === 'decision_resolved'
+  ) {
+    return 'positive';
+  }
+  return 'neutral';
+}
+
+function severityColor(severity: ActivitySeverity): string {
+  if (severity === 'critical') return colors.red;
+  if (severity === 'warning') return colors.amber;
+  if (severity === 'positive') return colors.lime;
   return colors.teal;
 }
 
@@ -827,7 +834,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   const renderItem = (decorated: DecoratedActivityItem, index: number) => {
     const item = decorated.item;
-    const color = typeColor[item.type] ?? colors.iris;
+    const severity = activitySeverity(item);
+    const railColor = severityColor(severity);
     const isRecent = sortOrder === 'newest' && index < 2;
     const bucket = decorated.bucket;
     const runId = decorated.runId;
@@ -840,14 +848,93 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
     const kindColor = bucketColor(bucket);
     const kindLabel = bucketLabel(bucket);
-    const metadataJson = metadataToJson(item.metadata as Record<string, unknown> | undefined);
+    const primaryTag = severity === 'critical'
+      ? 'Error'
+      : severity === 'warning'
+        ? 'Needs review'
+        : severity === 'positive'
+          ? 'Completed'
+          : 'Update';
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
       hour: 'numeric',
       minute: '2-digit',
     });
 
     const commonClassName =
-      "group w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+      "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+
+    const content = (
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5">
+          <AgentAvatar
+            name={item.agentName ?? 'OrgX'}
+            hint={`${item.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
+            size="xs"
+          />
+        </div>
+        <div className="relative min-w-0 flex-1 pl-3">
+          <span
+            className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full', isRecent && 'pulse-soft')}
+            style={{
+              backgroundColor: railColor,
+              boxShadow: `0 0 14px ${railColor}66`,
+            }}
+          />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/92">
+                {displayTitle || humanizeText(item.title || labelForType(item.type))}
+              </p>
+              <p className="mt-0.5 text-[11px] text-white/48">
+                {item.agentName ?? 'OrgX'}
+                {sessionStatus ? ` · ${humanizeText(sessionStatus)}` : ''}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <span className="text-[10px] uppercase tracking-[0.09em] text-white/42">
+                {kindLabel}
+              </span>
+              <span className="text-[11px] text-white/55">{timeLabel}</span>
+            </div>
+          </div>
+
+          {(displaySummary || displayDesc) && (
+            <div className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-white/62">
+              <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+            <span
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 uppercase tracking-[0.08em]"
+              style={{
+                borderColor: `${railColor}55`,
+                backgroundColor: `${railColor}1A`,
+                color: railColor,
+              }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
+              {primaryTag}
+            </span>
+            <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-white/60">
+              {runLabel}
+            </span>
+            <span
+              className="rounded-full border px-2 py-0.5 text-white/62"
+              style={{ borderColor: `${kindColor}44`, color: kindColor }}
+            >
+              {humanizeText(labelForType(item.type))}
+            </span>
+            <span className="text-white/55">{formatRelativeTime(item.timestamp)}</span>
+            {initiativeName && (
+              <span className="truncate text-white/42" title={initiativeName}>
+                · {initiativeName}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
 
     if (!enableItemMotion) {
       return (
@@ -864,77 +951,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           )}
           aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
         >
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex flex-col items-center gap-1.5">
-              <AgentAvatar
-                name={item.agentName ?? 'OrgX'}
-                hint={`${item.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
-                size="xs"
-              />
-              <span
-                className={cn('h-2.5 w-2.5 rounded-full', isRecent && 'pulse-soft')}
-                style={{
-                  backgroundColor: color,
-                  boxShadow: `0 0 16px ${color}77`,
-                }}
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/90">
-                    {displayTitle || humanizeText(item.title || labelForType(item.type))}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-white/45">
-                    {item.agentName ?? 'OrgX'}
-                    {sessionStatus ? ` · ${sessionStatus}` : ''}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-1 text-right">
-                  <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
-                    {labelForType(item.type)}
-                  </span>
-                  <span className="text-[11px] text-white/55">{timeLabel}</span>
-                </div>
-              </div>
-
-              {(displaySummary || displayDesc) && (
-                <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-white/55">
-                  <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
-                </div>
-              )}
-
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span
-                  className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                  style={{
-                    borderColor: `${kindColor}66`,
-                    color: kindColor,
-                  }}
-                >
-                  {kindLabel}
-                </span>
-                <span className="rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/55">
-                  {runLabel}
-                </span>
-                {sessionStatus && (
-                  <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
-                    {sessionStatus}
-                  </span>
-                )}
-                <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
-                {initiativeName && (
-                  <span
-                    className="rounded-full border border-white/[0.08] bg-white/[0.02] px-1.5 py-0.5 text-white/35 truncate max-w-[120px]"
-                    title={initiativeName}
-                  >
-                    {initiativeName}
-                  </span>
-                )}
-                {metadataJson && <span className="text-white/35">meta</span>}
-              </div>
-            </div>
-          </div>
+          {content}
         </button>
       );
     }
@@ -957,79 +974,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         className={commonClassName}
         aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
       >
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex flex-col items-center gap-1.5">
-            <AgentAvatar
-              name={item.agentName ?? 'OrgX'}
-              hint={`${item.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
-              size="xs"
-            />
-            <span
-              className={cn('h-2.5 w-2.5 rounded-full', isRecent && 'pulse-soft')}
-              style={{
-                backgroundColor: color,
-                boxShadow: `0 0 16px ${color}77`,
-              }}
-            />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/90">
-                  {displayTitle || humanizeText(item.title || labelForType(item.type))}
-                </p>
-                <p className="mt-0.5 text-[11px] text-white/45">
-                  {item.agentName ?? 'OrgX'}
-                  {sessionStatus ? ` · ${sessionStatus}` : ''}
-                </p>
-              </div>
-              <div className="flex flex-col items-end gap-1 text-right">
-                <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
-                  {labelForType(item.type)}
-                </span>
-                <span className="text-[11px] text-white/55">{timeLabel}</span>
-              </div>
-            </div>
-
-            {(displaySummary || displayDesc) && (
-              <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-white/55">
-                <MarkdownText
-                  mode="inline"
-                  text={displaySummary ?? displayDesc ?? ''}
-                />
-              </div>
-            )}
-
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-              <span
-                className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                style={{
-                  borderColor: `${kindColor}66`,
-                  color: kindColor,
-                }}
-              >
-                {kindLabel}
-              </span>
-              <span className="rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/55">
-                {runLabel}
-              </span>
-              {sessionStatus && (
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
-                  {sessionStatus}
-                </span>
-              )}
-              <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
-              {initiativeName && (
-                <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-1.5 py-0.5 text-white/35 truncate max-w-[120px]" title={initiativeName}>
-                  {initiativeName}
-                </span>
-              )}
-              {metadataJson && (
-                <span className="text-white/35">meta</span>
-              )}
-            </div>
-          </div>
-        </div>
+        {content}
       </motion.button>
     );
   };
@@ -1063,12 +1008,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         </div>
       )}
       <div className="border-b border-white/[0.06] px-4 py-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="toolbar-shell flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="text-[14px] font-semibold text-white">Activity</h2>
-            <span className="chip">{filtered.length}</span>
+            <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75">
+              {filtered.length}
+            </span>
             {truncatedCount > 0 && (
-              <span className="chip text-white/60">+{truncatedCount} hidden</span>
+              <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
+                +{truncatedCount} hidden
+              </span>
             )}
             <span
               className={cn('h-1.5 w-1.5 rounded-full', isLive && 'pulse-soft')}
@@ -1116,7 +1065,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             <button
               type="button"
               onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="control-pill px-3 text-[11px] font-medium"
               aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
             >
               {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
@@ -1124,7 +1073,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             <button
               type="button"
               onClick={() => setCollapsed((prev) => !prev)}
-              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              data-state={collapsed ? 'active' : 'idle'}
+              className="control-pill px-3 text-[11px] font-medium"
               aria-pressed={collapsed}
             >
               {collapsed ? 'Expand' : 'Compact'}
@@ -1145,8 +1095,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   else if (bucket.id === 'decisions') setActiveFilter('decisions');
                   else setActiveFilter('all');
                 }}
-                className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.06]"
-              >
+                  className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
+                >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: bucket.color }} />
                 <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{bucket.count}</span>
                 <span className="text-white/45">{bucket.label}</span>
@@ -1173,13 +1123,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search activity..."
-              className="w-full rounded-lg border border-white/[0.1] bg-black/30 py-1.5 pl-9 pr-2 text-[12px] text-white/80 placeholder:text-white/35 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+              className="w-full rounded-lg border border-white/[0.12] bg-black/25 py-2 pl-9 pr-2 text-[12px] text-white/82 placeholder:text-white/35 transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
               aria-label="Search activity"
             />
           </div>
 
           <div
-            className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-black/30 p-0.5"
+            className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-black/20 p-0.5"
             role="group"
             aria-label="Activity filters"
           >
@@ -1192,10 +1142,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   onClick={() => setActiveFilter(filterId)}
                   aria-pressed={active}
                   className={cn(
-                    'rounded-full px-3 py-1 text-[10px] font-semibold transition-colors',
+                    'rounded-full px-3 py-1.5 text-[10px] font-semibold transition-colors',
                     active
-                      ? 'border border-lime/25 bg-lime/[0.12] text-lime'
-                      : 'border border-transparent text-white/60 hover:bg-white/[0.06] hover:text-white/80'
+                      ? 'border border-lime/25 bg-lime/[0.13] text-lime'
+                      : 'border border-transparent text-white/60 hover:bg-white/[0.08] hover:text-white/85'
                   )}
                 >
                   {filterLabels[filterId]}
