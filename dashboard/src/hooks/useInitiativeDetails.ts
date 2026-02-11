@@ -7,6 +7,7 @@ import type {
   InitiativeWorkstream,
 } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
+import { canQueryInitiativeEntities } from '@/lib/initiativeIds';
 
 type WorkstreamApiItem = {
   id: string;
@@ -109,6 +110,7 @@ export function useInitiativeDetails({
   embedMode = false,
   enabled = true,
 }: UseInitiativeDetailsOptions) {
+  const canQuery = canQueryInitiativeEntities(initiativeId);
   const queryKey = useMemo(
     () => queryKeys.initiativeDetails({ initiativeId, authToken, embedMode }),
     [initiativeId, authToken, embedMode]
@@ -116,9 +118,12 @@ export function useInitiativeDetails({
 
   const queryResult = useQuery<InitiativeDetails, Error>({
     queryKey,
-    enabled: enabled && Boolean(initiativeId),
+    enabled: enabled && Boolean(initiativeId) && canQuery,
     queryFn: async () => {
       if (!initiativeId) return EMPTY_DETAILS;
+      if (!canQuery) {
+        return { ...EMPTY_DETAILS, initiativeId };
+      }
 
       const headers: Record<string, string> = {};
       if (embedMode) headers['X-Orgx-Embed'] = 'true';
@@ -173,12 +178,12 @@ export function useInitiativeDetails({
 
   return {
     details:
-      queryResult.data ??
+      (canQuery ? queryResult.data : null) ??
       (initiativeId
         ? { ...EMPTY_DETAILS, initiativeId }
         : EMPTY_DETAILS),
-    isLoading: queryResult.isLoading,
-    error: queryResult.error?.message ?? null,
+    isLoading: canQuery ? queryResult.isLoading : false,
+    error: canQuery ? queryResult.error?.message ?? null : null,
     refetch: queryResult.refetch,
   };
 }

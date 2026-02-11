@@ -66,6 +66,8 @@ export function useAutoContinue({
     // Poll frequently only while a run is active; otherwise back off to keep the UI snappy.
     refetchInterval: (query) => {
       const data = query.state.data as AutoContinueStatusResponse | undefined;
+      const maybeUnavailable = data?.error?.toLowerCase().includes('404') ?? false;
+      if (maybeUnavailable) return false;
       const status = data?.run?.status ?? null;
       if (status === 'running' || status === 'stopping') return 2_500;
       return 12_000;

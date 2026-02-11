@@ -48,7 +48,7 @@ export function CollapsibleSection({
       <button
         type="button"
         onClick={toggle}
-        className="flex w-full items-center gap-2 rounded-lg px-1.5 py-2 text-left transition-colors hover:bg-white/[0.03]"
+        className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-white/[0.06] hover:bg-white/[0.03]"
       >
         <svg
           width="10"
@@ -57,11 +57,11 @@ export function CollapsibleSection({
           fill="none"
           stroke="currentColor"
           strokeWidth="2.5"
-          className={`text-white/25 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-white/30 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
-        <span className="text-[11px] font-semibold tracking-[0.02em] text-white/62">
+        <span className="text-[11px] font-semibold tracking-[0.02em] text-white/68">
           {title}
         </span>
       </button>

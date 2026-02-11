@@ -24,8 +24,18 @@ interface AgentsChatsPanelProps {
 
 const MAX_VISIBLE_GROUPS = 120;
 const MAX_VISIBLE_CHILD_SESSIONS = 10;
-const ONLINE_STATUSES = new Set(['running', 'queued', 'pending', 'blocked']);
-const OFFLINE_DATE_FILTERS = [
+const LIVE_STATUSES = new Set([
+  'running',
+  'active',
+  'queued',
+  'pending',
+  'blocked',
+  'in_progress',
+  'working',
+  'planning',
+]);
+const HISTORY_FILTERS = [
+  { id: 'live', label: 'Live', minutes: null },
   { id: 'all', label: 'All', minutes: null },
   { id: '24h', label: '24h', minutes: 24 * 60 },
   { id: '3d', label: '3d', minutes: 3 * 24 * 60 },
@@ -46,11 +56,17 @@ const DEFAULT_ORGX_AGENTS = [
 
 const statusColors: Record<string, string> = {
   running: colors.lime,
+  active: colors.lime,
   queued: colors.amber,
   pending: colors.amber,
+  in_progress: colors.amber,
+  working: colors.amber,
+  planning: colors.amber,
   blocked: colors.red,
   failed: colors.red,
   cancelled: colors.red,
+  paused: 'rgba(255,255,255,0.5)',
+  draft: 'rgba(255,255,255,0.5)',
   completed: colors.teal,
   archived: 'rgba(255,255,255,0.5)',
 };
@@ -60,12 +76,33 @@ function statusColor(status: string): string {
 }
 
 type AgentGroup = {
+  groupKey: string;
   agentId: string | null;
   agentName: string;
   nodes: SessionTreeNode[];
   latest: SessionTreeNode | null;
   catalogAgent?: OpenClawCatalogAgent | null;
 };
+
+function normalizeIdentity(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function sessionGroupKey(node: SessionTreeNode): string {
+  const id = normalizeIdentity(node.agentId);
+  if (id) return `id:${id}`;
+
+  const name = normalizeIdentity(node.agentName);
+  if (name) return `name:${name}`;
+
+  return 'unassigned';
+}
+
+function isLiveStatus(status: string | null | undefined): boolean {
+  const normalized = normalizeIdentity(status);
+  return normalized ? LIVE_STATUSES.has(normalized) : false;
+}
 
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
@@ -105,10 +142,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [offlineDateFilter, setOfflineDateFilter] =
-    useState<(typeof OFFLINE_DATE_FILTERS)[number]['id']>('all');
+    useState<(typeof HISTORY_FILTERS)[number]['id']>('all');
   const [showArchived, setShowArchived] = useState(false);
   const [archivedPage, setArchivedPage] = useState(0);
-  const [detailAgent, setDetailAgent] = useState<string | null>(null);
+  const [detailAgentKey, setDetailAgentKey] = useState<string | null>(null);
 
   const catalogQuery = useAgentCatalog({ enabled: true });
   const catalogAgents = catalogQuery.data?.agents ?? [];
@@ -145,15 +182,47 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
-      const key = node.agentName ?? node.agentId ?? 'Xandy';
-      const existing = map.get(key);
+      const preferredKey = sessionGroupKey(node);
+      const normalizedId = normalizeIdentity(node.agentId);
+      const normalizedName = normalizeIdentity(node.agentName);
+      let existing = map.get(preferredKey) ?? null;
+
+      if (!existing && normalizedId && normalizedName) {
+        const nameKey = `name:${normalizedName}`;
+        const byName = map.get(nameKey);
+        if (byName) {
+          map.delete(nameKey);
+          byName.groupKey = preferredKey;
+          map.set(preferredKey, byName);
+          existing = byName;
+        }
+      }
+
+      if (!existing && normalizedName) {
+        const byNameAlias = Array.from(map.values()).find(
+          (group) => normalizeIdentity(group.agentName) === normalizedName
+        );
+        if (byNameAlias) {
+          existing = byNameAlias;
+        }
+      }
 
       if (existing) {
         existing.nodes.push(node);
+        if (!existing.agentId && node.agentId) {
+          existing.agentId = node.agentId;
+        }
+        if (
+          (existing.agentName === 'Unassigned' || !existing.agentName) &&
+          node.agentName
+        ) {
+          existing.agentName = node.agentName;
+        }
       } else {
-        map.set(key, {
+        map.set(preferredKey, {
+          groupKey: preferredKey,
           agentId: node.agentId,
-          agentName: node.agentName ?? 'Xandy',
+          agentName: node.agentName ?? node.agentId ?? 'Unassigned',
           nodes: [node],
           latest: node,
         });
@@ -162,16 +231,52 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     // Merge catalog agents: add groups for agents not already in the session map
     for (const catAgent of catalogAgents) {
-      const matchKey = Array.from(map.keys()).find(
-        (k) => k.toLowerCase() === catAgent.name.toLowerCase() || k.toLowerCase() === catAgent.id.toLowerCase()
-      );
+      const normalizedCatalogId = normalizeIdentity(catAgent.id);
+      const normalizedCatalogName = normalizeIdentity(catAgent.name);
+      const idKey = normalizedCatalogId ? `id:${normalizedCatalogId}` : null;
+      const nameKey = normalizedCatalogName ? `name:${normalizedCatalogName}` : null;
+
+      let matchKey: string | null = null;
+      if (idKey && map.has(idKey)) {
+        matchKey = idKey;
+      } else if (nameKey && map.has(nameKey)) {
+        matchKey = nameKey;
+      } else {
+        const aliasMatch = Array.from(map.entries()).find(
+          ([, group]) =>
+            (normalizedCatalogId &&
+              normalizeIdentity(group.agentId) === normalizedCatalogId) ||
+            (normalizedCatalogName &&
+              normalizeIdentity(group.agentName) === normalizedCatalogName)
+        );
+        matchKey = aliasMatch?.[0] ?? null;
+      }
+
       if (matchKey) {
         // Attach catalog reference to existing group
         const group = map.get(matchKey)!;
         group.catalogAgent = catAgent;
+        if (!group.agentId && catAgent.id) {
+          group.agentId = catAgent.id;
+        }
+        if (
+          (group.agentName === 'Unassigned' || !group.agentName) &&
+          catAgent.name
+        ) {
+          group.agentName = catAgent.name;
+        }
+
+        if (idKey && group.groupKey !== idKey && !map.has(idKey)) {
+          map.delete(group.groupKey);
+          group.groupKey = idKey;
+          map.set(idKey, group);
+        }
       } else {
         // Synthetic group for catalog-only agent (0 sessions)
-        map.set(catAgent.name, {
+        const syntheticKey =
+          idKey ?? nameKey ?? `catalog:${catAgent.name.toLowerCase()}`;
+        map.set(syntheticKey, {
+          groupKey: syntheticKey,
           agentId: catAgent.id,
           agentName: catAgent.name,
           nodes: [],
@@ -197,10 +302,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     });
 
     const selectedWindow =
-      OFFLINE_DATE_FILTERS.find((item) => item.id === offlineDateFilter) ??
-      OFFLINE_DATE_FILTERS[0];
+      HISTORY_FILTERS.find((item) => item.id === offlineDateFilter) ??
+      HISTORY_FILTERS[0];
+    const isLiveWindow = selectedWindow.id === 'live';
     const cutoffEpoch =
-      selectedWindow.minutes === null
+      selectedWindow.minutes === null || isLiveWindow
         ? null
         : Date.now() - selectedWindow.minutes * 60_000;
 
@@ -212,7 +318,47 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     for (const group of sortedGroups) {
       // Always include 0-session catalog agents
       if (group.nodes.length === 0) {
-        filteredGroups.push(group);
+        const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+        if (!isLiveWindow || catalogIsLive) {
+          filteredGroups.push(group);
+        }
+        continue;
+      }
+
+      if (isLiveWindow) {
+        const visibleNodes = group.nodes.filter((node) => isLiveStatus(node.status));
+        const archivedNodes = group.nodes.filter((node) => !isLiveStatus(node.status));
+        const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+
+        if (visibleNodes.length === 0) {
+          if (catalogIsLive) {
+            filteredGroups.push({
+              ...group,
+              nodes: [],
+              latest: null,
+            });
+          } else {
+            filteredOutGroupsByDate += 1;
+            filteredOutSessionsByDate += group.nodes.length;
+            archivedGroupsList.push(group);
+          }
+          continue;
+        }
+
+        filteredOutSessionsByDate += archivedNodes.length;
+        if (archivedNodes.length > 0) {
+          archivedGroupsList.push({
+            ...group,
+            nodes: archivedNodes,
+            latest: archivedNodes[0] ?? null,
+          });
+        }
+
+        filteredGroups.push({
+          ...group,
+          nodes: visibleNodes,
+          latest: visibleNodes[0] ?? null,
+        });
         continue;
       }
 
@@ -222,20 +368,30 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
 
       const visibleNodes = group.nodes.filter((node) => {
-        if (ONLINE_STATUSES.has(node.status)) return true;
+        if (isLiveStatus(node.status)) return true;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch >= cutoffEpoch;
       });
 
+      const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+
       if (visibleNodes.length === 0) {
-        filteredOutGroupsByDate += 1;
-        filteredOutSessionsByDate += group.nodes.length;
-        archivedGroupsList.push(group);
+        if (catalogIsLive) {
+          filteredGroups.push({
+            ...group,
+            nodes: [],
+            latest: null,
+          });
+        } else {
+          filteredOutGroupsByDate += 1;
+          filteredOutSessionsByDate += group.nodes.length;
+          archivedGroupsList.push(group);
+        }
         continue;
       }
 
       const archivedNodes = group.nodes.filter((node) => {
-        if (ONLINE_STATUSES.has(node.status)) return false;
+        if (isLiveStatus(node.status)) return false;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch < cutoffEpoch;
       });
@@ -305,8 +461,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
   // Detail modal data
   const detailGroup = useMemo(
-    () => (detailAgent ? agents.find((g) => g.agentName === detailAgent) ?? null : null),
-    [agents, detailAgent]
+    () => (detailAgentKey ? agents.find((g) => g.groupKey === detailAgentKey) ?? null : null),
+    [agents, detailAgentKey]
   );
 
   const detailSessions = useMemo(
@@ -315,15 +471,20 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   );
 
   const detailActivity = useMemo(
-    () =>
-      detailAgent
-        ? activity.filter(
-            (item) =>
-              item.agentName?.toLowerCase() === detailAgent.toLowerCase() ||
-              item.agentId?.toLowerCase() === detailAgent.toLowerCase()
-          )
-        : [],
-    [activity, detailAgent]
+    () => {
+      if (!detailGroup) return [];
+      const detailName = normalizeIdentity(detailGroup.agentName);
+      const detailId = normalizeIdentity(detailGroup.agentId);
+      return activity.filter((item) => {
+        const itemName = normalizeIdentity(item.agentName);
+        const itemId = normalizeIdentity(item.agentId);
+        return (
+          (detailName !== null && itemName === detailName) ||
+          (detailId !== null && itemId === detailId)
+        );
+      });
+    },
+    [activity, detailGroup]
   );
 
   const hasNoSessions = sessions.nodes.length === 0;
@@ -337,9 +498,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         onLaunched={() => onReconnect?.()}
       />
       <AgentDetailModal
-        open={detailAgent !== null}
-        onClose={() => setDetailAgent(null)}
-        agentName={detailAgent ?? ''}
+        open={detailAgentKey !== null}
+        onClose={() => setDetailAgentKey(null)}
+        agentName={detailGroup?.agentName ?? ''}
         catalogAgent={detailGroup?.catalogAgent ?? null}
         sessions={detailSessions}
         activity={detailActivity}
@@ -367,9 +528,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           <div
             className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
             role="group"
-            aria-label="Offline session filter"
+            aria-label="Session history filter"
           >
-            {OFFLINE_DATE_FILTERS.map((option) => {
+            {HISTORY_FILTERS.map((option) => {
               const active = offlineDateFilter === option.id;
               return (
                 <button
@@ -390,19 +551,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             })}
           </div>
           <label htmlFor="offline-date-filter" className="sr-only">
-            Offline session filter
+            Session history filter
           </label>
           <select
             id="offline-date-filter"
             value={offlineDateFilter}
             onChange={(event) =>
               setOfflineDateFilter(
-                event.target.value as (typeof OFFLINE_DATE_FILTERS)[number]['id']
+                event.target.value as (typeof HISTORY_FILTERS)[number]['id']
               )
             }
             className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[11px] text-white/75 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
           >
-            {OFFLINE_DATE_FILTERS.map((option) => (
+            {HISTORY_FILTERS.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>
@@ -428,7 +589,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
             <p className="text-[12px] text-white/45">
-              No sessions match the selected offline date filter.
+              No sessions match the selected history filter.
             </p>
           </div>
         )}
@@ -468,11 +629,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         )}
 
         {agents.map((group) => {
-          const agentKey = group.agentName;
+          const agentKey = group.groupKey;
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
           const hasSessions = group.nodes.length > 0;
+          const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
           const active = lead ? selectedSessionId === lead.id : false;
+          const displayName = group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
           const visibleChildren = isCollapsed
             ? []
             : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
@@ -480,7 +643,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             0,
             group.nodes.length - visibleChildren.length
           );
-          const isFiltered = agentFilter === group.agentName;
+          const isFiltered =
+            normalizeIdentity(agentFilter) === normalizeIdentity(displayName);
 
           return (
             <div
@@ -489,7 +653,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
                 isFiltered && 'border-[#0AD4C4]/30',
-                !hasSessions && 'opacity-55'
+                !hasSessions && !catalogIsLive && 'opacity-55'
               )}
             >
               {/* Agent group header: avatar + name + status dot + session count + detail + collapse */}
@@ -498,7 +662,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   type="button"
                   onClick={() => {
                     if (onAgentFilter) {
-                      onAgentFilter(isFiltered ? null : group.agentName);
+                      onAgentFilter(isFiltered ? null : displayName);
                     } else if (lead) {
                       onSelectSession(lead.id);
                     }
@@ -506,7 +670,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   className="flex flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
                 >
                   <div className="relative flex-shrink-0">
-                    <AgentAvatar name={group.agentName} size="sm" hint={group.agentName} />
+                    <AgentAvatar name={displayName} size="sm" hint={displayName} />
                     {lead && (
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
@@ -520,16 +684,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
                         style={{
-                          backgroundColor: 'rgba(255,255,255,0.2)',
+                          backgroundColor: catalogIsLive
+                            ? statusColor('running')
+                            : 'rgba(255,255,255,0.2)',
                           borderColor: colors.cardBg,
                         }}
                       />
                     )}
                   </div>
                   <span className="min-w-0 truncate">
-                    <span className="text-[13px] font-semibold text-white">{group.agentName}</span>
-                    {getAgentRole(group.agentName) && (
-                      <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(group.agentName)}</span>
+                    <span className="text-[13px] font-semibold text-white">{displayName}</span>
+                    {getAgentRole(displayName) && (
+                      <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(displayName)}</span>
                     )}
                   </span>
                   {hasSessions ? (
@@ -554,6 +720,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         {group.nodes.length}
                       </span>
                     </span>
+                  ) : catalogIsLive ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]">
+                        <span
+                          className="h-1.5 w-full"
+                          style={{ backgroundColor: statusColor('running') }}
+                        />
+                      </span>
+                      <span className="text-[10px] uppercase tracking-[0.08em] text-lime/80">
+                        live
+                      </span>
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]" />
@@ -567,8 +745,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 {/* Info/detail button */}
                 <button
                   type="button"
-                  onClick={() => setDetailAgent(agentKey)}
-                  aria-label={`View ${group.agentName} details`}
+                  onClick={() => setDetailAgentKey(agentKey)}
+                  aria-label={`View ${displayName} details`}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
                 >
                   <svg

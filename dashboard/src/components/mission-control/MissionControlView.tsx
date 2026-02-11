@@ -256,6 +256,8 @@ function MissionControlInner({
     embedMode,
     enabled: true,
   });
+  const autopilotUnavailable =
+    autopilot.error?.toLowerCase().includes('404') ?? false;
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
   const filteredInitiatives = useMemo(() => {
@@ -466,7 +468,7 @@ function MissionControlInner({
 
         <div className="h-full overflow-y-auto overflow-x-hidden">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <div className="sticky top-0 z-20 -mx-4 px-4 pt-4 pb-3 sm:-mx-6 sm:px-6 bg-[#02040A]/75 backdrop-blur">
+            <div className="sticky top-0 z-20 -mx-4 border-b border-white/[0.05] bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6">
               {showConnectivityBanner && (
                 <div className={`mb-3 rounded-2xl border px-4 py-3 ${bannerBorder}`}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -505,7 +507,7 @@ function MissionControlInner({
                 </div>
               )}
 
-              <div className="toolbar-shell flex flex-wrap items-center gap-2">
+              <div className="toolbar-shell flex flex-wrap items-center gap-2.5">
                 <div className="min-w-[240px] flex-1">
                   <SearchInput
                     value={searchQuery}
@@ -520,13 +522,20 @@ function MissionControlInner({
                 <button
                   type="button"
                   onClick={() => {
+                    if (autopilotUnavailable) return;
                     const action = autopilot.isRunning ? autopilot.stop : autopilot.start;
                     void action().catch((err) => {
                       console.warn('[autopilot] toggle failed', err);
                     });
                   }}
-                  disabled={autopilot.isStarting || autopilot.isStopping}
-                  title={autopilot.isRunning ? 'Stop Autopilot' : 'Start Autopilot'}
+                  disabled={autopilotUnavailable || autopilot.isStarting || autopilot.isStopping}
+                  title={
+                    autopilotUnavailable
+                      ? 'Autopilot unavailable in this environment'
+                      : autopilot.isRunning
+                        ? 'Stop Autopilot'
+                        : 'Start Autopilot'
+                  }
                   data-state={autopilot.isRunning ? 'active' : 'idle'}
                   data-tone="teal"
                   className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold disabled:opacity-40"
@@ -544,6 +553,11 @@ function MissionControlInner({
                     <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8Z" />
                   </svg>
                   <span>Autopilot</span>
+                  {autopilotUnavailable && (
+                    <span className="text-[9px] uppercase tracking-[0.08em] text-white/45">
+                      Off
+                    </span>
+                  )}
                   {autopilot.isRunning && (
                     <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
                   )}
@@ -561,7 +575,7 @@ function MissionControlInner({
                       }
                     }}
                     title={allExpanded ? 'Collapse all' : 'Expand all'}
-                    className="control-pill flex h-9 w-9 items-center justify-center text-white/55"
+                    className="control-pill flex h-8 w-8 items-center justify-center text-white/55"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       {allExpanded ? (
@@ -577,10 +591,10 @@ function MissionControlInner({
 
             {/* Content */}
             {!isLoading && nextActionInitiative && (
-              <div className="surface-hero mb-4 rounded-2xl p-4">
+              <div className="surface-hero mb-3.5 rounded-2xl p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-[220px]">
-                    <p className="text-[10px] uppercase tracking-[0.11em] text-white/55">Next action</p>
+                    <p className="section-kicker">Next action</p>
                     <p className="mt-1 text-[14px] font-semibold text-white">
                       {nextActionInitiative.name}
                     </p>
@@ -673,7 +687,7 @@ function MissionControlInner({
                         aria-expanded={isGroupExpanded}
                         aria-controls={panelId}
                         onClick={() => toggleGroupExpanded(disclosureId)}
-                        className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.015] px-3 py-2 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
+                        className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.075] bg-white/[0.016] px-3 py-2.5 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
                       >
                         <span
                           aria-hidden
@@ -681,8 +695,8 @@ function MissionControlInner({
                         >
                           ▶
                         </span>
-                        <span className="text-[12px] font-medium text-white/75">{group.label}</span>
-                        <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/50">
+                        <span className="text-[12px] font-semibold text-white/80">{group.label}</span>
+                        <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/55">
                           {group.count}
                         </span>
                         <span className="ml-auto text-[10px] uppercase tracking-[0.08em] text-white/45">

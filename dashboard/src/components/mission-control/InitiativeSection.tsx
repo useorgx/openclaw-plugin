@@ -19,7 +19,6 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
-import { EditModeToolbar } from './EditModeToolbar';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
@@ -293,6 +292,20 @@ const staggerItem = {
   show: { opacity: 1, y: 0 },
 };
 
+interface MetricChipProps {
+  label: string;
+  value: string;
+}
+
+function MetricChip({ label, value }: MetricChipProps) {
+  return (
+    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
+      <div className="text-[10px] text-white/45">{label}</div>
+      <div className="mt-0.5 text-[12px] font-semibold text-white/85">{value}</div>
+    </div>
+  );
+}
+
 export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const {
     expandedInitiatives,
@@ -364,6 +377,10 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const highlightedNodeIds = useMemo(
     () => computeHighlightedPath(selectedNodeId, nodes),
     [selectedNodeId, nodes]
+  );
+  const hasRecentTodos = useMemo(
+    () => recentTodoIds.some((id) => nodeById.has(id)),
+    [nodeById, recentTodoIds]
   );
 
   useEffect(() => {
@@ -491,7 +508,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`surface-tier-1 overflow-hidden rounded-2xl transition-colors ${
+      className={`surface-tier-1 overflow-hidden rounded-2xl transition-[background-color,border-color] duration-200 ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
       }`}
     >
@@ -506,7 +523,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             toggleExpanded(initiative.id);
           }
         }}
-        className="group flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.035]"
+        className="group flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.035]"
       >
         <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
@@ -538,7 +555,8 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             event.stopPropagation();
             openModal({ type: 'initiative', entity: initiative });
           }}
-          className="text-[14px] font-semibold text-white hover:text-white/80 truncate transition-colors"
+          className="min-w-0 flex-1 truncate text-[14px] font-semibold text-white transition-colors hover:text-white/80"
+          title={initiative.name}
         >
           {initiative.name}
         </button>
@@ -556,8 +574,33 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
           {dueBadge.label}
         </span>
 
-        {/* Quick actions — shown on hover */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <div className="ml-2 flex min-w-[104px] items-center justify-end gap-1.5 sm:min-w-[220px] sm:gap-2">
+          <div className="w-[92px] sm:w-[156px]">
+            <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${progress}%`,
+                  backgroundColor: statusColor(effectiveInitiativeStatus),
+                }}
+              />
+            </div>
+          </div>
+          <span className="w-8 text-right text-[10px] text-white/40 sm:w-10 sm:text-[11px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {progress}%
+          </span>
+        </div>
+
+        <div className="ml-1 flex w-[64px] flex-shrink-0 items-center justify-end sm:w-[80px]">
+          {agents.length > 0 ? (
+            <InferredAgentAvatars agents={agents} max={5} />
+          ) : (
+            <span className="text-[10px] text-white/28">—</span>
+          )}
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex w-[52px] flex-shrink-0 items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:w-[58px]">
           {effectiveInitiativeStatus === 'active' && (
             <button
               type="button"
@@ -590,29 +633,6 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
           </button>
         </div>
-
-        {progress > 0 && (
-          <>
-            <div className="flex-1 max-w-[200px] hidden sm:block">
-              <div className="h-[2px] w-full rounded-full bg-white/[0.06] overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${progress}%`,
-                    backgroundColor: statusColor(effectiveInitiativeStatus),
-                  }}
-                />
-              </div>
-            </div>
-            <span className="text-[11px] text-white/40 flex-shrink-0 hidden sm:block">
-              {progress}%
-            </span>
-          </>
-        )}
-
-        <div className="flex-shrink-0 ml-auto">
-          <InferredAgentAvatars agents={agents} max={5} />
-        </div>
       </div>
 
       <AnimatePresence>
@@ -624,7 +644,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             transition={{ type: 'spring', stiffness: 400, damping: 35 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-3 pt-3">
+            <div className="space-y-2.5 px-4 pb-4 pt-2.5">
               {/* Gradient divider instead of hard border */}
               <div className="section-divider" />
 
@@ -641,25 +661,20 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                   variants={{
                     hidden: {},
                     show: { transition: { staggerChildren: 0.08 } },
-                  }}
+                }}
                   className="space-y-3.5"
                 >
-                  <EditModeToolbar
-                    editMode={editMode}
-                    onToggleEditMode={() => setEditMode((prev) => !prev)}
-                  />
-
                   {warnings.length > 0 && (
                     <motion.div
                       variants={staggerItem}
-                      className="rounded-lg bg-white/[0.03] overflow-hidden"
+                      className="overflow-hidden rounded-lg border border-amber-300/15 bg-amber-500/[0.06]"
                     >
                       <button
                         type="button"
                         onClick={() => setWarningsExpanded((prev) => !prev)}
                         className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
                       >
-                        <span className="text-[11px] text-white/40">
+                        <span className="text-[11px] text-amber-100/85">
                           {warnings.length} data source{warnings.length > 1 ? 's' : ''} unavailable
                         </span>
                         <svg
@@ -669,7 +684,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                           fill="none"
                           stroke="currentColor"
                           strokeWidth="2.5"
-                          className={`text-white/25 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                          className={`text-amber-100/55 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
                         >
                           <path d="m6 9 6 6 6-6" />
                         </svg>
@@ -685,7 +700,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                           >
                             <div className="px-3 pb-2 space-y-1">
                               {warnings.map((w, i) => (
-                                <div key={i} className="text-[10px] text-white/30">
+                                <div key={i} className="text-[10px] text-amber-100/72">
                                   {humanizeWarning(w)}
                                 </div>
                               ))}
@@ -699,28 +714,30 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                   {(todoTaskCount > 0 || activeTaskCount > 0 || totalExpectedDurationHours > 0 || totalExpectedBudgetUsd > 0) && (
                     <motion.div variants={staggerItem}>
                       <CollapsibleSection title="Stats" storageKey={`stats.${initiative.id}`} defaultOpen>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-[11px]">
-                          <span>
-                            <span className="text-white/50">Queue</span>{' '}
-                            <span className="text-white/85">{todoTaskCount} todo &middot; {activeTaskCount} active</span>
-                          </span>
-                          <span className="text-white/20">&middot;</span>
-                          <span>
-                            <span className="text-white/50">Duration</span>{' '}
-                            <span className="text-white/85">{totalExpectedDurationHours}h</span>
-                          </span>
-                          <span className="text-white/20">&middot;</span>
-                          <span>
-                            <span className="text-white/50">Budget</span>{' '}
-                            <span className="text-white/85">${totalExpectedBudgetUsd.toLocaleString()}</span>
-                          </span>
+                        <div className="grid gap-2 py-0.5 sm:grid-cols-2 lg:grid-cols-4">
+                          <MetricChip
+                            label="Queue"
+                            value={`${todoTaskCount} todo · ${activeTaskCount} active`}
+                          />
+                          <MetricChip
+                            label="Completed"
+                            value={`${doneTaskCount}/${taskNodes.length || 0}`}
+                          />
+                          <MetricChip
+                            label="Duration"
+                            value={`${totalExpectedDurationHours}h`}
+                          />
+                          <MetricChip
+                            label="Budget"
+                            value={`$${totalExpectedBudgetUsd.toLocaleString()}`}
+                          />
                         </div>
                       </CollapsibleSection>
                     </motion.div>
                   )}
 
                   {focusedWorkstreamId && (
-                    <div className="surface-hero flex items-center justify-between rounded-lg px-3 py-2 text-[11px] text-[#D8FFA1]">
+                    <div className="subsection-shell flex items-center justify-between rounded-lg px-3 py-2 text-[11px] text-[#D8FFA1]">
                       <span>
                         Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
                       </span>
@@ -736,53 +753,56 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
 
                   <motion.div variants={staggerItem}>
                     <CollapsibleSection title="Dependency Map" storageKey={`depmap.${initiative.id}`} defaultOpen>
-                    <DependencyMapPanel
-                      nodes={nodes}
-                      edges={edges}
-                      selectedNodeId={selectedNodeId}
-                      focusedWorkstreamId={focusedWorkstreamId}
-                      onSelectNode={(nodeId) => {
-                        setSelectedNodeId(nodeId);
-                        const node = nodeById.get(nodeId);
-                        if (node?.type === 'workstream') {
-                          setFocusedWorkstreamId(node.id);
-                        }
-                      }}
-                    />
+                      <DependencyMapPanel
+                        nodes={nodes}
+                        edges={edges}
+                        selectedNodeId={selectedNodeId}
+                        focusedWorkstreamId={focusedWorkstreamId}
+                        onSelectNode={(nodeId) => {
+                          setSelectedNodeId(nodeId);
+                          const node = nodeById.get(nodeId);
+                          if (node?.type === 'workstream') {
+                            setFocusedWorkstreamId(node.id);
+                          }
+                        }}
+                      />
                     </CollapsibleSection>
                   </motion.div>
 
-                  <motion.div variants={staggerItem}>
-                    <CollapsibleSection title="Next Up" storageKey={`nextup.${initiative.id}`} defaultOpen>
-                    <RecentTodosRail
-                      recentTodoIds={recentTodoIds}
-                      nodesById={nodeById}
-                      selectedNodeId={selectedNodeId}
-                      onSelectNode={(nodeId) => {
-                        setSelectedNodeId(nodeId);
-                        const node = nodeById.get(nodeId);
-                        if (node?.type === 'workstream') {
-                          setFocusedWorkstreamId(node.id);
-                        }
-                      }}
-                    />
-                    </CollapsibleSection>
-                  </motion.div>
+                  {hasRecentTodos && (
+                    <motion.div variants={staggerItem}>
+                      <CollapsibleSection title="Next Up" storageKey={`nextup.${initiative.id}`} defaultOpen>
+                        <RecentTodosRail
+                          recentTodoIds={recentTodoIds}
+                          nodesById={nodeById}
+                          selectedNodeId={selectedNodeId}
+                          onSelectNode={(nodeId) => {
+                            setSelectedNodeId(nodeId);
+                            const node = nodeById.get(nodeId);
+                            if (node?.type === 'workstream') {
+                              setFocusedWorkstreamId(node.id);
+                            }
+                          }}
+                        />
+                      </CollapsibleSection>
+                    </motion.div>
+                  )}
 
                   <motion.div variants={staggerItem}>
                     <CollapsibleSection title="Hierarchy" storageKey={`hierarchy.${initiative.id}`} defaultOpen>
-                    <HierarchyTreeTable
-                      nodes={nodes}
-                      edges={edges}
-                      selectedNodeId={selectedNodeId}
-                      highlightedNodeIds={highlightedNodeIds}
-                      editMode={editMode}
-                      onSelectNode={setSelectedNodeId}
-                      onFocusWorkstream={setFocusedWorkstreamId}
-                      onOpenNode={openNodeModal}
-                      onUpdateNode={updateNode}
-                      mutations={mutations}
-                    />
+                      <HierarchyTreeTable
+                        nodes={nodes}
+                        edges={edges}
+                        selectedNodeId={selectedNodeId}
+                        highlightedNodeIds={highlightedNodeIds}
+                        editMode={editMode}
+                        onSelectNode={setSelectedNodeId}
+                        onFocusWorkstream={setFocusedWorkstreamId}
+                        onOpenNode={openNodeModal}
+                        onUpdateNode={updateNode}
+                        onToggleEditMode={() => setEditMode((prev) => !prev)}
+                        mutations={mutations}
+                      />
                     </CollapsibleSection>
                   </motion.div>
                 </motion.div>
@@ -792,7 +812,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
               <button
                 type="button"
                 onClick={() => toggleExpanded(initiative.id)}
-                className="flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] text-white/30 hover:text-white/60 transition-colors"
+                className="flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] text-white/35 transition-colors hover:text-white/65"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="m18 15-6-6-6 6" />

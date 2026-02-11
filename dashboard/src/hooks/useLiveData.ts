@@ -63,14 +63,32 @@ const EMPTY_OUTBOX_STATUS: OutboxStatus = {
 
 const SESSION_STATUS_PRIORITY: Record<string, number> = {
   running: 0,
+  active: 0,
   queued: 1,
+  in_progress: 1,
+  working: 1,
+  planning: 1,
   pending: 2,
   blocked: 3,
   failed: 4,
   cancelled: 5,
+  paused: 6,
   completed: 6,
   archived: 7,
 };
+
+const LIVE_SESSION_STATUSES = new Set([
+  'running',
+  'active',
+  'queued',
+  'in_progress',
+  'working',
+  'planning',
+  'pending',
+  'blocked',
+]);
+
+const SESSION_CARRYOVER_WINDOW_MS = 45 * 60_000;
 
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
@@ -95,6 +113,125 @@ function compareSessionsByPriority(
   }
 
   return a.id.localeCompare(b.id);
+}
+
+function normalizeSessionStatus(status: string | null | undefined): string {
+  return (status ?? '').trim().toLowerCase();
+}
+
+function isLiveSession(node: SessionTreeResponse['nodes'][number]): boolean {
+  return LIVE_SESSION_STATUSES.has(normalizeSessionStatus(node.status));
+}
+
+function sessionIdentityKeys(
+  node: SessionTreeResponse['nodes'][number]
+): string[] {
+  const keys: string[] = [];
+  if (node.id) keys.push(`id:${node.id}`);
+  if (node.runId) keys.push(`run:${node.runId}`);
+  return keys;
+}
+
+function mergeSessionSnapshots(
+  previous: SessionTreeResponse,
+  incoming: SessionTreeResponse
+): SessionTreeResponse {
+  if (!previous.nodes.length) return incoming;
+  if (!incoming.nodes.length) {
+    const now = Date.now();
+    const carryNodes = previous.nodes.filter((node) => {
+      const lastTouched = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
+      return isLiveSession(node) || now - lastTouched <= SESSION_CARRYOVER_WINDOW_MS;
+    });
+    if (!carryNodes.length) return incoming;
+
+    const nodeIds = new Set(carryNodes.map((node) => node.id));
+    const groupIds = new Set(carryNodes.map((node) => node.groupId));
+    return {
+      nodes: carryNodes.sort(compareSessionsByPriority),
+      edges: previous.edges.filter(
+        (edge) => nodeIds.has(edge.parentId) && nodeIds.has(edge.childId)
+      ),
+      groups: previous.groups.filter((group) => groupIds.has(group.id)),
+    };
+  }
+
+  const incomingIdentity = new Set<string>();
+  const nodes = [...incoming.nodes];
+
+  for (const node of incoming.nodes) {
+    for (const key of sessionIdentityKeys(node)) {
+      incomingIdentity.add(key);
+    }
+  }
+
+  const now = Date.now();
+  const carryoverNodes: SessionTreeResponse['nodes'] = [];
+  for (const node of previous.nodes) {
+    const hasIdentity = sessionIdentityKeys(node).some((key) =>
+      incomingIdentity.has(key)
+    );
+    if (hasIdentity) continue;
+
+    const lastTouched = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
+    const withinWindow = now - lastTouched <= SESSION_CARRYOVER_WINDOW_MS;
+    if (isLiveSession(node) || withinWindow) {
+      carryoverNodes.push(node);
+      nodes.push(node);
+      for (const key of sessionIdentityKeys(node)) {
+        incomingIdentity.add(key);
+      }
+    }
+  }
+
+  if (!carryoverNodes.length) {
+    return incoming;
+  }
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const prevGroupById = new Map(previous.groups.map((group) => [group.id, group]));
+  const incomingGroupById = new Map(incoming.groups.map((group) => [group.id, group]));
+  const groups = [...incoming.groups];
+
+  for (const node of carryoverNodes) {
+    if (incomingGroupById.has(node.groupId)) continue;
+    const fallbackGroup =
+      prevGroupById.get(node.groupId) ??
+      {
+        id: node.groupId,
+        label: node.groupLabel || node.agentName || 'Ungrouped',
+        status: null,
+      };
+    incomingGroupById.set(node.groupId, fallbackGroup);
+    groups.push(fallbackGroup);
+  }
+
+  const edgeKey = (edge: SessionTreeResponse['edges'][number]) =>
+    `${edge.parentId}->${edge.childId}`;
+  const seenEdges = new Set<string>();
+  const edges: SessionTreeResponse['edges'] = [];
+
+  for (const edge of incoming.edges) {
+    if (!nodeIds.has(edge.parentId) || !nodeIds.has(edge.childId)) continue;
+    const key = edgeKey(edge);
+    if (seenEdges.has(key)) continue;
+    seenEdges.add(key);
+    edges.push(edge);
+  }
+
+  for (const edge of previous.edges) {
+    if (!nodeIds.has(edge.parentId) || !nodeIds.has(edge.childId)) continue;
+    const key = edgeKey(edge);
+    if (seenEdges.has(key)) continue;
+    seenEdges.add(key);
+    edges.push(edge);
+  }
+
+  return {
+    nodes: nodes.sort(compareSessionsByPriority),
+    edges,
+    groups,
+  };
 }
 
 function trimSessions(source: SessionTreeResponse, maxSessions: number): SessionTreeResponse {
@@ -686,11 +823,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     ) => {
       lastSuccessAtRef.current = Date.now();
       authBlockedRef.current = false;
-      const sessions = trimSessions(sessionsInput, maxSessions);
       const activity = normalizeActivity(activityInput, maxActivityItems);
       const handoffs = trimHandoffs(handoffInput, maxHandoffs);
 
       setData((prev) => {
+        const sessions = trimSessions(
+          mergeSessionSnapshots(prev.sessions, trimSessions(sessionsInput, maxSessions)),
+          maxSessions
+        );
         const decisions =
           decisionInput === null
             ? prev.decisions
@@ -1116,10 +1256,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
         if (pendingSessions) {
           const trimmedSessions = trimSessions(pendingSessions, maxSessions);
+          const mergedSessions = trimSessions(
+            mergeSessionSnapshots(next.sessions, trimmedSessions),
+            maxSessions
+          );
           pendingSessions = null;
 
-          if (!sameSessionsShape(next.sessions, trimmedSessions)) {
-            next = { ...next, sessions: trimmedSessions };
+          if (!sameSessionsShape(next.sessions, mergedSessions)) {
+            next = { ...next, sessions: mergedSessions };
           }
         }
 

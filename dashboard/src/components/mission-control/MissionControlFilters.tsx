@@ -80,7 +80,6 @@ export function MissionControlFilters({
     dateStart,
     dateEnd,
     activeFilterCount,
-    hasActiveFilters,
     groupBy,
     setGroupBy,
     sortBy,
@@ -95,6 +94,7 @@ export function MissionControlFilters({
   } = useMissionControl();
 
   const [open, setOpen] = useState(false);
+  const [showAllStatuses, setShowAllStatuses] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -105,8 +105,17 @@ export function MissionControlFilters({
       if (containerRef.current?.contains(target)) return;
       setOpen(false);
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   const statusOptions = useMemo(() => {
@@ -139,6 +148,14 @@ export function MissionControlFilters({
   }, [initiatives]);
 
   const selectedStatusCount = statusFilters.length;
+  const visibleStatusOptions = useMemo(
+    () =>
+      statusOptions.filter(
+        (option) => showAllStatuses || option.count > 0 || statusFilters.includes(option.key),
+      ),
+    [showAllStatuses, statusFilters, statusOptions],
+  );
+  const hiddenStatusCount = statusOptions.length - visibleStatusOptions.length;
   const datePresetOptions = useMemo(
     () => (dateField === 'target' ? DATE_PRESETS_TARGET : DATE_PRESETS_ACTIVITY),
     [dateField]
@@ -164,14 +181,21 @@ export function MissionControlFilters({
 
   const hasNonDefaultViewOptions = groupBy !== 'none' || sortBy !== 'default';
   const totalActiveCount = activeFilterCount + (hasNonDefaultViewOptions ? 1 : 0);
+  const hasAnyActiveFilter = totalActiveCount > 0;
 
   return (
     <div ref={containerRef} className="relative flex items-center gap-2">
       <button
         type="button"
-        onClick={() => setOpen((previous) => !previous)}
+        onClick={() => {
+          setOpen((previous) => {
+            const next = !previous;
+            if (!next) setShowAllStatuses(false);
+            return next;
+          });
+        }}
         data-state={open || totalActiveCount > 0 ? 'active' : 'idle'}
-        className="control-pill flex items-center gap-1.5 px-2.5 text-[11px] font-semibold"
+        className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
@@ -190,7 +214,7 @@ export function MissionControlFilters({
         </span>
       )}
 
-      {hasActiveFilters && (
+      {hasAnyActiveFilter && (
         <button
           type="button"
           onClick={clearFilters}
@@ -207,83 +231,110 @@ export function MissionControlFilters({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-            className="surface-tier-2 absolute right-0 top-12 z-30 w-[340px] max-w-[92vw] rounded-xl p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+            className="surface-tier-2 absolute right-0 top-12 z-30 w-[360px] max-w-[94vw] rounded-xl p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
-            <div className="grid grid-cols-2 gap-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Group</span>
-                <select
-                  value={groupBy}
-                  onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
-                  className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
-                >
-                  {GROUP_BY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Sort</span>
-                <select
-                  value={sortBy}
-                  onChange={(event) => setSortBy(event.target.value as SortByOption)}
-                  className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
-                >
-                  {SORT_BY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                <div className="text-[11px] font-semibold tracking-[0.01em] text-white/85">Filters</div>
+                <div className="text-[10px] text-white/45">Scope the Mission Control list view</div>
+              </div>
+              <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70">
+                {totalActiveCount} active
+              </span>
             </div>
 
-            <div className="mt-3 section-divider" />
-
-            <div className="mt-3 text-[10px] uppercase tracking-[0.08em] text-white/35">Status</div>
-            <div className="mt-2 max-h-44 space-y-1 overflow-auto pr-1">
-              {statusOptions.map((option) => {
-                const checked = statusFilters.includes(option.key);
-                return (
-                  <label
-                    key={option.key}
-                    className="flex cursor-pointer items-center justify-between rounded-md border border-white/[0.08] bg-white/[0.02] px-2.5 py-1.5 text-[11px] text-white/80 hover:border-white/[0.14]"
+            <div className="subsection-shell p-2.5">
+              <div className="section-kicker mb-2">Layout</div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Group</span>
+                  <select
+                    value={groupBy}
+                    onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
                   >
-                    <span className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleStatusFilter(option.key)}
-                        className="h-3.5 w-3.5 accent-[#BFFF00]"
-                      />
-                      <span>{statusLabel(option.key)}</span>
-                    </span>
-                    <span className="text-[10px] text-white/50">{option.count}</span>
-                  </label>
-                );
-              })}
+                    {GROUP_BY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Sort</span>
+                  <select
+                    value={sortBy}
+                    onChange={(event) => setSortBy(event.target.value as SortByOption)}
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
+                  >
+                    {SORT_BY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
 
-            <div className="mt-2 flex justify-between">
-              <button
-                type="button"
-                onClick={() => setStatusFilters([])}
-                className={`text-[10px] uppercase tracking-[0.08em] ${
-                  selectedStatusCount > 0 ? 'text-white/70 hover:text-white' : 'text-white/35'
-                }`}
-                disabled={selectedStatusCount === 0}
-              >
-                Clear status
-              </button>
-              <div className="text-[10px] text-white/45">{selectedStatusCount} selected</div>
+            <div className="mt-2.5 subsection-shell p-2.5">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="section-kicker">Status</div>
+                {hiddenStatusCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllStatuses((prev) => !prev)}
+                    className="text-[10px] text-white/42 transition-colors hover:text-white/72"
+                  >
+                    {showAllStatuses ? 'Hide empty' : `Show empty (${hiddenStatusCount})`}
+                  </button>
+                )}
+              </div>
+              <div className="max-h-40 space-y-1 overflow-auto pr-1">
+                {visibleStatusOptions.map((option) => {
+                  const checked = statusFilters.includes(option.key);
+                  return (
+                    <label
+                      key={option.key}
+                      className={`flex cursor-pointer items-center justify-between rounded-md border px-2.5 py-1.5 text-[11px] transition-colors ${
+                        checked
+                          ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-white/88'
+                          : 'border-white/[0.08] bg-white/[0.02] text-white/78 hover:border-white/[0.15]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleStatusFilter(option.key)}
+                          className="h-3.5 w-3.5 accent-[#BFFF00]"
+                        />
+                        <span>{statusLabel(option.key)}</span>
+                      </span>
+                      <span className="text-[10px] text-white/48">{option.count}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setStatusFilters([])}
+                  className={`text-[10px] uppercase tracking-[0.08em] ${
+                    selectedStatusCount > 0 ? 'text-white/70 hover:text-white' : 'text-white/35'
+                  }`}
+                  disabled={selectedStatusCount === 0}
+                >
+                  Clear status
+                </button>
+                <div className="text-[10px] text-white/45">{selectedStatusCount} selected</div>
+              </div>
             </div>
 
-            <div className="mt-3 border-t border-white/[0.08] pt-3">
-              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Date</div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-2.5 subsection-shell p-2.5">
+              <div className="section-kicker mb-2">Date</div>
+              <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-1">
                   <span className="text-[10px] uppercase tracking-[0.08em] text-white/45">
                     Field
@@ -350,6 +401,21 @@ export function MissionControlFilters({
                 </div>
               )}
             </div>
+
+            {hasAnyActiveFilter && (
+              <>
+                <div className="mt-2 section-divider" />
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MissionControlGraphResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
+import { canQueryInitiativeEntities } from '@/lib/initiativeIds';
 
 interface UseMissionControlGraphOptions {
   initiativeId: string | null;
@@ -31,6 +32,7 @@ export function useMissionControlGraph({
   embedMode = false,
   enabled = true,
 }: UseMissionControlGraphOptions) {
+  const canQuery = canQueryInitiativeEntities(initiativeId);
   const queryKey = useMemo(
     () => queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
     [initiativeId, authToken, embedMode]
@@ -38,10 +40,13 @@ export function useMissionControlGraph({
 
   const queryResult = useQuery<MissionControlGraphResponse, Error>({
     queryKey,
-    enabled: enabled && Boolean(initiativeId),
+    enabled: enabled && Boolean(initiativeId) && canQuery,
     queryFn: async () => {
       if (!initiativeId) {
         throw new Error('initiativeId is required');
+      }
+      if (!canQuery) {
+        return fallbackGraph(initiativeId);
       }
 
       const params = new URLSearchParams({ initiative_id: initiativeId });
@@ -76,10 +81,9 @@ export function useMissionControlGraph({
 
   return {
     graph,
-    isLoading: queryResult.isLoading,
-    error: queryResult.error?.message ?? null,
-    degraded: queryResult.data?.degraded ?? [],
+    isLoading: canQuery ? queryResult.isLoading : false,
+    error: canQuery ? queryResult.error?.message ?? null : null,
+    degraded: canQuery ? queryResult.data?.degraded ?? [] : [],
     refetch: queryResult.refetch,
   };
 }
-

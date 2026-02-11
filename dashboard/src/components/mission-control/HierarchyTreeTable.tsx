@@ -6,6 +6,7 @@ import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { LevelIcon } from './LevelIcon';
 import { DependencyEditorPopover } from './DependencyEditorPopover';
 import { SearchInput } from '@/components/shared/SearchInput';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { useEntityMutations } from '@/hooks/useEntityMutations';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
@@ -16,6 +17,7 @@ interface HierarchyTreeTableProps {
   selectedNodeId: string | null;
   highlightedNodeIds: Set<string>;
   editMode: boolean;
+  onToggleEditMode?: () => void;
   onSelectNode: (nodeId: string) => void;
   onFocusWorkstream: (workstreamId: string | null) => void;
   onOpenNode: (node: MissionControlNode) => void;
@@ -34,6 +36,7 @@ type FlatRow = {
 
 type SortField = 'title' | 'status' | 'priority' | 'eta' | null;
 type SortDir = 'asc' | 'desc';
+type StatusScope = 'all' | 'open' | 'blocked' | 'done';
 
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return '';
@@ -63,6 +66,13 @@ function normalizeStatusKey(status: string): string {
   if (normalized === 'running' || normalized === 'queued') return 'active';
   if (normalized === 'pending' || normalized === 'backlog') return 'todo';
   return normalized;
+}
+
+function matchesStatusScope(statusKey: string, scope: StatusScope): boolean {
+  if (scope === 'all') return true;
+  if (scope === 'blocked') return statusKey === 'blocked';
+  if (scope === 'done') return statusKey === 'done';
+  return statusKey !== 'blocked' && statusKey !== 'done';
 }
 
 function ancestorIds(nodeId: string, nodes: MissionControlNode[]): Set<string> {
@@ -112,6 +122,7 @@ export function HierarchyTreeTable({
   selectedNodeId,
   highlightedNodeIds,
   editMode,
+  onToggleEditMode,
   onSelectNode,
   onFocusWorkstream,
   onOpenNode,
@@ -120,6 +131,8 @@ export function HierarchyTreeTable({
 }: HierarchyTreeTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeStatusFilters, setActiveStatusFilters] = useState<Set<string>>(new Set());
+  const [statusScope, setStatusScope] = useState<StatusScope>('all');
+  const [showAdvancedStatusFilters, setShowAdvancedStatusFilters] = useState(false);
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDir>('asc');
 
@@ -129,21 +142,51 @@ export function HierarchyTreeTable({
     [nodes]
   );
 
+  const statusKeyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of nodes) {
+      const key = normalizeStatusKey(node.status);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [nodes]);
+
+  const statusScopeCounts = useMemo(() => {
+    let open = 0;
+    let blocked = 0;
+    let done = 0;
+    for (const node of nodes) {
+      const key = normalizeStatusKey(node.status);
+      if (key === 'blocked') blocked += 1;
+      else if (key === 'done') done += 1;
+      else open += 1;
+    }
+    return {
+      all: nodes.length,
+      open,
+      blocked,
+      done,
+    };
+  }, [nodes]);
+
   // Compute which nodes match search/filter, plus their ancestors
   const matchingNodeIds = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const hasQuery = query.length > 0;
     const hasStatusFilter = activeStatusFilters.size > 0;
+    const hasScopeFilter = statusScope !== 'all';
 
-    if (!hasQuery && !hasStatusFilter) return null; // null = show all
+    if (!hasQuery && !hasStatusFilter && !hasScopeFilter) return null; // null = show all
 
     const directMatches = new Set<string>();
     for (const node of nodes) {
+      const normalizedStatus = normalizeStatusKey(node.status);
       const matchesQuery = !hasQuery || node.title.toLowerCase().includes(query) ||
         node.assignedAgents.some((a) => a.name.toLowerCase().includes(query));
-      const matchesStatus = !hasStatusFilter || activeStatusFilters.has(normalizeStatusKey(node.status));
+      const matchesStatus = !hasStatusFilter || activeStatusFilters.has(normalizedStatus);
+      const matchesScope = matchesStatusScope(normalizedStatus, statusScope);
 
-      if (matchesQuery && matchesStatus) {
+      if (matchesQuery && matchesStatus && matchesScope) {
         directMatches.add(node.id);
       }
     }
@@ -156,7 +199,7 @@ export function HierarchyTreeTable({
       }
     }
     return allVisible;
-  }, [nodes, searchQuery, activeStatusFilters]);
+  }, [activeStatusFilters, nodes, searchQuery, statusScope]);
 
   const workstreams = useMemo(
     () =>
@@ -357,52 +400,132 @@ export function HierarchyTreeTable({
     });
   };
 
+  const clearAllHierarchyFilters = () => {
+    setSearchQuery('');
+    setStatusScope('all');
+    setActiveStatusFilters(new Set());
+  };
+
   const SortChevron = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <span className="text-white/20 ml-0.5">↕</span>;
     return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
   return (
-    <section className="surface-tier-1 rounded-xl p-3">
-      <div className="mb-2 text-[13px] font-semibold tracking-[-0.01em] text-white/82">
-        Hierarchy
-      </div>
-
-      {/* Search */}
-      <div className="mb-2 max-w-[320px]">
-        <SearchInput
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder="Search items or agents..."
-        />
-      </div>
-
-      {/* Status filter chips */}
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {STATUS_OPTIONS.map((status) => {
-          const isActive = activeStatusFilters.has(status);
-          return (
-            <button
-              key={status}
-              type="button"
-              onClick={() => toggleStatusFilter(status)}
-              data-state={isActive ? 'active' : 'idle'}
-              className="control-pill h-7 rounded-full px-2.5 text-[10px] font-semibold"
-            >
-              {formatEntityStatus(status)}
-            </button>
-          );
-        })}
-        {activeStatusFilters.size > 0 && (
+    <section className="space-y-2">
+      <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="w-full lg:max-w-[340px]">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search items or agents..."
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            { id: 'all', label: 'All', count: statusScopeCounts.all },
+            { id: 'open', label: 'Open', count: statusScopeCounts.open },
+            { id: 'blocked', label: 'Blocked', count: statusScopeCounts.blocked },
+            { id: 'done', label: 'Done', count: statusScopeCounts.done },
+          ] as Array<{ id: StatusScope; label: string; count: number }>).map((scope) => {
+            const active = statusScope === scope.id;
+            return (
+              <button
+                key={scope.id}
+                type="button"
+                onClick={() => setStatusScope(scope.id)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+                  active
+                    ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
+                    : 'border-white/[0.12] bg-white/[0.03] text-white/60 hover:bg-white/[0.07] hover:text-white/82'
+                }`}
+              >
+                <span>{scope.label}</span>
+                <span className="text-[9px] text-current/80">{scope.count}</span>
+              </button>
+            );
+          })}
           <button
             type="button"
-            onClick={() => setActiveStatusFilters(new Set())}
-            className="rounded-full px-2 py-1 text-[10px] text-white/40 hover:text-white/70 transition-colors"
+            onClick={() => setShowAdvancedStatusFilters((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] transition-colors ${
+              showAdvancedStatusFilters || activeStatusFilters.size > 0
+                ? 'border-white/[0.2] bg-white/[0.06] text-white/82'
+                : 'border-white/[0.12] bg-white/[0.03] text-white/55 hover:text-white/75'
+            }`}
+          >
+            Status
+            {activeStatusFilters.size > 0 && (
+              <span className="rounded-full bg-white/[0.08] px-1.5 py-[1px] text-[9px]">
+                {activeStatusFilters.size}
+              </span>
+            )}
+          </button>
+          {(searchQuery.trim().length > 0 || statusScope !== 'all' || activeStatusFilters.size > 0) && (
+          <button
+            type="button"
+            onClick={clearAllHierarchyFilters}
+            className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
           >
             Clear
           </button>
-        )}
+          )}
+          {onToggleEditMode && (
+            <button
+              type="button"
+              onClick={onToggleEditMode}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] transition-colors ${
+                editMode
+                  ? 'border-[#BFFF00]/28 bg-[#BFFF00]/12 text-[#D8FFA1]'
+                  : 'border-white/[0.12] bg-white/[0.03] text-white/55 hover:text-white/82'
+              }`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              {editMode ? 'Editing' : 'Edit'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {showAdvancedStatusFilters && (
+        <div className="mb-2 table-shell px-2.5 py-2">
+          <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/38">
+            Advanced status filters
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {STATUS_OPTIONS.map((status) => {
+              const isActive = activeStatusFilters.has(status);
+              const count = statusKeyCounts.get(status) ?? 0;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => toggleStatusFilter(status)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors ${
+                    isActive
+                    ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
+                    : 'border-white/[0.12] bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-white/85'
+                }`}
+              >
+                  <span>{formatEntityStatus(status)}</span>
+                  <span className="text-[9px] text-current/75">{count}</span>
+                </button>
+              );
+            })}
+            {activeStatusFilters.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveStatusFilters(new Set())}
+                className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
+              >
+                Reset status
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {editMode && (
         <div className="mb-2 text-[10px] text-white/45">
@@ -410,14 +533,14 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="table-shell overflow-x-auto p-2">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/42">
               <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('title')}>
                 Item <SortChevron field="title" />
               </th>
-              <th className="px-2 py-1.5">Assigned</th>
+              <th className="w-[188px] px-2 py-1.5">Assigned</th>
               <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('status')}>
                 Status <SortChevron field="status" />
               </th>
@@ -535,7 +658,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Assigned (moved to position 2) */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-[11px] text-white/75 whitespace-nowrap">
                     {editableRow ? (
                       <input
                         type="text"
@@ -556,23 +679,36 @@ export function HierarchyTreeTable({
                         className="w-[190px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
                       />
                     ) : (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         {node.assignedAgents.length > 0 ? (
-                          node.assignedAgents.slice(0, 3).map((agent) => (
+                          <>
+                            <div className="flex items-center -space-x-1.5">
+                              {node.assignedAgents.slice(0, 3).map((agent) => (
+                                <div
+                                  key={`${node.id}:${agent.id}`}
+                                  title={agent.name}
+                                  className="rounded-full ring-1 ring-[#02040A]"
+                                >
+                                  <AgentAvatar
+                                    name={agent.name}
+                                    hint={`${agent.id} ${node.title}`}
+                                    size="xs"
+                                  />
+                                </div>
+                              ))}
+                            </div>
                             <span
-                              key={`${node.id}:${agent.id}`}
-                              className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70"
+                              className="max-w-[110px] truncate text-[10px] text-white/62"
+                              title={assignedNames}
                             >
-                              {agent.name}
+                              {node.assignedAgents[0]?.name}
+                              {node.assignedAgents.length > 1
+                                ? ` +${node.assignedAgents.length - 1}`
+                                : ''}
                             </span>
-                          ))
+                          </>
                         ) : (
                           <span className="text-white/35">Unassigned</span>
-                        )}
-                        {node.assignedAgents.length > 3 && (
-                          <span className="text-[10px] text-white/45">
-                            +{node.assignedAgents.length - 3}
-                          </span>
                         )}
                       </div>
                     )}
@@ -596,7 +732,7 @@ export function HierarchyTreeTable({
                         ))}
                       </select>
                     ) : (
-                      <span className="status-pill" data-tone={statusTone(node.status)}>
+                      <span className="status-pill whitespace-nowrap" data-tone={statusTone(node.status)}>
                         {formatEntityStatus(node.status)}
                       </span>
                     )}
@@ -746,12 +882,12 @@ export function HierarchyTreeTable({
             <path d="M9 14h6M9 18h4" />
           </svg>
           <div className="mt-3 text-[13px] font-medium text-white/50">
-            {searchQuery || activeStatusFilters.size > 0
+            {searchQuery || activeStatusFilters.size > 0 || statusScope !== 'all'
               ? 'No items match the current filters'
               : 'No work items yet'}
           </div>
           <div className="mt-1 text-[11px] text-white/30">
-            {searchQuery || activeStatusFilters.size > 0
+            {searchQuery || activeStatusFilters.size > 0 || statusScope !== 'all'
               ? 'Try adjusting your search or filter criteria.'
               : 'Workstreams, milestones, and tasks will appear here.'}
           </div>

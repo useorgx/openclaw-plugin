@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,14 +31,14 @@
     "openclaw.plugin.json",
     "README.md"
   ],
-    "scripts": {
-      "typecheck": "tsc --noEmit",
-      "test:hooks": "npm run build:core && node --test --test-concurrency=1 tests/*.test.mjs tests/**/*.test.mjs",
-      "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
-      "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
-      "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
-      "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
-      "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:hooks": "npm run build:core && node --test --test-concurrency=1 tests/*.test.mjs tests/**/*.test.mjs",
+    "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
+    "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
+    "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
+    "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
+    "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "tsc && node ./scripts/copy-manifest.mjs",

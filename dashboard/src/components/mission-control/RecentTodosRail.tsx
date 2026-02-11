@@ -32,11 +32,8 @@ export function RecentTodosRail({
   const queued = recentNodes.slice(1, 7);
 
   return (
-    <section className="surface-hero space-y-2 rounded-xl p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-[11px] uppercase tracking-[0.11em] text-white/65">
-          Next Up
-        </h4>
+    <section className="space-y-2">
+      <div className="flex items-center justify-end gap-2">
         <span className="rounded-full border border-white/15 bg-black/20 px-2 py-0.5 text-[10px] text-white/65">
           {recentNodes.length} in queue
         </span>
@@ -45,7 +42,7 @@ export function RecentTodosRail({
       <button
         type="button"
         onClick={() => onSelectNode(primary.id)}
-        className={`group w-full rounded-xl border px-3.5 py-3 text-left transition-colors ${
+        className={`surface-hero group w-full rounded-xl border px-3.5 py-3 text-left transition-colors ${
           selectedNodeId === primary.id
             ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14'
             : 'border-white/15 bg-black/25 hover:border-white/30 hover:bg-white/[0.08]'
