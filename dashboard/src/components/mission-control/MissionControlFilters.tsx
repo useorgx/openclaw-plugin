@@ -179,9 +179,11 @@ export function MissionControlFilters({
     { value: 'date_desc', label: 'Date (latest)' },
   ];
 
-  const hasNonDefaultViewOptions = groupBy !== 'none' || sortBy !== 'default';
-  const totalActiveCount = activeFilterCount + (hasNonDefaultViewOptions ? 1 : 0);
-  const hasAnyActiveFilter = totalActiveCount > 0;
+  // Grouping/sorting changes are "view overrides" and should not look like active filters.
+  const hasNonDefaultViewOptions = groupBy !== 'status' || sortBy !== 'default';
+  const hasFilterCriteria = activeFilterCount > 0;
+  const totalActiveCount = activeFilterCount;
+  const hasAnyActiveFilter = hasFilterCriteria || hasNonDefaultViewOptions;
 
   return (
     <div ref={containerRef} className="relative flex items-center gap-2">
@@ -214,15 +216,18 @@ export function MissionControlFilters({
         </span>
       )}
 
-      {hasAnyActiveFilter && (
-        <button
-          type="button"
-          onClick={clearFilters}
-          className="text-[10px] text-white/40 hover:text-white/70 transition-colors whitespace-nowrap"
-        >
-          Clear
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={clearFilters}
+        disabled={!hasFilterCriteria}
+        className={`text-[10px] transition-colors whitespace-nowrap ${
+          hasFilterCriteria
+            ? 'text-white/40 hover:text-white/70'
+            : 'pointer-events-none select-none text-transparent'
+        }`}
+      >
+        Clear
+      </button>
 
       <AnimatePresence>
         {open && (
@@ -238,9 +243,15 @@ export function MissionControlFilters({
                 <div className="text-[11px] font-semibold tracking-[0.01em] text-white/85">Filters</div>
                 <div className="text-[10px] text-white/45">Scope the Mission Control list view</div>
               </div>
-              <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70">
-                {totalActiveCount} active
-              </span>
+              {hasFilterCriteria ? (
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70">
+                  {totalActiveCount} active
+                </span>
+              ) : hasNonDefaultViewOptions ? (
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60">
+                  view modified
+                </span>
+              ) : null}
             </div>
 
             <div className="subsection-shell p-2.5">
@@ -405,14 +416,28 @@ export function MissionControlFilters({
             {hasAnyActiveFilter && (
               <>
                 <div className="mt-2 section-divider" />
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
-                  >
-                    Clear all filters
-                  </button>
+                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                  {hasNonDefaultViewOptions && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGroupBy('status');
+                        setSortBy('default');
+                      }}
+                      className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
+                    >
+                      Reset layout
+                    </button>
+                  )}
+                  {hasFilterCriteria && (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
+                    >
+                      Clear filters
+                    </button>
+                  )}
                 </div>
               </>
             )}

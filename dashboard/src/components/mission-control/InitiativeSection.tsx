@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type {
   Initiative,
@@ -13,7 +13,6 @@ import {
   formatEntityStatus,
   statusColor,
 } from '@/lib/entityStatusColors';
-import { formatDueBadge } from '@/lib/initiativeDate';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
@@ -290,8 +289,8 @@ function humanizeWarning(raw: string): string {
 }
 
 const staggerItem = {
-  hidden: { opacity: 0, y: 6 },
-  show: { opacity: 1, y: 0 },
+  hidden: { opacity: 0 },
+  show: { opacity: 1 },
 };
 
 interface MetricChipProps {
@@ -327,6 +326,10 @@ export function InitiativeSection({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [focusedWorkstreamId, setFocusedWorkstreamId] = useState<string | null>(null);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
+  const [isBodyAnimating, setIsBodyAnimating] = useState(false);
+  const initiativeHeaderRef = useRef<HTMLDivElement | null>(null);
+  const [initiativeHeaderOffset, setInitiativeHeaderOffset] = useState(52);
+  const [stickyMorph, setStickyMorph] = useState(0);
 
   const isExpanded = expandedInitiatives.has(initiative.id);
   const { graph, isLoading, degraded, error } = useMissionControlGraph({
@@ -390,6 +393,61 @@ export function InitiativeSection({
   );
 
   useEffect(() => {
+    const element = initiativeHeaderRef.current;
+    if (!element || !isExpanded) return;
+
+    const update = () => {
+      const next = Math.max(48, element.offsetHeight);
+      setInitiativeHeaderOffset((previous) => (previous === next ? previous : next));
+    };
+
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => update());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [isExpanded, initiative.status, initiative.targetDate, initiative.name]);
+
+  useEffect(() => {
+    const element = initiativeHeaderRef.current;
+    if (!element || !isExpanded) {
+      setStickyMorph(0);
+      return;
+    }
+
+    const scrollHost =
+      (element.closest('[data-mc-scroll-host="true"]') as HTMLElement | null) ??
+      (element.closest('.h-full.overflow-y-auto.overflow-x-hidden') as HTMLElement | null);
+    const eventTarget: EventTarget = scrollHost ?? window;
+    let frame = 0;
+
+    const update = () => {
+      frame = 0;
+      const topPx = Number.parseFloat(getComputedStyle(element).top || '0');
+      const rect = element.getBoundingClientRect();
+      const hostTopPx = scrollHost?.getBoundingClientRect().top ?? 0;
+      const distanceToSticky = rect.top - hostTopPx - topPx;
+      const rawProgress = 1 - distanceToSticky / 56;
+      const progress = Math.pow(Math.max(0, Math.min(1, rawProgress)), 1.2);
+      setStickyMorph((previous) => (Math.abs(previous - progress) < 0.015 ? previous : progress));
+    };
+
+    const queueUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(update);
+    };
+
+    update();
+    eventTarget.addEventListener('scroll', queueUpdate, { passive: true });
+    window.addEventListener('resize', queueUpdate);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      eventTarget.removeEventListener('scroll', queueUpdate);
+      window.removeEventListener('resize', queueUpdate);
+    };
+  }, [isExpanded, initiative.id]);
+
+  useEffect(() => {
     if (!isExpanded) return;
     if (!selectedNodeId && nodes.length > 0) {
       setSelectedNodeId(nodes[0]?.id ?? null);
@@ -411,15 +469,6 @@ export function InitiativeSection({
   const doneTaskCount = taskNodes.filter((node) => isDoneStatus(node.status)).length;
   const isExecutionActive = activeTaskCount > 0;
   const effectiveInitiativeStatus = initiative.status;
-  const executionBadge =
-    initiative.status === 'active'
-      ? isExecutionActive
-        ? { label: 'In Progress', className: 'border-[#BFFF00]/28 bg-[#BFFF00]/12 text-[#D8FFA1]' }
-        : todoTaskCount > 0
-          ? { label: 'Queued', className: 'border-white/[0.14] bg-white/[0.04] text-white/62' }
-          : { label: 'Idle', className: 'border-white/[0.14] bg-white/[0.035] text-white/55' }
-      : null;
-
   const budgetSourceNodes =
     taskNodes.length > 0
       ? taskNodes
@@ -460,15 +509,11 @@ export function InitiativeSection({
     computedProgress === null ? initiative.health : computedProgress
   );
   const progressFillPercent = progress === 0 ? 2 : progress;
-  const dueBadge = formatDueBadge(initiative.targetDate);
-  const dueBadgeClass =
-    dueBadge.tone === 'danger'
-      ? 'border-rose-400/35 bg-rose-500/10 text-rose-200'
-      : dueBadge.tone === 'warning'
-        ? 'border-amber-400/35 bg-amber-500/10 text-amber-200'
-        : dueBadge.tone === 'success'
-          ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200'
-          : 'border-white/[0.12] bg-white/[0.03] text-white/50';
+  const stickyMorphEased = Math.pow(stickyMorph, 0.82);
+  const headerCornerRadius = Math.max(0, Number((16 * (1 - stickyMorphEased)).toFixed(2)));
+  const stickyShadow =
+    `0 10px 26px rgba(0,0,0,${(0.18 + stickyMorphEased * 0.24).toFixed(3)}), ` +
+    `0 1px 0 rgba(191,255,0,${(stickyMorphEased * 0.09).toFixed(3)})`;
 
   const openNodeModal = (node: MissionControlNode) => {
     if (node.type === 'initiative') {
@@ -521,11 +566,13 @@ export function InitiativeSection({
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`surface-tier-1 overflow-hidden rounded-2xl transition-[background-color,border-color,box-shadow] duration-200 ${
+      className={`surface-tier-1 overflow-visible rounded-2xl transition-[background-color,border-color,box-shadow] duration-200 ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
       } ${selected ? 'ring-1 ring-[#BFFF00]/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''}`}
+      style={{ ['--mc-initiative-header-offset' as string]: `${initiativeHeaderOffset}px` }}
     >
       <div
+        ref={initiativeHeaderRef}
         role="button"
         tabIndex={0}
         aria-expanded={isExpanded}
@@ -536,12 +583,21 @@ export function InitiativeSection({
             toggleExpanded(initiative.id);
           }
         }}
-        className={`group flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.035] ${
+        className={`group flex min-w-0 w-full items-center gap-2.5 overflow-hidden px-3.5 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:px-4 ${
           isExpanded
-            ? 'sticky z-30 border-b border-white/[0.06] bg-[#0C0E14]/95 backdrop-blur-xl'
+            ? 'sticky z-30 border-b border-white/[0.06] bg-[#0C0E14]/95 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-xl'
             : ''
         }`}
-        style={isExpanded ? { top: 'var(--mc-toolbar-offset, 88px)' } : undefined}
+        style={
+          isExpanded
+            ? {
+                top: 'var(--mc-toolbar-offset, 88px)',
+                borderTopLeftRadius: `${headerCornerRadius}px`,
+                borderTopRightRadius: `${headerCornerRadius}px`,
+                boxShadow: stickyShadow,
+              }
+            : undefined
+        }
         >
           <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
@@ -580,48 +636,30 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            openModal({ type: 'initiative', entity: initiative });
-          }}
-          className="min-w-0 flex-1 truncate text-left text-[14px] font-semibold text-white transition-colors hover:text-white/80"
-          title={initiative.name}
-        >
-          {initiative.name}
-        </button>
+        <div className="min-w-0 flex-[1_1_260px] overflow-hidden pr-2">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openModal({ type: 'initiative', entity: initiative });
+            }}
+            className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[14px] font-semibold text-white transition-colors hover:text-white/80"
+            title={initiative.name}
+          >
+            {initiative.name}
+          </button>
+        </div>
 
-        <div className="flex w-[84px] flex-shrink-0 justify-center">
+        <div className="ml-1 flex w-[96px] min-w-[96px] flex-shrink-0 justify-start">
           <span
-            className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] whitespace-nowrap ${initiativeStatusClass[effectiveInitiativeStatus]}`}
+            className={`w-full truncate text-center text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusClass[effectiveInitiativeStatus]}`}
           >
             {formatEntityStatus(effectiveInitiativeStatus)}
           </span>
         </div>
 
-        {executionBadge && (
-          <div className="hidden w-[120px] flex-shrink-0 justify-center md:flex">
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] whitespace-nowrap ${executionBadge.className}`}
-              title="Execution state"
-            >
-              {executionBadge.label}
-            </span>
-          </div>
-        )}
-
-        <div className="hidden w-[116px] flex-shrink-0 justify-center md:flex">
-          <span
-            className={`inline-flex text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] whitespace-nowrap ${dueBadgeClass}`}
-            title={initiative.targetDate ? new Date(initiative.targetDate).toLocaleDateString() : 'No target date'}
-          >
-            {dueBadge.label}
-          </span>
-        </div>
-
-        <div className="ml-2 flex min-w-[104px] items-center justify-end gap-1.5 sm:min-w-[220px] sm:gap-2">
-          <div className="w-[92px] sm:w-[156px]">
+        <div className="ml-1.5 flex w-[166px] min-w-[166px] flex-shrink-0 items-center justify-end gap-2.5 md:w-[186px] md:min-w-[186px]">
+          <div className="min-w-[108px] flex-1 md:min-w-[126px]">
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
               <motion.div
                 className="h-full rounded-full transition-all"
@@ -635,21 +673,24 @@ export function InitiativeSection({
               />
             </div>
           </div>
-          <span className="w-8 text-right text-[10px] text-white/40 sm:w-10 sm:text-[11px]" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <span
+            className="w-10 text-right text-[11px] text-white/40"
+            style={{ fontVariantNumeric: 'tabular-nums' }}
+          >
             {progress}%
           </span>
         </div>
 
-        <div className="ml-1 flex w-[64px] flex-shrink-0 items-center justify-end sm:w-[80px]">
+        <div className="ml-2.5 flex w-[120px] min-w-[120px] flex-shrink-0 items-center justify-end overflow-hidden md:w-[136px] md:min-w-[136px]">
           {agents.length > 0 ? (
-            <InferredAgentAvatars agents={agents} max={5} />
+            <InferredAgentAvatars agents={agents} max={3} />
           ) : (
             <span className="text-[10px] text-white/28">—</span>
           )}
         </div>
 
         {/* Quick actions */}
-        <div className="flex w-[52px] flex-shrink-0 translate-x-1 items-center justify-end gap-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100 sm:w-[58px]">
+        <div className="hidden w-[46px] flex-shrink-0 translate-x-1 items-center justify-end gap-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100 2xl:flex">
           {initiative.status === 'active' && (
             <button
               type="button"
@@ -690,8 +731,10 @@ export function InitiativeSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-            className="overflow-hidden"
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            onAnimationStart={() => setIsBodyAnimating(true)}
+            onAnimationComplete={() => setIsBodyAnimating(false)}
+            className={isBodyAnimating ? 'overflow-hidden' : 'overflow-visible'}
           >
             <div className="space-y-2.5 px-4 pb-4 pt-2.5">
               {/* Gradient divider instead of hard border */}
@@ -842,8 +885,8 @@ export function InitiativeSection({
                       title="Hierarchy"
                       storageKey={`hierarchy.${initiative.id}`}
                       defaultOpen
-                      sticky
-                      stickyTop="calc(var(--mc-toolbar-offset, 88px) + 52px)"
+                      sticky={!isBodyAnimating}
+                      stickyTop="calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px))"
                     >
                       <HierarchyTreeTable
                         nodes={nodes}
