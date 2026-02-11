@@ -4,10 +4,10 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+
+import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
+import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 
 export type AgentRunStatus = "running" | "stopped";
 
@@ -32,14 +32,21 @@ type PersistedAgentRuns = {
   runs: Record<string, AgentRunRecord>;
 };
 
-const RUN_DIR = join(homedir(), ".config", "useorgx", "openclaw-plugin");
-const RUN_FILE = join(RUN_DIR, "agent-runs.json");
 const MAX_RUNS = 240;
 
+function runDir(): string {
+  return getOrgxPluginConfigDir();
+}
+
+function runFile(): string {
+  return getOrgxPluginConfigPath("agent-runs.json");
+}
+
 function ensureRunDir(): void {
-  mkdirSync(RUN_DIR, { recursive: true, mode: 0o700 });
+  const dir = runDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(RUN_DIR, 0o700);
+    chmodSync(dir, 0o700);
   } catch {
     // best effort
   }
@@ -78,12 +85,15 @@ function normalizeRecord(input: AgentRunRecord): AgentRunRecord {
 }
 
 export function readAgentRuns(): PersistedAgentRuns {
+  const file = runFile();
   try {
-    if (!existsSync(RUN_FILE)) {
+    if (!existsSync(file)) {
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
-    const parsed = parseJson<PersistedAgentRuns>(readFileSync(RUN_FILE, "utf8"));
+    const raw = readFileSync(file, "utf8");
+    const parsed = parseJson<PersistedAgentRuns>(raw);
     if (!parsed || typeof parsed !== "object") {
+      backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
     const runs = parsed.runs && typeof parsed.runs === "object" ? parsed.runs : {};
@@ -152,15 +162,8 @@ export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppe
     }
   }
 
-  writeFileSync(RUN_FILE, JSON.stringify(next, null, 2), {
-    mode: 0o600,
-    encoding: "utf8",
-  });
-  try {
-    chmodSync(RUN_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = runFile();
+  writeJsonFileAtomicSync(file, next, 0o600);
 
   return next;
 }
@@ -194,10 +197,10 @@ export function markAgentRunStopped(runId: string): AgentRunRecord | null {
 }
 
 export function clearAgentRuns(): void {
+  const file = runFile();
   try {
-    rmSync(RUN_FILE, { force: true });
+    rmSync(file, { force: true });
   } catch {
     // best effort
   }
 }
-

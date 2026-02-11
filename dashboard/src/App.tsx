@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
@@ -12,12 +12,10 @@ import { Modal } from '@/components/shared/Modal';
 import { MobileTabBar } from '@/components/shared/MobileTabBar';
 import type { MobileTab } from '@/components/shared/MobileTabBar';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
-import { SessionInspector } from '@/components/sessions/SessionInspector';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
 import { PremiumCard } from '@/components/shared/PremiumCard';
-import { MissionControlView } from '@/components/mission-control';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
 import { SettingsModal, type SettingsTab } from '@/components/settings/SettingsModal';
@@ -25,6 +23,16 @@ import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
 type OnboardingController = ReturnType<typeof useOnboarding>;
+
+const LazyMissionControlView = lazy(async () => {
+  const mod = await import('@/components/mission-control/MissionControlView');
+  return { default: mod.MissionControlView };
+});
+
+const LazySessionInspector = lazy(async () => {
+  const mod = await import('@/components/sessions/SessionInspector');
+  return { default: mod.SessionInspector };
+});
 
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
@@ -241,6 +249,10 @@ function DashboardShell({
     openSettings('orgx');
   }, [openSettings]);
 
+  const prefetchMissionControl = useCallback(() => {
+    void import('@/components/mission-control/MissionControlView');
+  }, []);
+
   // Dashboard view toggle: Activity (3-column) vs Mission Control
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -310,6 +322,7 @@ function DashboardShell({
   }, [activityFilterSessionId, data.sessions.nodes]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
+    void import('@/components/sessions/SessionInspector');
     setSelectedSessionId(sessionId);
     setSessionDrawerOpen(true);
     setActivityFilterSessionId(sessionId);
@@ -1107,18 +1120,20 @@ function DashboardShell({
               >
                 Activity
               </button>
-              <button
-                type="button"
-                onClick={() => switchDashboardView('mission-control')}
-                aria-pressed={dashboardView === 'mission-control'}
-                className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
-                  dashboardView === 'mission-control'
-                    ? 'bg-white/[0.1] text-white'
-                    : 'text-white/55 hover:text-white/85'
-                }`}
-              >
-                Mission Control
-              </button>
+	            <button
+	              type="button"
+	              onClick={() => switchDashboardView('mission-control')}
+	              onMouseEnter={prefetchMissionControl}
+	              onFocus={prefetchMissionControl}
+	              aria-pressed={dashboardView === 'mission-control'}
+	              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+	                dashboardView === 'mission-control'
+	                  ? 'bg-white/[0.1] text-white'
+	                  : 'text-white/55 hover:text-white/85'
+	              }`}
+	            >
+	              Mission Control
+	            </button>
             </div>
           </div>
 
@@ -1352,13 +1367,15 @@ function DashboardShell({
               Mission Control now includes a dependency map plus expandable hierarchy rows for initiatives, workstreams, milestones, and tasks.
             </span>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => switchDashboardView('mission-control')}
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-[11px] text-[#D8FFA1]"
-              >
-                Open
-              </button>
+	              <button
+	                type="button"
+	                onClick={() => switchDashboardView('mission-control')}
+	                onMouseEnter={prefetchMissionControl}
+	                onFocus={prefetchMissionControl}
+	                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-[11px] text-[#D8FFA1]"
+	              >
+	                Open
+	              </button>
               <button
                 type="button"
                 onClick={() => setDismissedMissionControlWelcome(true)}
@@ -1387,24 +1404,32 @@ function DashboardShell({
         ))}
       </div>
 
-      {dashboardView === 'mission-control' ? (
-        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <MissionControlView
-            initiatives={mcInitiatives}
-            activities={[]}
-            agents={[]}
-            isLoading={isLoading}
-            authToken={null}
-            embedMode={false}
-            connection={data.connection}
-            lastSnapshotAt={data.lastSnapshotAt}
-            error={error}
-            hasApiKey={onboarding.state.hasApiKey}
-            onOpenSettings={() => openSettings('orgx')}
-            onRefresh={refetch}
-          />
-        </div>
-      ) : (
+	      {dashboardView === 'mission-control' ? (
+	        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
+	          <Suspense
+	            fallback={
+	              <div className="flex flex-1 items-center justify-center text-[12px] text-white/50">
+	                Loading Mission Control…
+	              </div>
+	            }
+	          >
+	            <LazyMissionControlView
+	              initiatives={mcInitiatives}
+	              activities={[]}
+	              agents={[]}
+	              isLoading={isLoading}
+	              authToken={null}
+	              embedMode={false}
+	              connection={data.connection}
+	              lastSnapshotAt={data.lastSnapshotAt}
+	              error={error}
+	              hasApiKey={onboarding.state.hasApiKey}
+	              onOpenSettings={() => openSettings('orgx')}
+	              onRefresh={refetch}
+	            />
+	          </Suspense>
+	        </div>
+	      ) : (
       <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
         {/* Decision Urgency Banner */}
         {decisionsVisible && data.decisions.length > 0 && expandedRightPanel !== 'decisions' && (
@@ -1584,26 +1609,32 @@ function DashboardShell({
                     <path d="M18 6L6 18" /><path d="M6 6l12 12" />
                   </svg>
                 </button>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <SessionInspector
-                  session={selectedSession}
-                  activity={data.activity}
-                  initiatives={initiatives}
-                  onContinueHighestPriority={continueHighestPriority}
-                  onDispatchSession={dispatchSession}
-                  onPauseSession={pauseSession}
-                  onResumeSession={resumeSession}
-                  onCancelSession={cancelSession}
-                  onCreateCheckpoint={createSessionCheckpoint}
-                  onRollbackSession={rollbackSession}
-                  onStartInitiative={startInitiative}
-                  onStartWorkstream={startWorkstream}
-                />
-              </div>
-            </motion.div>
-          </>
-        )}
+	              </div>
+	              <div className="flex-1 min-h-0 overflow-y-auto">
+	                <Suspense
+	                  fallback={
+	                    <div className="p-4 text-[12px] text-white/50">Loading session detail…</div>
+	                  }
+	                >
+	                  <LazySessionInspector
+	                    session={selectedSession}
+	                    activity={data.activity}
+	                    initiatives={initiatives}
+	                    onContinueHighestPriority={continueHighestPriority}
+	                    onDispatchSession={dispatchSession}
+	                    onPauseSession={pauseSession}
+	                    onResumeSession={resumeSession}
+	                    onCancelSession={cancelSession}
+	                    onCreateCheckpoint={createSessionCheckpoint}
+	                    onRollbackSession={rollbackSession}
+	                    onStartInitiative={startInitiative}
+	                    onStartWorkstream={startWorkstream}
+	                  />
+	                </Suspense>
+	              </div>
+	            </motion.div>
+	          </>
+	        )}
       </AnimatePresence>
 
       <MobileTabBar

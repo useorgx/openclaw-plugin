@@ -4,7 +4,6 @@
  * Events are flushed on next successful sync.
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   readFile,
@@ -18,7 +17,11 @@ import {
 import { randomUUID } from "node:crypto";
 import type { LiveActivityItem } from "./types.js";
 
-const OUTBOX_DIR = join(homedir(), ".openclaw", "orgx-outbox");
+import { getOrgxOutboxDir } from "./paths.js";
+
+function outboxDir(): string {
+  return getOrgxOutboxDir();
+}
 
 function isSafeOutboxSessionId(value: string): boolean {
   const normalized = value.trim();
@@ -63,16 +66,17 @@ export interface OutboxSummary {
 }
 
 async function ensureDir(): Promise<void> {
+  const dir = outboxDir();
   try {
-    await mkdir(OUTBOX_DIR, { recursive: true, mode: 0o700 });
-    await hardenPath(OUTBOX_DIR, 0o700);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await hardenPath(dir, 0o700);
   } catch {
     // Directory may already exist
   }
 }
 
 function outboxPath(sessionId: string): string {
-  return join(OUTBOX_DIR, `${normalizeSessionId(sessionId)}.json`);
+  return join(outboxDir(), `${normalizeSessionId(sessionId)}.json`);
 }
 
 async function backupCorruptOutboxFile(targetPath: string): Promise<void> {
@@ -173,7 +177,7 @@ export async function replaceOutbox(
 export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
   try {
     await ensureDir();
-    const files = await readdir(OUTBOX_DIR);
+    const files = await readdir(outboxDir());
     const items: LiveActivityItem[] = [];
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
@@ -198,7 +202,7 @@ export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
 export async function readOutboxSummary(): Promise<OutboxSummary> {
   try {
     await ensureDir();
-    const files = await readdir(OUTBOX_DIR);
+    const files = await readdir(outboxDir());
     const pendingByQueue: Record<string, number> = {};
     let pendingTotal = 0;
     let oldestEpoch = Number.POSITIVE_INFINITY;

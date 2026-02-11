@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
@@ -388,6 +388,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearAgentFilter,
   onFocusRunId,
 }: ActivityTimelineProps) {
+  const prefersReducedMotion = useReducedMotion();
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -822,6 +823,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       .map((d) => d.item);
   }, [isSingleSession, decoratedActivity, selectedRunIdSet]);
 
+  const enableItemMotion = !prefersReducedMotion && filtered.length <= 160;
+
   const renderItem = (decorated: DecoratedActivityItem, index: number) => {
     const item = decorated.item;
     const color = typeColor[item.type] ?? colors.iris;
@@ -843,6 +846,99 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       minute: '2-digit',
     });
 
+    const commonClassName =
+      "group w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+
+    if (!enableItemMotion) {
+      return (
+        <button
+          type="button"
+          key={item.id}
+          onClick={() => {
+            setDetailDirection(1);
+            setActiveItemId(item.id);
+          }}
+          className={cn(
+            commonClassName,
+            "transform-gpu transition-[transform,background-color,border-color,color] hover:-translate-y-[1px] active:scale-[0.995]"
+          )}
+          aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex flex-col items-center gap-1.5">
+              <AgentAvatar
+                name={item.agentName ?? 'OrgX'}
+                hint={`${item.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
+                size="xs"
+              />
+              <span
+                className={cn('h-2.5 w-2.5 rounded-full', isRecent && 'pulse-soft')}
+                style={{
+                  backgroundColor: color,
+                  boxShadow: `0 0 16px ${color}77`,
+                }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/90">
+                    {displayTitle || humanizeText(item.title || labelForType(item.type))}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-white/45">
+                    {item.agentName ?? 'OrgX'}
+                    {sessionStatus ? ` · ${sessionStatus}` : ''}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 text-right">
+                  <span className="text-[10px] uppercase tracking-[0.1em] text-white/35">
+                    {labelForType(item.type)}
+                  </span>
+                  <span className="text-[11px] text-white/55">{timeLabel}</span>
+                </div>
+              </div>
+
+              {(displaySummary || displayDesc) && (
+                <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-white/55">
+                  <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
+                </div>
+              )}
+
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span
+                  className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
+                  style={{
+                    borderColor: `${kindColor}66`,
+                    color: kindColor,
+                  }}
+                >
+                  {kindLabel}
+                </span>
+                <span className="rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/55">
+                  {runLabel}
+                </span>
+                {sessionStatus && (
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-1.5 py-0.5 uppercase tracking-[0.08em] text-white/50">
+                    {sessionStatus}
+                  </span>
+                )}
+                <span className="text-white/50">{formatRelativeTime(item.timestamp)}</span>
+                {initiativeName && (
+                  <span
+                    className="rounded-full border border-white/[0.08] bg-white/[0.02] px-1.5 py-0.5 text-white/35 truncate max-w-[120px]"
+                    title={initiativeName}
+                  >
+                    {initiativeName}
+                  </span>
+                )}
+                {metadataJson && <span className="text-white/35">meta</span>}
+              </div>
+            </div>
+          </div>
+        </button>
+      );
+    }
+
     return (
       <motion.button
         type="button"
@@ -858,7 +954,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           setDetailDirection(1);
           setActiveItemId(item.id);
         }}
-        className="group w-full rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-left transition-colors hover:border-white/[0.14] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45"
+        className={commonClassName}
         aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
       >
         <div className="flex items-start gap-3">
@@ -1146,49 +1242,82 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="space-y-4">
             {deduplicatedGrouped.map((group) => {
               const visibleClusters = collapsed ? group.clusters.slice(0, 4) : group.clusters;
-              return (
-                <section key={group.key}>
-                  <h3 className="mb-2.5 border-b border-white/[0.06] pb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/35">
-                    {group.label}
-                  </h3>
-                  <AnimatePresence mode="popLayout">
-                    <div className="space-y-2">
-                      {visibleClusters.map((cluster, index) => {
-                        const isExpanded = expandedClusters.has(cluster.key);
-                        if (cluster.count === 1) {
-                          return renderItem(cluster.representative, index);
-                        }
-                        return (
-                          <div key={cluster.key}>
-                            {renderItem(cluster.representative, index)}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
-                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
-                            >
-                              <span className="font-semibold">×{cluster.count}</span>
-                              <span className="text-white/35">·</span>
-                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
-                                <path d="m6 9 6 6 6-6" />
-                              </svg>
-                            </button>
-                            {isExpanded && (
-                              <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
-                                {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </AnimatePresence>
-                  {collapsed && group.clusters.length > visibleClusters.length && (
-                    <p className="mt-1.5 text-[11px] text-white/35">
-                      +{group.clusters.length - visibleClusters.length} more
-                    </p>
-                  )}
-                </section>
+	              return (
+	                <section key={group.key}>
+	                  <h3 className="mb-2.5 border-b border-white/[0.06] pb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/35">
+	                    {group.label}
+	                  </h3>
+	                  {enableItemMotion ? (
+	                    <AnimatePresence mode="popLayout">
+	                      <div className="space-y-2">
+	                        {visibleClusters.map((cluster, index) => {
+	                          const isExpanded = expandedClusters.has(cluster.key);
+	                          if (cluster.count === 1) {
+	                            return renderItem(cluster.representative, index);
+	                          }
+	                          return (
+	                            <div key={cluster.key}>
+	                              {renderItem(cluster.representative, index)}
+	                              <button
+	                                type="button"
+	                                onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
+	                                className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+	                              >
+	                                <span className="font-semibold">×{cluster.count}</span>
+	                                <span className="text-white/35">·</span>
+	                                <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+	                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
+	                                  <path d="m6 9 6 6 6-6" />
+	                                </svg>
+	                              </button>
+	                              {isExpanded && (
+	                                <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
+	                                  {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
+	                                </div>
+	                              )}
+	                            </div>
+	                          );
+	                        })}
+	                      </div>
+	                    </AnimatePresence>
+	                  ) : (
+	                    <div className="space-y-2">
+	                      {visibleClusters.map((cluster, index) => {
+	                        const isExpanded = expandedClusters.has(cluster.key);
+	                        if (cluster.count === 1) {
+	                          return renderItem(cluster.representative, index);
+	                        }
+	                        return (
+	                          <div key={cluster.key}>
+	                            {renderItem(cluster.representative, index)}
+	                            <button
+	                              type="button"
+	                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
+	                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+	                            >
+	                              <span className="font-semibold">×{cluster.count}</span>
+	                              <span className="text-white/35">·</span>
+	                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+	                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
+	                                <path d="m6 9 6 6 6-6" />
+	                              </svg>
+	                            </button>
+	                            {isExpanded && (
+	                              <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
+	                                {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
+	                              </div>
+	                            )}
+	                          </div>
+	                        );
+	                      })}
+	                    </div>
+	                  )}
+	                  {collapsed && group.clusters.length > visibleClusters.length && (
+	                    <p className="mt-1.5 text-[11px] text-white/35">
+	                      +{group.clusters.length - visibleClusters.length} more
+	                    </p>
+	                  )}
+	                </section>
               );
             })}
 

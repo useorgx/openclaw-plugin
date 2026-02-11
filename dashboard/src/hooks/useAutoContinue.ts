@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AutoContinueStatusResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
+import { buildOrgxHeaders } from '@/lib/http';
 
 interface UseAutoContinueOptions {
   initiativeId?: string | null;
@@ -14,13 +15,6 @@ type AutoContinueStartInput = {
   tokenBudgetTokens?: number;
   agentId?: string;
 };
-
-function buildHeaders(input: { authToken: string | null; embedMode: boolean }): Record<string, string> | undefined {
-  const headers: Record<string, string> = {};
-  if (input.embedMode) headers['X-Orgx-Embed'] = 'true';
-  if (input.authToken) headers.Authorization = `Bearer ${input.authToken}`;
-  return Object.keys(headers).length > 0 ? headers : undefined;
-}
 
 export function useAutoContinue({
   initiativeId = null,
@@ -45,7 +39,7 @@ export function useAutoContinue({
       }
       const response = await fetch(
         `/orgx/api/mission-control/auto-continue/status?${params.toString()}`,
-        { headers: buildHeaders({ authToken, embedMode }) }
+        { headers: buildOrgxHeaders({ authToken, embedMode }) }
       );
 
       const body = (await response.json().catch(() => null)) as
@@ -69,7 +63,13 @@ export function useAutoContinue({
 
       return body as AutoContinueStatusResponse;
     },
-    refetchInterval: 2_500,
+    // Poll frequently only while a run is active; otherwise back off to keep the UI snappy.
+    refetchInterval: (query) => {
+      const data = query.state.data as AutoContinueStatusResponse | undefined;
+      const status = data?.run?.status ?? null;
+      if (status === 'running' || status === 'stopping') return 2_500;
+      return 12_000;
+    },
   });
 
   const invalidateRelated = async () => {
@@ -99,10 +99,7 @@ export function useAutoContinue({
 
       const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(buildHeaders({ authToken, embedMode }) ?? {}),
-        },
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify(payload),
       });
 
@@ -146,10 +143,7 @@ export function useAutoContinue({
 
       const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(buildHeaders({ authToken, embedMode }) ?? {}),
-        },
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify(payload),
       });
 
@@ -199,4 +193,3 @@ export function useAutoContinue({
     refetch: statusQuery.refetch,
   };
 }
-

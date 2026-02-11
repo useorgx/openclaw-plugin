@@ -1,11 +1,17 @@
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { mkdirSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 
 import type { OrgSnapshot } from './types.js';
 
-const SNAPSHOT_DIR = join(homedir(), '.config', 'useorgx', 'openclaw-plugin');
-const SNAPSHOT_FILE = join(SNAPSHOT_DIR, 'snapshot.json');
+import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from './paths.js';
+import { backupCorruptFileSync, writeJsonFileAtomicSync } from './fs-utils.js';
+
+function snapshotDir(): string {
+  return getOrgxPluginConfigDir();
+}
+
+function snapshotFile(): string {
+  return getOrgxPluginConfigPath('snapshot.json');
+}
 
 interface PersistedSnapshot {
   snapshot: OrgSnapshot;
@@ -13,9 +19,10 @@ interface PersistedSnapshot {
 }
 
 function ensureSnapshotDir(): void {
-  mkdirSync(SNAPSHOT_DIR, { recursive: true, mode: 0o700 });
+  const dir = snapshotDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(SNAPSHOT_DIR, 0o700);
+    chmodSync(dir, 0o700);
   } catch {
     // best effort
   }
@@ -30,9 +37,15 @@ function parseJson<T>(value: string): T | null {
 }
 
 export function readPersistedSnapshot(): PersistedSnapshot | null {
+  const file = snapshotFile();
   try {
-    if (!existsSync(SNAPSHOT_FILE)) return null;
-    const parsed = parseJson<PersistedSnapshot>(readFileSync(SNAPSHOT_FILE, 'utf8'));
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, 'utf8');
+    const parsed = parseJson<PersistedSnapshot>(raw);
+    if (!parsed) {
+      backupCorruptFileSync(file);
+      return null;
+    }
     if (!parsed || typeof parsed.updatedAt !== 'string') return null;
     if (!parsed.snapshot || typeof parsed.snapshot !== 'object') return null;
     return parsed;
@@ -48,22 +61,16 @@ export function writePersistedSnapshot(snapshot: OrgSnapshot): PersistedSnapshot
     updatedAt: new Date().toISOString(),
   };
 
-  writeFileSync(SNAPSHOT_FILE, JSON.stringify(record, null, 2), {
-    mode: 0o600,
-    encoding: 'utf8',
-  });
-  try {
-    chmodSync(SNAPSHOT_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = snapshotFile();
+  writeJsonFileAtomicSync(file, record, 0o600);
 
   return record;
 }
 
 export function clearPersistedSnapshot(): void {
+  const file = snapshotFile();
   try {
-    rmSync(SNAPSHOT_FILE, { force: true });
+    rmSync(file, { force: true });
   } catch {
     // best effort
   }

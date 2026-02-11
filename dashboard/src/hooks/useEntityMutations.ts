@@ -1,16 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-
-function buildHeaders(opts: {
-  authToken?: string | null;
-  embedMode?: boolean;
-}): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (opts.embedMode) headers['X-Orgx-Embed'] = 'true';
-  if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`;
-  return headers;
-}
+import { buildOrgxHeaders } from '@/lib/http';
 
 async function throwOnError(res: Response) {
   if (!res.ok) {
@@ -59,7 +48,11 @@ interface EntityActionInput {
 
 export function useEntityMutations(ctx: MutationContext) {
   const queryClient = useQueryClient();
-  const headers = buildHeaders(ctx);
+  const headers = buildOrgxHeaders({
+    authToken: ctx.authToken,
+    embedMode: ctx.embedMode,
+    contentTypeJson: true,
+  });
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['live-data'] });

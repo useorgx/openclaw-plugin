@@ -1,11 +1,20 @@
-import { mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { mkdirSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-const AUTH_DIR = join(homedir(), '.config', 'useorgx', 'openclaw-plugin');
-const AUTH_FILE = join(AUTH_DIR, 'auth.json');
-const INSTALLATION_FILE = join(AUTH_DIR, 'installation.json');
+import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from './paths.js';
+import { backupCorruptFileSync, writeJsonFileAtomicSync } from './fs-utils.js';
+
+function authDir(): string {
+  return getOrgxPluginConfigDir();
+}
+
+function authFile(): string {
+  return getOrgxPluginConfigPath('auth.json');
+}
+
+function installationFile(): string {
+  return getOrgxPluginConfigPath('installation.json');
+}
 
 export interface PersistedAuthRecord {
   apiKey: string;
@@ -29,9 +38,10 @@ function isUserScopedApiKey(apiKey: string): boolean {
 }
 
 function ensureAuthDir(): void {
-  mkdirSync(AUTH_DIR, { recursive: true, mode: 0o700 });
+  const dir = authDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(AUTH_DIR, 0o700);
+    chmodSync(dir, 0o700);
   } catch {
     // best effort
   }
@@ -46,13 +56,19 @@ function parseJson<T>(value: string): T | null {
 }
 
 export function getAuthFilePath(): string {
-  return AUTH_FILE;
+  return authFile();
 }
 
 export function readPersistedAuth(): PersistedAuthRecord | null {
+  const file = authFile();
   try {
-    if (!existsSync(AUTH_FILE)) return null;
-    const parsed = parseJson<PersistedAuthRecord>(readFileSync(AUTH_FILE, 'utf8'));
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, 'utf8');
+    const parsed = parseJson<PersistedAuthRecord>(raw);
+    if (!parsed) {
+      backupCorruptFileSync(file);
+      return null;
+    }
     if (!parsed || typeof parsed.apiKey !== 'string' || parsed.apiKey.trim().length === 0) {
       return null;
     }
@@ -66,15 +82,7 @@ export function readPersistedAuth(): PersistedAuthRecord | null {
         userId: null,
         updatedAt: new Date().toISOString(),
       };
-      writeFileSync(AUTH_FILE, JSON.stringify(sanitized, null, 2), {
-        mode: 0o600,
-        encoding: 'utf8',
-      });
-      try {
-        chmodSync(AUTH_FILE, 0o600);
-      } catch {
-        // best effort
-      }
+      writeJsonFileAtomicSync(file, sanitized, 0o600);
       return sanitized;
     }
     return parsed;
@@ -103,31 +111,31 @@ export function writePersistedAuth(
     updatedAt: now,
   };
 
-  writeFileSync(AUTH_FILE, JSON.stringify(next, null, 2), {
-    mode: 0o600,
-    encoding: 'utf8',
-  });
-  try {
-    chmodSync(AUTH_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = authFile();
+  writeJsonFileAtomicSync(file, next, 0o600);
 
   return next;
 }
 
 export function clearPersistedAuth(): void {
+  const file = authFile();
   try {
-    rmSync(AUTH_FILE, { force: true });
+    rmSync(file, { force: true });
   } catch {
     // best effort
   }
 }
 
 function readInstallationRecord(): InstallationRecord | null {
+  const file = installationFile();
   try {
-    if (!existsSync(INSTALLATION_FILE)) return null;
-    const parsed = parseJson<InstallationRecord>(readFileSync(INSTALLATION_FILE, 'utf8'));
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, 'utf8');
+    const parsed = parseJson<InstallationRecord>(raw);
+    if (!parsed) {
+      backupCorruptFileSync(file);
+      return null;
+    }
     if (!parsed || typeof parsed.installationId !== 'string') return null;
     if (parsed.installationId.trim().length < 6) return null;
     return parsed;
@@ -149,15 +157,8 @@ export function getOrCreateInstallationId(): string {
     updatedAt: now,
   };
 
-  writeFileSync(INSTALLATION_FILE, JSON.stringify(record, null, 2), {
-    mode: 0o600,
-    encoding: 'utf8',
-  });
-  try {
-    chmodSync(INSTALLATION_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = installationFile();
+  writeJsonFileAtomicSync(file, record, 0o600);
 
   return installationId;
 }

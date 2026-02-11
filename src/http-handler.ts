@@ -967,6 +967,12 @@ function resolveSafeDistPath(subPath: string): string | null {
 // Helpers
 // =============================================================================
 
+const IMMUTABLE_FILE_CACHE = new Map<
+  string,
+  { content: Buffer; contentType: string }
+>();
+const IMMUTABLE_FILE_CACHE_MAX = 128;
+
 function sendJson(
   res: PluginResponse,
   status: number,
@@ -975,6 +981,8 @@ function sendJson(
   const body = JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
+    // Avoid browser/proxy caching for live dashboards.
+    "Cache-Control": "no-store",
     ...SECURITY_HEADERS,
     ...CORS_HEADERS,
   });
@@ -987,9 +995,32 @@ function sendFile(
   cacheControl: string
 ): void {
   try {
+    const shouldCacheImmutable = cacheControl.includes("immutable");
+    if (shouldCacheImmutable) {
+      const cached = IMMUTABLE_FILE_CACHE.get(filePath);
+      if (cached) {
+        res.writeHead(200, {
+          "Content-Type": cached.contentType,
+          "Cache-Control": cacheControl,
+          ...SECURITY_HEADERS,
+          ...CORS_HEADERS,
+        });
+        res.end(cached.content);
+        return;
+      }
+    }
+
     const content = readFileSync(filePath);
+    const type = contentType(filePath);
+    if (shouldCacheImmutable) {
+      if (IMMUTABLE_FILE_CACHE.size >= IMMUTABLE_FILE_CACHE_MAX) {
+        const firstKey = IMMUTABLE_FILE_CACHE.keys().next().value as string | undefined;
+        if (firstKey) IMMUTABLE_FILE_CACHE.delete(firstKey);
+      }
+      IMMUTABLE_FILE_CACHE.set(filePath, { content, contentType: type });
+    }
     res.writeHead(200, {
-      "Content-Type": contentType(filePath),
+      "Content-Type": type,
       "Cache-Control": cacheControl,
       ...SECURITY_HEADERS,
       ...CORS_HEADERS,
@@ -5423,28 +5454,38 @@ export function createHttpHandler(
             sendJson(res, 501, { error: "Streaming not supported" });
             return true;
           }
-          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
-          const streamAbortController = new AbortController();
-          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-          let closed = false;
-          let streamOpened = false;
-          let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
+	          const streamAbortController = new AbortController();
+	          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+	          let closed = false;
+	          let streamOpened = false;
+	          let idleTimer: ReturnType<typeof setTimeout> | null = null;
+	          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	          let heartbeatBackpressure = false;
 
-          const clearIdleTimer = () => {
-            if (idleTimer) {
-              clearTimeout(idleTimer);
-              idleTimer = null;
-            }
-          };
+	          const clearIdleTimer = () => {
+	            if (idleTimer) {
+	              clearTimeout(idleTimer);
+	              idleTimer = null;
+	            }
+	          };
 
-          const closeStream = () => {
-            if (closed) return;
-            closed = true;
-            clearIdleTimer();
-            streamAbortController.abort();
-            if (reader) {
-              void reader.cancel().catch(() => undefined);
-            }
+	          const clearHeartbeatTimer = () => {
+	            if (heartbeatTimer) {
+	              clearInterval(heartbeatTimer);
+	              heartbeatTimer = null;
+	            }
+	          };
+
+	          const closeStream = () => {
+	            if (closed) return;
+	            closed = true;
+	            clearIdleTimer();
+	            clearHeartbeatTimer();
+	            streamAbortController.abort();
+	            if (reader) {
+	              void reader.cancel().catch(() => undefined);
+	            }
             if (streamOpened && !res.writableEnded) {
               res.end();
             }
@@ -5488,19 +5529,43 @@ export function createHttpHandler(
               return true;
             }
 
-            res.writeHead(200, {
-              "Content-Type": "text/event-stream; charset=utf-8",
-              "Cache-Control": "no-cache, no-transform",
-              Connection: "keep-alive",
-              ...SECURITY_HEADERS,
-              ...CORS_HEADERS,
-            });
-            streamOpened = true;
+	            res.writeHead(200, {
+	              "Content-Type": "text/event-stream; charset=utf-8",
+	              "Cache-Control": "no-cache, no-transform",
+	              Connection: "keep-alive",
+	              ...SECURITY_HEADERS,
+	              ...CORS_HEADERS,
+	            });
+	            streamOpened = true;
 
-            if (!upstream.body) {
-              closeStream();
-              return true;
-            }
+	            // Heartbeat comments keep intermediary proxies from timing out idle SSE.
+	            // They also prevent the dashboard from flickering into reconnect mode
+	            // during long quiet periods.
+	            heartbeatTimer = setInterval(() => {
+	              if (closed || heartbeatBackpressure) return;
+	              try {
+	                // Keepalive comment line (single newline to avoid terminating an upstream event mid-chunk).
+	                const accepted = write(Buffer.from(`: ping ${Date.now()}\n`, "utf8"));
+	                resetIdleTimer();
+	                if (accepted === false) {
+	                  heartbeatBackpressure = true;
+	                  if (typeof res.once === "function") {
+	                    res.once("drain", () => {
+	                      heartbeatBackpressure = false;
+	                      if (!closed) resetIdleTimer();
+	                    });
+	                  }
+	                }
+	              } catch {
+	                closeStream();
+	              }
+	            }, 20_000);
+	            heartbeatTimer.unref?.();
+
+	            if (!upstream.body) {
+	              closeStream();
+	              return true;
+	            }
 
             req.on?.("close", closeStream);
             req.on?.("aborted", closeStream);

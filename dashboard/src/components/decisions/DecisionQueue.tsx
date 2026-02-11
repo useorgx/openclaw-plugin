@@ -1,9 +1,11 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { LiveDecision } from '@/types';
 import { formatRelativeTime } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+
+const PAGE_SIZE = 40;
 
 interface DecisionActionSummary {
   updated: number;
@@ -27,10 +29,12 @@ export const DecisionQueue = memo(function DecisionQueue({
   onApproveDecision,
   onApproveAll,
 }: DecisionQueueProps) {
+  const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);
   const [approving, setApproving] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const sorted = useMemo(
     () =>
@@ -59,7 +63,21 @@ export const DecisionQueue = memo(function DecisionQueue({
   }, [sorted]);
 
   const selectedCount = selected.size;
-  const allVisibleSelected = sorted.length > 0 && selectedCount === sorted.length;
+  const visible = useMemo(() => sorted.slice(0, visibleCount), [sorted, visibleCount]);
+  const allVisibleSelected = useMemo(() => {
+    if (visible.length === 0) return false;
+    for (const decision of visible) {
+      if (!selected.has(decision.id)) return false;
+    }
+    return true;
+  }, [selected, visible]);
+
+  useEffect(() => {
+    setVisibleCount((prev) => {
+      if (sorted.length === 0) return 0;
+      return Math.min(Math.max(PAGE_SIZE, prev), sorted.length);
+    });
+  }, [sorted.length]);
 
   const toggleSelect = (decisionId: string) => {
     setSelected((prev) => {
@@ -75,11 +93,17 @@ export const DecisionQueue = memo(function DecisionQueue({
 
   const toggleSelectAll = () => {
     setSelected((prev) => {
-      if (sorted.length === 0) return prev;
-      if (prev.size === sorted.length) {
-        return new Set();
+      if (visible.length === 0) return prev;
+      const next = new Set(prev);
+      const shouldClear = allVisibleSelected;
+      for (const decision of visible) {
+        if (shouldClear) {
+          next.delete(decision.id);
+        } else {
+          next.add(decision.id);
+        }
       }
-      return new Set(sorted.map((decision) => decision.id));
+      return next;
     });
   };
 
@@ -179,6 +203,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   };
 
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
+  const enableMotion = !prefersReducedMotion && visible.length <= 32;
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -226,8 +251,8 @@ export const DecisionQueue = memo(function DecisionQueue({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-        {sorted.length === 0 && (
+	      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+	        {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
             <svg
               width="24"
@@ -247,67 +272,134 @@ export const DecisionQueue = memo(function DecisionQueue({
           </div>
         )}
 
-        <AnimatePresence mode="popLayout">
-          {sorted.map((decision) => {
-            const isApproving = approving.has(decision.id);
-            const urgency = urgencyAccent(decision.waitingMinutes);
-            const isSelected = selected.has(decision.id);
-            return (
-              <motion.article
-                key={decision.id}
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                layout
-                className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow]"
-                style={{
-                  borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
-                  borderLeftWidth: 3,
-                  borderLeftColor: `${urgency.border}80`,
-                  boxShadow: urgency.glow,
-                }}
-              >
-                <div className="flex items-start gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelect(decision.id)}
-                    disabled={isApproving || isApprovingAll}
-                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium text-white">{decision.title}</p>
-                        {decision.context && (
-                          <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
-                            {decision.context}
-                          </p>
-                        )}
-                        <p className="mt-1.5 text-[10px] text-white/40">
-                          {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
-                          {decision.requestedAt
-                            ? ` · ${formatRelativeTime(decision.requestedAt)}`
-                            : ''}
-                        </p>
-                      </div>
+	        {enableMotion ? (
+	          <AnimatePresence mode="popLayout">
+	            {visible.map((decision) => {
+	              const isApproving = approving.has(decision.id);
+	              const urgency = urgencyAccent(decision.waitingMinutes);
+	              const isSelected = selected.has(decision.id);
+	              return (
+	                <motion.article
+	                  key={decision.id}
+	                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+	                  animate={{ opacity: 1, y: 0, scale: 1 }}
+	                  exit={{ opacity: 0, scale: 0.95 }}
+	                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+	                  layout
+	                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+	                  style={{
+	                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
+	                    borderLeftWidth: 3,
+	                    borderLeftColor: `${urgency.border}80`,
+	                    boxShadow: urgency.glow,
+	                  }}
+	                >
+	                  <div className="flex items-start gap-2.5">
+	                    <input
+	                      type="checkbox"
+	                      checked={isSelected}
+	                      onChange={() => toggleSelect(decision.id)}
+	                      disabled={isApproving || isApprovingAll}
+	                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+	                    />
+	                    <div className="min-w-0 flex-1">
+	                      <div className="flex items-start justify-between gap-3">
+	                        <div className="min-w-0 flex-1">
+	                          <p className="text-[13px] font-medium text-white">{decision.title}</p>
+	                          {decision.context && (
+	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
+	                              {decision.context}
+	                            </p>
+	                          )}
+	                          <p className="mt-1.5 text-[10px] text-white/40">
+	                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
+	                            {decision.requestedAt
+	                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
+	                              : ''}
+	                          </p>
+	                        </div>
+	
+	                        <button
+	                          onClick={() => handleApproveOne(decision.id)}
+	                          disabled={isApproving || isApprovingAll}
+	                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
+	                        >
+	                          {isApproving ? 'Approving…' : 'Approve'}
+	                        </button>
+	                      </div>
+	                    </div>
+	                  </div>
+	                </motion.article>
+	              );
+	            })}
+	          </AnimatePresence>
+	        ) : (
+	          <>
+	            {visible.map((decision) => {
+	              const isApproving = approving.has(decision.id);
+	              const urgency = urgencyAccent(decision.waitingMinutes);
+	              const isSelected = selected.has(decision.id);
+	              return (
+	                <article
+	                  key={decision.id}
+	                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+	                  style={{
+	                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
+	                    borderLeftWidth: 3,
+	                    borderLeftColor: `${urgency.border}80`,
+	                    boxShadow: urgency.glow,
+	                  }}
+	                >
+	                  <div className="flex items-start gap-2.5">
+	                    <input
+	                      type="checkbox"
+	                      checked={isSelected}
+	                      onChange={() => toggleSelect(decision.id)}
+	                      disabled={isApproving || isApprovingAll}
+	                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+	                    />
+	                    <div className="min-w-0 flex-1">
+	                      <div className="flex items-start justify-between gap-3">
+	                        <div className="min-w-0 flex-1">
+	                          <p className="text-[13px] font-medium text-white">{decision.title}</p>
+	                          {decision.context && (
+	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
+	                              {decision.context}
+	                            </p>
+	                          )}
+	                          <p className="mt-1.5 text-[10px] text-white/40">
+	                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
+	                            {decision.requestedAt
+	                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
+	                              : ''}
+	                          </p>
+	                        </div>
+	
+	                        <button
+	                          onClick={() => handleApproveOne(decision.id)}
+	                          disabled={isApproving || isApprovingAll}
+	                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
+	                        >
+	                          {isApproving ? 'Approving…' : 'Approve'}
+	                        </button>
+	                      </div>
+	                    </div>
+	                  </div>
+	                </article>
+	              );
+	            })}
+	          </>
+	        )}
 
-                      <button
-                        onClick={() => handleApproveOne(decision.id)}
-                        disabled={isApproving || isApprovingAll}
-                        className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
-                      >
-                        {isApproving ? 'Approving…' : 'Approve'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.article>
-            );
-          })}
-        </AnimatePresence>
-      </div>
+	        {visible.length < sorted.length && (
+	          <button
+	            onClick={() => setVisibleCount((prev) => Math.min(sorted.length, prev + PAGE_SIZE))}
+	            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05]"
+	          >
+	            Load more ({sorted.length - visible.length} remaining)
+	          </button>
+	        )}
+	      </div>
 
       {notice && (
         <div className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[12px] text-white/55">

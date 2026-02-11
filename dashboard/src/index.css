@@ -205,6 +205,14 @@
   }
 }
 
+@layer utilities {
+  /* Helps long scrolling lists stay snappy without manual virtualization. */
+  .cv-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 120px 1px;
+  }
+}
+
 @keyframes cardEnter {
   from {
     opacity: 0;

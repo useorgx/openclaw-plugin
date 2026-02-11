@@ -1,9 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
+import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 
-const CONFIG_DIR = join(homedir(), ".config", "useorgx", "openclaw-plugin");
-const BYOK_FILE = join(CONFIG_DIR, "byok.json");
+function configDir(): string {
+  return getOrgxPluginConfigDir();
+}
+
+function byokFile(): string {
+  return getOrgxPluginConfigPath("byok.json");
+}
 
 export interface ByokKeysRecord {
   openaiApiKey: string | null;
@@ -14,9 +19,10 @@ export interface ByokKeysRecord {
 }
 
 function ensureConfigDir(): void {
-  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const dir = configDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(CONFIG_DIR, 0o700);
+    chmodSync(dir, 0o700);
   } catch {
     // best effort
   }
@@ -38,9 +44,15 @@ function normalizeKey(value: unknown): string | null {
 }
 
 export function readByokKeys(): ByokKeysRecord | null {
+  const file = byokFile();
   try {
-    if (!existsSync(BYOK_FILE)) return null;
-    const parsed = parseJson<Partial<ByokKeysRecord>>(readFileSync(BYOK_FILE, "utf8"));
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, "utf8");
+    const parsed = parseJson<Partial<ByokKeysRecord>>(raw);
+    if (!parsed) {
+      backupCorruptFileSync(file);
+      return null;
+    }
     if (!parsed || typeof parsed !== "object") return null;
     const createdAt =
       typeof parsed.createdAt === "string" && parsed.createdAt.trim().length > 0
@@ -82,22 +94,16 @@ export function writeByokKeys(input: Partial<ByokKeysRecord>): ByokKeysRecord {
     updatedAt: now,
   };
 
-  writeFileSync(BYOK_FILE, JSON.stringify(next, null, 2), {
-    mode: 0o600,
-    encoding: "utf8",
-  });
-  try {
-    chmodSync(BYOK_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = byokFile();
+  writeJsonFileAtomicSync(file, next, 0o600);
 
   return next;
 }
 
 export function clearByokKeys(): void {
+  const file = byokFile();
   try {
-    rmSync(BYOK_FILE, { force: true });
+    rmSync(file, { force: true });
   } catch {
     // best effort
   }

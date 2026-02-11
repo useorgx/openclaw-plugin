@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ByokHealthResponse, ByokSettingsResponse } from '@/types';
+import { buildOrgxHeaders } from '@/lib/http';
 
 interface UseByokSettingsOptions {
   authToken?: string | null;
@@ -13,13 +14,6 @@ type ByokUpdateInput = {
   anthropicApiKey?: string | null;
   openrouterApiKey?: string | null;
 };
-
-function buildHeaders(input: { authToken: string | null; embedMode: boolean }): Record<string, string> | undefined {
-  const headers: Record<string, string> = {};
-  if (input.embedMode) headers['X-Orgx-Embed'] = 'true';
-  if (input.authToken) headers.Authorization = `Bearer ${input.authToken}`;
-  return Object.keys(headers).length > 0 ? headers : undefined;
-}
 
 export function useByokSettings({
   authToken = null,
@@ -42,7 +36,7 @@ export function useByokSettings({
     enabled,
     queryFn: async () => {
       const response = await fetch('/orgx/api/settings/byok', {
-        headers: buildHeaders({ authToken, embedMode }),
+        headers: buildOrgxHeaders({ authToken, embedMode }),
       });
       const body = (await response.json().catch(() => null)) as ByokSettingsResponse | { error?: string } | null;
       if (!response.ok) {
@@ -67,7 +61,7 @@ export function useByokSettings({
     enabled: false,
     queryFn: async () => {
       const response = await fetch('/orgx/api/settings/byok/health', {
-        headers: buildHeaders({ authToken, embedMode }),
+        headers: buildOrgxHeaders({ authToken, embedMode }),
       });
       const body = (await response.json().catch(() => null)) as ByokHealthResponse | { error?: string } | null;
       if (!response.ok) {
@@ -90,10 +84,7 @@ export function useByokSettings({
     mutationFn: async (input) => {
       const response = await fetch('/orgx/api/settings/byok', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(buildHeaders({ authToken, embedMode }) ?? {}),
-        },
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify(input ?? {}),
       });
       const body = (await response.json().catch(() => null)) as ByokSettingsResponse | { error?: string } | null;
@@ -119,4 +110,3 @@ export function useByokSettings({
     isProbing: healthQuery.isFetching,
   };
 }
-

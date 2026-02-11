@@ -4,10 +4,10 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+
+import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
+import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 
 export type AgentLaunchContext = {
   agentId: string;
@@ -23,14 +23,21 @@ type PersistedAgentContexts = {
   agents: Record<string, AgentLaunchContext>;
 };
 
-const CONTEXT_DIR = join(homedir(), ".config", "useorgx", "openclaw-plugin");
-const CONTEXT_FILE = join(CONTEXT_DIR, "agent-contexts.json");
 const MAX_AGENTS = 120;
 
+function contextDir(): string {
+  return getOrgxPluginConfigDir();
+}
+
+function contextFile(): string {
+  return getOrgxPluginConfigPath("agent-contexts.json");
+}
+
 function ensureContextDir(): void {
-  mkdirSync(CONTEXT_DIR, { recursive: true, mode: 0o700 });
+  const dir = contextDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    chmodSync(CONTEXT_DIR, 0o700);
+    chmodSync(dir, 0o700);
   } catch {
     // best effort
   }
@@ -56,14 +63,15 @@ function normalizeContext(input: AgentLaunchContext): AgentLaunchContext {
 }
 
 export function readAgentContexts(): PersistedAgentContexts {
+  const file = contextFile();
   try {
-    if (!existsSync(CONTEXT_FILE)) {
+    if (!existsSync(file)) {
       return { updatedAt: new Date().toISOString(), agents: {} };
     }
-    const parsed = parseJson<PersistedAgentContexts>(
-      readFileSync(CONTEXT_FILE, "utf8")
-    );
+    const raw = readFileSync(file, "utf8");
+    const parsed = parseJson<PersistedAgentContexts>(raw);
     if (!parsed || typeof parsed !== "object") {
+      backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), agents: {} };
     }
     const agents =
@@ -124,21 +132,15 @@ export function upsertAgentContext(input: {
     }
   }
 
-  writeFileSync(CONTEXT_FILE, JSON.stringify(next, null, 2), {
-    mode: 0o600,
-    encoding: "utf8",
-  });
-  try {
-    chmodSync(CONTEXT_FILE, 0o600);
-  } catch {
-    // best effort
-  }
+  const file = contextFile();
+  writeJsonFileAtomicSync(file, next, 0o600);
   return next;
 }
 
 export function clearAgentContexts(): void {
+  const file = contextFile();
   try {
-    rmSync(CONTEXT_FILE, { force: true });
+    rmSync(file, { force: true });
   } catch {
     // best effort
   }
