@@ -111,7 +111,7 @@ export function DependencyMapPanel({
   if (baseVisibleNodes.length === 0) return null;
 
   return (
-    <section className="space-y-2.5">
+    <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] uppercase tracking-[0.08em] text-white/42">
           {visibleNodes.length} nodes &middot; {visibleEdges.length} links
@@ -157,13 +157,13 @@ export function DependencyMapPanel({
       </div>
 
       {visibleNodes.length === 0 ? (
-        <div className="table-shell px-3 py-3 text-[11px] text-white/48">
+        <div className="rounded-xl border border-white/[0.07] bg-black/[0.14] px-3 py-3 text-[11px] text-white/48">
           No nodes match this view. Clear filters or select a different node to see connected work.
         </div>
       ) : (
         <div className={`grid gap-2 ${Object.values(grouped).filter(g => g.length > 0).length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
           {(Object.keys(grouped) as Array<keyof typeof grouped>).filter((groupKey) => grouped[groupKey].length > 0).map((groupKey) => (
-            <div key={groupKey} className="table-shell p-2.5">
+            <div key={groupKey} className="rounded-xl border border-white/[0.07] bg-black/[0.14] p-2.5">
               <div className="mb-1.5 text-[10px] uppercase tracking-[0.09em] text-white/45">
                 {groupLabel(groupKey)} ({grouped[groupKey].length})
               </div>
@@ -203,7 +203,7 @@ export function DependencyMapPanel({
       )}
 
       {visibleEdges.length > 0 && (
-        <div className="table-shell px-2.5 py-2">
+        <div className="rounded-xl border border-white/[0.07] bg-black/[0.14] px-2.5 py-2">
           <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-white/35">
             Dependency links
           </div>

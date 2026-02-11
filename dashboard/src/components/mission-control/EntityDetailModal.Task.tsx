@@ -8,6 +8,7 @@ import {
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
+import { EntityActionButton } from './EntityActionButton';
 
 interface TaskDetailProps {
   task: InitiativeTask;
@@ -18,25 +19,75 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const { agentEntityMap, openModal, mutations, closeModal } = useMissionControl();
   const agents = agentEntityMap.get(task.id) ?? agentEntityMap.get(initiative.id) ?? [];
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState(task.title);
+  const [draftDescription, setDraftDescription] = useState(task.description ?? '');
+  const [draftPriority, setDraftPriority] = useState(task.priority ?? '');
+  const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(task.dueDate));
+  const [draftStatus, setDraftStatus] = useState(task.status);
 
   const status = task.status.toLowerCase();
 
+  const isMutating =
+    mutations.entityAction.isPending ||
+    mutations.updateEntity.isPending ||
+    mutations.deleteEntity.isPending;
+
   const handleAction = (action: string) => {
+    setNotice(null);
     mutations.entityAction.mutate(
       { type: 'task', id: task.id, action },
-      { onSuccess: () => closeModal() },
+      {
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : 'Task action failed.');
+        },
+      },
+    );
+  };
+
+  const handleSaveEdits = () => {
+    const title = draftTitle.trim();
+    if (!title) {
+      setNotice('Task title is required.');
+      return;
+    }
+
+    setNotice(null);
+    mutations.updateEntity.mutate(
+      {
+        type: 'task',
+        id: task.id,
+        title,
+        description: draftDescription.trim() || null,
+        priority: draftPriority.trim() || null,
+        due_date: draftDueDate || null,
+        status: draftStatus,
+      },
+      {
+        onSuccess: () => {
+          setEditMode(false);
+          setNotice('Task updated.');
+        },
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : 'Failed to update task.');
+        },
+      },
     );
   };
 
   const handleDelete = () => {
+    setNotice(null);
     mutations.deleteEntity.mutate(
       { type: 'task', id: task.id },
-      { onSuccess: () => closeModal() },
+      {
+        onSuccess: () => closeModal(),
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : 'Failed to delete task.');
+        },
+      },
     );
   };
-
-  const isMutating =
-    mutations.entityAction.isPending || mutations.deleteEntity.isPending;
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
@@ -65,13 +116,73 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
               {formatEntityStatus(task.status)}
             </span>
           </div>
-          {task.description && (
+
+          {editMode ? (
+            <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Title</span>
+                <input
+                  type="text"
+                  value={draftTitle}
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Description</span>
+                <textarea
+                  value={draftDescription}
+                  onChange={(event) => setDraftDescription(event.target.value)}
+                  rows={3}
+                  className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                />
+              </label>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Priority</span>
+                  <input
+                    type="text"
+                    value={draftPriority}
+                    onChange={(event) => setDraftPriority(event.target.value)}
+                    placeholder="p1, high, p50"
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due date</span>
+                  <input
+                    type="date"
+                    value={draftDueDate}
+                    onChange={(event) => setDraftDueDate(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Status</span>
+                  <select
+                    value={draftStatus}
+                    onChange={(event) => setDraftStatus(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                  >
+                    {['not_started', 'planned', 'todo', 'in_progress', 'active', 'blocked', 'done'].map((value) => (
+                      <option key={value} value={value}>
+                        {formatEntityStatus(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          ) : task.description ? (
             <MarkdownText
               text={task.description}
               mode="block"
               className="text-[13px] text-white/50 leading-relaxed"
             />
+          ) : (
+            <p className="text-[12px] text-white/35">No description yet.</p>
           )}
+
           {agents.length > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-white/30 uppercase tracking-wider">Agents</span>
@@ -91,23 +202,20 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
             <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Priority</div>
             <div className="text-[13px] text-white/80 mt-0.5">
-              {task.priority ?? '\u2014'}
+              {task.priority ?? '-'}
             </div>
           </div>
-          {task.dueDate && (
-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-              <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due Date</div>
-              <div className="text-[13px] text-white/80 mt-0.5">
-                {new Date(task.dueDate).toLocaleDateString()}
-              </div>
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due Date</div>
+            <div className="text-[13px] text-white/80 mt-0.5">
+              {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
             </div>
-          )}
+          </div>
         </div>
 
-        {(mutations.entityAction.error || mutations.deleteEntity.error) && (
+        {notice && (
           <div className="text-[11px] px-1" style={{ color: `${colors.red}b3` }}>
-            {(mutations.entityAction.error as Error)?.message ??
-              (mutations.deleteEntity.error as Error)?.message}
+            {notice}
           </div>
         )}
       </div>
@@ -116,16 +224,52 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
       <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {status === 'todo' && (
-            <ActionButton label="Start" color={colors.lime} variant="primary" onClick={() => handleAction('start')} disabled={isMutating} />
+            <EntityActionButton label="Start" color={colors.lime} variant="primary" onClick={() => handleAction('start')} disabled={isMutating} />
           )}
           {(status === 'in_progress' || status === 'active') && (
-            <ActionButton label="Complete" color={colors.teal} variant="primary" onClick={() => handleAction('complete')} disabled={isMutating} />
+            <EntityActionButton label="Complete" color={colors.teal} variant="primary" onClick={() => handleAction('complete')} disabled={isMutating} />
           )}
           {(status === 'todo' || status === 'in_progress' || status === 'active') && (
-            <ActionButton label="Block" color={colors.red} variant="destructive" onClick={() => handleAction('block')} disabled={isMutating} />
+            <EntityActionButton label="Block" color={colors.red} variant="destructive" onClick={() => handleAction('block')} disabled={isMutating} />
           )}
           {status === 'blocked' && (
-            <ActionButton label="Unblock" color={colors.amber} onClick={() => handleAction('unblock')} disabled={isMutating} />
+            <EntityActionButton label="Unblock" color={colors.amber} onClick={() => handleAction('unblock')} disabled={isMutating} />
+          )}
+
+          {editMode ? (
+            <>
+              <EntityActionButton
+                label="Save"
+                color={colors.teal}
+                variant="primary"
+                onClick={handleSaveEdits}
+                disabled={isMutating || !draftTitle.trim()}
+              />
+              <EntityActionButton
+                label="Cancel"
+                variant="ghost"
+                onClick={() => {
+                  setEditMode(false);
+                  setNotice(null);
+                  setDraftTitle(task.title);
+                  setDraftDescription(task.description ?? '');
+                  setDraftPriority(task.priority ?? '');
+                  setDraftDueDate(toDateInputValue(task.dueDate));
+                  setDraftStatus(task.status);
+                }}
+                disabled={isMutating}
+              />
+            </>
+          ) : (
+            <EntityActionButton
+              label="Edit"
+              variant="ghost"
+              onClick={() => {
+                setEditMode(true);
+                setNotice(null);
+              }}
+              disabled={isMutating}
+            />
           )}
 
           <div className="flex-1" />
@@ -133,24 +277,22 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px]" style={{ color: `${colors.red}b3` }}>Delete?</span>
-              <ActionButton label="Yes" color={colors.red} onClick={handleDelete} disabled={isMutating} />
-              <button
+              <EntityActionButton label="Delete" color={colors.red} variant="destructive" onClick={handleDelete} disabled={isMutating} />
+              <EntityActionButton
+                label="Keep"
+                variant="ghost"
                 onClick={() => setConfirmDelete(false)}
                 disabled={isMutating}
-                className="text-[11px] px-3 py-1.5 rounded-lg border bg-white/5 text-white/50 border-white/10 hover:bg-white/10 transition-colors disabled:opacity-50"
-              >
-                No
-              </button>
+              />
             </div>
           ) : (
-            <button
+            <EntityActionButton
+              label="Delete"
+              color={colors.red}
+              variant="destructive"
               onClick={() => setConfirmDelete(true)}
               disabled={isMutating}
-              className="text-[11px] px-3 py-1.5 rounded-lg border bg-white/5 text-white/40 border-white/10 transition-colors disabled:opacity-50"
-              style={{ ['--hover-bg' as string]: `${colors.red}20` }}
-            >
-              Delete
-            </button>
+            />
           )}
         </div>
       </div>
@@ -158,34 +300,9 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   );
 }
 
-function ActionButton({
-  label,
-  color,
-  onClick,
-  disabled,
-  variant = 'secondary',
-}: {
-  label: string;
-  color: string;
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: 'primary' | 'secondary' | 'destructive';
-}) {
-  const sharedStyle =
-    variant === 'primary'
-      ? { backgroundColor: color, color: '#05060A', borderColor: `${color}CC` }
-      : variant === 'destructive'
-        ? { backgroundColor: `${color}14`, color, borderColor: `${color}40` }
-        : { backgroundColor: `${color}20`, color, borderColor: `${color}30` };
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="text-[11px] px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      style={sharedStyle}
-    >
-      {label}
-    </button>
-  );
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return '';
+  return new Date(parsed).toISOString().slice(0, 10);
 }

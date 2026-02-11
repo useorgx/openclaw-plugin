@@ -46,6 +46,25 @@ interface EntityActionInput {
   force?: boolean;
 }
 
+interface BulkEntityItem {
+  type: string;
+  id: string;
+}
+
+interface BulkEntityMutationInput {
+  items: BulkEntityItem[];
+  mode: 'action' | 'update' | 'delete';
+  action?: string;
+  force?: boolean;
+  updates?: Record<string, unknown>;
+}
+
+interface BulkEntityMutationResult {
+  updated: number;
+  failed: number;
+  errors: string[];
+}
+
 export function useEntityMutations(ctx: MutationContext) {
   const queryClient = useQueryClient();
   const headers = buildOrgxHeaders({
@@ -117,5 +136,95 @@ export function useEntityMutations(ctx: MutationContext) {
     onSuccess: invalidateAll,
   });
 
-  return { createEntity, updateEntity, deleteEntity, entityAction };
+  const bulkEntityMutation = useMutation({
+    mutationFn: async (
+      input: BulkEntityMutationInput
+    ): Promise<BulkEntityMutationResult> => {
+      const uniqueItems = Array.from(
+        new Map(
+          (input.items ?? [])
+            .filter(
+              (item) =>
+                typeof item?.type === 'string' &&
+                item.type.trim().length > 0 &&
+                typeof item?.id === 'string' &&
+                item.id.trim().length > 0
+            )
+            .map((item) => [`${item.type}:${item.id}`, item] as const)
+        ).values()
+      );
+
+      if (uniqueItems.length === 0) {
+        return { updated: 0, failed: 0, errors: [] };
+      }
+
+      if (input.mode === 'action' && !input.action) {
+        throw new Error('bulk action requires an action name');
+      }
+
+      const executeForItem = async (
+        item: BulkEntityItem
+      ): Promise<{ ok: true } | { ok: false; error: string }> => {
+        try {
+          if (input.mode === 'delete') {
+            const res = await fetch(
+              `/orgx/api/entities/${encodeURIComponent(item.type)}/${encodeURIComponent(item.id)}/delete`,
+              { method: 'POST', headers, body: '{}' }
+            );
+            await throwOnError(res);
+            return { ok: true };
+          }
+
+          if (input.mode === 'update') {
+            const res = await fetch('/orgx/api/entities', {
+              method: 'PATCH',
+              headers,
+              body: JSON.stringify({
+                type: item.type,
+                id: item.id,
+                ...(input.updates ?? {}),
+              }),
+            });
+            await throwOnError(res);
+            return { ok: true };
+          }
+
+          const res = await fetch(
+            `/orgx/api/entities/${encodeURIComponent(item.type)}/${encodeURIComponent(item.id)}/${encodeURIComponent(input.action as string)}`,
+            {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ force: input.force ?? false }),
+            }
+          );
+          await throwOnError(res);
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error instanceof Error ? error.message : 'Unknown bulk mutation failure',
+          };
+        }
+      };
+
+      const settled = await Promise.all(uniqueItems.map((item) => executeForItem(item)));
+      let updated = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (const result of settled) {
+        if (result.ok) {
+          updated += 1;
+        } else {
+          failed += 1;
+          errors.push(result.error);
+        }
+      }
+
+      return { updated, failed, errors };
+    },
+    onSuccess: invalidateAll,
+  });
+
+  return { createEntity, updateEntity, deleteEntity, entityAction, bulkEntityMutation };
 }

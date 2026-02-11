@@ -4,7 +4,7 @@ import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
-import type { Initiative, SessionTreeNode } from '@/types';
+import type { Agent, Initiative, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
@@ -94,6 +94,17 @@ function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number 
     toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt) -
     toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt)
   );
+}
+
+function toAgentStatus(value: string): Agent['status'] {
+  const normalized = value.toLowerCase();
+  if (normalized === 'blocked' || normalized === 'failed') return 'blocked';
+  if (normalized === 'running' || normalized === 'active' || normalized === 'in_progress') {
+    return 'working';
+  }
+  if (normalized === 'pending' || normalized === 'queued') return 'waiting';
+  if (normalized === 'completed' || normalized === 'done') return 'done';
+  return 'idle';
 }
 
 export function App() {
@@ -755,6 +766,40 @@ function DashboardShell({
     return title ?? null;
   }, [data.activity, selectedActivitySession]);
 
+  const missionControlAgents = useMemo<Agent[]>(() => {
+    const byAgentId = new Map<string, Agent>();
+
+    for (const node of data.sessions.nodes) {
+      const id = (node.agentId ?? '').trim() || `name:${(node.agentName ?? '').trim()}`;
+      const name = (node.agentName ?? '').trim() || (node.agentId ?? '').trim();
+      if (!name) continue;
+
+      const lastActiveIso = node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? new Date().toISOString();
+      const lastActiveEpoch = toEpoch(lastActiveIso);
+      const lastActiveMinutes = lastActiveEpoch
+        ? Math.max(0, Math.floor((Date.now() - lastActiveEpoch) / 60_000))
+        : 0;
+
+      const existing = byAgentId.get(id);
+      const candidate: Agent = {
+        id,
+        name,
+        role: 'Agent',
+        status: toAgentStatus(node.status),
+        task: node.title ?? null,
+        progress: node.progress ?? null,
+        lastActive: lastActiveIso,
+        lastActiveMinutes,
+      };
+
+      if (!existing || toEpoch(candidate.lastActive) > toEpoch(existing.lastActive)) {
+        byAgentId.set(id, candidate);
+      }
+    }
+
+    return Array.from(byAgentId.values());
+  }, [data.sessions.nodes]);
+
   const showMissionControlWelcome =
     onboarding.state.connectionVerified && !dismissedMissionControlWelcome;
 
@@ -1415,8 +1460,8 @@ function DashboardShell({
 	          >
 	            <LazyMissionControlView
 	              initiatives={mcInitiatives}
-	              activities={[]}
-	              agents={[]}
+	              activities={data.activity}
+	              agents={missionControlAgents}
 	              isLoading={isLoading}
 	              authToken={null}
 	              embedMode={false}

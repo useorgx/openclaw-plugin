@@ -27,6 +27,8 @@ import { CollapsibleSection } from './CollapsibleSection';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
+  selected?: boolean;
+  onSelectionChange?: (initiativeId: string, selected: boolean) => void;
 }
 
 function priorityFromLabel(value: string | null | undefined): {
@@ -306,7 +308,11 @@ function MetricChip({ label, value }: MetricChipProps) {
   );
 }
 
-export function InitiativeSection({ initiative }: InitiativeSectionProps) {
+export function InitiativeSection({
+  initiative,
+  selected = false,
+  onSelectionChange,
+}: InitiativeSectionProps) {
   const {
     expandedInitiatives,
     toggleExpanded,
@@ -403,10 +409,16 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const activeTaskCount = taskNodes.filter((node) => isActiveTaskStatus(node.status)).length;
   const todoTaskCount = taskNodes.filter((node) => isTodoTaskStatus(node.status)).length;
   const doneTaskCount = taskNodes.filter((node) => isDoneStatus(node.status)).length;
-  const effectiveInitiativeStatus =
-    initiative.status === 'active' && activeTaskCount === 0 && todoTaskCount > 0
-      ? 'paused'
-      : initiative.status;
+  const isExecutionActive = activeTaskCount > 0;
+  const effectiveInitiativeStatus = initiative.status;
+  const executionBadge =
+    initiative.status === 'active'
+      ? isExecutionActive
+        ? { label: 'In Progress', className: 'border-[#BFFF00]/28 bg-[#BFFF00]/12 text-[#D8FFA1]' }
+        : todoTaskCount > 0
+          ? { label: 'Queued', className: 'border-white/[0.14] bg-white/[0.04] text-white/62' }
+          : { label: 'Idle', className: 'border-white/[0.14] bg-white/[0.035] text-white/55' }
+      : null;
 
   const budgetSourceNodes =
     taskNodes.length > 0
@@ -447,6 +459,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   const progress = clampPercent(
     computedProgress === null ? initiative.health : computedProgress
   );
+  const progressFillPercent = progress === 0 ? 2 : progress;
   const dueBadge = formatDueBadge(initiative.targetDate);
   const dueBadgeClass =
     dueBadge.tone === 'danger'
@@ -508,9 +521,9 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`surface-tier-1 overflow-hidden rounded-2xl transition-[background-color,border-color] duration-200 ${
+      className={`surface-tier-1 overflow-hidden rounded-2xl transition-[background-color,border-color,box-shadow] duration-200 ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
-      }`}
+      } ${selected ? 'ring-1 ring-[#BFFF00]/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''}`}
     >
       <div
         role="button"
@@ -523,9 +536,14 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             toggleExpanded(initiative.id);
           }
         }}
-        className="group flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.035]"
-      >
-        <motion.div
+        className={`group flex w-full cursor-pointer items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.035] ${
+          isExpanded
+            ? 'sticky z-30 border-b border-white/[0.06] bg-[#0C0E14]/95 backdrop-blur-xl'
+            : ''
+        }`}
+        style={isExpanded ? { top: 'var(--mc-toolbar-offset, 88px)' } : undefined}
+        >
+          <motion.div
           animate={{ rotate: isExpanded ? 90 : 0 }}
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-colors group-hover:bg-white/[0.06]"
@@ -541,11 +559,24 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
           >
             <path d="m9 18 6-6-6-6" />
           </svg>
-        </motion.div>
+          </motion.div>
+
+        {onSelectionChange && (
+          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={(event) => onSelectionChange(initiative.id, event.currentTarget.checked)}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Select initiative ${initiative.name}`}
+              className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+            />
+          </div>
+        )}
 
         {/* Breathing status dot */}
         <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${effectiveInitiativeStatus === 'active' ? 'status-breathe' : ''}`}
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${isExecutionActive ? 'status-breathe' : ''}`}
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
@@ -555,34 +586,52 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
             event.stopPropagation();
             openModal({ type: 'initiative', entity: initiative });
           }}
-          className="min-w-0 flex-1 truncate text-[14px] font-semibold text-white transition-colors hover:text-white/80"
+          className="min-w-0 flex-1 truncate text-left text-[14px] font-semibold text-white transition-colors hover:text-white/80"
           title={initiative.name}
         >
           {initiative.name}
         </button>
 
-        <span
-          className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${initiativeStatusClass[effectiveInitiativeStatus]}`}
-        >
-          {formatEntityStatus(effectiveInitiativeStatus)}
-        </span>
+        <div className="flex w-[84px] flex-shrink-0 justify-center">
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] whitespace-nowrap ${initiativeStatusClass[effectiveInitiativeStatus]}`}
+          >
+            {formatEntityStatus(effectiveInitiativeStatus)}
+          </span>
+        </div>
 
-        <span
-          className={`hidden md:inline-flex text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] flex-shrink-0 ${dueBadgeClass}`}
-          title={initiative.targetDate ? new Date(initiative.targetDate).toLocaleDateString() : 'No target date'}
-        >
-          {dueBadge.label}
-        </span>
+        {executionBadge && (
+          <div className="hidden w-[120px] flex-shrink-0 justify-center md:flex">
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] whitespace-nowrap ${executionBadge.className}`}
+              title="Execution state"
+            >
+              {executionBadge.label}
+            </span>
+          </div>
+        )}
+
+        <div className="hidden w-[116px] flex-shrink-0 justify-center md:flex">
+          <span
+            className={`inline-flex text-[10px] px-2 py-0.5 rounded-full border tracking-[0.06em] whitespace-nowrap ${dueBadgeClass}`}
+            title={initiative.targetDate ? new Date(initiative.targetDate).toLocaleDateString() : 'No target date'}
+          >
+            {dueBadge.label}
+          </span>
+        </div>
 
         <div className="ml-2 flex min-w-[104px] items-center justify-end gap-1.5 sm:min-w-[220px] sm:gap-2">
           <div className="w-[92px] sm:w-[156px]">
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
-              <div
+              <motion.div
                 className="h-full rounded-full transition-all"
-                style={{
-                  width: `${progress}%`,
-                  backgroundColor: statusColor(effectiveInitiativeStatus),
+                initial={false}
+                animate={{
+                  width: `${progressFillPercent}%`,
+                  opacity: progress === 0 ? 0.45 : 1,
                 }}
+                transition={{ type: 'spring', stiffness: 260, damping: 34, mass: 0.75 }}
+                style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
               />
             </div>
           </div>
@@ -600,8 +649,8 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
         </div>
 
         {/* Quick actions */}
-        <div className="flex w-[52px] flex-shrink-0 items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:w-[58px]">
-          {effectiveInitiativeStatus === 'active' && (
+        <div className="flex w-[52px] flex-shrink-0 translate-x-1 items-center justify-end gap-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100 sm:w-[58px]">
+          {initiative.status === 'active' && (
             <button
               type="button"
               onClick={handleAction('pause')}
@@ -611,7 +660,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
             </button>
           )}
-          {effectiveInitiativeStatus === 'paused' && (
+          {initiative.status === 'paused' && (
             <button
               type="button"
               onClick={handleAction('resume')}
@@ -789,7 +838,13 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
                   )}
 
                   <motion.div variants={staggerItem}>
-                    <CollapsibleSection title="Hierarchy" storageKey={`hierarchy.${initiative.id}`} defaultOpen>
+                    <CollapsibleSection
+                      title="Hierarchy"
+                      storageKey={`hierarchy.${initiative.id}`}
+                      defaultOpen
+                      sticky
+                      stickyTop="calc(var(--mc-toolbar-offset, 88px) + 52px)"
+                    >
                       <HierarchyTreeTable
                         nodes={nodes}
                         edges={edges}

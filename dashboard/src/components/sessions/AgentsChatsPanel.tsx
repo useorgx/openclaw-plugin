@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
@@ -102,6 +103,14 @@ function sessionGroupKey(node: SessionTreeNode): string {
 function isLiveStatus(status: string | null | undefined): boolean {
   const normalized = normalizeIdentity(status);
   return normalized ? LIVE_STATUSES.has(normalized) : false;
+}
+
+function isCatalogAgentLive(agent: OpenClawCatalogAgent | null | undefined): boolean {
+  if (!agent) return false;
+  if (isLiveStatus(agent.status)) return true;
+  if (agent.runId && agent.runId.trim().length > 0) return true;
+  if (agent.currentTask && agent.currentTask.trim().length > 0) return true;
+  return false;
 }
 
 function toEpoch(value: string | null | undefined): number {
@@ -318,7 +327,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     for (const group of sortedGroups) {
       // Always include 0-session catalog agents
       if (group.nodes.length === 0) {
-        const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+        const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
         if (!isLiveWindow || catalogIsLive) {
           filteredGroups.push(group);
         }
@@ -328,7 +337,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       if (isLiveWindow) {
         const visibleNodes = group.nodes.filter((node) => isLiveStatus(node.status));
         const archivedNodes = group.nodes.filter((node) => !isLiveStatus(node.status));
-        const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+        const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
         if (visibleNodes.length === 0) {
           if (catalogIsLive) {
@@ -373,7 +382,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         return nodeEpoch >= cutoffEpoch;
       });
 
-      const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+      const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
       if (visibleNodes.length === 0) {
         if (catalogIsLive) {
@@ -633,7 +642,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
           const hasSessions = group.nodes.length > 0;
-          const catalogIsLive = isLiveStatus(group.catalogAgent?.status ?? null);
+          const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
           const active = lead ? selectedSessionId === lead.id : false;
           const displayName = group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
           const visibleChildren = isCollapsed
@@ -647,8 +656,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             normalizeIdentity(agentFilter) === normalizeIdentity(displayName);
 
           return (
-            <div
+            <motion.div
               key={agentKey}
+              layout
+              transition={{ type: 'spring', stiffness: 260, damping: 30, mass: 0.75 }}
               className={cn(
                 'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
@@ -787,85 +798,91 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 )}
               </div>
 
-              {hasSessions && (
-                <div
-                  className={cn(
-                    'overflow-hidden border-t border-white/[0.06] transition-all',
-                    isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[500px] opacity-100 overflow-y-auto'
-                  )}
-                >
-                  <div className="space-y-1.5 p-2">
-                    {visibleChildren.map((node) => {
-                      const childActive = selectedSessionId === node.id;
-                      const childProvider = resolveProvider(
-                        node.agentName,
-                        node.title,
-                        node.lastEventSummary,
-                        node
-                      );
-                      return (
-                        <button
-                          key={node.id}
-                          onClick={() => onSelectSession(node.id)}
-                          className={cn(
-                            'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
-                            childActive
-                              ? 'bg-white/[0.09]'
-                              : 'bg-white/[0.02] hover:bg-white/[0.05]'
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <ProviderLogo provider={childProvider.id} size="xs" />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-[12px] text-white/90">{node.title}</p>
-                              <div className="flex items-center gap-1.5 text-[10px] text-white/45">
-                                <span
-                                  className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                                  style={{
-                                    borderColor: `${childProvider.accent}66`,
-                                    color: childProvider.accent,
-                                    backgroundColor: childProvider.tint,
-                                  }}
-                                >
-                                  {childProvider.label}
-                                </span>
-                                <span className="uppercase tracking-[0.08em]">{node.status}</span>
-                                <span>
-                                  {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
-                                </span>
-                              </div>
-                              {node.progress !== null && (
-                                <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
-                                  <div
-                                    className="h-0.5 rounded-full"
+              <AnimatePresence initial={false}>
+                {hasSessions && !isCollapsed && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    className="overflow-hidden border-t border-white/[0.06]"
+                  >
+                    <div className="max-h-[500px] space-y-1.5 overflow-y-auto p-2">
+                      {visibleChildren.map((node, index) => {
+                        const childActive = selectedSessionId === node.id;
+                        const childProvider = resolveProvider(
+                          node.agentName,
+                          node.title,
+                          node.lastEventSummary,
+                          node
+                        );
+                        return (
+                          <motion.button
+                            key={node.id}
+                            onClick={() => onSelectSession(node.id)}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
+                            className={cn(
+                              'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
+                              childActive
+                                ? 'bg-white/[0.09]'
+                                : 'bg-white/[0.02] hover:bg-white/[0.05]'
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <ProviderLogo provider={childProvider.id} size="xs" />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[12px] text-white/90">{node.title}</p>
+                                <div className="flex items-center gap-1.5 text-[10px] text-white/45">
+                                  <span
+                                    className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
                                     style={{
-                                      width: `${Math.round(node.progress)}%`,
-                                      background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                      borderColor: `${childProvider.accent}66`,
+                                      color: childProvider.accent,
+                                      backgroundColor: childProvider.tint,
                                     }}
-                                  />
+                                  >
+                                    {childProvider.label}
+                                  </span>
+                                  <span className="uppercase tracking-[0.08em]">{node.status}</span>
+                                  <span>
+                                    {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
+                                  </span>
                                 </div>
-                              )}
+                                {node.progress !== null && (
+                                  <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
+                                    <div
+                                      className="h-0.5 rounded-full"
+                                      style={{
+                                        width: `${Math.round(node.progress)}%`,
+                                        background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <span
+                                className="h-2 w-2 flex-shrink-0 rounded-full"
+                                style={{ backgroundColor: statusColor(node.status) }}
+                                aria-label={node.status}
+                                title={node.status}
+                              />
                             </div>
-                            <span
-                              className="h-2 w-2 flex-shrink-0 rounded-full"
-                              style={{ backgroundColor: statusColor(node.status) }}
-                              aria-label={node.status}
-                              title={node.status}
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
+                          </motion.button>
+                        );
+                      })}
 
-                    {hiddenChildren > 0 && !isCollapsed && (
-                      <p className="px-1 text-[10px] text-white/40">
-                        +{hiddenChildren} older sessions hidden
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+                      {hiddenChildren > 0 && (
+                        <p className="px-1 text-[10px] text-white/40">
+                          +{hiddenChildren} older sessions hidden
+                        </p>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           );
         })}
 
@@ -935,7 +952,15 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               </span>
             </button>
 
-            {showArchived && (
+            <AnimatePresence initial={false}>
+              {showArchived && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="overflow-hidden"
+                >
               <div className="space-y-1.5 border-t border-white/[0.06] p-2">
                 {paginatedArchivedSessions.map(({ node, agentName }) => {
                   const provider = resolveProvider(node.agentName, node.title, node.lastEventSummary, node);
@@ -969,7 +994,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   </button>
                 )}
               </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>

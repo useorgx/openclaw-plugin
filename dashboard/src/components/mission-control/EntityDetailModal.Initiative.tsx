@@ -11,16 +11,32 @@ import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
+import { EntityActionButton } from './EntityActionButton';
 
 interface InitiativeDetailProps {
   initiative: Initiative;
 }
 
 export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
-  const { agentEntityMap, openModal, authToken, embedMode, mutations } = useMissionControl();
+  const {
+    agentEntityMap,
+    openModal,
+    closeModal,
+    authToken,
+    embedMode,
+    mutations,
+  } = useMissionControl();
   const agents = agentEntityMap.get(initiative.id) ?? [];
   const [addingWorkstream, setAddingWorkstream] = useState(false);
   const [wsTitle, setWsTitle] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState(initiative.name);
+  const [draftSummary, setDraftSummary] = useState(initiative.description ?? '');
+  const [draftTargetDate, setDraftTargetDate] = useState(
+    toDateInputValue(initiative.targetDate)
+  );
 
   const { details, isLoading } = useInitiativeDetails({
     initiativeId: initiative.id,
@@ -35,6 +51,38 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     (t) => t.status.toLowerCase() === 'blocked'
   ).length;
   const doneTasks = details.tasks.filter((t) => isDoneStatus(t.status)).length;
+  const isMutating =
+    mutations.entityAction.isPending ||
+    mutations.createEntity.isPending ||
+    mutations.updateEntity.isPending ||
+    mutations.deleteEntity.isPending;
+
+  const handleSaveEdits = () => {
+    const title = draftTitle.trim();
+    if (!title) {
+      setNotice('Initiative title is required.');
+      return;
+    }
+    setNotice(null);
+    mutations.updateEntity.mutate(
+      {
+        type: 'initiative',
+        id: initiative.id,
+        title,
+        summary: draftSummary.trim() || null,
+        target_date: draftTargetDate || null,
+      },
+      {
+        onSuccess: () => {
+          setEditMode(false);
+          setNotice('Initiative updated.');
+        },
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : 'Failed to update initiative.');
+        },
+      }
+    );
+  };
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
@@ -51,10 +99,48 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             {formatEntityStatus(initiative.status)}
           </span>
         </div>
-        {initiative.description && (
+        {editMode ? (
+          <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+                Title
+              </span>
+              <input
+                type="text"
+                value={draftTitle}
+                onChange={(event) => setDraftTitle(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+                Summary
+              </span>
+              <textarea
+                value={draftSummary}
+                onChange={(event) => setDraftSummary(event.target.value)}
+                rows={3}
+                className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+                Target date
+              </span>
+              <input
+                type="date"
+                value={draftTargetDate}
+                onChange={(event) => setDraftTargetDate(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              />
+            </label>
+          </div>
+        ) : initiative.description ? (
           <p className="text-[13px] text-white/50 leading-relaxed">
             {initiative.description}
           </p>
+        ) : (
+          <p className="text-[12px] text-white/35">No summary yet.</p>
         )}
         {agents.length > 0 && (
           <div className="flex items-center gap-2">
@@ -62,6 +148,11 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               Agents
             </span>
             <InferredAgentAvatars agents={agents} max={6} />
+          </div>
+        )}
+        {notice && (
+          <div className="text-[11px] text-white/55">
+            {notice}
           </div>
         )}
         </div>
@@ -171,26 +262,107 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {initiative.status === 'active' && (
-            <button
-              onClick={() => mutations.entityAction.mutate({ type: 'initiative', id: initiative.id, action: 'pause' })}
-              disabled={mutations.entityAction.isPending}
-              className="text-[11px] px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50"
-              style={{ backgroundColor: `${colors.amber}20`, color: colors.amber, borderColor: `${colors.amber}30` }}
-            >
-              Pause
-            </button>
+            <EntityActionButton
+              label="Pause"
+              color={colors.amber}
+              onClick={() =>
+                mutations.entityAction.mutate({
+                  type: 'initiative',
+                  id: initiative.id,
+                  action: 'pause',
+                })
+              }
+              disabled={isMutating}
+            />
           )}
           {initiative.status === 'paused' && (
-            <button
-              onClick={() => mutations.entityAction.mutate({ type: 'initiative', id: initiative.id, action: 'resume' })}
-              disabled={mutations.entityAction.isPending}
-              className="text-[11px] px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50"
-              style={{ backgroundColor: colors.lime, color: '#05060A', borderColor: `${colors.lime}CC` }}
-            >
-              Resume
-            </button>
+            <EntityActionButton
+              label="Resume"
+              color={colors.lime}
+              variant="primary"
+              onClick={() =>
+                mutations.entityAction.mutate({
+                  type: 'initiative',
+                  id: initiative.id,
+                  action: 'resume',
+                })
+              }
+              disabled={isMutating}
+            />
+          )}
+          {editMode ? (
+            <>
+              <EntityActionButton
+                label="Save"
+                color={colors.teal}
+                variant="primary"
+                onClick={handleSaveEdits}
+                disabled={isMutating || !draftTitle.trim()}
+              />
+              <EntityActionButton
+                label="Cancel"
+                variant="ghost"
+                onClick={() => {
+                  setEditMode(false);
+                  setDraftTitle(initiative.name);
+                  setDraftSummary(initiative.description ?? '');
+                  setDraftTargetDate(toDateInputValue(initiative.targetDate));
+                  setNotice(null);
+                }}
+                disabled={isMutating}
+              />
+            </>
+          ) : (
+            <EntityActionButton
+              label="Edit"
+              variant="ghost"
+              onClick={() => {
+                setEditMode(true);
+                setNotice(null);
+              }}
+              disabled={isMutating}
+            />
           )}
           <div className="flex-1" />
+          {confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-white/60">Delete initiative?</span>
+              <EntityActionButton
+                label="Delete"
+                color={colors.red}
+                variant="destructive"
+                onClick={() =>
+                  mutations.deleteEntity.mutate(
+                    { type: 'initiative', id: initiative.id },
+                    {
+                      onSuccess: () => closeModal(),
+                      onError: (error) =>
+                        setNotice(
+                          error instanceof Error
+                            ? error.message
+                            : 'Failed to delete initiative.'
+                        ),
+                    }
+                  )
+                }
+                disabled={isMutating}
+              />
+              <EntityActionButton
+                label="Keep"
+                variant="ghost"
+                onClick={() => setConfirmDelete(false)}
+                disabled={isMutating}
+              />
+            </div>
+          ) : (
+            <EntityActionButton
+              label="Delete"
+              color={colors.red}
+              variant="destructive"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isMutating}
+            />
+          )}
           {addingWorkstream ? (
             <form
               className="flex flex-wrap items-center gap-2"
@@ -211,34 +383,39 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                 autoFocus
                 className="text-[12px] bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white/80 placeholder-white/30 w-[180px] outline-none focus:border-white/25"
               />
-              <button
+              <EntityActionButton
                 type="submit"
+                label="Add"
+                color={colors.lime}
                 disabled={!wsTitle.trim() || mutations.createEntity.isPending}
-                className="text-[11px] px-2.5 py-1 rounded-lg border disabled:opacity-50"
-                style={{ backgroundColor: `${colors.lime}20`, color: colors.lime, borderColor: `${colors.lime}30` }}
-              >
-                Add
-              </button>
-              <button
-                type="button"
+                size="sm"
+              />
+              <EntityActionButton
+                label="Cancel"
+                variant="ghost"
                 onClick={() => { setAddingWorkstream(false); setWsTitle(''); }}
-                className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-white/40 border border-white/10"
-              >
-                Cancel
-              </button>
+                size="sm"
+              />
             </form>
           ) : (
-            <button
+            <EntityActionButton
+              label="+ Workstream"
+              variant="ghost"
               onClick={() => setAddingWorkstream(true)}
-              className="text-[11px] px-3 py-1.5 rounded-lg border bg-white/5 text-white/50 border-white/10 hover:bg-white/10 transition-colors"
-            >
-              + Workstream
-            </button>
+              disabled={isMutating}
+            />
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return '';
+  return new Date(parsed).toISOString().slice(0, 10);
 }
 
 function MetricBox({

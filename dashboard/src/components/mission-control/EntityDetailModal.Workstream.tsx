@@ -13,6 +13,7 @@ import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
+import { EntityActionButton } from './EntityActionButton';
 
 interface WorkstreamDetailProps {
   workstream: InitiativeWorkstream;
@@ -20,10 +21,16 @@ interface WorkstreamDetailProps {
 }
 
 export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailProps) {
-  const { agentEntityMap, openModal, authToken, embedMode, mutations } = useMissionControl();
+  const { agentEntityMap, openModal, closeModal, authToken, embedMode, mutations } = useMissionControl();
   const agents = agentEntityMap.get(workstream.id) ?? agentEntityMap.get(initiative.id) ?? [];
   const [addingTask, setAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState(workstream.name);
+  const [draftSummary, setDraftSummary] = useState(workstream.summary ?? '');
+  const [draftStatus, setDraftStatus] = useState(workstream.status);
 
   const { details, isLoading } = useInitiativeDetails({
     initiativeId: initiative.id,
@@ -65,6 +72,41 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           ? 100
           : null;
 
+  const normalizedStatus = workstream.status.toLowerCase();
+  const isMutating =
+    mutations.entityAction.isPending ||
+    mutations.createEntity.isPending ||
+    mutations.updateEntity.isPending ||
+    mutations.deleteEntity.isPending;
+
+  const handleSaveEdits = () => {
+    const name = draftName.trim();
+    if (!name) {
+      setNotice('Workstream name is required.');
+      return;
+    }
+
+    setNotice(null);
+    mutations.updateEntity.mutate(
+      {
+        type: 'workstream',
+        id: workstream.id,
+        title: name,
+        summary: draftSummary.trim() || null,
+        status: draftStatus,
+      },
+      {
+        onSuccess: () => {
+          setEditMode(false);
+          setNotice('Workstream updated.');
+        },
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : 'Failed to update workstream.');
+        },
+      }
+    );
+  };
+
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
@@ -94,10 +136,47 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             {formatEntityStatus(workstream.status)}
           </span>
         </div>
-        {workstream.summary && (
+        {editMode ? (
+          <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Name</span>
+              <input
+                type="text"
+                value={draftName}
+                onChange={(event) => setDraftName(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Summary</span>
+              <textarea
+                value={draftSummary}
+                onChange={(event) => setDraftSummary(event.target.value)}
+                rows={3}
+                className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Status</span>
+              <select
+                value={draftStatus}
+                onChange={(event) => setDraftStatus(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              >
+                {['not_started', 'planned', 'active', 'in_progress', 'paused', 'blocked', 'done'].map((status) => (
+                  <option key={status} value={status}>
+                    {formatEntityStatus(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : workstream.summary ? (
           <p className="text-[13px] text-white/50 leading-relaxed">
             {workstream.summary}
           </p>
+        ) : (
+          <p className="text-[12px] text-white/35">No summary yet.</p>
         )}
         {agents.length > 0 && (
           <div className="flex items-center gap-2">
@@ -105,6 +184,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             <InferredAgentAvatars agents={agents} max={6} />
           </div>
         )}
+        {notice && <div className="text-[11px] text-white/55">{notice}</div>}
       </div>
 
       {/* Progress */}
@@ -136,7 +216,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
           <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Progress</div>
           <div className="text-[15px] font-medium text-white/80 mt-0.5">
-            {progressValue !== null ? `${progressValue}%` : '\u2014'}
+            {progressValue !== null ? `${progressValue}%` : '-'}
           </div>
         </div>
       </div>
@@ -207,20 +287,93 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
       {/* Actions */}
       <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
-          {workstream.status === 'not_started' && (
-            <ActionBtn label="Start" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'start' })} disabled={mutations.entityAction.isPending} />
+          {['not_started', 'planned', 'todo'].includes(normalizedStatus) && (
+            <EntityActionButton label="Start" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'start' })} disabled={isMutating} />
           )}
-          {workstream.status === 'active' && (
+          {['active', 'in_progress'].includes(normalizedStatus) && (
             <>
-              <ActionBtn label="Complete" color={colors.teal} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'complete' })} disabled={mutations.entityAction.isPending} />
-              <ActionBtn label="Pause" color={colors.amber} onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'pause' })} disabled={mutations.entityAction.isPending} />
-              <ActionBtn label="Block" color={colors.red} variant="destructive" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'block' })} disabled={mutations.entityAction.isPending} />
+              <EntityActionButton label="Complete" color={colors.teal} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'complete' })} disabled={isMutating} />
+              <EntityActionButton label="Pause" color={colors.amber} onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'pause' })} disabled={isMutating} />
+              <EntityActionButton label="Block" color={colors.red} variant="destructive" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'block' })} disabled={isMutating} />
             </>
           )}
-          {(workstream.status === 'paused' || workstream.status === 'blocked') && (
-            <ActionBtn label="Resume" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'resume' })} disabled={mutations.entityAction.isPending} />
+          {['paused', 'blocked'].includes(normalizedStatus) && (
+            <EntityActionButton label="Resume" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'resume' })} disabled={isMutating} />
           )}
+          {editMode ? (
+            <>
+              <EntityActionButton
+                label="Save"
+                color={colors.teal}
+                variant="primary"
+                onClick={handleSaveEdits}
+                disabled={isMutating || !draftName.trim()}
+              />
+              <EntityActionButton
+                label="Cancel"
+                variant="ghost"
+                onClick={() => {
+                  setEditMode(false);
+                  setDraftName(workstream.name);
+                  setDraftSummary(workstream.summary ?? '');
+                  setDraftStatus(workstream.status);
+                  setNotice(null);
+                }}
+                disabled={isMutating}
+              />
+            </>
+          ) : (
+            <EntityActionButton
+              label="Edit"
+              variant="ghost"
+              onClick={() => {
+                setEditMode(true);
+                setNotice(null);
+              }}
+              disabled={isMutating}
+            />
+          )}
+
           <div className="flex-1" />
+
+          {confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-white/60">Delete workstream?</span>
+              <EntityActionButton
+                label="Delete"
+                color={colors.red}
+                variant="destructive"
+                onClick={() =>
+                  mutations.deleteEntity.mutate(
+                    { type: 'workstream', id: workstream.id },
+                    {
+                      onSuccess: () => closeModal(),
+                      onError: (error) =>
+                        setNotice(
+                          error instanceof Error ? error.message : 'Failed to delete workstream.'
+                        ),
+                    }
+                  )
+                }
+                disabled={isMutating}
+              />
+              <EntityActionButton
+                label="Keep"
+                variant="ghost"
+                onClick={() => setConfirmDelete(false)}
+                disabled={isMutating}
+              />
+            </div>
+          ) : (
+            <EntityActionButton
+              label="Delete"
+              color={colors.red}
+              variant="destructive"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isMutating}
+            />
+          )}
+
           {addingTask ? (
             <form
               className="flex flex-wrap items-center gap-2"
@@ -235,7 +388,15 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                     initiative_id: initiative.id,
                     status: 'todo',
                   },
-                  { onSuccess: () => { setTaskTitle(''); setAddingTask(false); } },
+                  {
+                    onSuccess: () => {
+                      setTaskTitle('');
+                      setAddingTask(false);
+                    },
+                    onError: (error) => {
+                      setNotice(error instanceof Error ? error.message : 'Failed to create task.');
+                    },
+                  }
                 );
               }}
             >
@@ -247,57 +408,33 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 autoFocus
                 className="text-[12px] bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white/80 placeholder-white/30 w-[160px] outline-none focus:border-white/25"
               />
-              <ActionBtn label="Add" color={colors.lime} onClick={() => {}} disabled={!taskTitle.trim() || mutations.createEntity.isPending} />
-              <button
-                type="button"
-                onClick={() => { setAddingTask(false); setTaskTitle(''); }}
-                className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-white/40 border border-white/10"
-              >
-                Cancel
-              </button>
+              <EntityActionButton
+                label="Add"
+                color={colors.lime}
+                type="submit"
+                size="sm"
+                disabled={!taskTitle.trim() || mutations.createEntity.isPending}
+              />
+              <EntityActionButton
+                label="Cancel"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAddingTask(false);
+                  setTaskTitle('');
+                }}
+              />
             </form>
           ) : (
-            <button
+            <EntityActionButton
+              label="+ Task"
+              variant="ghost"
               onClick={() => setAddingTask(true)}
-              className="text-[11px] px-3 py-1.5 rounded-lg border bg-white/5 text-white/50 border-white/10 hover:bg-white/10 transition-colors"
-            >
-              + Task
-            </button>
+              disabled={isMutating}
+            />
           )}
         </div>
       </div>
     </div>
-  );
-}
-
-function ActionBtn({
-  label,
-  color,
-  onClick,
-  disabled,
-  variant = 'secondary',
-}: {
-  label: string;
-  color: string;
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: 'primary' | 'secondary' | 'destructive';
-}) {
-  const sharedStyle =
-    variant === 'primary'
-      ? { backgroundColor: color, color: '#05060A', borderColor: `${color}CC` }
-      : variant === 'destructive'
-        ? { backgroundColor: `${color}14`, color, borderColor: `${color}40` }
-        : { backgroundColor: `${color}20`, color, borderColor: `${color}30` };
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-lg border px-3 py-1.5 text-[11px] transition-colors disabled:opacity-50"
-      style={sharedStyle}
-    >
-      {label}
-    </button>
   );
 }

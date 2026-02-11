@@ -5,6 +5,9 @@ interface CollapsibleSectionProps {
   title: string;
   defaultOpen?: boolean;
   storageKey?: string;
+  sticky?: boolean;
+  stickyOffsetClass?: string;
+  stickyTop?: string;
   children: React.ReactNode;
 }
 
@@ -31,6 +34,9 @@ export function CollapsibleSection({
   title,
   defaultOpen = true,
   storageKey,
+  sticky = false,
+  stickyOffsetClass = 'top-0',
+  stickyTop,
   children,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(() =>
@@ -48,7 +54,12 @@ export function CollapsibleSection({
       <button
         type="button"
         onClick={toggle}
-        className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-white/[0.06] hover:bg-white/[0.03]"
+        className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors ${
+          sticky
+            ? `sticky ${stickyOffsetClass} z-20 border-white/[0.08] bg-[#090B11]/92 backdrop-blur-xl`
+            : 'border-transparent hover:border-white/[0.06] hover:bg-white/[0.03]'
+        }`}
+        style={sticky && stickyTop ? { top: stickyTop } : undefined}
       >
         <svg
           width="10"

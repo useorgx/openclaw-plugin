@@ -4,6 +4,7 @@ import type {
   LiveActivityItem,
   LiveDecision,
   LiveSnapshotResponse,
+  LiveSnapshotAgent,
   SessionTreeResponse,
   HandoffSummary,
   OutboxStatus,
@@ -544,6 +545,13 @@ function statusFromAgentStatus(status: string): string {
   return 'archived';
 }
 
+function hasLiveAgentSignal(agent: LiveSnapshotAgent, status: string): boolean {
+  if (LIVE_SESSION_STATUSES.has(status)) return true;
+  if (agent.runId && agent.runId.trim().length > 0) return true;
+  if (agent.currentTask && agent.currentTask.trim().length > 0) return true;
+  return false;
+}
+
 function initiativeLabelFromId(initiativeId: string | null): string {
   if (!initiativeId) return 'Unscoped';
   const compact = initiativeId.length > 16 ? `${initiativeId.slice(0, 8)}…` : initiativeId;
@@ -638,6 +646,9 @@ function deriveSessionsFromFallbacks(
     const runId = agent.runId ?? `agent:${agent.id}`;
     const existing = byRunId.get(runId);
     const status = statusFromAgentStatus(agent.status);
+    const nowIso = new Date().toISOString();
+    const liveAgentSignal = hasLiveAgentSignal(agent, status);
+    const fallbackTimestamp = agent.startedAt ?? (liveAgentSignal ? nowIso : null);
     const initiativeId = agent.initiativeId ?? null;
     const title =
       agent.currentTask && agent.currentTask.trim().length > 0
@@ -658,9 +669,9 @@ function deriveSessionsFromFallbacks(
         workstreamId: null,
         groupId: initiativeId ?? 'unscoped',
         groupLabel: initiativeLabelFromId(initiativeId),
-        startedAt: agent.startedAt ?? null,
-        updatedAt: agent.startedAt ?? null,
-        lastEventAt: agent.startedAt ?? null,
+        startedAt: fallbackTimestamp,
+        updatedAt: fallbackTimestamp,
+        lastEventAt: fallbackTimestamp,
         lastEventSummary: agent.currentTask,
         blockers: coerceBlockers(agent.blockers),
       });
@@ -670,6 +681,10 @@ function deriveSessionsFromFallbacks(
     if (!existing.agentName && agent.name) existing.agentName = agent.name;
     if (!existing.agentId) existing.agentId = agent.id;
     if (!existing.title || existing.title === existing.runId) existing.title = title;
+    if (liveAgentSignal) {
+      existing.updatedAt = fallbackTimestamp ?? existing.updatedAt ?? nowIso;
+      existing.lastEventAt = fallbackTimestamp ?? existing.lastEventAt ?? nowIso;
+    }
     if (existing.status === 'archived' && status !== 'archived') {
       existing.status = status;
     }

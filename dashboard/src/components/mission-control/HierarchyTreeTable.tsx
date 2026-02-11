@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
 import { formatEntityStatus, statusRank } from '@/lib/entityStatusColors';
@@ -135,6 +136,10 @@ export function HierarchyTreeTable({
   const [showAdvancedStatusFilters, setShowAdvancedStatusFilters] = useState(false);
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDir>('asc');
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const allNodeHints = useMemo(
@@ -343,6 +348,36 @@ export function HierarchyTreeTable({
     workstreams,
   ]);
 
+  const visibleRowIds = useMemo(() => rows.map(({ node }) => node.id), [rows]);
+  const visibleRowIdSet = useMemo(() => new Set(visibleRowIds), [visibleRowIds]);
+  const selectedRows = useMemo(
+    () => rows.filter(({ node }) => selectedRowIds.has(node.id)),
+    [rows, selectedRowIds]
+  );
+  const selectedRowCount = selectedRows.length;
+  const allVisibleSelected = rows.length > 0 && selectedRowCount === rows.length;
+  const isBulkMutating = mutations?.bulkEntityMutation.isPending ?? false;
+
+  useEffect(() => {
+    setSelectedRowIds((previous) => {
+      if (previous.size === 0) return previous;
+      const next = new Set(Array.from(previous).filter((id) => visibleRowIdSet.has(id)));
+      if (next.size === previous.size) return previous;
+      return next;
+    });
+  }, [visibleRowIdSet]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = selectedRowCount > 0 && !allVisibleSelected;
+  }, [allVisibleSelected, selectedRowCount]);
+
+  useEffect(() => {
+    if (selectedRowCount === 0 && confirmBulkDelete) {
+      setConfirmBulkDelete(false);
+    }
+  }, [confirmBulkDelete, selectedRowCount]);
+
   const dependencyCount = (node: MissionControlNode) => node.dependencyIds.length;
 
   const progressByNodeId = useMemo(() => {
@@ -406,13 +441,104 @@ export function HierarchyTreeTable({
     setActiveStatusFilters(new Set());
   };
 
+  const toggleRowSelected = (nodeId: string, checked: boolean) => {
+    setBulkNotice(null);
+    setConfirmBulkDelete(false);
+    setSelectedRowIds((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(nodeId);
+      else next.delete(nodeId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisibleRows = () => {
+    setBulkNotice(null);
+    setConfirmBulkDelete(false);
+    setSelectedRowIds(() => {
+      if (rows.length === 0 || allVisibleSelected) return new Set();
+      return new Set(visibleRowIds);
+    });
+  };
+
+  const clearSelectedRows = () => {
+    setConfirmBulkDelete(false);
+    setSelectedRowIds(new Set());
+  };
+
+  const runBulkStatusUpdate = async (status: string) => {
+    if (!mutations || selectedRows.length === 0) return;
+    setConfirmBulkDelete(false);
+    setBulkNotice(null);
+    try {
+      const result = await mutations.bulkEntityMutation.mutateAsync({
+        items: selectedRows.map(({ node }) => ({
+          type: node.type,
+          id: node.id,
+        })),
+        mode: 'update',
+        updates: { status },
+      });
+
+      if (result.failed > 0) {
+        setBulkNotice({
+          tone: 'error',
+          message: `Updated ${result.updated}, failed ${result.failed}.`,
+        });
+      } else {
+        setBulkNotice({
+          tone: 'success',
+          message: `Updated ${result.updated} item${result.updated === 1 ? '' : 's'} to ${formatEntityStatus(status)}.`,
+        });
+      }
+    } catch (error) {
+      setBulkNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Bulk status update failed.',
+      });
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (!mutations || selectedRows.length === 0) return;
+    setBulkNotice(null);
+    try {
+      const result = await mutations.bulkEntityMutation.mutateAsync({
+        items: selectedRows.map(({ node }) => ({
+          type: node.type,
+          id: node.id,
+        })),
+        mode: 'delete',
+      });
+
+      if (result.failed > 0) {
+        setBulkNotice({
+          tone: 'error',
+          message: `Deleted ${result.updated}, failed ${result.failed}.`,
+        });
+      } else {
+        setBulkNotice({
+          tone: 'success',
+          message: `Deleted ${result.updated} item${result.updated === 1 ? '' : 's'}.`,
+        });
+        setSelectedRowIds(new Set());
+        setConfirmBulkDelete(false);
+      }
+    } catch (error) {
+      setBulkNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Bulk delete failed.',
+      });
+    }
+  };
+
   const SortChevron = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <span className="text-white/20 ml-0.5">↕</span>;
     return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-2.5">
       <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center">
         <div className="w-full lg:max-w-[340px]">
           <SearchInput
@@ -422,6 +548,22 @@ export function HierarchyTreeTable({
           />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {onToggleEditMode && (
+            <button
+              type="button"
+              onClick={onToggleEditMode}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] transition-colors ${
+                editMode
+                  ? 'border-[#BFFF00]/28 bg-[#BFFF00]/12 text-[#D8FFA1]'
+                  : 'border-white/[0.12] bg-white/[0.03] text-white/55 hover:text-white/82'
+              }`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              {editMode ? 'Editing' : 'Edit'}
+            </button>
+          )}
           {([
             { id: 'all', label: 'All', count: statusScopeCounts.all },
             { id: 'open', label: 'Open', count: statusScopeCounts.open },
@@ -462,70 +604,194 @@ export function HierarchyTreeTable({
             )}
           </button>
           {(searchQuery.trim().length > 0 || statusScope !== 'all' || activeStatusFilters.size > 0) && (
-          <button
-            type="button"
-            onClick={clearAllHierarchyFilters}
-            className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
-          >
-            Clear
-          </button>
-          )}
-          {onToggleEditMode && (
             <button
               type="button"
-              onClick={onToggleEditMode}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] transition-colors ${
-                editMode
-                  ? 'border-[#BFFF00]/28 bg-[#BFFF00]/12 text-[#D8FFA1]'
-                  : 'border-white/[0.12] bg-white/[0.03] text-white/55 hover:text-white/82'
-              }`}
+              onClick={clearAllHierarchyFilters}
+              className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-              </svg>
-              {editMode ? 'Editing' : 'Edit'}
+              Clear
             </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleSelectAllVisibleRows}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors ${
+              allVisibleSelected
+                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
+                : 'border-white/[0.12] bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-white/85'
+            }`}
+          >
+            {allVisibleSelected ? 'Clear visible' : 'Select visible'}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className={`rounded-xl border px-3 py-2 ${
+          selectedRowCount > 0
+            ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+            : 'border-white/[0.08] bg-white/[0.02]'
+        }`}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 text-[11px] text-white/75">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAllVisibleRows}
+              className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+            />
+            Select all visible
+          </label>
+          <span className="text-[11px] text-white/58">
+            {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
+          </span>
+          {selectedRowCount > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkStatusUpdate('planned');
+                }}
+                disabled={isBulkMutating}
+                className="control-pill h-8 px-3 text-[11px] font-semibold disabled:opacity-45"
+              >
+                Plan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkStatusUpdate('in_progress');
+                }}
+                disabled={isBulkMutating}
+                className="control-pill h-8 px-3 text-[11px] font-semibold disabled:opacity-45"
+                data-state="active"
+              >
+                Start
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkStatusUpdate('blocked');
+                }}
+                disabled={isBulkMutating}
+                className="control-pill h-8 px-3 text-[11px] font-semibold disabled:opacity-45"
+              >
+                Block
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void runBulkStatusUpdate('done');
+                }}
+                disabled={isBulkMutating}
+                className="control-pill h-8 px-3 text-[11px] font-semibold disabled:opacity-45"
+              >
+                Complete
+              </button>
+              {confirmBulkDelete ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/58">Delete selected?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void runBulkDelete();
+                    }}
+                    disabled={isBulkMutating}
+                    className="control-pill h-8 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(false)}
+                    disabled={isBulkMutating}
+                    className="control-pill h-8 px-2.5 text-[11px] disabled:opacity-45"
+                  >
+                    Keep
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulkDelete(true)}
+                  disabled={isBulkMutating}
+                  className="control-pill h-8 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearSelectedRows}
+                disabled={isBulkMutating}
+                className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+              >
+                Clear
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {showAdvancedStatusFilters && (
-        <div className="mb-2 table-shell px-2.5 py-2">
-          <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/38">
-            Advanced status filters
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {STATUS_OPTIONS.map((status) => {
-              const isActive = activeStatusFilters.has(status);
-              const count = statusKeyCounts.get(status) ?? 0;
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => toggleStatusFilter(status)}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors ${
-                    isActive
-                    ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
-                    : 'border-white/[0.12] bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-white/85'
-                }`}
-              >
-                  <span>{formatEntityStatus(status)}</span>
-                  <span className="text-[9px] text-current/75">{count}</span>
-                </button>
-              );
-            })}
-            {activeStatusFilters.size > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveStatusFilters(new Set())}
-                className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
-              >
-                Reset status
-              </button>
-            )}
-          </div>
+      {bulkNotice && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-[11px] ${
+            bulkNotice.tone === 'success'
+              ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
+              : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
+          }`}
+        >
+          {bulkNotice.message}
         </div>
       )}
+
+      <AnimatePresence initial={false}>
+        {showAdvancedStatusFilters && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -4, height: 0 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-2 overflow-hidden rounded-xl border border-white/[0.07] bg-black/[0.14] px-2.5 py-2"
+          >
+            <div className="mb-1.5 text-[10px] uppercase tracking-[0.08em] text-white/38">
+              Advanced status filters
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {STATUS_OPTIONS.map((status) => {
+                const isActive = activeStatusFilters.has(status);
+                const count = statusKeyCounts.get(status) ?? 0;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => toggleStatusFilter(status)}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors ${
+                      isActive
+                        ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
+                        : 'border-white/[0.12] bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-white/85'
+                    }`}
+                  >
+                    <span>{formatEntityStatus(status)}</span>
+                    <span className="text-[9px] text-current/75">{count}</span>
+                  </button>
+                );
+              })}
+              {activeStatusFilters.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveStatusFilters(new Set())}
+                  className="rounded-full px-2 py-1 text-[10px] text-white/45 transition-colors hover:text-white/75"
+                >
+                  Reset status
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {editMode && (
         <div className="mb-2 text-[10px] text-white/45">
@@ -533,10 +799,13 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="table-shell overflow-x-auto p-2">
+      <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/42">
+              <th className="w-10 px-2 py-1.5">
+                <span className="sr-only">Select rows</span>
+              </th>
               <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('title')}>
                 Item <SortChevron field="title" />
               </th>
@@ -560,6 +829,7 @@ export function HierarchyTreeTable({
             {rows.map(({ node, depth, canCollapse }) => {
               const selected = selectedNodeId === node.id;
               const highlighted = highlightedNodeIds.has(node.id);
+              const isSelectedForBulk = selectedRowIds.has(node.id);
               const assignedNames = node.assignedAgents.map((agent) => agent.name).join(', ');
               const dependencyLabels = node.dependencyIds
                 .map((id) => nodeById.get(id)?.title ?? id)
@@ -585,8 +855,21 @@ export function HierarchyTreeTable({
                         : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.05]'
                   }`}
                 >
-                  {/* Item */}
                   <td className="rounded-l-lg px-2 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelectedForBulk}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        toggleRowSelected(node.id, event.currentTarget.checked);
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`Select ${node.type}: ${node.title}`}
+                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                    />
+                  </td>
+                  {/* Item */}
+                  <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
                       <div style={{ width: depth * 14 }} />
                       {canCollapse ? (
