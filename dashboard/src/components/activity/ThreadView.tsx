@@ -3,8 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeModel, humanizeText } from '@/lib/humanize';
-import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
+import type { LiveActivityItem, SessionTreeNode } from '@/types';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { ActivityEventIcon, resolveActivityVisual } from './activityVisuals';
 
 interface ThreadViewProps {
   /** Activity items filtered to a single session. */
@@ -16,33 +17,6 @@ interface ThreadViewProps {
   /** Called to exit thread view. */
   onBack: () => void;
 }
-
-const typeIcon: Record<string, string> = {
-  artifact_created: '\u2B26', // diamond
-  run_failed: '\u2717',       // cross
-  run_started: '\u25B6',      // play
-  run_completed: '\u2713',    // check
-  decision_requested: '\u2753', // question
-  decision_resolved: '\u2713',
-  delegation: '\u2192',       // arrow
-  blocker_created: '\u26A0',  // warning
-  milestone_completed: '\u2605', // star
-};
-
-const typeColor: Record<LiveActivityType, string> = {
-  run_started: colors.teal,
-  run_completed: colors.lime,
-  run_failed: colors.red,
-  artifact_created: colors.cyan,
-  decision_requested: colors.amber,
-  decision_resolved: colors.lime,
-  handoff_requested: colors.iris,
-  handoff_claimed: colors.teal,
-  handoff_fulfilled: colors.lime,
-  blocker_created: colors.red,
-  milestone_completed: colors.cyan,
-  delegation: colors.iris,
-};
 
 function formatTime(ts: string): string {
   try {
@@ -178,8 +152,8 @@ export const ThreadView = memo(function ThreadView({
 
             <div className="space-y-1">
               {sorted.map((item, index) => {
-                const color = typeColor[item.type] ?? colors.iris;
-                const icon = typeIcon[item.type] ?? '\u2192';
+                const visual = resolveActivityVisual(item);
+                const color = visual.color;
                 const model = humanizeModel(item.description);
                 const title = humanizeText(item.title ?? '');
                 const isError = item.type === 'run_failed';
@@ -205,7 +179,7 @@ export const ThreadView = memo(function ThreadView({
                         border: `1px solid ${color}40`,
                       }}
                     >
-                      {icon}
+                      <ActivityEventIcon icon={visual.icon} size={8} className="opacity-95" />
                     </span>
 
                     {/* Content */}

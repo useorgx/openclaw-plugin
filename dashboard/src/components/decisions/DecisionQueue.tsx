@@ -4,6 +4,7 @@ import type { LiveDecision } from '@/types';
 import { formatRelativeTime } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 
 const PAGE_SIZE = 40;
 
@@ -210,7 +211,10 @@ export const DecisionQueue = memo(function DecisionQueue({
       <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
+            <h2 className="inline-flex items-center gap-2 text-[14px] font-semibold text-white">
+              <EntityIcon type="decision" size={14} />
+              Decisions
+            </h2>
             <p className="text-[12px] text-white/45">
               Select multiple items to bulk review and approve
             </p>
@@ -305,7 +309,10 @@ export const DecisionQueue = memo(function DecisionQueue({
 	                    <div className="min-w-0 flex-1">
 	                      <div className="flex items-start justify-between gap-3">
 	                        <div className="min-w-0 flex-1">
-	                          <p className="text-[13px] font-medium text-white">{decision.title}</p>
+	                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
+                              <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
+                              <span className="truncate">{decision.title}</span>
+                            </p>
 	                          {decision.context && (
 	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
 	                              {decision.context}
@@ -361,7 +368,10 @@ export const DecisionQueue = memo(function DecisionQueue({
 	                    <div className="min-w-0 flex-1">
 	                      <div className="flex items-start justify-between gap-3">
 	                        <div className="min-w-0 flex-1">
-	                          <p className="text-[13px] font-medium text-white">{decision.title}</p>
+	                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
+                              <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
+                              <span className="truncate">{decision.title}</span>
+                            </p>
 	                          {decision.context && (
 	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
 	                              {decision.context}

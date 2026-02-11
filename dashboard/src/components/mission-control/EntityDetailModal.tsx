@@ -4,6 +4,7 @@ import { InitiativeDetail } from './EntityDetailModal.Initiative';
 import { WorkstreamDetail } from './EntityDetailModal.Workstream';
 import { MilestoneDetail } from './EntityDetailModal.Milestone';
 import { TaskDetail } from './EntityDetailModal.Task';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 
 interface EntityDetailModalProps {
   target: EntityModalTarget | null;
@@ -47,7 +48,8 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
                   </span>
                 </span>
               ))}
-              <span className="ml-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-white/40">
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-white/52">
+                <EntityIcon type={target.type} size={11} className="opacity-90" />
                 {target.type}
               </span>
             </div>

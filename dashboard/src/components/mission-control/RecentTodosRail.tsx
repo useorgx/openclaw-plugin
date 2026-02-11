@@ -9,6 +9,13 @@ interface RecentTodosRailProps {
   onSelectNode: (nodeId: string) => void;
 }
 
+function dueLabel(value: string | null): string {
+  if (!value) return 'No target date';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'No target date';
+  return `Due ${parsed.toLocaleDateString()}`;
+}
+
 export function RecentTodosRail({
   recentTodoIds,
   nodesById,
@@ -33,7 +40,10 @@ export function RecentTodosRail({
 
   return (
     <section className="space-y-2">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-[0.08em] text-white/42">
+          Queue overview
+        </span>
         <span className="rounded-full border border-white/15 bg-black/20 px-2 py-0.5 text-[10px] text-white/65">
           {recentNodes.length} in queue
         </span>
@@ -49,7 +59,7 @@ export function RecentTodosRail({
         }`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-white/50">
               <LevelIcon type={primary.type} />
               <span>Priority task</span>
@@ -57,14 +67,10 @@ export function RecentTodosRail({
             <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-white">
               {primary.title}
             </p>
-            <p className="mt-1 text-[11px] text-white/60">
-              {primary.dueDate
-                ? `Due ${new Date(primary.dueDate).toLocaleDateString()}`
-                : 'No target date set'}
-            </p>
+            <p className="mt-1 text-[11px] text-white/60">{dueLabel(primary.dueDate)}</p>
           </div>
           <span
-            className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+            className="inline-flex flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
             style={{
               borderColor: `${colors.amber}44`,
               backgroundColor: `${colors.amber}22`,
@@ -76,34 +82,42 @@ export function RecentTodosRail({
         </div>
       </button>
 
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-        {queued.map((node) => (
-          <button
-            key={node.id}
-            type="button"
-            onClick={() => onSelectNode(node.id)}
-            className={`flex flex-shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
-              selectedNodeId === node.id
-                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12'
-                : 'border-white/[0.14] bg-black/20 hover:bg-white/[0.08]'
-            }`}
-          >
-            <LevelIcon type={node.type} />
-            <span className="max-w-[220px] truncate text-[11px] text-white/82">
-              {node.title}
-            </span>
-            <span
-              className="rounded-full px-1.5 py-0.5 text-[9px]"
-              style={{
-                backgroundColor: `${colors.amber}22`,
-                color: `${colors.amber}`,
-              }}
+      {queued.length > 0 && (
+        <div className="space-y-1.5">
+          {queued.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              onClick={() => onSelectNode(node.id)}
+              className={`flex min-h-[62px] min-w-0 items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                selectedNodeId === node.id
+                  ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12'
+                  : 'border-white/[0.14] bg-black/20 hover:bg-white/[0.08]'
+              }`}
             >
-              P{node.priorityNum}
-            </span>
-          </button>
-        ))}
-      </div>
+              <div className="min-w-0 flex-1">
+                <div className="inline-flex items-center gap-1.5 text-[9px] uppercase tracking-[0.08em] text-white/45">
+                  <LevelIcon type={node.type} />
+                  <span>Queued</span>
+                </div>
+                <p className="mt-1 line-clamp-1 break-words text-[11px] leading-snug text-white/85" title={node.title}>
+                  {node.title}
+                </p>
+                <p className="mt-1 text-[10px] text-white/50">{dueLabel(node.dueDate)}</p>
+              </div>
+              <span
+                className="inline-flex flex-shrink-0 rounded-full px-1.5 py-0.5 text-[9px]"
+                style={{
+                  backgroundColor: `${colors.amber}22`,
+                  color: `${colors.amber}`,
+                }}
+              >
+                P{node.priorityNum}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

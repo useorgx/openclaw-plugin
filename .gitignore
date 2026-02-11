@@ -58,6 +58,12 @@ jspm_packages/
 # QA capture scratch (mp4/gif are committed; frame directories are not)
 docs/qa/**/flow-*-frames/
 
+# Local UI snapshot artifacts
+artifacts/**/*.png
+artifacts/**/*.jpg
+artifacts/**/*.jpeg
+artifacts/**/*.webp
+
 # Yarn Integrity file
 .yarn-integrity
 

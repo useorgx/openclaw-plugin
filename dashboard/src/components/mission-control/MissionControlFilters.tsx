@@ -177,6 +177,8 @@ export function MissionControlFilters({
     { value: 'default', label: 'Default' },
     { value: 'date_asc', label: 'Date (earliest)' },
     { value: 'date_desc', label: 'Date (latest)' },
+    { value: 'priority_high', label: 'Priority (high first)' },
+    { value: 'priority_low', label: 'Priority (low first)' },
   ];
 
   // Grouping/sorting changes are "view overrides" and should not look like active filters.
@@ -216,18 +218,21 @@ export function MissionControlFilters({
         </span>
       )}
 
-      <button
-        type="button"
-        onClick={clearFilters}
-        disabled={!hasFilterCriteria}
-        className={`text-[10px] transition-colors whitespace-nowrap ${
-          hasFilterCriteria
-            ? 'text-white/40 hover:text-white/70'
-            : 'pointer-events-none select-none text-transparent'
-        }`}
-      >
-        Clear
-      </button>
+      <AnimatePresence initial={false}>
+        {hasFilterCriteria && (
+          <motion.button
+            type="button"
+            onClick={clearFilters}
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -4 }}
+            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            className="text-[10px] text-white/40 transition-colors whitespace-nowrap hover:text-white/70"
+          >
+            Clear
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {open && (

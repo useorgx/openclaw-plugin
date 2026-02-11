@@ -110,7 +110,7 @@ export function Modal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-            className={`glass-panel soft-shadow relative flex w-full ${maxWidth} overflow-hidden ${
+            className={`glass-panel soft-shadow relative flex flex-col w-full ${maxWidth} overflow-hidden ${
               fitContent
                 ? 'h-auto max-h-[100dvh] rounded-none sm:max-h-[88vh] sm:rounded-2xl'
                 : 'h-[100dvh] max-h-[100dvh] rounded-none sm:h-[88vh] sm:max-h-[88vh] sm:rounded-2xl'

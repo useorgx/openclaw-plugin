@@ -50,6 +50,7 @@ import {
   toLocalLiveInitiatives,
   toLocalSessionTree,
 } from "./local-openclaw.js";
+import { appendToOutbox } from "./outbox.js";
 import { defaultOutboxAdapter, type OutboxAdapter } from "./adapters/outbox.js";
 import { readAgentContexts, upsertAgentContext } from "./agent-context-store.js";
 import type { AgentLaunchContext } from "./agent-context-store.js";
@@ -64,6 +65,14 @@ import {
   computeMilestoneRollup,
   computeWorkstreamRollup,
 } from "./reporting/rollups.js";
+import {
+  listRuntimeInstances,
+  resolveRuntimeHookToken,
+  upsertRuntimeInstanceFromHook,
+  type RuntimeHookPayload,
+  type RuntimeInstanceRecord,
+  type RuntimeSourceClient,
+} from "./runtime-instance-store.js";
 
 // =============================================================================
 // Helpers
@@ -73,6 +82,11 @@ function safeErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "Unexpected error";
+}
+
+function isUnauthorizedOrgxError(err: unknown): boolean {
+  const message = safeErrorMessage(err).toLowerCase();
+  return message.includes("401") || message.includes("unauthorized");
 }
 
 function isUserScopedApiKey(apiKey: string): boolean {
@@ -575,6 +589,114 @@ function mergeActivities(
   return deduped;
 }
 
+function normalizeRuntimeSourceForReporting(
+  value: RuntimeSourceClient
+): "openclaw" | "codex" | "claude-code" | "api" {
+  if (value === "codex") return "codex";
+  if (value === "claude-code") return "claude-code";
+  if (value === "api") return "api";
+  return "openclaw";
+}
+
+function normalizeHookPhase(value: string | null): "intent" | "execution" | "blocked" | "review" | "handoff" | "completed" {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "intent") return "intent";
+  if (normalized === "execution") return "execution";
+  if (normalized === "blocked") return "blocked";
+  if (normalized === "review") return "review";
+  if (normalized === "handoff") return "handoff";
+  if (normalized === "completed") return "completed";
+  return "execution";
+}
+
+function normalizeRuntimeSource(value: unknown): RuntimeSourceClient {
+  const normalized =
+    typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (normalized === "openclaw") return "openclaw";
+  if (normalized === "codex") return "codex";
+  if (normalized === "claude-code") return "claude-code";
+  if (normalized === "api") return "api";
+  return "unknown";
+}
+
+function runtimeMatchMaps(instances: RuntimeInstanceRecord[]) {
+  const byRunId = new Map<string, RuntimeInstanceRecord>();
+  const byAgentInitiative = new Map<string, RuntimeInstanceRecord>();
+
+  for (const instance of instances) {
+    if (instance.runId && !byRunId.has(instance.runId)) {
+      byRunId.set(instance.runId, instance);
+    }
+    const agentId = instance.agentId?.trim() ?? "";
+    const initiativeId = instance.initiativeId?.trim() ?? "";
+    if (!agentId || !initiativeId) continue;
+    const key = `${agentId}:${initiativeId}`;
+    if (!byAgentInitiative.has(key)) {
+      byAgentInitiative.set(key, instance);
+    }
+  }
+
+  return { byRunId, byAgentInitiative };
+}
+
+function enrichSessionsWithRuntime(
+  input: SessionTreeResponse,
+  instances: RuntimeInstanceRecord[]
+): SessionTreeResponse {
+  if (!Array.isArray(input.nodes) || input.nodes.length === 0) return input;
+  if (instances.length === 0) return input;
+  const { byRunId, byAgentInitiative } = runtimeMatchMaps(instances);
+
+  const nodes = input.nodes.map((node) => {
+    const byRun = node.runId ? byRunId.get(node.runId) ?? null : null;
+    const byAgent =
+      !byRun && node.agentId && node.initiativeId
+        ? byAgentInitiative.get(`${node.agentId}:${node.initiativeId}`) ?? null
+        : null;
+    const match = byRun ?? byAgent;
+    if (!match) return node;
+
+    return {
+      ...node,
+      runtimeClient: normalizeRuntimeSource(match.sourceClient),
+      runtimeLabel: match.displayName,
+      runtimeProvider: match.providerLogo,
+      instanceId: match.id,
+      lastHeartbeatAt: match.lastHeartbeatAt ?? null,
+    };
+  });
+
+  return { ...input, nodes };
+}
+
+function enrichActivityWithRuntime(
+  input: LiveActivityItem[],
+  instances: RuntimeInstanceRecord[]
+): LiveActivityItem[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  if (instances.length === 0) return input;
+  const { byRunId, byAgentInitiative } = runtimeMatchMaps(instances);
+
+  return input.map((item) => {
+    const byRun = item.runId ? byRunId.get(item.runId) ?? null : null;
+    const byAgent =
+      !byRun && item.agentId && item.initiativeId
+        ? byAgentInitiative.get(`${item.agentId}:${item.initiativeId}`) ?? null
+        : null;
+    const match = byRun ?? byAgent;
+    if (!match) return item;
+
+    return {
+      ...item,
+      runtimeClient: normalizeRuntimeSource(match.sourceClient),
+      runtimeLabel: match.displayName,
+      runtimeProvider: match.providerLogo,
+      instanceId: match.id,
+      lastHeartbeatAt: match.lastHeartbeatAt ?? null,
+    };
+  });
+}
+
 const ACTIVITY_HEADLINE_TIMEOUT_MS = 4_000;
 const ACTIVITY_HEADLINE_CACHE_TTL_MS = 12 * 60 * 60_000;
 const ACTIVITY_HEADLINE_CACHE_MAX = 1_000;
@@ -872,7 +994,7 @@ function contentType(filePath: string): string {
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-OrgX-Api-Key, X-API-Key, X-OrgX-User-Id",
+    "Content-Type, Authorization, X-OrgX-Api-Key, X-API-Key, X-OrgX-User-Id, X-OrgX-Hook-Token, X-Hook-Token",
   Vary: "Origin",
 };
 
@@ -1819,6 +1941,19 @@ function isInProgressStatus(status: string): boolean {
   );
 }
 
+function isDispatchableWorkstreamStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  if (!normalized) return true;
+  return !(
+    normalized === "blocked" ||
+    normalized === "done" ||
+    normalized === "completed" ||
+    normalized === "cancelled" ||
+    normalized === "archived" ||
+    normalized === "deleted"
+  );
+}
+
 function isDoneStatus(status: string): boolean {
   const normalized = status.toLowerCase();
   return (
@@ -2401,7 +2536,59 @@ export function createHttpHandler(
         metadata: input.metadata,
       });
     } catch {
-      // best effort
+      // Fall back to local outbox so activity is still visible in Mission Control/Activity.
+      try {
+        const timestamp = new Date().toISOString();
+        const runId =
+          input.runId?.trim() ||
+          input.correlationId?.trim() ||
+          null;
+        const activityItem: LiveActivityItem = {
+          id: randomUUID(),
+          type:
+            input.phase === "completed"
+              ? "run_completed"
+              : input.phase === "blocked"
+                ? "run_failed"
+                : "run_started",
+          title: message,
+          description: input.nextStep ?? null,
+          agentId:
+            (typeof input.metadata?.agent_id === "string"
+              ? input.metadata.agent_id
+              : null) ?? null,
+          agentName:
+            (typeof input.metadata?.agent_name === "string"
+              ? input.metadata.agent_name
+              : null) ?? null,
+          runId,
+          initiativeId,
+          timestamp,
+          phase: input.phase,
+          summary: message,
+          metadata: {
+            ...(input.metadata ?? {}),
+            source: "openclaw_local_fallback",
+          },
+        };
+        await appendToOutbox(initiativeId, {
+          id: randomUUID(),
+          type: "progress",
+          timestamp,
+          payload: {
+            phase: input.phase,
+            message,
+            level: input.level ?? "info",
+            runId,
+            initiativeId,
+            nextStep: input.nextStep ?? null,
+            metadata: input.metadata ?? null,
+          },
+          activityItem,
+        });
+      } catch {
+        // best effort
+      }
     }
   }
 
@@ -2516,6 +2703,9 @@ export function createHttpHandler(
 
   type AutoContinueStatus = "running" | "stopping" | "stopped";
 
+  type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
+  type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
+
   type AutoContinueRun = {
     initiativeId: string;
     agentId: string;
@@ -2537,9 +2727,113 @@ export function createHttpHandler(
     activeTaskTokenEstimate: number | null;
   };
 
+  type NextUpQueueItem = {
+    initiativeId: string;
+    initiativeTitle: string;
+    initiativeStatus: string;
+    workstreamId: string;
+    workstreamTitle: string;
+    workstreamStatus: string;
+    nextTaskId: string | null;
+    nextTaskTitle: string | null;
+    nextTaskPriority: number | null;
+    nextTaskDueAt: string | null;
+    runnerAgentId: string;
+    runnerAgentName: string;
+    runnerSource: NextUpRunnerSource;
+    queueState: NextUpQueueState;
+    blockReason: string | null;
+    autoContinue: {
+      status: AutoContinueStatus;
+      activeTaskId: string | null;
+      activeRunId: string | null;
+      stopReason: AutoContinueStopReason | null;
+      updatedAt: string;
+    } | null;
+  };
+
   const autoContinueRuns = new Map<string, AutoContinueRun>();
+  const localInitiativeStatusOverrides = new Map<
+    string,
+    { status: string; updatedAt: string }
+  >();
   let autoContinueTickInFlight = false;
   const AUTO_CONTINUE_TICK_MS = 2_500;
+
+  const setLocalInitiativeStatusOverride = (
+    initiativeId: string,
+    status: string
+  ) => {
+    const normalizedId = initiativeId.trim();
+    if (!normalizedId) return;
+    localInitiativeStatusOverrides.set(normalizedId, {
+      status,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const clearLocalInitiativeStatusOverride = (initiativeId: string) => {
+    const normalizedId = initiativeId.trim();
+    if (!normalizedId) return;
+    localInitiativeStatusOverrides.delete(normalizedId);
+  };
+
+  const applyLocalInitiativeOverrides = (
+    rows: Record<string, unknown>[]
+  ): Record<string, unknown>[] => {
+    const seenIds = new Set<string>();
+    const next = rows.map((row) => {
+      const id = pickString(row, ["id"]);
+      if (!id) return row;
+      seenIds.add(id);
+      const override = localInitiativeStatusOverrides.get(id);
+      if (!override) return row;
+      return {
+        ...row,
+        status: override.status,
+        updated_at:
+          pickString(row, ["updated_at", "updatedAt"]) ?? override.updatedAt,
+      };
+    });
+
+    for (const [id, override] of localInitiativeStatusOverrides.entries()) {
+      if (seenIds.has(id)) continue;
+      next.push({
+        id,
+        title: `Initiative ${id.slice(0, 8)}`,
+        name: `Initiative ${id.slice(0, 8)}`,
+        summary: null,
+        status: override.status,
+        progress_pct: null,
+        created_at: override.updatedAt,
+        updated_at: override.updatedAt,
+      });
+    }
+
+    return next;
+  };
+
+  const applyLocalInitiativeOverrideToGraph = <
+    T extends { initiative: { id: string; status: string }; nodes: MissionControlNode[] }
+  >(
+    graph: T
+  ): T => {
+    const override = localInitiativeStatusOverrides.get(graph.initiative.id) ?? null;
+    if (!override) return graph;
+
+    return {
+      ...graph,
+      initiative: {
+        ...graph.initiative,
+        status: override.status,
+      },
+      nodes: graph.nodes.map((node) =>
+        node.type === "initiative" && node.id === graph.initiative.id
+          ? { ...node, status: override.status }
+          : node
+      ),
+    };
+  };
 
   function normalizeTokenBudget(value: unknown, fallback: number): number {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -2784,6 +3078,71 @@ export function createHttpHandler(
     }
   }
 
+  async function dispatchFallbackWorkstreamTurn(input: {
+    initiativeId: string;
+    initiativeTitle: string;
+    workstreamId: string;
+    workstreamTitle: string;
+    agentId: string;
+  }): Promise<{ sessionId: string; pid: number | null }> {
+    const now = new Date().toISOString();
+    const sessionId = randomUUID();
+    const message = [
+      `Initiative: ${input.initiativeTitle}`,
+      `Workstream: ${input.workstreamTitle}`,
+      "",
+      "Continue this workstream from the latest context.",
+      "Identify and execute the next concrete task, then provide a concise progress summary.",
+    ].join("\n");
+
+    await emitActivitySafe({
+      initiativeId: input.initiativeId,
+      correlationId: sessionId,
+      phase: "execution",
+      level: "info",
+      message: `Next Up dispatched ${input.workstreamTitle}.`,
+      metadata: {
+        event: "next_up_manual_dispatch_started",
+        agent_id: input.agentId,
+        session_id: sessionId,
+        workstream_id: input.workstreamId,
+        workstream_title: input.workstreamTitle,
+        fallback: true,
+      },
+    });
+
+    upsertAgentContext({
+      agentId: input.agentId,
+      initiativeId: input.initiativeId,
+      initiativeTitle: input.initiativeTitle,
+      workstreamId: input.workstreamId,
+      taskId: null,
+    });
+
+    const spawned = spawnAgentTurn({
+      agentId: input.agentId,
+      sessionId,
+      message,
+    });
+
+    upsertAgentRun({
+      runId: sessionId,
+      agentId: input.agentId,
+      pid: spawned.pid,
+      message,
+      provider: null,
+      model: null,
+      initiativeId: input.initiativeId,
+      initiativeTitle: input.initiativeTitle,
+      workstreamId: input.workstreamId,
+      taskId: null,
+      startedAt: now,
+      status: "running",
+    });
+
+    return { sessionId, pid: spawned.pid };
+  }
+
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
     if (run.status !== "running" && run.status !== "stopping") return;
 
@@ -2901,7 +3260,9 @@ export function createHttpHandler(
     // 3) Pick next-up task and dispatch.
     let graph: Awaited<ReturnType<typeof buildMissionControlGraph>>;
     try {
-      graph = await buildMissionControlGraph(client, run.initiativeId);
+      graph = applyLocalInitiativeOverrideToGraph(
+        await buildMissionControlGraph(client, run.initiativeId)
+      );
     } catch (err: unknown) {
       await stopAutoContinueRun({
         run,
@@ -2959,7 +3320,7 @@ export function createHttpHandler(
       }
       if (node.workstreamId) {
         const ws = nodeById.get(node.workstreamId);
-        if (ws && !isInProgressStatus(ws.status)) {
+        if (ws && !isDispatchableWorkstreamStatus(ws.status)) {
           continue;
         }
       }
@@ -3010,6 +3371,23 @@ export function createHttpHandler(
     ]
       .filter((line): line is string => typeof line === "string")
       .join("\n");
+
+    if (nextTaskNode.workstreamId) {
+      const workstreamNode = nodeById.get(nextTaskNode.workstreamId);
+      if (
+        workstreamNode &&
+        !isInProgressStatus(workstreamNode.status) &&
+        isDispatchableWorkstreamStatus(workstreamNode.status)
+      ) {
+        try {
+          await client.updateEntity("workstream", workstreamNode.id, {
+            status: "active",
+          });
+        } catch {
+          // best effort
+        }
+      }
+    }
 
     try {
       await client.updateEntity("task", nextTaskNode.id, {
@@ -3122,6 +3500,627 @@ export function createHttpHandler(
     }
   }
 
+  function isInitiativeActiveStatus(status: string | null | undefined): boolean {
+    const normalized = (status ?? "").trim().toLowerCase();
+    if (!normalized) return false;
+    return !(
+      normalized === "completed" ||
+      normalized === "done" ||
+      normalized === "archived" ||
+      normalized === "deleted" ||
+      normalized === "cancelled"
+    );
+  }
+
+  function runningAutoContinueForWorkstream(
+    initiativeId: string,
+    workstreamId: string
+  ): AutoContinueRun | null {
+    const run = autoContinueRuns.get(initiativeId) ?? null;
+    if (!run) return null;
+    if (run.status !== "running" && run.status !== "stopping") return null;
+    if (!Array.isArray(run.allowedWorkstreamIds) || run.allowedWorkstreamIds.length === 0) {
+      return run;
+    }
+    return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
+  }
+
+  async function resolveAutoContinueUpgradeGate(
+    agentId: string
+  ): Promise<{
+    error: string;
+    code: "upgrade_required";
+    currentPlan: string;
+    requiredPlan: "starter";
+    actions: { checkout: string; portal: string; pricing: string };
+  } | null> {
+    let requiresPremiumAutoContinue = false;
+    try {
+      const agents = await listAgents();
+      const agentEntry =
+        agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
+        null;
+      const agentModel =
+        agentEntry && typeof agentEntry.model === "string"
+          ? agentEntry.model
+          : null;
+      requiresPremiumAutoContinue = modelImpliesByok(agentModel);
+    } catch {
+      // ignore
+    }
+
+    if (!requiresPremiumAutoContinue) return null;
+
+    const billingStatus = await fetchBillingStatusSafe(client);
+    if (!billingStatus || billingStatus.plan !== "free") return null;
+
+    const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
+    return {
+      code: "upgrade_required",
+      error:
+        "Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.",
+      currentPlan: billingStatus.plan,
+      requiredPlan: "starter",
+      actions: {
+        checkout: "/orgx/api/billing/checkout",
+        portal: "/orgx/api/billing/portal",
+        pricing: pricingUrl,
+      },
+    };
+  }
+
+  async function startAutoContinueRun(input: {
+    initiativeId: string;
+    agentId: string;
+    tokenBudget: unknown;
+    includeVerification: boolean;
+    allowedWorkstreamIds: string[] | null;
+  }): Promise<AutoContinueRun> {
+    const now = new Date().toISOString();
+    const existing = autoContinueRuns.get(input.initiativeId) ?? null;
+
+    const run: AutoContinueRun =
+      existing ??
+      ({
+        initiativeId: input.initiativeId,
+        agentId: input.agentId,
+        includeVerification: false,
+        allowedWorkstreamIds: null,
+        tokenBudget: defaultAutoContinueTokenBudget(),
+        tokensUsed: 0,
+        status: "running",
+        stopReason: null,
+        stopRequested: false,
+        startedAt: now,
+        stoppedAt: null,
+        updatedAt: now,
+        lastError: null,
+        lastTaskId: null,
+        lastRunId: null,
+        activeTaskId: null,
+        activeRunId: null,
+        activeTaskTokenEstimate: null,
+      } as AutoContinueRun);
+
+    run.agentId = input.agentId;
+    run.includeVerification = input.includeVerification;
+    run.allowedWorkstreamIds = input.allowedWorkstreamIds;
+    run.tokenBudget = normalizeTokenBudget(
+      input.tokenBudget,
+      run.tokenBudget || defaultAutoContinueTokenBudget()
+    );
+    run.status = "running";
+    run.stopReason = null;
+    run.stopRequested = false;
+    run.startedAt = now;
+    run.stoppedAt = null;
+    run.updatedAt = now;
+    run.lastError = null;
+
+    autoContinueRuns.set(input.initiativeId, run);
+
+    try {
+      await client.updateEntity("initiative", input.initiativeId, { status: "active" });
+    } catch {
+      // best effort
+    }
+
+    try {
+      await updateInitiativeAutoContinueState({
+        initiativeId: input.initiativeId,
+        run,
+      });
+    } catch {
+      // best effort
+    }
+
+    return run;
+  }
+
+  async function buildNextUpQueue(input?: {
+    initiativeId?: string | null;
+  }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
+    const degraded: string[] = [];
+    const requestedInitiativeId = input?.initiativeId?.trim() || null;
+
+    const initiativeTitleById = new Map<string, string>();
+    const initiativeStatusById = new Map<string, string>();
+    const initiativePriorityById = new Map<string, string>();
+
+    const snapshotInitiatives = formatInitiatives(getSnapshot());
+    for (const initiative of snapshotInitiatives) {
+      const id = initiative.id?.trim();
+      if (!id) continue;
+      initiativeTitleById.set(id, initiative.title);
+      initiativeStatusById.set(id, initiative.status || "active");
+    }
+
+    const initiativeResult = await listEntitiesSafe(client, "initiative", { limit: 500 });
+    if (initiativeResult.warning) degraded.push(initiativeResult.warning);
+    const initiatives = initiativeResult.items;
+    for (const entity of initiatives) {
+      const record = entity as Record<string, unknown>;
+      const id = pickString(record, ["id"]);
+      if (!id) continue;
+      const title = pickString(record, ["title", "name"]);
+      const status = pickString(record, ["status"]);
+      const priority = pickString(record, ["priority", "priority_label", "priorityLabel"]);
+      if (title) initiativeTitleById.set(id, title);
+      if (status) initiativeStatusById.set(id, status);
+      if (priority) initiativePriorityById.set(id, priority);
+    }
+
+    for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
+      initiativeStatusById.set(initiativeId, override.status);
+    }
+
+    const queueRank = (state: NextUpQueueState): number => {
+      if (state === "running") return 0;
+      if (state === "queued") return 1;
+      if (state === "blocked") return 2;
+      return 3;
+    };
+
+    const sortQueueItems = (a: NextUpQueueItem, b: NextUpQueueItem): number => {
+      const queueDelta = queueRank(a.queueState) - queueRank(b.queueState);
+      if (queueDelta !== 0) return queueDelta;
+
+      const priorityRank = (value: string | null | undefined): number => {
+        const normalized = (value ?? "").trim().toLowerCase();
+        if (!normalized) return 4;
+        if (normalized === "critical" || normalized === "p0" || normalized === "urgent") return 0;
+        if (normalized === "high" || normalized === "p1") return 1;
+        if (normalized === "medium" || normalized === "normal" || normalized === "p2") return 2;
+        if (normalized === "low" || normalized === "p3") return 3;
+        return 4;
+      };
+      const aInitiativePriority = priorityRank(initiativePriorityById.get(a.initiativeId));
+      const bInitiativePriority = priorityRank(initiativePriorityById.get(b.initiativeId));
+      if (aInitiativePriority !== bInitiativePriority) {
+        return aInitiativePriority - bInitiativePriority;
+      }
+
+      const aPriority = typeof a.nextTaskPriority === "number" ? a.nextTaskPriority : 999;
+      const bPriority = typeof b.nextTaskPriority === "number" ? b.nextTaskPriority : 999;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+
+      const aDue = a.nextTaskDueAt ? Date.parse(a.nextTaskDueAt) : Number.POSITIVE_INFINITY;
+      const bDue = b.nextTaskDueAt ? Date.parse(b.nextTaskDueAt) : Number.POSITIVE_INFINITY;
+      if (aDue !== bDue) return aDue - bDue;
+
+      const init = a.initiativeTitle.localeCompare(b.initiativeTitle);
+      if (init !== 0) return init;
+      return a.workstreamTitle.localeCompare(b.workstreamTitle);
+    };
+
+    const buildSessionFallbackQueue = async (): Promise<NextUpQueueItem[]> => {
+      let sessionTree: SessionTreeResponse | null = null;
+      try {
+        sessionTree = await client.getLiveSessions({
+          initiative: requestedInitiativeId,
+          limit: 500,
+        });
+      } catch (err: unknown) {
+        degraded.push(`live sessions fallback unavailable (${safeErrorMessage(err)})`);
+      }
+
+      if (!sessionTree) {
+        try {
+          const localTree = toLocalSessionTree(
+            await loadLocalOpenClawSnapshot(400),
+            400
+          );
+          sessionTree = applyAgentContextsToSessionTree(
+            localTree,
+            readAgentContexts().agents
+          );
+        } catch (err: unknown) {
+          degraded.push(`local sessions fallback unavailable (${safeErrorMessage(err)})`);
+          return [];
+        }
+      }
+
+      sessionTree = applyAgentContextsToSessionTree(
+        sessionTree,
+        readAgentContexts().agents
+      );
+
+      const grouped = new Map<
+        string,
+        {
+          initiativeId: string;
+          workstreamId: string;
+          initiativeTitle: string;
+          initiativeStatus: string;
+          workstreamTitle: string;
+          statuses: Set<string>;
+          blockers: string[];
+          latest: SessionTreeResponse["nodes"][number];
+          latestEpoch: number;
+        }
+      >();
+
+      const parseEpoch = (value: string | null | undefined): number => {
+        const parsed = value ? Date.parse(value) : Number.NaN;
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      for (const node of sessionTree.nodes ?? []) {
+        const initiativeId = (node.initiativeId ?? "").trim();
+        const workstreamId = (node.workstreamId ?? "").trim();
+        if (!initiativeId || !workstreamId) continue;
+        if (requestedInitiativeId && initiativeId !== requestedInitiativeId) continue;
+        const initiativeStatus = initiativeStatusById.get(initiativeId) ?? "active";
+        if (!isInitiativeActiveStatus(initiativeStatus)) continue;
+
+        const key = `${initiativeId}:${workstreamId}`;
+        const epoch = parseEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
+        const existing = grouped.get(key);
+        if (!existing) {
+          grouped.set(key, {
+            initiativeId,
+            workstreamId,
+            initiativeTitle:
+              initiativeTitleById.get(initiativeId) ??
+              node.groupLabel ??
+              initiativeId,
+            initiativeStatus,
+            workstreamTitle: `Workstream ${workstreamId.slice(0, 8)}`,
+            statuses: new Set([node.status]),
+            blockers: Array.isArray(node.blockers) ? [...node.blockers] : [],
+            latest: node,
+            latestEpoch: epoch,
+          });
+          continue;
+        }
+
+        existing.statuses.add(node.status);
+        if (Array.isArray(node.blockers)) {
+          for (const blocker of node.blockers) {
+            if (typeof blocker !== "string" || blocker.trim().length === 0) continue;
+            if (!existing.blockers.includes(blocker)) existing.blockers.push(blocker);
+          }
+        }
+        if (epoch >= existing.latestEpoch) {
+          existing.latest = node;
+          existing.latestEpoch = epoch;
+        }
+      }
+
+      const fallbackItems: NextUpQueueItem[] = [];
+      for (const entry of grouped.values()) {
+        const statusValues = Array.from(entry.statuses).map((status) =>
+          status.toLowerCase()
+        );
+        const hasBlocked =
+          statusValues.some((status) => status === "blocked" || status === "failed") ||
+          entry.blockers.length > 0;
+        const hasRunning = statusValues.some((status) => isInProgressStatus(status));
+        const hasQueued = statusValues.some(
+          (status) => status === "queued" || status === "pending"
+        );
+        const queueState: NextUpQueueState = hasRunning
+          ? "running"
+          : hasBlocked
+            ? "blocked"
+            : hasQueued
+              ? "queued"
+              : "idle";
+
+        const runnerAgentId = (entry.latest.agentId ?? "").trim() || "main";
+        const runnerAgentName =
+          (entry.latest.agentName ?? "").trim() ||
+          initiativeTitleById.get(`agent:${runnerAgentId}`) ||
+          runnerAgentId;
+
+        fallbackItems.push({
+          initiativeId: entry.initiativeId,
+          initiativeTitle: entry.initiativeTitle,
+          initiativeStatus: entry.initiativeStatus,
+          workstreamId: entry.workstreamId,
+          workstreamTitle: entry.workstreamTitle,
+          workstreamStatus:
+            hasBlocked ? "blocked" : hasRunning ? "active" : hasQueued ? "queued" : "idle",
+          nextTaskId: entry.latest.id ?? null,
+          nextTaskTitle:
+            (entry.latest.lastEventSummary ?? "").trim() ||
+            (entry.latest.title ?? "").trim() ||
+            null,
+          nextTaskPriority: null,
+          nextTaskDueAt: null,
+          runnerAgentId,
+          runnerAgentName,
+          runnerSource: "fallback",
+          queueState,
+          blockReason: hasBlocked
+            ? entry.blockers[0] ?? (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
+            : null,
+          autoContinue: null,
+        });
+      }
+
+      fallbackItems.sort(sortQueueItems);
+      return fallbackItems;
+    };
+
+    const scopedInitiatives = initiatives.filter((entity) => {
+      const record = entity as Record<string, unknown>;
+      const id = pickString(record, ["id"]);
+      if (!id) return false;
+      if (requestedInitiativeId && id !== requestedInitiativeId) return false;
+      const status = pickString(record, ["status"]);
+      return isInitiativeActiveStatus(status);
+    });
+
+    const agentCatalogById = new Map<string, { id: string; name: string }>();
+    try {
+      const catalog = await listAgents();
+      for (const entry of catalog) {
+        if (!entry || typeof entry !== "object") continue;
+        const id = typeof entry.id === "string" ? entry.id.trim() : "";
+        if (!id) continue;
+        const name =
+          typeof entry.name === "string" && entry.name.trim().length > 0
+            ? entry.name.trim()
+            : id;
+        agentCatalogById.set(id, { id, name });
+      }
+    } catch (err: unknown) {
+      degraded.push(`agent catalog unavailable (${safeErrorMessage(err)})`);
+    }
+
+    const liveAgentsByInitiative = new Map<string, MissionControlAssignedAgent[]>();
+    try {
+      const data = await client.getLiveAgents({
+        initiative: requestedInitiativeId,
+        includeIdle: true,
+      });
+      for (const raw of Array.isArray(data.agents) ? data.agents : []) {
+        if (!raw || typeof raw !== "object") continue;
+        const row = raw as Record<string, unknown>;
+        const initiativeId = pickString(row, ["initiativeId", "initiative_id"]);
+        if (!initiativeId) continue;
+        const id =
+          pickString(row, ["id", "agentId", "agent_id"]) ??
+          pickString(row, ["name", "agentName", "agent_name"]) ??
+          "";
+        const name =
+          pickString(row, ["name", "agentName", "agent_name"]) ??
+          id;
+        if (!id || !name) continue;
+        const list = liveAgentsByInitiative.get(initiativeId) ?? [];
+        list.push({
+          id,
+          name,
+          domain: pickString(row, ["domain", "role"]),
+        });
+        liveAgentsByInitiative.set(initiativeId, list);
+      }
+    } catch (err: unknown) {
+      degraded.push(`live agents unavailable (${safeErrorMessage(err)})`);
+    }
+
+    const items: NextUpQueueItem[] = [];
+
+    for (const initiativeEntity of scopedInitiatives) {
+      const initiativeRecord = initiativeEntity as Record<string, unknown>;
+      const initiativeId = pickString(initiativeRecord, ["id"]);
+      if (!initiativeId) continue;
+      const initiativeTitle =
+        pickString(initiativeRecord, ["title", "name"]) ?? initiativeId;
+      const initiativeStatus = pickString(initiativeRecord, ["status"]) ?? "active";
+
+      let graph: Awaited<ReturnType<typeof buildMissionControlGraph>>;
+      try {
+        graph = applyLocalInitiativeOverrideToGraph(
+          await buildMissionControlGraph(client, initiativeId)
+        );
+      } catch (err: unknown) {
+        degraded.push(
+          `graph unavailable for ${initiativeId} (${safeErrorMessage(err)})`
+        );
+        continue;
+      }
+
+      const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+      const workstreamNodes = graph.nodes.filter((node) => node.type === "workstream");
+      const runningWorkstreams = new Set<string>();
+      const taskIsReady = (task: MissionControlNode): boolean =>
+        task.dependencyIds.every((depId) => {
+          const dependency = nodeById.get(depId);
+          return dependency ? isDoneStatus(dependency.status) : true;
+        });
+      const taskHasBlockedParent = (task: MissionControlNode): boolean => {
+        const milestone =
+          task.milestoneId ? nodeById.get(task.milestoneId) ?? null : null;
+        const workstream =
+          task.workstreamId ? nodeById.get(task.workstreamId) ?? null : null;
+        return (
+          milestone?.status?.toLowerCase() === "blocked" ||
+          workstream?.status?.toLowerCase() === "blocked"
+        );
+      };
+
+      for (const workstream of workstreamNodes) {
+        const todoTasks = graph.recentTodos
+          .map((taskId) => nodeById.get(taskId))
+          .filter(
+            (node) =>
+              node?.type === "task" &&
+              node.workstreamId === workstream.id &&
+              isTodoStatus(node.status)
+          ) as MissionControlNode[];
+        const readyTask = todoTasks.find(
+          (task) => taskIsReady(task) && !taskHasBlockedParent(task)
+        );
+        const candidateTask = readyTask ?? todoTasks[0] ?? null;
+
+        const autoContinueRun = runningAutoContinueForWorkstream(
+          initiativeId,
+          workstream.id
+        );
+        let queueState: NextUpQueueState = autoContinueRun ? "running" : "queued";
+        let blockReason: string | null = null;
+
+        if (!autoContinueRun && !readyTask && candidateTask) {
+          queueState = "blocked";
+          const blockedDeps = candidateTask.dependencyIds
+            .map((depId) => nodeById.get(depId))
+            .filter(
+              (dependency): dependency is MissionControlNode =>
+                Boolean(dependency && !isDoneStatus(dependency.status))
+            )
+            .map((dependency) => dependency.title);
+
+          if (blockedDeps.length > 0) {
+            blockReason = `Waiting on ${blockedDeps.slice(0, 2).join(", ")}${
+              blockedDeps.length > 2 ? "…" : ""
+            }`;
+          } else if (taskHasBlockedParent(candidateTask)) {
+            blockReason = "Parent milestone or workstream is blocked";
+          } else if (!taskIsReady(candidateTask)) {
+            blockReason = "Task prerequisites are not complete";
+          }
+        }
+
+        if (!candidateTask && !autoContinueRun) {
+          continue;
+        }
+
+        runningWorkstreams.add(workstream.id);
+
+        const assignedAgent = workstream.assignedAgents[0] ?? null;
+        const inferredAgent =
+          graph.initiative.assignedAgents[0] ??
+          liveAgentsByInitiative.get(initiativeId)?.[0] ??
+          (autoContinueRun?.agentId
+            ? ({
+                id: autoContinueRun.agentId,
+                name: agentCatalogById.get(autoContinueRun.agentId)?.name ?? autoContinueRun.agentId,
+                domain: null,
+              } as MissionControlAssignedAgent)
+            : null);
+        const runnerSource: NextUpRunnerSource = assignedAgent
+          ? "assigned"
+          : inferredAgent
+            ? "inferred"
+            : "fallback";
+        const resolvedRunner = assignedAgent ?? inferredAgent;
+        const runnerAgentId = resolvedRunner?.id ?? autoContinueRun?.agentId ?? "main";
+        const runnerAgentName =
+          resolvedRunner?.name ??
+          agentCatalogById.get(runnerAgentId)?.name ??
+          runnerAgentId;
+
+        items.push({
+          initiativeId,
+          initiativeTitle,
+          initiativeStatus,
+          workstreamId: workstream.id,
+          workstreamTitle: workstream.title,
+          workstreamStatus: workstream.status,
+          nextTaskId:
+            candidateTask?.id ??
+            (autoContinueRun?.activeTaskId?.trim() || null),
+          nextTaskTitle:
+            candidateTask?.title ??
+            (autoContinueRun?.activeTaskId
+              ? nodeById.get(autoContinueRun.activeTaskId)?.title ?? null
+              : null),
+          nextTaskPriority: candidateTask?.priorityNum ?? null,
+          nextTaskDueAt: candidateTask?.dueDate ?? null,
+          runnerAgentId,
+          runnerAgentName,
+          runnerSource,
+          queueState,
+          blockReason,
+          autoContinue: autoContinueRun
+            ? {
+                status: autoContinueRun.status,
+                activeTaskId: autoContinueRun.activeTaskId,
+                activeRunId: autoContinueRun.activeRunId,
+                stopReason: autoContinueRun.stopReason,
+                updatedAt: autoContinueRun.updatedAt,
+              }
+            : null,
+        });
+      }
+
+      const run = autoContinueRuns.get(initiativeId);
+      if (
+        run &&
+        (run.status === "running" || run.status === "stopping") &&
+        Array.isArray(run.allowedWorkstreamIds) &&
+        run.allowedWorkstreamIds.length > 0
+      ) {
+        for (const workstreamId of run.allowedWorkstreamIds) {
+          if (runningWorkstreams.has(workstreamId)) continue;
+          const workstream = nodeById.get(workstreamId);
+          if (!workstream || workstream.type !== "workstream") continue;
+          items.push({
+            initiativeId,
+            initiativeTitle,
+            initiativeStatus,
+            workstreamId: workstream.id,
+            workstreamTitle: workstream.title,
+            workstreamStatus: workstream.status,
+            nextTaskId: run.activeTaskId,
+            nextTaskTitle: run.activeTaskId
+              ? nodeById.get(run.activeTaskId)?.title ?? null
+              : null,
+            nextTaskPriority: null,
+            nextTaskDueAt: null,
+            runnerAgentId: run.agentId,
+            runnerAgentName:
+              agentCatalogById.get(run.agentId)?.name ?? run.agentId,
+            runnerSource: "inferred",
+            queueState: "running",
+            blockReason: null,
+            autoContinue: {
+              status: run.status,
+              activeTaskId: run.activeTaskId,
+              activeRunId: run.activeRunId,
+              stopReason: run.stopReason,
+              updatedAt: run.updatedAt,
+            },
+          });
+        }
+      }
+    }
+
+    if (items.length === 0) {
+      const fallbackItems = await buildSessionFallbackQueue();
+      if (fallbackItems.length > 0) {
+        degraded.push("Using session-derived Next Up fallback.");
+        items.push(...fallbackItems);
+      }
+    }
+
+    items.sort(sortQueueItems);
+
+    return { items, degraded };
+  }
+
   const autoContinueTimer = setInterval(() => {
     void tickAllAutoContinue();
   }, AUTO_CONTINUE_TICK_MS);
@@ -3180,6 +4179,8 @@ export function createHttpHandler(
       const isDelegationPreflight = route === "delegation/preflight";
       const isMissionControlAutoAssignmentRoute =
         route === "mission-control/assignments/auto";
+      const isMissionControlNextUpPlayRoute =
+        route === "mission-control/next-up/play";
       const isMissionControlAutoContinueStartRoute =
         route === "mission-control/auto-continue/start";
       const isMissionControlAutoContinueStopRoute =
@@ -3757,6 +4758,165 @@ export function createHttpHandler(
         return true;
       }
 
+      if (method === "POST" && isMissionControlNextUpPlayRoute) {
+        try {
+          const payload = await parseJsonRequest(req);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+          const workstreamId =
+            (pickString(payload, ["workstreamId", "workstream_id"]) ??
+              searchParams.get("workstreamId") ??
+              searchParams.get("workstream_id") ??
+              "")
+              .trim();
+
+          if (!initiativeId || !workstreamId) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "initiativeId and workstreamId are required",
+            });
+            return true;
+          }
+
+          let agentIdRaw =
+            (pickString(payload, ["agentId", "agent_id"]) ??
+              searchParams.get("agentId") ??
+              searchParams.get("agent_id") ??
+              "")
+              .trim();
+
+          const queue = await buildNextUpQueue({ initiativeId });
+          const matchedQueueItem =
+            queue.items.find((item) => item.workstreamId === workstreamId) ?? null;
+
+          if (!agentIdRaw && matchedQueueItem?.runnerAgentId) {
+            agentIdRaw = matchedQueueItem.runnerAgentId;
+          }
+
+          const agentId = agentIdRaw || "main";
+          if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "agentId must be a simple identifier (letters, numbers, _ or -).",
+            });
+            return true;
+          }
+
+          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
+          if (upgradeGate) {
+            sendJson(res, 402, {
+              ok: false,
+              ...upgradeGate,
+            });
+            return true;
+          }
+
+          const tokenBudget =
+            pickNumber(payload, [
+              "tokenBudget",
+              "token_budget",
+              "tokenBudgetTokens",
+              "token_budget_tokens",
+              "maxTokens",
+              "max_tokens",
+            ]) ??
+            searchParams.get("tokenBudget") ??
+            searchParams.get("token_budget") ??
+            searchParams.get("tokenBudgetTokens") ??
+            searchParams.get("token_budget_tokens") ??
+            searchParams.get("maxTokens") ??
+            searchParams.get("max_tokens") ??
+            null;
+
+          const includeVerificationRaw =
+            payload.includeVerification ??
+            (payload as Record<string, unknown>).include_verification ??
+            searchParams.get("includeVerification") ??
+            searchParams.get("include_verification") ??
+            null;
+          const includeVerification =
+            typeof includeVerificationRaw === "boolean"
+              ? includeVerificationRaw
+              : parseBooleanQuery(
+                  typeof includeVerificationRaw === "string"
+                    ? includeVerificationRaw
+                    : null
+                );
+
+          const run = await startAutoContinueRun({
+            initiativeId,
+            agentId,
+            tokenBudget,
+            includeVerification,
+            allowedWorkstreamIds: [workstreamId],
+          });
+
+          // Play should feel immediate. Run one dispatch tick synchronously so the
+          // user gets an actual launch (or a concrete error) in this response.
+          await tickAutoContinueRun(run);
+
+          let fallbackDispatch:
+            | {
+                sessionId: string;
+                pid: number | null;
+              }
+            | null = null;
+          if (
+            !run.activeRunId &&
+            matchedQueueItem &&
+            matchedQueueItem.runnerSource === "fallback"
+          ) {
+            fallbackDispatch = await dispatchFallbackWorkstreamTurn({
+              initiativeId,
+              initiativeTitle: matchedQueueItem.initiativeTitle,
+              workstreamId,
+              workstreamTitle: matchedQueueItem.workstreamTitle,
+              agentId,
+            });
+          }
+
+          const dispatchMode = run.activeRunId
+            ? "task"
+            : fallbackDispatch
+              ? "fallback"
+              : "none";
+          if (dispatchMode === "none") {
+            const reason =
+              run.stopReason === "blocked"
+                ? "No dispatchable task is ready for this workstream yet."
+                : run.stopReason === "completed"
+                  ? "No queued task is available for this workstream."
+                  : "Unable to dispatch this workstream right now.";
+            sendJson(res, 409, {
+              ok: false,
+              error: reason,
+              run,
+              initiativeId,
+              workstreamId,
+              agentId,
+            });
+            return true;
+          }
+
+          sendJson(res, 200, {
+            ok: true,
+            run,
+            initiativeId,
+            workstreamId,
+            agentId,
+            dispatchMode,
+            sessionId: run.activeRunId ?? fallbackDispatch?.sessionId ?? null,
+          });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
       if (method === "POST" && isMissionControlAutoContinueStartRoute) {
         try {
           const payload = await parseJsonRequest(req);
@@ -3787,40 +4947,13 @@ export function createHttpHandler(
             return true;
           }
 
-          let requiresPremiumAutoContinue = false;
-          try {
-            const agents = await listAgents();
-            const agentEntry =
-              agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
-              null;
-            const agentModel =
-              agentEntry && typeof agentEntry.model === "string"
-                ? agentEntry.model
-                : null;
-            requiresPremiumAutoContinue = modelImpliesByok(agentModel);
-          } catch {
-            // ignore
-          }
-
-          if (requiresPremiumAutoContinue) {
-            const billingStatus = await fetchBillingStatusSafe(client);
-            if (billingStatus && billingStatus.plan === "free") {
-              const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
-              sendJson(res, 402, {
-                ok: false,
-                code: "upgrade_required",
-                error:
-                  "Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.",
-                currentPlan: billingStatus.plan,
-                requiredPlan: "starter",
-                actions: {
-                  checkout: "/orgx/api/billing/checkout",
-                  portal: "/orgx/api/billing/portal",
-                  pricing: pricingUrl,
-                },
-              });
-              return true;
-            }
+          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
+          if (upgradeGate) {
+            sendJson(res, 402, {
+              ok: false,
+              ...upgradeGate,
+            });
+            return true;
           }
 
           const tokenBudget =
@@ -3874,60 +5007,13 @@ export function createHttpHandler(
           const allowedWorkstreamIds =
             workstreamFilter.length > 0 ? workstreamFilter : null;
 
-          const now = new Date().toISOString();
-          const existing = autoContinueRuns.get(initiativeId) ?? null;
-
-          const run: AutoContinueRun =
-            existing ??
-            ({
-              initiativeId,
-              agentId,
-              includeVerification: false,
-              allowedWorkstreamIds: null,
-              tokenBudget: defaultAutoContinueTokenBudget(),
-              tokensUsed: 0,
-              status: "running",
-              stopReason: null,
-              stopRequested: false,
-              startedAt: now,
-              stoppedAt: null,
-              updatedAt: now,
-              lastError: null,
-              lastTaskId: null,
-              lastRunId: null,
-              activeTaskId: null,
-              activeRunId: null,
-              activeTaskTokenEstimate: null,
-            } as AutoContinueRun);
-
-          run.agentId = agentId;
-          run.includeVerification = includeVerification;
-          run.allowedWorkstreamIds = allowedWorkstreamIds;
-          run.tokenBudget = normalizeTokenBudget(
+          const run = await startAutoContinueRun({
+            initiativeId,
+            agentId,
             tokenBudget,
-            run.tokenBudget || defaultAutoContinueTokenBudget()
-          );
-          run.status = "running";
-          run.stopReason = null;
-          run.stopRequested = false;
-          run.startedAt = now;
-          run.stoppedAt = null;
-          run.updatedAt = now;
-          run.lastError = null;
-
-          autoContinueRuns.set(initiativeId, run);
-
-          try {
-            await client.updateEntity("initiative", initiativeId, { status: "active" });
-          } catch {
-            // best effort
-          }
-
-          try {
-            await updateInitiativeAutoContinueState({ initiativeId, run });
-          } catch {
-            // best effort
-          }
+            includeVerification,
+            allowedWorkstreamIds,
+          });
 
           sendJson(res, 200, { ok: true, run });
         } catch (err: unknown) {
@@ -4175,11 +5261,40 @@ export function createHttpHandler(
           const payload = await parseJsonRequest(req);
 
           if (entityAction === "delete") {
-            // Delete via status update
-            const entity = await client.updateEntity(entityType, entityId, {
-              status: "deleted",
-            });
-            sendJson(res, 200, { ok: true, entity });
+            // Delete via status update. Initiatives use `archived` in OrgX.
+            const deleteStatus =
+              entityType.trim().toLowerCase() === "initiative"
+                ? "archived"
+                : "deleted";
+            try {
+              const entity = await client.updateEntity(entityType, entityId, {
+                status: deleteStatus,
+              });
+              if (entityType.trim().toLowerCase() === "initiative") {
+                clearLocalInitiativeStatusOverride(entityId);
+              }
+              sendJson(res, 200, { ok: true, entity, deletedAsStatus: deleteStatus });
+            } catch (err: unknown) {
+              if (
+                entityType.trim().toLowerCase() === "initiative" &&
+                isUnauthorizedOrgxError(err)
+              ) {
+                setLocalInitiativeStatusOverride(entityId, deleteStatus);
+                sendJson(res, 200, {
+                  ok: true,
+                  localFallback: true,
+                  warning: safeErrorMessage(err),
+                  entity: {
+                    id: entityId,
+                    type: entityType,
+                    status: deleteStatus,
+                  },
+                  deletedAsStatus: deleteStatus,
+                });
+                return true;
+              }
+              throw err;
+            }
           } else {
             // Map action to status update
             const statusMap: Record<string, string> = {
@@ -4197,11 +5312,35 @@ export function createHttpHandler(
               });
               return true;
             }
-            const entity = await client.updateEntity(entityType, entityId, {
-              status: newStatus,
-              ...(payload.force ? { force: true } : {}),
-            });
-            sendJson(res, 200, { ok: true, entity });
+            try {
+              const entity = await client.updateEntity(entityType, entityId, {
+                status: newStatus,
+                ...(payload.force ? { force: true } : {}),
+              });
+              if (entityType.trim().toLowerCase() === "initiative") {
+                clearLocalInitiativeStatusOverride(entityId);
+              }
+              sendJson(res, 200, { ok: true, entity });
+            } catch (err: unknown) {
+              if (
+                entityType.trim().toLowerCase() === "initiative" &&
+                isUnauthorizedOrgxError(err)
+              ) {
+                setLocalInitiativeStatusOverride(entityId, newStatus);
+                sendJson(res, 200, {
+                  ok: true,
+                  localFallback: true,
+                  warning: safeErrorMessage(err),
+                  entity: {
+                    id: entityId,
+                    type: entityType,
+                    status: newStatus,
+                  },
+                });
+                return true;
+              }
+              throw err;
+            }
           }
         } catch (err: unknown) {
           sendJson(res, 500, {
@@ -4219,6 +5358,7 @@ export function createHttpHandler(
         !(runActionMatch && method === "POST") &&
         !(isDelegationPreflight && method === "POST") &&
         !(isMissionControlAutoAssignmentRoute && method === "POST") &&
+        !(isMissionControlNextUpPlayRoute && method === "POST") &&
         !(isEntitiesRoute && method === "POST") &&
         !(isEntitiesRoute && method === "PATCH") &&
         !(entityActionMatch && method === "POST") &&
@@ -4424,6 +5564,124 @@ export function createHttpHandler(
         case "onboarding":
           sendJson(res, 200, getOnboardingState(await onboarding.getStatus()));
           return true;
+
+        case "hooks/runtime": {
+          if (method !== "POST") {
+            sendJson(res, 405, { ok: false, error: "Use POST /orgx/api/hooks/runtime" });
+            return true;
+          }
+
+          const expectedHookToken = resolveRuntimeHookToken();
+          const providedHookToken =
+            pickHeaderString(req.headers, ["x-orgx-hook-token", "x-hook-token"]) ??
+            searchParams.get("hook_token") ??
+            searchParams.get("token");
+
+          if (!providedHookToken || providedHookToken.trim() !== expectedHookToken) {
+            sendJson(res, 401, {
+              ok: false,
+              error: "Invalid hook token",
+            });
+            return true;
+          }
+
+          try {
+            const payloadRecord = await parseJsonRequest(req);
+            const payload: RuntimeHookPayload = {
+              source_client:
+                pickString(payloadRecord, ["source_client", "sourceClient"]) ??
+                "unknown",
+              event: pickString(payloadRecord, ["event", "hook_event"]) ?? "heartbeat",
+              run_id: pickString(payloadRecord, ["run_id", "runId", "session_id", "sessionId"]),
+              correlation_id: pickString(payloadRecord, ["correlation_id", "correlationId"]),
+              initiative_id: pickString(payloadRecord, ["initiative_id", "initiativeId"]),
+              workstream_id: pickString(payloadRecord, ["workstream_id", "workstreamId"]),
+              task_id: pickString(payloadRecord, ["task_id", "taskId"]),
+              agent_id: pickString(payloadRecord, ["agent_id", "agentId"]),
+              agent_name: pickString(payloadRecord, ["agent_name", "agentName"]),
+              phase: pickString(payloadRecord, ["phase"]),
+              progress_pct:
+                pickNumber(payloadRecord, ["progress_pct", "progressPct"]) ??
+                null,
+              message: pickString(payloadRecord, ["message", "summary"]),
+              metadata:
+                payloadRecord.metadata && typeof payloadRecord.metadata === "object"
+                  ? (payloadRecord.metadata as Record<string, unknown>)
+                  : null,
+              timestamp: pickString(payloadRecord, ["timestamp", "time", "ts"]),
+            };
+
+            const instance = upsertRuntimeInstanceFromHook(payload);
+
+            const fallbackPhaseByEvent: Record<string, string> = {
+              session_start: "intent",
+              heartbeat: "execution",
+              progress: "execution",
+              task_update: "execution",
+              session_stop: "completed",
+              error: "blocked",
+            };
+            const phase = normalizeHookPhase(
+              payload.phase ??
+                fallbackPhaseByEvent[instance.event] ??
+                "execution"
+            );
+            const level: "info" | "warn" | "error" =
+              instance.event === "error" ? "error" : phase === "blocked" ? "warn" : "info";
+            const message =
+              payload.message ??
+              `${instance.displayName} ${instance.event.replace(/_/g, " ")}`;
+
+            let forwarded = false;
+            let forwardError: string | null = null;
+            if (instance.initiativeId) {
+              try {
+                await client.emitActivity({
+                  initiative_id: instance.initiativeId,
+                  run_id: instance.runId ?? undefined,
+                  correlation_id: instance.runId
+                    ? undefined
+                    : (instance.correlationId ?? undefined),
+                  source_client: normalizeRuntimeSourceForReporting(
+                    instance.sourceClient
+                  ),
+                  message,
+                  phase,
+                  progress_pct: instance.progressPct ?? undefined,
+                  level,
+                  metadata: {
+                    source: "runtime_hook_relay",
+                    hook_event: instance.event,
+                    instance_id: instance.id,
+                    runtime_client: instance.sourceClient,
+                    task_id: instance.taskId,
+                    workstream_id: instance.workstreamId,
+                    ...(instance.metadata ?? {}),
+                  },
+                });
+                forwarded = true;
+              } catch (err: unknown) {
+                forwardError = safeErrorMessage(err);
+              }
+            }
+
+            sendJson(res, 200, {
+              ok: true,
+              instance_id: instance.id,
+              state: instance.state,
+              last_seen_at: instance.lastHeartbeatAt ?? instance.lastEventAt,
+              run_id: instance.runId ?? null,
+              forwarded,
+              forward_error: forwardError,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
 
         case "mission-control/auto-continue/status": {
           const initiativeId =
@@ -4689,10 +5947,37 @@ export function createHttpHandler(
           }
 
           try {
-            const graph = await buildMissionControlGraph(client, initiativeId.trim());
+            const graph = applyLocalInitiativeOverrideToGraph(
+              await buildMissionControlGraph(client, initiativeId.trim())
+            );
             sendJson(res, 200, graph);
           } catch (err: unknown) {
             sendJson(res, 500, {
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
+        case "mission-control/next-up": {
+          const initiativeIdRaw =
+            searchParams.get("initiative_id") ??
+            searchParams.get("initiativeId") ??
+            "";
+          const initiativeId = initiativeIdRaw.trim() || null;
+
+          try {
+            const queue = await buildNextUpQueue({ initiativeId });
+            sendJson(res, 200, {
+              ok: true,
+              generatedAt: new Date().toISOString(),
+              total: queue.items.length,
+              items: queue.items,
+              degraded: queue.degraded,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
               error: safeErrorMessage(err),
             });
           }
@@ -4763,10 +6048,15 @@ export function createHttpHandler(
           }
 
           if (method === "PATCH") {
+            let payload: Record<string, unknown> = {};
+            let type: string | null = null;
+            let id: string | null = null;
+            let requestedStatus: string | null = null;
             try {
-              const payload = await parseJsonRequest(req);
-              const type = pickString(payload, ["type"]);
-              const id = pickString(payload, ["id"]);
+              payload = await parseJsonRequest(req);
+              type = pickString(payload, ["type"]);
+              id = pickString(payload, ["id"]);
+              requestedStatus = pickString(payload, ["status"]);
 
               if (!type || !id) {
                 sendJson(res, 400, {
@@ -4779,13 +6069,37 @@ export function createHttpHandler(
               delete (updates as Record<string, unknown>).type;
               delete (updates as Record<string, unknown>).id;
 
+              const normalizedType = type.trim().toLowerCase();
+              const normalizedUpdates = normalizeEntityMutationPayload(updates);
               const entity = await client.updateEntity(
                 type,
                 id,
-                normalizeEntityMutationPayload(updates)
+                normalizedUpdates
               );
+              if (normalizedType === "initiative") {
+                clearLocalInitiativeStatusOverride(id);
+              }
               sendJson(res, 200, { ok: true, entity });
             } catch (err: unknown) {
+              if (
+                type?.trim().toLowerCase() === "initiative" &&
+                id &&
+                requestedStatus &&
+                isUnauthorizedOrgxError(err)
+              ) {
+                setLocalInitiativeStatusOverride(id, requestedStatus);
+                sendJson(res, 200, {
+                  ok: true,
+                  localFallback: true,
+                  warning: safeErrorMessage(err),
+                  entity: {
+                    id,
+                    type,
+                    status: requestedStatus,
+                  },
+                });
+                return true;
+              }
               sendJson(res, 500, {
                 error: safeErrorMessage(err),
               });
@@ -4793,27 +6107,67 @@ export function createHttpHandler(
             return true;
           }
 
-          try {
-            const type = searchParams.get("type");
-            if (!type) {
-              sendJson(res, 400, {
-                error: "Query parameter 'type' is required for GET /entities.",
-              });
-              return true;
-            }
+          const type = searchParams.get("type");
+          if (!type) {
+            sendJson(res, 400, {
+              error: "Query parameter 'type' is required for GET /entities.",
+            });
+            return true;
+          }
 
-            const status = searchParams.get("status") ?? undefined;
-            const initiativeId = searchParams.get("initiative_id") ?? undefined;
-            const limit = searchParams.get("limit")
-              ? Number(searchParams.get("limit"))
-              : undefined;
+          const status = searchParams.get("status") ?? undefined;
+          const initiativeId = searchParams.get("initiative_id") ?? undefined;
+          const limit = searchParams.get("limit")
+            ? Number(searchParams.get("limit"))
+            : undefined;
+
+          try {
             const data = await client.listEntities(type, {
               status,
               initiative_id: initiativeId,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
+            if (type.trim().toLowerCase() === "initiative") {
+              const payload = data as Record<string, unknown>;
+              const rows = Array.isArray(payload.data)
+                ? payload.data.filter(
+                    (row): row is Record<string, unknown> =>
+                      Boolean(row && typeof row === "object")
+                  )
+                : [];
+              sendJson(res, 200, {
+                ...payload,
+                data: applyLocalInitiativeOverrides(rows),
+              });
+              return true;
+            }
             sendJson(res, 200, data);
           } catch (err: unknown) {
+            if (
+              type.trim().toLowerCase() === "initiative" &&
+              isUnauthorizedOrgxError(err)
+            ) {
+              const snapshotInitiatives = formatInitiatives(getSnapshot())
+                .map((item) => ({
+                  id: item.id,
+                  title: item.title,
+                  name: item.title,
+                  summary: null,
+                  status: item.status,
+                  progress_pct: item.progress ?? null,
+                  created_at: null,
+                  updated_at: null,
+                }))
+                .filter((item) =>
+                  initiativeId ? item.id === initiativeId : true
+                );
+              sendJson(res, 200, {
+                data: applyLocalInitiativeOverrides(snapshotInitiatives),
+                localFallback: true,
+                warning: safeErrorMessage(err),
+              });
+              return true;
+            }
             sendJson(res, 500, {
               error: safeErrorMessage(err),
             });
@@ -5128,12 +6482,27 @@ export function createHttpHandler(
             degraded.push(`outbox unavailable (${safeErrorMessage(err)})`);
           }
 
+          let runtimeInstances = listRuntimeInstances({ limit: 320 });
+          if (initiative && initiative.trim().length > 0) {
+            runtimeInstances = runtimeInstances.filter(
+              (instance) => instance.initiativeId === initiative
+            );
+          }
+          if (run && run.trim().length > 0) {
+            runtimeInstances = runtimeInstances.filter(
+              (instance) => instance.runId === run || instance.correlationId === run
+            );
+          }
+          sessions = enrichSessionsWithRuntime(sessions, runtimeInstances);
+          activity = enrichActivityWithRuntime(activity, runtimeInstances);
+
           sendJson(res, 200, {
             sessions,
             activity,
             handoffs,
             decisions,
             agents,
+            runtimeInstances,
             outbox: outboxStatus,
             generatedAt: new Date().toISOString(),
             degraded: degraded.length > 0 ? degraded : undefined,
@@ -5382,7 +6751,29 @@ export function createHttpHandler(
               id,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
-            sendJson(res, 200, data);
+            const payload = data as Record<string, unknown>;
+            const initiatives = Array.isArray(payload.initiatives)
+              ? payload.initiatives.map((entry) => {
+                  if (!entry || typeof entry !== "object") return entry;
+                  const row = entry as Record<string, unknown>;
+                  const initiativeId = pickString(row, ["id"]);
+                  if (!initiativeId) return entry;
+                  const override =
+                    localInitiativeStatusOverrides.get(initiativeId) ?? null;
+                  if (!override) return entry;
+                  return {
+                    ...row,
+                    status: override.status,
+                    updatedAt:
+                      pickString(row, ["updatedAt", "updated_at"]) ??
+                      override.updatedAt,
+                  };
+                })
+              : payload.initiatives;
+            sendJson(res, 200, {
+              ...payload,
+              initiatives,
+            });
           } catch (err: unknown) {
             try {
               const id = searchParams.get("id");
@@ -5397,9 +6788,49 @@ export function createHttpHandler(
                 initiatives = initiatives.filter((item) => item.id === id);
               }
 
+              initiatives = initiatives.map((item) => {
+                const override =
+                  localInitiativeStatusOverrides.get(item.id) ?? null;
+                if (!override) return item;
+                return {
+                  ...item,
+                  status: override.status,
+                  updatedAt: item.updatedAt ?? override.updatedAt,
+                };
+              });
+
+              const requestedId = id?.trim() ?? "";
+              if (requestedId.length > 0) {
+                const override = localInitiativeStatusOverrides.get(requestedId) ?? null;
+                if (override && !initiatives.some((item) => item.id === requestedId)) {
+                  initiatives.push({
+                    id: requestedId,
+                    title: `Initiative ${requestedId.slice(0, 8)}`,
+                    status: override.status,
+                    updatedAt: override.updatedAt,
+                    sessionCount: 0,
+                    activeAgents: 0,
+                  });
+                }
+              } else {
+                for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
+                  if (initiatives.some((item) => item.id === initiativeId)) continue;
+                  initiatives.push({
+                    id: initiativeId,
+                    title: `Initiative ${initiativeId.slice(0, 8)}`,
+                    status: override.status,
+                    updatedAt: override.updatedAt,
+                    sessionCount: 0,
+                    activeAgents: 0,
+                  });
+                }
+              }
+
               sendJson(res, 200, {
                 initiatives: initiatives.slice(0, limit),
                 total: initiatives.length,
+                localFallback: true,
+                warning: safeErrorMessage(err),
               });
             } catch (localErr: unknown) {
               sendJson(res, 500, {

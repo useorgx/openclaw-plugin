@@ -66,6 +66,19 @@ export const queryKeys = {
         embedMode: params.embedMode ?? false,
       },
     ] as const,
+  nextUpQueue: (params: {
+    initiativeId?: string | null;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'mission-control-next-up',
+      {
+        initiativeId: params.initiativeId ?? null,
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
   autoContinueStatus: (params: {
     initiativeId: string | null;
     authToken?: string | null;

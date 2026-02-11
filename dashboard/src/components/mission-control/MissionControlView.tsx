@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import type {
   ActivityItem,
   Agent,
@@ -7,6 +7,7 @@ import type {
   Initiative,
   LiveActivityItem,
   NextUpQueueItem,
+  RuntimeInstance,
 } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
@@ -20,11 +21,13 @@ import { MissionControlEmpty } from './MissionControlEmpty';
 import { EntityDetailModal } from './EntityDetailModal';
 import { MissionControlFilters } from './MissionControlFilters';
 import { NextUpPanel } from './NextUpPanel';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 
 interface MissionControlViewProps {
   initiatives: Initiative[];
   activities: Array<ActivityItem | LiveActivityItem>;
   agents: Agent[];
+  runtimeInstances?: RuntimeInstance[];
   isLoading: boolean;
   authToken: string | null;
   embedMode: boolean;
@@ -59,6 +62,23 @@ function dateFromField(initiative: Initiative, field: 'target' | 'created' | 'up
   if (field === 'target') return initiative.targetDate ?? null;
   if (field === 'created') return initiative.createdAt ?? null;
   return initiative.updatedAt ?? initiative.createdAt ?? null;
+}
+
+function initiativePriorityRank(priority: string | null | undefined): number {
+  const normalized = (priority ?? '').trim().toLowerCase();
+  if (!normalized) return 4;
+  if (normalized === 'critical' || normalized === 'p0' || normalized === 'urgent') return 0;
+  if (normalized === 'high' || normalized === 'p1') return 1;
+  if (normalized === 'medium' || normalized === 'normal' || normalized === 'p2') return 2;
+  if (normalized === 'low' || normalized === 'p3') return 3;
+  return 4;
+}
+
+function initiativeStatusSortRank(status: Initiative['status']): number {
+  if (status === 'active') return 0;
+  if (status === 'blocked') return 1;
+  if (status === 'paused') return 2;
+  return 3;
 }
 
 function groupInitiatives(
@@ -169,10 +189,29 @@ function isSameSet(left: Set<string>, right: Set<string>): boolean {
   return true;
 }
 
+function nextUpModeLabel(mode: 'none' | 'running' | 'blocked' | 'queued' | 'startable' | 'completed' | 'active_no_queue'): string {
+  if (mode === 'running') return 'Running';
+  if (mode === 'blocked') return 'Blocked';
+  if (mode === 'queued') return 'Queued';
+  if (mode === 'startable') return 'Startable';
+  if (mode === 'completed') return 'Complete';
+  if (mode === 'active_no_queue') return 'Idle';
+  return 'No target';
+}
+
+function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'startable' | 'completed' | 'active_no_queue'): string {
+  if (mode === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
+  if (mode === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
+  if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
+  if (mode === 'completed') return 'border-white/[0.16] bg-white/[0.05] text-white/60';
+  return 'border-white/[0.16] bg-white/[0.05] text-white/68';
+}
+
 export function MissionControlView({
   initiatives,
   activities,
   agents,
+  runtimeInstances = [],
   isLoading,
   authToken,
   embedMode,
@@ -195,6 +234,7 @@ export function MissionControlView({
     >
       <MissionControlInner
         initiatives={initiatives}
+        runtimeInstances={runtimeInstances}
         isLoading={isLoading}
         initialInitiativeId={initialInitiativeId}
         connection={connection}
@@ -222,6 +262,7 @@ function formatLocalTimestamp(value: string | null | undefined): string {
 
 function MissionControlInner({
   initiatives,
+  runtimeInstances,
   isLoading,
   initialInitiativeId,
   connection,
@@ -233,6 +274,7 @@ function MissionControlInner({
   onFollowWorkstream,
 }: {
   initiatives: Initiative[];
+  runtimeInstances: RuntimeInstance[];
   isLoading: boolean;
   initialInitiativeId?: string | null;
   connection?: ConnectionStatus;
@@ -366,8 +408,7 @@ function MissionControlInner({
   ]);
 
   const sortedInitiatives = useMemo(() => {
-    if (sortBy === 'default') return filteredInitiatives;
-    return [...filteredInitiatives].sort((a, b) => {
+    const byDate = (a: Initiative, b: Initiative, direction: 'asc' | 'desc') => {
       const aDate = a.targetDate ? Date.parse(a.targetDate) : Number.NaN;
       const bDate = b.targetDate ? Date.parse(b.targetDate) : Number.NaN;
       const aValid = Number.isFinite(aDate);
@@ -375,7 +416,29 @@ function MissionControlInner({
       if (!aValid && !bValid) return 0;
       if (!aValid) return 1;
       if (!bValid) return -1;
-      return sortBy === 'date_asc' ? aDate - bDate : bDate - aDate;
+      return direction === 'asc' ? aDate - bDate : bDate - aDate;
+    };
+
+    return [...filteredInitiatives].sort((a, b) => {
+      if (sortBy === 'date_asc') return byDate(a, b, 'asc');
+      if (sortBy === 'date_desc') return byDate(a, b, 'desc');
+
+      const aPriority = initiativePriorityRank(a.priority);
+      const bPriority = initiativePriorityRank(b.priority);
+      if (sortBy === 'priority_high' && aPriority !== bPriority) return aPriority - bPriority;
+      if (sortBy === 'priority_low' && aPriority !== bPriority) return bPriority - aPriority;
+
+      if (sortBy === 'default') {
+        const statusDelta = initiativeStatusSortRank(a.status) - initiativeStatusSortRank(b.status);
+        if (statusDelta !== 0) return statusDelta;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+      }
+
+      const updatedA = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+      const updatedB = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+      if (updatedA !== updatedB) return updatedB - updatedA;
+
+      return a.name.localeCompare(b.name);
     });
   }, [filteredInitiatives, sortBy]);
 
@@ -392,6 +455,56 @@ function MissionControlInner({
   const allVisibleSelected =
     sortedInitiatives.length > 0 && selectedInitiativeCount === sortedInitiatives.length;
   const isBulkInitiativeMutating = mutations.bulkEntityMutation.isPending;
+  const runtimeActivityByInitiativeId = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        activeCount: number;
+        totalCount: number;
+        lastHeartbeatAt: string | null;
+        lastHeartbeatMs: number;
+      }
+    >();
+
+    for (const runtime of runtimeInstances) {
+      const initiativeId = runtime.initiativeId?.trim();
+      if (!initiativeId) continue;
+
+      const existing = map.get(initiativeId) ?? {
+        activeCount: 0,
+        totalCount: 0,
+        lastHeartbeatAt: null,
+        lastHeartbeatMs: 0,
+      };
+
+      existing.totalCount += 1;
+      if (runtime.state === 'active') {
+        existing.activeCount += 1;
+      }
+
+      const heartbeatAt = runtime.lastHeartbeatAt ?? runtime.lastEventAt ?? null;
+      const heartbeatMs = heartbeatAt ? Date.parse(heartbeatAt) : Number.NaN;
+      if (Number.isFinite(heartbeatMs) && heartbeatMs > existing.lastHeartbeatMs) {
+        existing.lastHeartbeatMs = heartbeatMs;
+        existing.lastHeartbeatAt = new Date(heartbeatMs).toISOString();
+      }
+
+      map.set(initiativeId, existing);
+    }
+
+    const normalized = new Map<
+      string,
+      { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
+    >();
+    for (const [initiativeId, aggregate] of map.entries()) {
+      normalized.set(initiativeId, {
+        activeCount: aggregate.activeCount,
+        totalCount: aggregate.totalCount,
+        lastHeartbeatAt: aggregate.lastHeartbeatAt,
+      });
+    }
+    return normalized;
+  }, [runtimeInstances]);
 
   const groups = useMemo(
     () => (groupBy !== 'none' ? groupInitiatives(sortedInitiatives, groupBy) : null),
@@ -642,10 +755,18 @@ function MissionControlInner({
     autopilotError.includes('404') ||
     autopilotError.includes('400') ||
     autopilotError.includes('not found');
+  const nextActionRuntime =
+    autopilotInitiativeId ? runtimeActivityByInitiativeId.get(autopilotInitiativeId) ?? null : null;
+  const hasActiveRuntime = (nextActionRuntime?.activeCount ?? 0) > 0;
+  const hasRuntimePresence = (nextActionRuntime?.totalCount ?? 0) > 0;
   const autopilotStateLabel = !autopilotInitiativeId
     ? 'No target'
     : autopilot.isRunning
-      ? 'Running'
+      ? hasActiveRuntime
+        ? `Running · ${nextActionRuntime?.activeCount ?? 0} live`
+        : hasRuntimePresence
+          ? `Enabled · ${nextActionRuntime?.totalCount ?? 0} idle`
+          : 'Enabled · waiting'
       : autopilotRun?.stopReason
         ? `Idle · ${autopilotRun.stopReason.replace(/_/g, ' ')}`
         : 'Idle';
@@ -664,12 +785,12 @@ function MissionControlInner({
     const observer = new ResizeObserver(() => update());
     observer.observe(element);
     return () => observer.disconnect();
-  }, [connection, error, isLoading, sortedInitiatives.length, autopilot.isRunning]);
+  }, [autopilotStateLabel, connection, error, isLoading, sortedInitiatives.length]);
 
   const hasConnectivityIssue = Boolean(
     !isLoading &&
       hasApiKey &&
-      (connection === 'reconnecting' || connection === 'disconnected' || error)
+      (connection === 'disconnected' || error)
   );
   const isConnectivityCritical = Boolean(connection === 'disconnected' || error);
 
@@ -681,47 +802,46 @@ function MissionControlInner({
 
     if (isConnectivityCritical) {
       setShowConnectivityHint(true);
-      return;
     }
-
-    const timer = window.setTimeout(() => {
-      setShowConnectivityHint(true);
-    }, 3500);
-    return () => window.clearTimeout(timer);
   }, [hasConnectivityIssue, isConnectivityCritical]);
 
-  const hintTone: 'critical' | 'warn' | 'info' =
+  const hintTone: 'critical' | 'info' =
     connection === 'disconnected' || Boolean(error)
       ? 'critical'
-      : connection === 'reconnecting'
-        ? 'warn'
-        : 'info';
+      : 'info';
   const hintBorder =
     hintTone === 'critical'
       ? 'border-red-400/30 bg-red-500/14 text-red-100'
-      : hintTone === 'warn'
-        ? 'border-amber-400/30 bg-amber-500/14 text-amber-100'
-        : 'border-white/[0.14] bg-white/[0.08] text-white/75';
+      : 'border-white/[0.14] bg-white/[0.08] text-white/75';
   const hintLabel =
     connection === 'disconnected'
       ? 'Offline'
-      : connection === 'reconnecting'
-        ? 'Reconnecting'
-        : error
-          ? 'Live degraded'
-          : 'Connected';
+      : error
+        ? 'Live degraded'
+        : 'Connected';
   const hintDetail = error
     ? error
     : connection === 'disconnected'
       ? 'Data may be stale'
       : `Last snapshot ${formatLocalTimestamp(lastSnapshotAt)}`;
   const openInitiativeFromNextUp = useCallback(
-    (initiativeId: string) => {
+    (initiativeId: string, initiativeTitle?: string) => {
       const target = initiatives.find((initiative) => initiative.id === initiativeId);
-      if (!target) return;
+      if (!target) {
+        setNextActionNotice({
+          tone: 'error',
+          message: initiativeTitle
+            ? `${initiativeTitle} is unavailable in the current initiative list.`
+            : 'Initiative is unavailable in the current initiative list.',
+        });
+        return false;
+      }
+
+      setNextActionNotice(null);
 
       const targetVisible = visibleInitiativeIds.has(initiativeId);
-      if (!targetVisible) {
+      const shouldResetFilters = !targetVisible;
+      if (shouldResetFilters) {
         // Reveal hidden initiatives before scrolling so "Open initiative" always resolves.
         setSearchQuery('');
         setStatusFilters([]);
@@ -766,15 +886,23 @@ function MissionControlInner({
           }
           return;
         }
-        if (attempt >= 30) return;
+        if (attempt >= 60) return;
         requestAnimationFrame(() => scrollToInitiative(attempt + 1));
       };
 
-      requestAnimationFrame(() => scrollToInitiative());
+      const kickoffScroll = () => requestAnimationFrame(() => scrollToInitiative());
+      if (shouldResetFilters) {
+        window.setTimeout(kickoffScroll, 90);
+      } else {
+        kickoffScroll();
+      }
+
+      return true;
     },
     [
       initiatives,
       visibleInitiativeIds,
+      setNextActionNotice,
       setSearchQuery,
       setStatusFilters,
       setDateField,
@@ -809,7 +937,7 @@ function MissionControlInner({
           tone: 'success',
           message: `Started ${nextActionInitiative.name}.`,
         });
-        openInitiativeFromNextUp(nextActionInitiative.id);
+        openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
       })
       .catch((err) => {
         setNextActionNotice({
@@ -820,7 +948,9 @@ function MissionControlInner({
   }, [mutations.updateEntity, nextActionInitiative, openInitiativeFromNextUp]);
   const startNextAction = useCallback(() => {
     if (!nextActionQueueItem) {
-      if (nextActionInitiative) openInitiativeFromNextUp(nextActionInitiative.id);
+      if (nextActionInitiative) {
+        openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
+      }
       return;
     }
 
@@ -849,6 +979,13 @@ function MissionControlInner({
     nextActionInitiative,
     openInitiativeFromNextUp,
   ]);
+  const openNextActionInitiative = useCallback(() => {
+    if (!nextActionInitiative) return;
+    openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
+    if (typeof window !== 'undefined' && window.innerWidth >= 1280) {
+      setNextUpRailOpen(true);
+    }
+  }, [nextActionInitiative, openInitiativeFromNextUp]);
   const toggleNextUpSurface = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth >= 1280) {
       setNextUpDrawerOpen(false);
@@ -942,15 +1079,66 @@ function MissionControlInner({
     nextActionQueue.isStartingAutoContinue ||
     nextActionQueue.isStoppingAutoContinue ||
     mutations.updateEntity.isPending;
-  const nextActionFallbackLabel =
-    nextActionMode === 'blocked' ? 'Review blockers' : 'Open initiative';
+  const nextActionFallbackLabel = useMemo(() => {
+    if (nextActionMode === 'blocked') return 'Review blockers';
+    if (nextActionMode === 'active_no_queue') return 'Open and queue work';
+    if (nextActionMode === 'completed') return 'Review initiative';
+    return 'Open initiative';
+  }, [nextActionMode]);
   const nextUpInlineSummary = nextActionQueueItem
     ? nextActionQueueItem.workstreamTitle
     : 'No queued workstream';
+  const nextUpInlineContextLabel =
+    nextActionQueueItem?.initiativeTitle ?? nextActionInitiative?.name ?? 'No initiative selected';
+  const nextUpInlineSubline = nextActionQueueItem?.nextTaskTitle ?? nextActionSummary.detail;
+  const nextUpInlineStatusLabel = nextUpModeLabel(nextActionMode);
+  const nextUpInlineStatusTone = nextUpModeTone(nextActionMode);
+  const nextUpRailLayoutId = 'next-up-surface';
+  const nextUpMorphTransition = useMemo(
+    () => ({ type: 'spring' as const, stiffness: 340, damping: 38, mass: 0.72 }),
+    []
+  );
+  const nextUpInlineShellTone = useMemo(
+    () => ({
+      backgroundColor: 'rgba(18, 26, 39, 0.9)',
+      borderColor: 'rgba(191, 255, 0, 0.24)',
+    }),
+    []
+  );
+  const nextUpExpandedShellTone = useMemo(
+    () => ({
+      backgroundColor: 'rgba(10, 14, 21, 0.95)',
+      borderColor: 'rgba(255, 255, 255, 0.11)',
+    }),
+    []
+  );
+  const resolvedModalTarget = useMemo(() => {
+    if (!modalTarget) return null;
+    const resolveInitiative = (id: string) =>
+      initiatives.find((initiative) => initiative.id === id) ?? null;
+
+    if (modalTarget.type === 'initiative') {
+      const latest = resolveInitiative(modalTarget.entity.id);
+      if (!latest) return modalTarget;
+      return { ...modalTarget, entity: latest };
+    }
+
+    const latestInitiative = resolveInitiative(modalTarget.initiative.id);
+    if (!latestInitiative) return modalTarget;
+    return { ...modalTarget, initiative: latestInitiative };
+  }, [initiatives, modalTarget]);
 
   useEffect(() => {
     setNextActionNotice(null);
   }, [nextActionInitiative?.id, nextActionQueueItem?.initiativeId, nextActionQueueItem?.workstreamId]);
+
+  useEffect(() => {
+    if (!modalTarget) return;
+    const initiativeId =
+      modalTarget.type === 'initiative' ? modalTarget.entity.id : modalTarget.initiative.id;
+    const exists = initiatives.some((initiative) => initiative.id === initiativeId);
+    if (!exists) closeModal();
+  }, [closeModal, initiatives, modalTarget]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -978,6 +1166,7 @@ function MissionControlInner({
             className="mx-auto max-w-6xl px-4 sm:px-6"
             style={{ ['--mc-toolbar-offset' as string]: `${stickyToolbarOffset}px` }}
           >
+            <LayoutGroup id="next-up-morph">
             <div
               ref={stickyToolbarRef}
               className="sticky top-0 z-40 relative -mx-4 border-b border-white/[0.05] bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6"
@@ -996,9 +1185,7 @@ function MissionControlInner({
                         className={`h-1.5 w-1.5 rounded-full ${
                           hintTone === 'critical'
                             ? 'bg-red-300'
-                            : hintTone === 'warn'
-                              ? 'bg-amber-300'
-                              : 'bg-white/70'
+                            : 'bg-white/70'
                         }`}
                       />
                       <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">
@@ -1087,16 +1274,29 @@ function MissionControlInner({
                     className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold disabled:opacity-40"
                   >
                     {autopilot.isRunning ? (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        className="status-breathe"
-                      >
-                        <rect x="7" y="6" width="4" height="12" rx="1" />
-                        <rect x="13" y="6" width="4" height="12" rx="1" />
-                      </svg>
+                      hasActiveRuntime ? (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          className="status-breathe"
+                        >
+                          <rect x="7" y="7" width="10" height="10" rx="2" />
+                        </svg>
+                      ) : (
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <circle cx="12" cy="12" r="8" />
+                          <path d="M12 8v4l3 2" />
+                        </svg>
+                      )
                     ) : (
                       <svg
                         width="14"
@@ -1108,7 +1308,7 @@ function MissionControlInner({
                       </svg>
                     )}
                     <span>{autopilot.isRunning ? 'Stop' : 'Start'} Autopilot</span>
-                    {autopilot.isRunning && (
+                    {autopilot.isRunning && hasActiveRuntime && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
                     )}
                   </button>
@@ -1143,7 +1343,7 @@ function MissionControlInner({
               {sortedInitiatives.length > 0 && (
                 <div
                   data-mc-selection-bar="true"
-                  className={`mt-2.5 flex h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 whitespace-nowrap ${
+                  className={`mt-2.5 flex min-h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 py-1 whitespace-nowrap ${
                     selectedInitiativeCount > 0
                       ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
                       : 'border-white/[0.08] bg-white/[0.02]'
@@ -1163,38 +1363,8 @@ function MissionControlInner({
                       ? `${selectedInitiativeCount} selected`
                       : `${sortedInitiatives.length} visible`}
                   </span>
-                  <span className="hidden flex-shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/44 xl:inline">
-                    Next Up
-                  </span>
-                  <span
-                    className="min-w-[180px] max-w-[320px] flex-shrink-0 truncate text-[11px] text-white/78"
-                    title={nextUpInlineSummary}
-                  >
-                    {nextUpInlineSummary}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={startNextAction}
-                    disabled={!nextActionQueueItem || nextActionBusy}
-                    className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
-                    title={
-                      nextActionQueueItem
-                        ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
-                        : 'No queued workstream to dispatch'
-                    }
-                  >
-                    ▶ Play
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleNextUpSurface}
-                    className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
-                    title={nextUpRailOpen ? 'Collapse Next Up rail' : 'Expand Next Up rail'}
-                  >
-                    {nextUpRailOpen ? 'Hide' : 'Open'}
-                  </button>
                   {selectedInitiativeCount > 0 && (
-                    <div className="ml-auto flex flex-shrink-0 items-center gap-2">
+                    <div className="flex flex-shrink-0 items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -1278,6 +1448,76 @@ function MissionControlInner({
                       </button>
                     </div>
                   )}
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {!nextUpRailOpen && !nextUpDrawerOpen && (
+                      <motion.div
+                        key="next-up-inline-card"
+                        layout="position"
+                        layoutId={nextUpRailLayoutId}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0, ...nextUpInlineShellTone }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{
+                          layout: nextUpMorphTransition,
+                          duration: 0.2,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                        className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                          {nextActionQueueItem ? (
+                            <AgentAvatar
+                              name={nextActionQueueItem.runnerAgentName}
+                              hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
+                              size="xs"
+                            />
+                          ) : (
+                            <div className="h-6 w-6 rounded-full border border-white/[0.16] bg-white/[0.05]" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
+                                Next Up
+                              </span>
+                              <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
+                                {nextUpInlineStatusLabel}
+                              </span>
+                            </div>
+                            <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
+                              {nextUpInlineSummary}
+                            </p>
+                            <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
+                              {nextUpInlineContextLabel}
+                              {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={startNextAction}
+                            disabled={!nextActionQueueItem || nextActionBusy}
+                            className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
+                            title={
+                              nextActionQueueItem
+                                ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
+                                : 'No queued workstream to dispatch'
+                            }
+                          >
+                            ▶ Play
+                          </button>
+                          <button
+                            type="button"
+                            onClick={toggleNextUpSurface}
+                            className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
+                            title="Expand Next Up rail"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
               {bulkInitiativeNotice && (
@@ -1358,7 +1598,7 @@ function MissionControlInner({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => openInitiativeFromNextUp(nextActionInitiative.id)}
+                            onClick={openNextActionInitiative}
                             className="control-pill px-3 text-[11px] font-semibold"
                             data-state={nextActionMode === 'blocked' ? 'active' : 'idle'}
                           >
@@ -1474,6 +1714,7 @@ function MissionControlInner({
                                     initiatives={group.initiatives}
                                     selectedInitiativeIds={selectedInitiativeIds}
                                     onToggleInitiativeSelection={setInitiativeSelected}
+                                    runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
                                   />
                                 </div>
                               </motion.div>
@@ -1489,6 +1730,7 @@ function MissionControlInner({
                       initiatives={sortedInitiatives}
                       selectedInitiativeIds={selectedInitiativeIds}
                       onToggleInitiativeSelection={setInitiativeSelected}
+                      runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
                     />
                   </div>
                 )}
@@ -1504,19 +1746,41 @@ function MissionControlInner({
                     className="hidden xl:block"
                   >
                     <div className="sticky" style={{ top: 'calc(var(--mc-toolbar-offset) + 12px)' }}>
-                      <NextUpPanel
-                        title="Next Up"
-                        compact
-                        authToken={authToken}
-                        embedMode={embedMode}
-                        onFollowWorkstream={handleFollowFromNextUp}
-                        onOpenInitiative={openInitiativeFromNextUp}
-                      />
+                      <motion.div
+                        layout="position"
+                        layoutId={nextUpRailLayoutId}
+                        initial={{ borderRadius: 12 }}
+                        animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
+                        transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
+                        className="origin-top-right overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
+                      >
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={toggleNextUpSurface}
+                            className="control-pill absolute right-3 top-3 z-20 h-7 px-2 text-[10px] font-semibold"
+                            title="Collapse Next Up rail"
+                          >
+                            Hide
+                          </button>
+                          <NextUpPanel
+                            title="Next Up"
+                            compact
+                            className="!bg-transparent !shadow-none !border-transparent"
+                            disableEnterAnimation
+                            authToken={authToken}
+                            embedMode={embedMode}
+                            onFollowWorkstream={handleFollowFromNextUp}
+                            onOpenInitiative={openInitiativeFromNextUp}
+                          />
+                        </div>
+                      </motion.div>
                     </div>
                   </motion.aside>
                 )}
               </AnimatePresence>
             </motion.div>
+            </LayoutGroup>
 
             <AnimatePresence>
               {nextUpDrawerOpen && (
@@ -1529,7 +1793,7 @@ function MissionControlInner({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-40 hidden bg-black/45 lg:block xl:hidden"
+                    className="fixed bottom-0 left-0 right-0 top-[64px] z-[220] hidden bg-black/45 lg:block xl:hidden"
                   />
                   <motion.aside
                     key="next-up-drawer"
@@ -1537,27 +1801,38 @@ function MissionControlInner({
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '100%', opacity: 0.9 }}
                     transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-                    className="fixed inset-y-0 right-0 z-50 hidden w-[360px] max-w-[94vw] p-3 lg:block xl:hidden"
+                    className="fixed bottom-0 right-0 top-[64px] z-[230] hidden w-[360px] max-w-[94vw] p-3 lg:block xl:hidden"
                   >
                     <div className="relative flex h-full flex-col">
                       <button
                         type="button"
                         onClick={() => setNextUpDrawerOpen(false)}
-                        className="absolute right-2 top-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.14] bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
+                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.14] bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
                         aria-label="Close next up drawer"
                       >
                         ✕
                       </button>
-                      <NextUpPanel
-                        title="Next Up"
-                        authToken={authToken}
-                        embedMode={embedMode}
-                        onFollowWorkstream={handleFollowFromNextUp}
-                        onOpenInitiative={(initiativeId) => {
-                          openInitiativeFromNextUp(initiativeId);
-                          setNextUpDrawerOpen(false);
-                        }}
-                      />
+                      <motion.div
+                        layout="position"
+                        layoutId={nextUpRailLayoutId}
+                        initial={{ borderRadius: 12 }}
+                        animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
+                        transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
+                        className="h-full overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
+                      >
+                          <NextUpPanel
+                            title="Next Up"
+                            className="!bg-transparent !shadow-none !border-transparent"
+                            disableEnterAnimation
+                            authToken={authToken}
+                            embedMode={embedMode}
+                            onFollowWorkstream={handleFollowFromNextUp}
+                            onOpenInitiative={(initiativeId, initiativeTitle) => {
+                              openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                              setNextUpDrawerOpen(false);
+                            }}
+                          />
+                      </motion.div>
                     </div>
                   </motion.aside>
                 </>
@@ -1568,7 +1843,7 @@ function MissionControlInner({
       </div>
 
       {/* Entity detail modal */}
-      <EntityDetailModal target={modalTarget} onClose={closeModal} />
+      <EntityDetailModal target={resolvedModalTarget} onClose={closeModal} />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   formatEntityStatus,
 } from '@/lib/entityStatusColors';
 import { completionPercent, isDoneStatus } from '@/lib/progress';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 
@@ -89,6 +90,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-[11px]">
+          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
           <button
             onClick={() => openModal({ type: 'initiative', entity: initiative })}
             className="break-words text-white/45 transition-colors hover:text-white"
@@ -98,19 +100,14 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20">
             <path d="m9 18 6-6-6-6" />
           </svg>
+          <EntityIcon type="milestone" size={12} className="flex-shrink-0 opacity-95" />
           <span className="break-words font-medium text-white/70">{milestone.title}</span>
         </div>
 
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <div
-            className="w-3 h-3 rounded-full border flex-shrink-0"
-            style={{
-              backgroundColor: isDone ? `${colors.teal}99` : 'rgba(255,255,255,0.1)',
-              borderColor: isDone ? `${colors.teal}66` : 'rgba(255,255,255,0.2)',
-            }}
-          />
+          <EntityIcon type="milestone" size={16} />
           <h2 className="text-[16px] font-semibold text-white">
             {milestone.title}
           </h2>

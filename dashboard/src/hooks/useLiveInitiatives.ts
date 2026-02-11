@@ -6,6 +6,7 @@ interface RawLiveInitiative {
   id: string;
   title: string;
   status?: string | null;
+  priority?: string | null;
   progress?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -33,6 +34,7 @@ function toInitiative(item: RawLiveInitiative): Initiative {
     name: item.title,
     status: mapStatus(item.status),
     rawStatus: item.status ?? null,
+    priority: item.priority ?? null,
     category: undefined,
     health: Math.max(0, Math.min(100, Math.round(item.progress ?? 0))),
     daysRemaining: 0,

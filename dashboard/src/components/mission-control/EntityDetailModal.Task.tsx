@@ -6,6 +6,7 @@ import {
   formatEntityStatus,
 } from '@/lib/entityStatusColors';
 import { MarkdownText } from '@/components/shared/MarkdownText';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
@@ -94,6 +95,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-[11px]">
+          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
           <button
             onClick={() => openModal({ type: 'initiative', entity: initiative })}
             className="break-words text-white/45 transition-colors hover:text-white"
@@ -103,12 +105,14 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20">
             <path d="m9 18 6-6-6-6" />
           </svg>
+          <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-95" />
           <span className="break-words font-medium text-white/70">{task.title}</span>
         </div>
 
         {/* Header */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
+            <EntityIcon type="task" size={16} />
             <h2 className="break-words text-[16px] font-semibold text-white">{task.title}</h2>
             <span
               className={`text-[10px] px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(task.status)}`}

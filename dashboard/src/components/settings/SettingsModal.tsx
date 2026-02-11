@@ -35,8 +35,8 @@ export function SettingsModal({
 }) {
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
+        <div className="w-full border-b border-white/[0.06] px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-[15px] font-semibold text-white">Settings</h3>
@@ -97,7 +97,7 @@ export function SettingsModal({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+        <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {activeTab === 'orgx' ? (
             <OrgxConnectionPanel
               state={onboarding.state}
@@ -118,4 +118,3 @@ export function SettingsModal({
     </Modal>
   );
 }
-

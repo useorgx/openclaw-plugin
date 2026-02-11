@@ -36,6 +36,7 @@ function toInitiative(raw: RawEntityInitiative): Initiative {
     name: raw.title,
     status: mapStatus(raw.status),
     rawStatus: raw.status ?? null,
+    priority: raw.priority ?? null,
     health: raw.progress_pct ?? 0,
     daysRemaining: daysUntil(raw.target_date),
     targetDate: raw.target_date ?? null,

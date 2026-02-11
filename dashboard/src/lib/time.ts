@@ -1,14 +1,20 @@
 export function formatRelativeTime(input: string | number | Date): string {
   const date = input instanceof Date ? input : new Date(input);
-  const diffMs = Date.now() - date.getTime();
+  const diffMs = date.getTime() - Date.now();
   if (Number.isNaN(diffMs)) return 'unknown';
 
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  const absSeconds = Math.floor(Math.abs(diffMs) / 1000);
+  const direction = diffMs < 0 ? 'past' : 'future';
+
+  if (absSeconds < 10) return direction === 'past' ? 'just now' : 'soon';
+  if (absSeconds < 60) return direction === 'past' ? `${absSeconds}s ago` : `in ${absSeconds}s`;
+
+  const minutes = Math.floor(absSeconds / 60);
+  if (minutes < 60) return direction === 'past' ? `${minutes}m ago` : `in ${minutes}m`;
+
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return direction === 'past' ? `${hours}h ago` : `in ${hours}h`;
+
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return direction === 'past' ? `${days}d ago` : `in ${days}d`;
 }

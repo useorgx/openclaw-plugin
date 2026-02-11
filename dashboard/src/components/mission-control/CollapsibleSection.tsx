@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface CollapsibleSectionProps {
@@ -42,6 +42,8 @@ export function CollapsibleSection({
   const [isOpen, setIsOpen] = useState(() =>
     storageKey ? readStorage(storageKey, defaultOpen) : defaultOpen
   );
+  const stickyHeaderRef = useRef<HTMLButtonElement | null>(null);
+  const [stickyHeaderOffset, setStickyHeaderOffset] = useState(40);
 
   const toggle = () => {
     const next = !isOpen;
@@ -49,17 +51,46 @@ export function CollapsibleSection({
     if (storageKey) writeStorage(storageKey, next);
   };
 
+  useEffect(() => {
+    if (!sticky) return;
+    const element = stickyHeaderRef.current;
+    if (!element) return;
+
+    const update = () => {
+      const next = Math.max(34, element.offsetHeight);
+      setStickyHeaderOffset((previous) => (previous === next ? previous : next));
+    };
+
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => update());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [sticky, stickyTop, title]);
+
   return (
-    <div>
+    <div
+      style={
+        sticky
+          ? ({ ['--mc-collapsible-header-offset' as string]: `${stickyHeaderOffset}px` } as Record<string, string>)
+          : undefined
+      }
+    >
       <button
+        ref={sticky ? stickyHeaderRef : undefined}
         type="button"
+        data-mc-section-header={title}
         onClick={toggle}
         className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors ${
           sticky
-            ? `sticky ${stickyOffsetClass} z-20 border-white/[0.08] bg-[#090B11]/92 backdrop-blur-xl`
+            ? `sticky ${stickyOffsetClass} z-20 border-white/[0.08] bg-[#090B11]/92 shadow-[0_8px_18px_rgba(0,0,0,0.24)] backdrop-blur-xl`
             : 'border-transparent hover:border-white/[0.06] hover:bg-white/[0.03]'
         }`}
-        style={sticky && stickyTop ? { top: stickyTop } : undefined}
+        style={
+          sticky && stickyTop
+            ? { top: stickyTop }
+            : undefined
+        }
       >
         <svg
           width="10"

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildActivityPayload,
   buildCompletionChangesetPayload,
+  buildRuntimePayload,
   main,
   parseArgs,
 } from "../../templates/hooks/scripts/post-reporting-event.mjs";
@@ -61,6 +62,30 @@ test("buildCompletionChangesetPayload emits a done task.update op", () => {
   });
 });
 
+test("buildRuntimePayload emits runtime relay envelope", () => {
+  const payload = buildRuntimePayload({
+    initiativeId: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+    runId: "4d601b64-2b7f-495c-a13a-fef3b1de1180",
+    correlationId: undefined,
+    sourceClient: "claude-code",
+    event: "session_start",
+    phase: "intent",
+    message: "Claude session started",
+    workstreamId: "ws-1",
+    taskId: "task-1",
+    agentId: "engineering-agent",
+    agentName: "Engineering",
+    progressPct: 12,
+    args: { event: "session_start" },
+  });
+
+  assert.equal(payload.source_client, "claude-code");
+  assert.equal(payload.event, "session_start");
+  assert.equal(payload.phase, "intent");
+  assert.equal(payload.progress_pct, 12);
+  assert.equal(payload.metadata.source, "hook_runtime_relay");
+});
+
 test("main returns early when API key is missing", async () => {
   const result = await main({
     argv: [],
@@ -71,6 +96,47 @@ test("main returns early when API key is missing", async () => {
   });
 
   assert.equal(result.skipped, "missing_api_key");
+});
+
+test("main posts runtime relay when hook token is provided", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({
+      url,
+      method: init?.method,
+      headers: init?.headers ?? {},
+      body: JSON.parse(init?.body ?? "{}"),
+    });
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ ok: true }),
+      text: async () => "",
+    };
+  };
+
+  const result = await main({
+    argv: [
+      "--event=session_start",
+      "--phase=intent",
+      "--source_client=codex",
+    ],
+    env: {
+      ORGX_HOOK_TOKEN: "hook_test",
+      ORGX_RUNTIME_HOOK_URL: "http://127.0.0.1:18789/orgx/api/hooks/runtime",
+      ORGX_INITIATIVE_ID: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+    },
+    fetchImpl,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.runtime_posted, true);
+  assert.equal(result.skipped, "missing_api_key");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "http://127.0.0.1:18789/orgx/api/hooks/runtime");
+  assert.equal(calls[0].body.source_client, "codex");
+  assert.equal(calls[0].headers["X-OrgX-Hook-Token"], "hook_test");
 });
 
 test("main posts activity and optional completion changeset", async () => {

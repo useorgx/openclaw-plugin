@@ -51,6 +51,44 @@ export type RunPhase =
   | 'handoff'
   | 'completed';
 
+export type RuntimeSourceClient =
+  | 'openclaw'
+  | 'codex'
+  | 'claude-code'
+  | 'api'
+  | 'unknown';
+
+export type RuntimeProviderLogo =
+  | 'openai'
+  | 'anthropic'
+  | 'openclaw'
+  | 'orgx'
+  | 'unknown';
+
+export type RuntimeInstanceState = 'active' | 'stale' | 'stopped' | 'error';
+
+export interface RuntimeInstance {
+  id: string;
+  sourceClient: RuntimeSourceClient;
+  displayName: string;
+  providerLogo: RuntimeProviderLogo;
+  state: RuntimeInstanceState;
+  runId: string | null;
+  correlationId: string | null;
+  initiativeId: string | null;
+  workstreamId: string | null;
+  taskId: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  phase: string | null;
+  progressPct: number | null;
+  currentTask: string | null;
+  lastHeartbeatAt: string | null;
+  lastEventAt: string;
+  lastMessage: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 export type LiveActivityType =
   | 'run_started'
   | 'run_completed'
@@ -81,6 +119,11 @@ export interface LiveActivityItem {
   summary?: string | null;
   decisionRequired?: boolean;
   costDelta?: number | null;
+  runtimeClient?: RuntimeSourceClient | null;
+  runtimeLabel?: string | null;
+  runtimeProvider?: RuntimeProviderLogo | null;
+  instanceId?: string | null;
+  lastHeartbeatAt?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -120,6 +163,11 @@ export interface SessionTreeNode {
   cost?: number | null;
   checkpointCount?: number | null;
   blockerReason?: string | null;
+  runtimeClient?: RuntimeSourceClient | null;
+  runtimeLabel?: string | null;
+  runtimeProvider?: RuntimeProviderLogo | null;
+  instanceId?: string | null;
+  lastHeartbeatAt?: string | null;
 }
 
 export interface SessionTreeEdge {
@@ -171,6 +219,7 @@ export interface LiveData {
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
   outbox: OutboxStatus;
+  runtimeInstances?: RuntimeInstance[];
 }
 
 export interface OutboxStatus {
@@ -202,6 +251,7 @@ export interface LiveSnapshotResponse {
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
   agents: LiveSnapshotAgent[];
+  runtimeInstances?: RuntimeInstance[];
   outbox?: OutboxStatus;
   generatedAt: string;
   degraded?: string[];
@@ -238,6 +288,7 @@ export interface Initiative {
   name: string;
   status: 'active' | 'paused' | 'blocked' | 'completed';
   rawStatus?: string | null;
+  priority?: string | null;
   category?: string;
   health: number;
   phases?: Phase[];
@@ -344,6 +395,43 @@ export interface MissionControlGraphResponse {
   edges: MissionControlEdge[];
   recentTodos: string[];
   degraded?: string[];
+}
+
+export type NextUpRunnerSource = 'assigned' | 'inferred' | 'fallback';
+export type NextUpQueueState = 'queued' | 'running' | 'blocked' | 'idle';
+
+export interface NextUpQueueItem {
+  initiativeId: string;
+  initiativeTitle: string;
+  initiativeStatus: string;
+  workstreamId: string;
+  workstreamTitle: string;
+  workstreamStatus: string;
+  nextTaskId: string | null;
+  nextTaskTitle: string | null;
+  nextTaskPriority: number | null;
+  nextTaskDueAt: string | null;
+  runnerAgentId: string;
+  runnerAgentName: string;
+  runnerSource: NextUpRunnerSource;
+  queueState: NextUpQueueState;
+  blockReason: string | null;
+  autoContinue: {
+    status: AutoContinueStatus;
+    activeTaskId: string | null;
+    activeRunId: string | null;
+    stopReason: AutoContinueStopReason | null;
+    updatedAt: string;
+  } | null;
+}
+
+export interface NextUpQueueResponse {
+  ok: boolean;
+  generatedAt: string;
+  total: number;
+  items: NextUpQueueItem[];
+  degraded?: string[];
+  error?: string;
 }
 
 export type AutoContinueStopReason =

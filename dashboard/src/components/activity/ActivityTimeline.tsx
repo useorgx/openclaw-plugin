@@ -9,6 +9,7 @@ import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } 
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
+import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 
@@ -24,8 +25,11 @@ interface ActivityTimelineProps {
   initiatives?: Initiative[];
   selectedRunIds: string[];
   selectedSessionLabel?: string | null;
+  selectedWorkstreamId?: string | null;
+  selectedWorkstreamLabel?: string | null;
   agentFilter?: string | null;
   onClearSelection: () => void;
+  onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
 }
@@ -100,6 +104,30 @@ function resolveRunId(item: LiveActivityItem): string | null {
       return value.trim();
     }
   }
+  return null;
+}
+
+function extractWorkstreamId(item: LiveActivityItem): string | null {
+  const metadata = item.metadata as Record<string, unknown> | undefined;
+  if (!metadata) return null;
+
+  const directCandidates = ['workstreamId', 'workstream_id'];
+  for (const key of directCandidates) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  const orgxContext = metadata.orgx_context;
+  if (orgxContext && typeof orgxContext === 'object' && !Array.isArray(orgxContext)) {
+    const record = orgxContext as Record<string, unknown>;
+    const value = record.workstreamId ?? record.workstream_id;
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
   return null;
 }
 
@@ -188,6 +216,22 @@ function bucketColor(bucket: ActivityBucket): string {
   if (bucket === 'artifact') return colors.cyan;
   if (bucket === 'decision') return colors.amber;
   return colors.teal;
+}
+
+function iconTypeForActivity(item: LiveActivityItem): EntityIconType {
+  if (item.type === 'milestone_completed') return 'milestone';
+  if (item.type === 'decision_requested' || item.type === 'decision_resolved') return 'decision';
+  if (
+    item.type === 'handoff_requested' ||
+    item.type === 'handoff_claimed' ||
+    item.type === 'handoff_fulfilled' ||
+    item.type === 'delegation'
+  ) {
+    return 'workstream';
+  }
+  if (item.type === 'artifact_created') return 'task';
+  if (item.initiativeId) return 'initiative';
+  return 'notification';
 }
 
 type ActivitySeverity = 'critical' | 'positive' | 'warning' | 'neutral';
@@ -390,8 +434,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   initiatives = [],
   selectedRunIds,
   selectedSessionLabel = null,
+  selectedWorkstreamId = null,
+  selectedWorkstreamLabel = null,
   agentFilter = null,
   onClearSelection,
+  onClearWorkstreamFilter,
   onClearAgentFilter,
   onFocusRunId,
 }: ActivityTimelineProps) {
@@ -431,10 +478,30 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return map;
   }, [sessions]);
 
+  const sessionWorkstreamByRunId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const session of sessions) {
+      const workstreamId = session.workstreamId ?? null;
+      map.set(session.runId, workstreamId);
+      map.set(session.id, workstreamId);
+    }
+    return map;
+  }, [sessions]);
+
   const initiativeNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const init of initiatives) {
       map.set(init.id, init.name);
+    }
+    return map;
+  }, [initiatives]);
+
+  const workstreamNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const init of initiatives) {
+      for (const workstream of init.workstreams ?? []) {
+        map.set(workstream.id, workstream.name);
+      }
     }
     return map;
   }, [initiatives]);
@@ -523,6 +590,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         continue;
       }
 
+      if (selectedWorkstreamId) {
+        const fromMetadata = extractWorkstreamId(decorated.item);
+        const fromSession = runId ? sessionWorkstreamByRunId.get(runId) ?? null : null;
+        const resolvedWorkstreamId = fromMetadata ?? fromSession;
+        if (resolvedWorkstreamId !== selectedWorkstreamId) {
+          continue;
+        }
+      }
+
       if (agentFilter && decorated.item.agentName !== agentFilter) {
         continue;
       }
@@ -561,7 +637,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     hasSessionFilter,
     query,
     runLabelById,
+    selectedWorkstreamId,
     selectedRunIdSet,
+    sessionWorkstreamByRunId,
     sortOrder,
   ]);
 
@@ -846,6 +924,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const displaySummary = humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
+    const workstreamId =
+      extractWorkstreamId(item) ?? (runId ? sessionWorkstreamByRunId.get(runId) ?? null : null);
+    const workstreamName = workstreamId
+      ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
+      : null;
     const kindColor = bucketColor(bucket);
     const kindLabel = bucketLabel(bucket);
     const primaryTag = severity === 'critical'
@@ -920,15 +1003,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               {runLabel}
             </span>
             <span
-              className="rounded-full border px-2 py-0.5 text-white/62"
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-white/62"
               style={{ borderColor: `${kindColor}44`, color: kindColor }}
             >
+              <EntityIcon type={iconTypeForActivity(item)} size={10} className="opacity-90" />
               {humanizeText(labelForType(item.type))}
             </span>
             <span className="text-white/55">{formatRelativeTime(item.timestamp)}</span>
             {initiativeName && (
-              <span className="truncate text-white/42" title={initiativeName}>
-                · {initiativeName}
+              <span
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/54"
+                title={initiativeName}
+              >
+                <EntityIcon type="initiative" size={10} className="opacity-85" />
+                <span className="truncate">{initiativeName}</span>
+              </span>
+            )}
+            {workstreamName && (
+              <span
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/54"
+                title={workstreamName}
+              >
+                <EntityIcon type="workstream" size={10} className="opacity-90" />
+                <span className="truncate">{workstreamName}</span>
               </span>
             )}
           </div>
@@ -1039,6 +1136,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 />
                 <span className="min-w-0 truncate">
                   Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+                </span>
+                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  ×
+                </span>
+              </button>
+            )}
+            {selectedWorkstreamId && (
+              <button
+                onClick={onClearWorkstreamFilter}
+                className="chip inline-flex min-w-0 items-center gap-2"
+                style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
+                aria-label="Clear workstream filter"
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
+                  ↳
+                </span>
+                <span className="min-w-0 truncate">
+                  Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
                 </span>
                 <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
                   ×
@@ -1175,14 +1290,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             <p className="text-[12px] text-white/45">
               {hasSessionFilter
                 ? `No ${filterLabels[activeFilter].toLowerCase()} for the selected session.`
-                : 'No matching activity right now.'}
+                : selectedWorkstreamId
+                  ? `No ${filterLabels[activeFilter].toLowerCase()} for the selected workstream.`
+                  : 'No matching activity right now.'}
             </p>
-            {hasSessionFilter && (
+            {(hasSessionFilter || selectedWorkstreamId) && (
               <button
-                onClick={onClearSelection}
+                onClick={hasSessionFilter ? onClearSelection : onClearWorkstreamFilter}
                 className="rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
               >
-                Show all sessions
+                {hasSessionFilter ? 'Show all sessions' : 'Show all workstreams'}
               </button>
             )}
           </div>

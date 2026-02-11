@@ -118,7 +118,7 @@ export function OnboardingGate({
 
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center px-4 py-10 sm:py-16"
+      className="relative flex min-h-screen items-start justify-center px-4 pb-6 pt-0 sm:pt-2"
       style={{ backgroundColor: '#02040A' }}
     >
 
@@ -126,7 +126,7 @@ export function OnboardingGate({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.45 }}
-        className="relative z-10 w-full max-w-lg"
+        className={`relative z-10 w-full ${showManual ? 'max-w-lg' : 'max-w-[1120px]'}`}
       >
         {isLoading ? (
           /* ── Loading skeleton ─────────────────────────────────── */

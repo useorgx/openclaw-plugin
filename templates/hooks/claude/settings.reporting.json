@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=session_start --phase=intent --message=\"Claude session started\""
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=session_start --source_client=claude-code --phase=intent --message=\"Claude session started\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=post_tool_use --phase=execution --message=\"Claude tool completed\""
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=post_tool_use --source_client=claude-code --phase=execution --message=\"Claude tool completed\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=subagent_stop --phase=handoff --message=\"Subagent completed\""
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=subagent_stop --source_client=claude-code --phase=handoff --message=\"Subagent completed\""
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=stop --phase=completed --message=\"Claude session completed\" --apply_completion=true"
+            "command": "node templates/hooks/scripts/post-reporting-event.mjs --event=stop --source_client=claude-code --phase=completed --message=\"Claude session completed\" --apply_completion=true"
           }
         ]
       }

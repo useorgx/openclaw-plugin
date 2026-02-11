@@ -13,11 +13,11 @@ export function InferredAgentAvatars({ agents, max = 4 }: InferredAgentAvatarsPr
   const overflow = agents.length - max;
 
   return (
-    <div className="flex items-center -space-x-1.5">
+    <div className="inline-flex min-w-0 items-center justify-end -space-x-1.5 pl-1">
       {shown.map((agent) => (
         <div
           key={agent.id}
-          className="relative"
+          className="relative flex-shrink-0"
           title={`${agent.name} (${agent.confidence} confidence)`}
           style={{
             borderRadius: '9999px',
@@ -33,7 +33,7 @@ export function InferredAgentAvatars({ agents, max = 4 }: InferredAgentAvatarsPr
         </div>
       ))}
       {overflow > 0 && (
-        <span className="ml-1 text-[9px] text-white/40">+{overflow}</span>
+        <span className="ml-1 flex-shrink-0 text-[9px] text-white/40">+{overflow}</span>
       )}
     </div>
   );

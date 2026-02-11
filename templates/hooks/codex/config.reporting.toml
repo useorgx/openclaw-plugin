@@ -5,6 +5,7 @@ notify = [
   "node",
   "templates/hooks/scripts/post-reporting-event.mjs",
   "--event=agent_turn_complete",
+  "--source_client=codex",
   "--phase=completed",
   "--message=Codex turn completed",
   "--apply_completion=true"

@@ -5,6 +5,7 @@ import type {
   LiveDecision,
   LiveSnapshotResponse,
   LiveSnapshotAgent,
+  RuntimeInstance,
   SessionTreeResponse,
   HandoffSummary,
   OutboxStatus,
@@ -784,7 +785,8 @@ function buildLiveData(
   handoffs: HandoffSummary[],
   decisions: LiveDecision[],
   outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
-  generatedAt: string | null = null
+  generatedAt: string | null = null,
+  runtimeInstances: RuntimeInstance[] = []
 ): LiveData {
   const latestActivityAt = activity[0]?.timestamp ?? null;
   const latestDecisionAt = decisions[0]?.requestedAt ?? decisions[0]?.updatedAt ?? null;
@@ -802,7 +804,43 @@ function buildLiveData(
     handoffs,
     decisions,
     outbox: normalizeOutboxStatus(outbox),
+    runtimeInstances,
   };
+}
+
+function normalizeRuntimeInstances(input: RuntimeInstance[] | null | undefined): RuntimeInstance[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  const byId = new Map<string, RuntimeInstance>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object' || typeof item.id !== 'string') continue;
+    const id = item.id.trim();
+    if (!id) continue;
+    byId.set(id, item);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => toEpoch(b.lastEventAt ?? b.lastHeartbeatAt) - toEpoch(a.lastEventAt ?? a.lastHeartbeatAt)
+  );
+}
+
+function sameRuntimeInstancesShape(
+  left: RuntimeInstance[] | undefined,
+  right: RuntimeInstance[] | undefined
+): boolean {
+  const a = left ?? [];
+  const b = right ?? [];
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].state !== b[i].state ||
+      a[i].lastEventAt !== b[i].lastEventAt ||
+      a[i].runId !== b[i].runId ||
+      a[i].progressPct !== b[i].progressPct
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function useLiveData(options: UseLiveDataOptions = {}) {
@@ -834,7 +872,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       handoffInput: HandoffSummary[],
       decisionInput: LiveDecision[] | null = null,
       outboxInput: OutboxStatus | null = null,
-      generatedAtInput: string | null = null
+      generatedAtInput: string | null = null,
+      runtimeInstancesInput: RuntimeInstance[] | null = null
     ) => {
       lastSuccessAtRef.current = Date.now();
       authBlockedRef.current = false;
@@ -852,6 +891,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             : normalizeDecisions(decisionInput, maxDecisions);
         const outbox =
           outboxInput === null ? prev.outbox : normalizeOutboxStatus(outboxInput);
+        const runtimeInstances =
+          runtimeInstancesInput === null
+            ? prev.runtimeInstances ?? []
+            : normalizeRuntimeInstances(runtimeInstancesInput);
 
         if (
           sameSessionsShape(prev.sessions, sessions) &&
@@ -859,6 +902,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameHandoffShape(prev.handoffs, handoffs) &&
           sameDecisionShape(prev.decisions, decisions) &&
           sameOutboxShape(prev.outbox, outbox) &&
+          sameRuntimeInstancesShape(prev.runtimeInstances, runtimeInstances) &&
           prev.lastSnapshotAt === generatedAtInput &&
           prev.connection === 'connected'
         ) {
@@ -871,7 +915,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs,
           decisions,
           outbox,
-          generatedAtInput
+          generatedAtInput,
+          runtimeInstances
         );
       });
 
@@ -957,7 +1002,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs,
           decisions,
           snapshot.outbox ?? null,
-          snapshot.generatedAt ?? null
+          snapshot.generatedAt ?? null,
+          snapshot.runtimeInstances ?? null
         );
 
         const degradedReasons = Array.isArray(snapshot.degraded)
@@ -1223,8 +1269,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisions: LiveDecision[] | null;
           outbox: OutboxStatus | null;
           generatedAt: string;
+          runtimeInstances: RuntimeInstance[] | null;
         }
       | null = null;
+    let pendingRuntimeInstances: RuntimeInstance[] | null = null;
     let pendingSessions: SessionTreeResponse | null = null;
     let pendingHandoffs: HandoffSummary[] | null = null;
     let pendingActivity: LiveActivityItem[] = [];
@@ -1243,13 +1291,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         pendingHandoffs = null;
         pendingActivity = [];
         pendingDecisions = null;
+        pendingRuntimeInstances = null;
         applySnapshot(
           snapshot.sessions,
           snapshot.activity,
           snapshot.handoffs,
           snapshot.decisions,
           snapshot.outbox,
-          snapshot.generatedAt
+          snapshot.generatedAt,
+          snapshot.runtimeInstances
         );
         return;
       }
@@ -1258,6 +1308,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         !pendingSessions &&
         !pendingHandoffs &&
         !pendingDecisions &&
+        !pendingRuntimeInstances &&
         pendingActivity.length === 0
       ) {
         return;
@@ -1297,6 +1348,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
           if (!sameDecisionShape(next.decisions, normalizedDecisions)) {
             next = { ...next, decisions: normalizedDecisions };
+          }
+        }
+
+        if (pendingRuntimeInstances) {
+          const normalizedRuntime = normalizeRuntimeInstances(pendingRuntimeInstances);
+          pendingRuntimeInstances = null;
+          if (!sameRuntimeInstancesShape(next.runtimeInstances, normalizedRuntime)) {
+            next = { ...next, runtimeInstances: normalizedRuntime };
           }
         }
 
@@ -1375,6 +1434,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisions?: LiveDecision[];
           outbox?: OutboxStatus;
           generatedAt?: string;
+          runtimeInstances?: RuntimeInstance[];
         };
 
         const generatedAt =
@@ -1389,6 +1449,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisions: enableDecisions ? payload.decisions ?? null : [],
           outbox: payload.outbox ?? null,
           generatedAt,
+          runtimeInstances: Array.isArray(payload.runtimeInstances)
+            ? payload.runtimeInstances
+            : null,
         };
         scheduleFlush();
       } catch (err) {
@@ -1410,6 +1473,16 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     eventSource.addEventListener('session.updated', (event) => {
       try {
         pendingSessions = JSON.parse((event as MessageEvent).data) as SessionTreeResponse;
+        scheduleFlush();
+      } catch {
+        // ignore malformed events
+      }
+    });
+
+    eventSource.addEventListener('runtime.updated', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as RuntimeInstance[] | RuntimeInstance;
+        pendingRuntimeInstances = Array.isArray(payload) ? payload : [payload];
         scheduleFlush();
       } catch {
         // ignore malformed events

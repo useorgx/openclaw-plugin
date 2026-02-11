@@ -1,10 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
-import type { Agent, Initiative, SessionTreeNode } from '@/types';
+import type { Agent, Initiative, NextUpQueueItem, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
@@ -14,8 +15,9 @@ import type { MobileTab } from '@/components/shared/MobileTabBar';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
-import { InitiativePanel } from '@/components/initiatives/InitiativePanel';
+import { NextUpPanel } from '@/components/mission-control/NextUpPanel';
 import { PremiumCard } from '@/components/shared/PremiumCard';
+import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
 import { SettingsModal, type SettingsTab } from '@/components/settings/SettingsModal';
@@ -64,6 +66,7 @@ const SESSION_PRIORITY: Record<string, number> = {
 type HeaderNotification = {
   id: string;
   kind: 'error' | 'info';
+  icon: EntityIconType;
   title: string;
   message: string;
   actionLabel?: string;
@@ -147,6 +150,22 @@ function phaseTemplateForCategory(category: string): string[] {
   return ['Plan', 'Build', 'Review', 'Ship'];
 }
 
+function initiativePriorityRank(priority: string | null | undefined): number {
+  const normalized = (priority ?? '').trim().toLowerCase();
+  if (!normalized) return 4;
+  if (normalized === 'critical' || normalized === 'p0' || normalized === 'urgent') return 0;
+  if (normalized === 'high' || normalized === 'p1') return 1;
+  if (normalized === 'medium' || normalized === 'normal' || normalized === 'p2') return 2;
+  if (normalized === 'low' || normalized === 'p3') return 3;
+  return 4;
+}
+
+function isVisibleInitiativeStatus(rawStatus: string | null | undefined): boolean {
+  const normalized = (rawStatus ?? '').trim().toLowerCase();
+  if (!normalized) return true;
+  return !['deleted', 'archived', 'cancelled'].includes(normalized);
+}
+
 function OrgXLogo() {
   return (
     <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.04] p-0.5">
@@ -188,6 +207,8 @@ function DashboardShell({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
+  const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
+  const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -282,6 +303,12 @@ function DashboardShell({
   // Fetch entity-based initiatives for Mission Control (only when view is active)
   const { data: entityInitiatives } = useEntityInitiatives(dashboardView === 'mission-control');
   const { data: liveInitiatives } = useLiveInitiatives(dashboardView === 'mission-control');
+  const { data: initiativeTombstones = [] } = useQuery<string[]>({
+    queryKey: ['initiative-tombstones'],
+    queryFn: async () => [],
+    initialData: [],
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 
   // Entity creation modal state
   const [entityModal, setEntityModal] = useState<EntityModalState>(null);
@@ -302,6 +329,11 @@ function DashboardShell({
 
   const clearActivitySessionFilter = useCallback(() => {
     setActivityFilterSessionId(null);
+  }, []);
+
+  const clearActivityWorkstreamFilter = useCallback(() => {
+    setActivityFilterWorkstreamId(null);
+    setActivityFilterWorkstreamLabel(null);
   }, []);
 
   useEffect(() => {
@@ -337,6 +369,8 @@ function DashboardShell({
     setSelectedSessionId(sessionId);
     setSessionDrawerOpen(true);
     setActivityFilterSessionId(sessionId);
+    setActivityFilterWorkstreamId(null);
+    setActivityFilterWorkstreamLabel(null);
   }, []);
 
   const focusActivityRunId = useCallback(
@@ -461,6 +495,7 @@ function DashboardShell({
       items.push({
         id: `stream-error:${error}`,
         kind: 'error',
+        icon: 'notification',
         title: 'Live stream degraded',
         message: error,
         actionLabel: 'Settings',
@@ -471,6 +506,7 @@ function DashboardShell({
       items.push({
         id: `connection:${data.connection}`,
         kind: data.connection === 'disconnected' ? 'error' : 'info',
+        icon: 'notification',
         title: data.connection === 'disconnected' ? 'Connection lost' : 'Reconnecting',
         message:
           data.connection === 'disconnected'
@@ -484,6 +520,7 @@ function DashboardShell({
       items.push({
         id: `outbox:pending:${data.outbox.pendingTotal}`,
         kind: 'info',
+        icon: 'notification',
         title: 'Buffered updates pending',
         message: `${data.outbox.pendingTotal} event(s) queued for replay.`,
       });
@@ -492,6 +529,7 @@ function DashboardShell({
       items.push({
         id: `outbox:error:${data.outbox.lastReplayError}`,
         kind: 'error',
+        icon: 'notification',
         title: 'Outbox replay failed',
         message: data.outbox.lastReplayError,
         actionLabel: 'Settings',
@@ -502,6 +540,7 @@ function DashboardShell({
       items.push({
         id: `ops:${opsNotice}`,
         kind: 'info',
+        icon: /decision/i.test(opsNotice) ? 'decision' : 'workstream',
         title: 'Update',
         message: opsNotice,
       });
@@ -653,7 +692,15 @@ function DashboardShell({
         (entry.statusCounts.running ?? 0) === 0 &&
         (entry.statusCounts.queued ?? 0) === 0 &&
         (entry.statusCounts.pending ?? 0) === 0 &&
-        (entry.statusCounts.blocked ?? 0) === 0;
+        (entry.statusCounts.blocked ?? 0) === 0 &&
+        (entry.statusCounts.paused ?? 0) === 0;
+      const paused =
+        !completed &&
+        !blocked &&
+        (entry.statusCounts.paused ?? 0) > 0 &&
+        (entry.statusCounts.running ?? 0) === 0 &&
+        (entry.statusCounts.queued ?? 0) === 0 &&
+        (entry.statusCounts.pending ?? 0) === 0;
 
       const phases = phaseNames.map((name, index) => {
         let status: 'completed' | 'current' | 'upcoming' | 'warning' = 'upcoming';
@@ -665,8 +712,8 @@ function DashboardShell({
       output.push({
         id: entry.id,
         name: entry.name,
-        status: completed ? 'completed' : blocked ? 'blocked' : 'active',
-        rawStatus: completed ? 'completed' : blocked ? 'blocked' : 'active',
+        status: completed ? 'completed' : blocked ? 'blocked' : paused ? 'paused' : 'active',
+        rawStatus: completed ? 'completed' : blocked ? 'blocked' : paused ? 'paused' : 'active',
         category,
         health: Math.max(0, Math.min(100, health)),
         phases,
@@ -715,16 +762,32 @@ function DashboardShell({
     const merged = new Map<string, Initiative>();
     for (const init of initiatives) merged.set(init.id, init);
 
-    for (const init of [...(entityInitiatives ?? []), ...(liveInitiatives ?? [])]) {
+    // Apply live snapshot first, then entity records so user-initiated status
+    // mutations (pause/resume/delete/archive) win immediately in Mission Control.
+    for (const init of [...(liveInitiatives ?? []), ...(entityInitiatives ?? [])]) {
+      const incomingRawStatus = init.rawStatus ?? init.status;
+      if (!isVisibleInitiativeStatus(incomingRawStatus)) {
+        merged.delete(init.id);
+        continue;
+      }
       const existing = merged.get(init.id);
       merged.set(init.id, existing ? mergeInitiative(existing, init) : init);
     }
 
-    return Array.from(merged.values()).sort((a, b) => {
+    const tombstoneSet = new Set(initiativeTombstones);
+    return Array.from(merged.values())
+      .filter((initiative) => !tombstoneSet.has(initiative.id))
+      .filter((initiative) =>
+        isVisibleInitiativeStatus(initiative.rawStatus ?? initiative.status)
+      )
+      .sort((a, b) => {
       const statusPriority = (status: Initiative['status']) =>
         status === 'blocked' ? 0 : status === 'active' ? 1 : status === 'paused' ? 2 : 3;
       const statusDelta = statusPriority(a.status) - statusPriority(b.status);
       if (statusDelta !== 0) return statusDelta;
+
+      const priorityDelta = initiativePriorityRank(a.priority) - initiativePriorityRank(b.priority);
+      if (priorityDelta !== 0) return priorityDelta;
 
       const updatedDelta = toEpoch(b.updatedAt) - toEpoch(a.updatedAt);
       if (updatedDelta !== 0) return updatedDelta;
@@ -734,7 +797,7 @@ function DashboardShell({
 
       return a.name.localeCompare(b.name);
     });
-  }, [initiatives, entityInitiatives, liveInitiatives]);
+  }, [initiatives, entityInitiatives, liveInitiatives, initiativeTombstones]);
 
   const selectedActivitySessionLabel = useMemo(() => {
     if (!selectedActivitySession) return null;
@@ -812,6 +875,8 @@ function DashboardShell({
     const target = [...data.sessions.nodes].sort(compareSessionPriority)[0];
     setSelectedSessionId(target.id);
     setActivityFilterSessionId(target.id);
+    setActivityFilterWorkstreamId(null);
+    setActivityFilterWorkstreamLabel(null);
 
     if (['blocked', 'pending', 'queued'].includes(target.status)) {
       try {
@@ -833,6 +898,8 @@ function DashboardShell({
     async (session: SessionTreeNode) => {
       setSelectedSessionId(session.id);
       setActivityFilterSessionId(session.id);
+      setActivityFilterWorkstreamId(null);
+      setActivityFilterWorkstreamLabel(null);
 
       if (!['running', 'completed', 'archived'].includes(session.status)) {
         try {
@@ -1057,10 +1124,93 @@ function DashboardShell({
       if (candidate) {
         setSelectedSessionId(candidate.id);
         setActivityFilterSessionId(candidate.id);
+        setActivityFilterWorkstreamId(null);
+        setActivityFilterWorkstreamLabel(null);
         setOpsNotice(`Focused initiative: ${initiative.name}`);
       }
     },
     [data.sessions.nodes]
+  );
+
+  const followQueuedWorkstream = useCallback(
+    (item: NextUpQueueItem) => {
+      setActivityFilterSessionId(null);
+      setActivityFilterWorkstreamId(item.workstreamId);
+      setActivityFilterWorkstreamLabel(item.workstreamTitle);
+      setAgentFilter(null);
+      switchDashboardView('activity');
+      setOpsNotice(`Following workstream: ${item.workstreamTitle}`);
+    },
+    [switchDashboardView]
+  );
+
+  const openInitiativeFromNextUp = useCallback(
+    (initiativeId: string) => {
+      const initiative =
+        initiatives.find((entry) => entry.id === initiativeId) ??
+        mcInitiatives.find((entry) => entry.id === initiativeId) ??
+        null;
+      if (initiative) {
+        handleInitiativeClick(initiative);
+      }
+    },
+    [handleInitiativeClick, initiatives, mcInitiatives]
+  );
+
+  const focusActivitySessionByStatus = useCallback(
+    (statuses: string[]) => {
+      const statusSet = new Set(statuses);
+      const candidate = [...data.sessions.nodes]
+        .filter((node) => statusSet.has(node.status))
+        .sort(compareSessionPriority)[0];
+      if (!candidate) {
+        setOpsNotice('No matching sessions for that metric right now.');
+        return;
+      }
+      handleSelectSession(candidate.id);
+      setMobileTab('activity');
+    },
+    [data.sessions.nodes, handleSelectSession]
+  );
+
+  const handleCompactMetricClick = useCallback(
+    (metricId: string) => {
+      if (dashboardView !== 'activity') return;
+
+      if (metricId === 'sessions') {
+        setAgentFilter(null);
+        setActivityFilterSessionId(null);
+        setActivityFilterWorkstreamId(null);
+        setActivityFilterWorkstreamLabel(null);
+        setMobileTab('agents');
+        return;
+      }
+      if (metricId === 'active') {
+        focusActivitySessionByStatus(['running', 'active', 'queued', 'pending', 'in_progress']);
+        return;
+      }
+      if (metricId === 'blocked') {
+        focusActivitySessionByStatus(['blocked']);
+        return;
+      }
+      if (metricId === 'failed') {
+        focusActivitySessionByStatus(['failed']);
+        return;
+      }
+      if (metricId === 'decisions') {
+        setExpandedRightPanel('decisions');
+        setMobileTab('decisions');
+        return;
+      }
+      if (metricId === 'outbox') {
+        openSettings('orgx');
+        return;
+      }
+      if (metricId === 'handoffs') {
+        setMobileTab('agents');
+      }
+    },
+    [dashboardView, focusActivitySessionByStatus, openSettings]
   );
 
   if (isLoading) {
@@ -1093,7 +1243,7 @@ function DashboardShell({
 
   return (
     <div
-      className="relative flex min-h-screen flex-col lg:h-screen lg:min-h-0 lg:overflow-hidden"
+      className="relative flex min-h-screen flex-col pb-[92px] lg:h-screen lg:min-h-0 lg:overflow-hidden lg:pb-0"
       style={{ backgroundColor: colors.background }}
     >
       {(import.meta.env.DEV || (typeof window !== 'undefined' && window.location.port === '5173')) && (
@@ -1113,10 +1263,10 @@ function DashboardShell({
 
 
       <header className="relative z-[180] border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
-        <div className="grid items-center gap-2.5 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="flex items-center justify-between gap-2.5 lg:grid lg:grid-cols-[1fr_auto_1fr]">
           <div className="flex min-w-0 items-center gap-2.5">
             <OrgXLogo />
-            <h1 className="text-[17px] font-semibold tracking-tight text-white">
+            <h1 className="text-[16px] font-semibold tracking-tight text-white sm:text-[17px]">
               OrgX<span className="ml-1.5 text-white/50">Live</span>
             </h1>
             <Badge
@@ -1138,12 +1288,14 @@ function DashboardShell({
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
             {(data.outbox.pendingTotal > 0 || data.outbox.replayStatus === 'error') && (
-              <Badge
-                color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
-                pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
-              >
-                Outbox {data.outbox.pendingTotal}
-              </Badge>
+              <div className="hidden sm:block">
+                <Badge
+                  color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
+                  pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
+                >
+                  Outbox {data.outbox.pendingTotal}
+                </Badge>
+              </div>
             )}
           </div>
 
@@ -1182,7 +1334,7 @@ function DashboardShell({
             </div>
           </div>
 
-          <div className="relative isolate flex items-center justify-end gap-2">
+          <div className="relative isolate flex items-center justify-end gap-1.5 sm:gap-2">
             {data.lastActivity && (
               <span className="hidden text-[12px] text-white/45 xl:inline">
                 Last activity: {data.lastActivity}
@@ -1255,7 +1407,7 @@ function DashboardShell({
             <button
               type="button"
               onClick={refetch}
-              className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-3 text-[12px] text-white/80 transition-colors hover:bg-white/[0.08]"
+              className="group inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-[12px] text-white/80 transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
               title="Refresh data"
             >
               <svg
@@ -1339,10 +1491,11 @@ function DashboardShell({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p
-                              className="text-[12px] font-semibold"
+                              className="inline-flex items-center gap-1.5 text-[12px] font-semibold"
                               style={{ color: item.kind === 'error' ? '#fecaca' : '#e2e8f0' }}
                             >
-                              {item.title}
+                              <EntityIcon type={item.icon} size={12} className="opacity-90" />
+                              <span className="truncate">{item.title}</span>
                             </p>
                             <p className="mt-0.5 text-[12px] leading-snug text-white/65">{item.message}</p>
                             {item.onAction && (
@@ -1373,9 +1526,9 @@ function DashboardShell({
           </div>
         </div>
 
-        <div className="mt-1.5 flex items-center justify-center lg:hidden">
+        <div className="mt-2 flex items-center justify-center lg:hidden">
           <div
-            className="flex rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
+            className="flex w-full max-w-[340px] rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
             role="group"
             aria-label="Dashboard view"
           >
@@ -1383,7 +1536,7 @@ function DashboardShell({
               type="button"
               onClick={() => switchDashboardView('activity')}
               aria-pressed={dashboardView === 'activity'}
-              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+              className={`flex-1 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
                 dashboardView === 'activity'
                   ? 'bg-white/[0.1] text-white'
                   : 'text-white/55 hover:text-white/85'
@@ -1395,7 +1548,7 @@ function DashboardShell({
               type="button"
               onClick={() => switchDashboardView('mission-control')}
               aria-pressed={dashboardView === 'mission-control'}
-              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+              className={`flex-1 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
                 dashboardView === 'mission-control'
                   ? 'bg-white/[0.1] text-white'
                   : 'text-white/55 hover:text-white/85'
@@ -1433,21 +1586,26 @@ function DashboardShell({
         )}
       </header>
 
-      {/* System Health Summary Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
-        {compactMetrics.map((metric) => (
-          <span
-            key={metric.id}
-            className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px]"
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
-            <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {metric.value}
-            </span>
-            <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
-          </span>
-        ))}
-      </div>
+      {/* Activity-only quick metric actions */}
+      {dashboardView === 'activity' && (
+        <div className="flex items-center gap-1.5 overflow-x-auto border-b border-white/[0.06] px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
+          {compactMetrics.map((metric) => (
+            <button
+              key={metric.id}
+              type="button"
+              onClick={() => handleCompactMetricClick(metric.id)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
+              title={`Focus ${metric.label.toLowerCase()}`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
+              <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {metric.value}
+              </span>
+              <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
 	      {dashboardView === 'mission-control' ? (
 	        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -1462,6 +1620,7 @@ function DashboardShell({
 	              initiatives={mcInitiatives}
 	              activities={data.activity}
 	              agents={missionControlAgents}
+              runtimeInstances={data.runtimeInstances ?? []}
 	              isLoading={isLoading}
 	              authToken={null}
 	              embedMode={false}
@@ -1471,6 +1630,7 @@ function DashboardShell({
 	              hasApiKey={onboarding.state.hasApiKey}
 	              onOpenSettings={() => openSettings('orgx')}
 	              onRefresh={refetch}
+                onFollowWorkstream={followQueuedWorkstream}
 	            />
 	          </Suspense>
 	        </div>
@@ -1504,12 +1664,13 @@ function DashboardShell({
         )}
 
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
-          <AgentsChatsPanel
-            sessions={data.sessions}
-            activity={data.activity}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={handleSelectSession}
-            onAgentFilter={setAgentFilter}
+	          <AgentsChatsPanel
+	            sessions={data.sessions}
+	            activity={data.activity}
+            runtimeInstances={data.runtimeInstances ?? []}
+	            selectedSessionId={selectedSessionId}
+	            onSelectSession={handleSelectSession}
+	            onAgentFilter={setAgentFilter}
             agentFilter={agentFilter}
             onReconnect={handleReconnect}
             connectionStatus={data.connection}
@@ -1527,22 +1688,24 @@ function DashboardShell({
 	                : []
 	            }
 	            selectedSessionLabel={selectedActivitySessionLabel}
+              selectedWorkstreamId={activityFilterWorkstreamId}
+              selectedWorkstreamLabel={activityFilterWorkstreamLabel}
 	            agentFilter={agentFilter}
 	            onClearSelection={clearActivitySessionFilter}
+              onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={() => setAgentFilter(null)}
 	            onFocusRunId={focusActivityRunId}
 	          />
 	        </section>
 
         <section className={`flex min-h-0 flex-col gap-2 lg:col-span-3 lg:gap-2 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
-          {/* Initiatives — accordion panel (single-expand: one panel open at a time) */}
+          {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
-              <InitiativePanel
-                initiatives={initiatives}
-                onInitiativeClick={handleInitiativeClick}
-                onCreateInitiative={startInitiative}
-                onCreateWorkstream={startWorkstreamFromSelection}
+              <NextUpPanel
+                title="Next Up"
+                onFollowWorkstream={followQueuedWorkstream}
+                onOpenInitiative={openInitiativeFromNextUp}
               />
             ) : (
               <PremiumCard className="card-enter">
@@ -1551,10 +1714,7 @@ function DashboardShell({
                   className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="flex items-center gap-2">
-                    <h2 className="text-[14px] font-semibold text-white">Initiatives</h2>
-                    {initiatives.length > 0 && (
-                      <span className="chip text-[10px]">{initiatives.length}</span>
-                    )}
+                    <h2 className="text-[14px] font-semibold text-white">Next Up</h2>
                   </div>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
                     <path d="m6 9 6 6 6-6" />

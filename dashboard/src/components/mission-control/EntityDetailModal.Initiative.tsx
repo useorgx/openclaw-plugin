@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import type { Initiative } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
@@ -9,6 +9,7 @@ import {
 } from '@/lib/entityStatusColors';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
@@ -34,9 +35,13 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState(initiative.name);
   const [draftSummary, setDraftSummary] = useState(initiative.description ?? '');
+  const [draftPriority, setDraftPriority] = useState(
+    normalizeInitiativePriority(initiative.priority)
+  );
   const [draftTargetDate, setDraftTargetDate] = useState(
     toDateInputValue(initiative.targetDate)
   );
+  const [optimisticStatus, setOptimisticStatus] = useState<Initiative['status'] | null>(null);
 
   const { details, isLoading } = useInitiativeDetails({
     initiativeId: initiative.id,
@@ -51,11 +56,56 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     (t) => t.status.toLowerCase() === 'blocked'
   ).length;
   const doneTasks = details.tasks.filter((t) => isDoneStatus(t.status)).length;
+  const currentStatus = optimisticStatus ?? initiative.status;
+  const currentStatusKey = normalizeInitiativeStatusKey(
+    optimisticStatus ?? initiative.rawStatus ?? initiative.status
+  );
+  const canPause = ['active', 'in_progress', 'running', 'queued'].includes(currentStatusKey);
+  const canResume = ['paused', 'draft', 'planned', 'todo', 'backlog', 'pending', 'not_started'].includes(
+    currentStatusKey
+  );
   const isMutating =
     mutations.entityAction.isPending ||
     mutations.createEntity.isPending ||
     mutations.updateEntity.isPending ||
     mutations.deleteEntity.isPending;
+
+  useEffect(() => {
+    if (editMode) return;
+    setDraftTitle(initiative.name);
+    setDraftSummary(initiative.description ?? '');
+    setDraftTargetDate(toDateInputValue(initiative.targetDate));
+    setDraftPriority(normalizeInitiativePriority(initiative.priority));
+  }, [editMode, initiative.description, initiative.name, initiative.priority, initiative.targetDate]);
+
+  useEffect(() => {
+    setOptimisticStatus(null);
+    setConfirmDelete(false);
+  }, [initiative.id, initiative.status, initiative.rawStatus]);
+
+  const runInitiativeAction = (
+    action: 'pause' | 'resume',
+    nextStatus: Initiative['status'],
+    successMessage: string
+  ) => {
+    setNotice(null);
+    mutations.entityAction.mutate(
+      {
+        type: 'initiative',
+        id: initiative.id,
+        action,
+      },
+      {
+        onSuccess: () => {
+          setOptimisticStatus(nextStatus);
+          setNotice(successMessage);
+        },
+        onError: (error) => {
+          setNotice(error instanceof Error ? error.message : `Failed to ${action} initiative.`);
+        },
+      }
+    );
+  };
 
   const handleSaveEdits = () => {
     const title = draftTitle.trim();
@@ -70,6 +120,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         id: initiative.id,
         title,
         summary: draftSummary.trim() || null,
+        priority: draftPriority,
         target_date: draftTargetDate || null,
       },
       {
@@ -90,13 +141,17 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         {/* Header */}
         <div className="space-y-2">
         <div className="flex items-center gap-3">
+          <EntityIcon type="initiative" size={16} />
           <h2 className="text-[16px] font-semibold text-white">
             {initiative.name}
           </h2>
           <span
-            className={`text-[10px] px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[initiative.status]}`}
+            className={`text-[10px] px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
           >
-            {formatEntityStatus(initiative.status)}
+            {formatEntityStatus(currentStatus)}
+          </span>
+          <span className="rounded-full border border-white/[0.14] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/68">
+            {formatPriorityLabel(initiative.priority)}
           </span>
         </div>
         {editMode ? (
@@ -133,6 +188,21 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                 onChange={(event) => setDraftTargetDate(event.target.value)}
                 className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
               />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+                Priority
+              </span>
+              <select
+                value={draftPriority}
+                onChange={(event) => setDraftPriority(normalizeInitiativePriority(event.target.value))}
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+              >
+                <option value="critical">Critical (P0)</option>
+                <option value="high">High (P1)</option>
+                <option value="medium">Medium (P2)</option>
+                <option value="low">Low (P3)</option>
+              </select>
             </label>
           </div>
         ) : initiative.description ? (
@@ -261,31 +331,25 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       {/* Actions */}
       <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
-          {initiative.status === 'active' && (
+          {canPause && (
             <EntityActionButton
               label="Pause"
               color={colors.amber}
-              onClick={() =>
-                mutations.entityAction.mutate({
-                  type: 'initiative',
-                  id: initiative.id,
-                  action: 'pause',
-                })
-              }
+              onClick={() => runInitiativeAction('pause', 'paused', 'Initiative paused.')}
               disabled={isMutating}
             />
           )}
-          {initiative.status === 'paused' && (
+          {canResume && (
             <EntityActionButton
-              label="Resume"
+              label={currentStatusKey === 'paused' ? 'Resume' : 'Start'}
               color={colors.lime}
               variant="primary"
               onClick={() =>
-                mutations.entityAction.mutate({
-                  type: 'initiative',
-                  id: initiative.id,
-                  action: 'resume',
-                })
+                runInitiativeAction(
+                  'resume',
+                  'active',
+                  currentStatusKey === 'paused' ? 'Initiative resumed.' : 'Initiative started.'
+                )
               }
               disabled={isMutating}
             />
@@ -306,6 +370,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                   setEditMode(false);
                   setDraftTitle(initiative.name);
                   setDraftSummary(initiative.description ?? '');
+                  setDraftPriority(normalizeInitiativePriority(initiative.priority));
                   setDraftTargetDate(toDateInputValue(initiative.targetDate));
                   setNotice(null);
                 }}
@@ -416,6 +481,30 @@ function toDateInputValue(value: string | null | undefined): string {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return '';
   return new Date(parsed).toISOString().slice(0, 10);
+}
+
+function normalizeInitiativeStatusKey(value: string | null | undefined): string {
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function normalizeInitiativePriority(value: string | null | undefined): string {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'critical' || normalized === 'p0' || normalized === 'urgent') return 'critical';
+  if (normalized === 'high' || normalized === 'p1') return 'high';
+  if (normalized === 'medium' || normalized === 'normal' || normalized === 'p2') return 'medium';
+  if (normalized === 'low' || normalized === 'p3') return 'low';
+  return 'medium';
+}
+
+function formatPriorityLabel(value: string | null | undefined): string {
+  const priority = normalizeInitiativePriority(value);
+  if (priority === 'critical') return 'Priority: Critical';
+  if (priority === 'high') return 'Priority: High';
+  if (priority === 'low') return 'Priority: Low';
+  return 'Priority: Medium';
 }
 
 function MetricBox({

@@ -28,6 +28,11 @@ interface InitiativeSectionProps {
   initiative: Initiative;
   selected?: boolean;
   onSelectionChange?: (initiativeId: string, selected: boolean) => void;
+  runtimeActivity?: {
+    activeCount: number;
+    totalCount: number;
+    lastHeartbeatAt: string | null;
+  } | null;
 }
 
 function priorityFromLabel(value: string | null | undefined): {
@@ -311,6 +316,7 @@ export function InitiativeSection({
   initiative,
   selected = false,
   onSelectionChange,
+  runtimeActivity = null,
 }: InitiativeSectionProps) {
   const {
     expandedInitiatives,
@@ -467,8 +473,19 @@ export function InitiativeSection({
   const activeTaskCount = taskNodes.filter((node) => isActiveTaskStatus(node.status)).length;
   const todoTaskCount = taskNodes.filter((node) => isTodoTaskStatus(node.status)).length;
   const doneTaskCount = taskNodes.filter((node) => isDoneStatus(node.status)).length;
-  const isExecutionActive = activeTaskCount > 0;
-  const effectiveInitiativeStatus = initiative.status;
+  const runtimeActiveCount = runtimeActivity?.activeCount ?? 0;
+  const runtimeTotalCount = runtimeActivity?.totalCount ?? 0;
+  const isExecutionActive = activeTaskCount > 0 || runtimeActiveCount > 0;
+  const effectiveInitiativeStatus =
+    initiative.status === 'active' && isExecutionActive ? 'in_progress' : initiative.status;
+  const initiativeStatusToneClass =
+    effectiveInitiativeStatus === 'in_progress'
+      ? initiativeStatusClass.active
+      : initiativeStatusClass[effectiveInitiativeStatus];
+  const initiativeStatusLabel =
+    effectiveInitiativeStatus === 'in_progress'
+      ? 'In Progress'
+      : formatEntityStatus(effectiveInitiativeStatus);
   const budgetSourceNodes =
     taskNodes.length > 0
       ? taskNodes
@@ -583,7 +600,7 @@ export function InitiativeSection({
             toggleExpanded(initiative.id);
           }
         }}
-        className={`group flex min-w-0 w-full items-center gap-2.5 overflow-hidden px-3.5 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:px-4 ${
+        className={`group flex min-h-[66px] w-full min-w-0 items-center gap-2.5 overflow-hidden px-3 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:gap-3 sm:px-4 ${
           isExpanded
             ? 'sticky z-30 border-b border-white/[0.06] bg-[#0C0E14]/95 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-xl'
             : ''
@@ -636,30 +653,30 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
-        <div className="min-w-0 flex-[1_1_260px] overflow-hidden pr-2">
+        <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-2 sm:pr-3">
           <button
             type="button"
             onClick={(event) => {
               event.stopPropagation();
               openModal({ type: 'initiative', entity: initiative });
             }}
-            className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[14px] font-semibold text-white transition-colors hover:text-white/80"
+            className="block w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] font-semibold text-white transition-colors hover:text-white/80 sm:text-[14px]"
             title={initiative.name}
           >
             {initiative.name}
           </button>
         </div>
 
-        <div className="ml-1 flex w-[96px] min-w-[96px] flex-shrink-0 justify-start">
+        <div className="ml-1 flex w-[90px] min-w-[90px] flex-shrink-0 justify-start sm:w-[102px] sm:min-w-[102px]">
           <span
-            className={`w-full truncate text-center text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusClass[effectiveInitiativeStatus]}`}
+            className={`w-full truncate text-center text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusToneClass}`}
           >
-            {formatEntityStatus(effectiveInitiativeStatus)}
+            {initiativeStatusLabel}
           </span>
         </div>
 
-        <div className="ml-1.5 flex w-[166px] min-w-[166px] flex-shrink-0 items-center justify-end gap-2.5 md:w-[186px] md:min-w-[186px]">
-          <div className="min-w-[108px] flex-1 md:min-w-[126px]">
+        <div className="ml-1.5 flex w-[148px] min-w-[148px] flex-shrink-0 items-center justify-end gap-2.5 pr-0.5 sm:w-[182px] sm:min-w-[182px] sm:pr-1 md:w-[206px] md:min-w-[206px]">
+          <div className="min-w-[88px] flex-1 sm:min-w-[112px] md:min-w-[140px]">
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
               <motion.div
                 className="h-full rounded-full transition-all"
@@ -674,18 +691,27 @@ export function InitiativeSection({
             </div>
           </div>
           <span
-            className="w-10 text-right text-[11px] text-white/40"
+            className="w-[42px] text-right text-[10px] text-white/40 sm:w-[48px] sm:text-[11px]"
             style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             {progress}%
           </span>
         </div>
 
-        <div className="ml-2.5 flex w-[120px] min-w-[120px] flex-shrink-0 items-center justify-end overflow-hidden md:w-[136px] md:min-w-[136px]">
-          {agents.length > 0 ? (
+        <div className="ml-2 flex w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-white/[0.05] pl-2 sm:w-[116px] sm:min-w-[116px] sm:pl-2.5 md:w-[132px] md:min-w-[132px]">
+          {runtimeActiveCount > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-[10px] font-semibold text-[#D8FFA1]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
+              {runtimeActiveCount} live
+            </span>
+          ) : agents.length > 0 ? (
             <InferredAgentAvatars agents={agents} max={3} />
+          ) : runtimeTotalCount > 0 ? (
+            <span className="w-full text-right text-[10px] text-white/35">
+              {runtimeTotalCount} idle
+            </span>
           ) : (
-            <span className="text-[10px] text-white/28">—</span>
+            <span className="w-full text-right text-[10px] text-white/28">—</span>
           )}
         </div>
 

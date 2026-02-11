@@ -3,8 +3,14 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { resolveProvider } from '@/lib/providers';
-import type { ConnectionStatus, LiveActivityItem, SessionTreeNode, SessionTreeResponse } from '@/types';
+import { resolveProvider, type ProviderId } from '@/lib/providers';
+import type {
+  ConnectionStatus,
+  LiveActivityItem,
+  RuntimeInstance,
+  SessionTreeNode,
+  SessionTreeResponse,
+} from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
@@ -21,6 +27,7 @@ interface AgentsChatsPanelProps {
   agentFilter?: string | null;
   onReconnect?: () => void;
   connectionStatus?: ConnectionStatus;
+  runtimeInstances?: RuntimeInstance[];
 }
 
 const MAX_VISIBLE_GROUPS = 120;
@@ -83,6 +90,8 @@ type AgentGroup = {
   nodes: SessionTreeNode[];
   latest: SessionTreeNode | null;
   catalogAgent?: OpenClawCatalogAgent | null;
+  runtime?: RuntimeInstance | null;
+  runtimeActiveCount?: number;
 };
 
 function normalizeIdentity(value: string | null | undefined): string | null {
@@ -111,6 +120,25 @@ function isCatalogAgentLive(agent: OpenClawCatalogAgent | null | undefined): boo
   if (agent.runId && agent.runId.trim().length > 0) return true;
   if (agent.currentTask && agent.currentTask.trim().length > 0) return true;
   return false;
+}
+
+function isRuntimeActive(runtime: RuntimeInstance | null | undefined): boolean {
+  if (!runtime) return false;
+  return runtime.state === 'active';
+}
+
+function runtimeProviderIdFromLogo(
+  provider: RuntimeInstance['providerLogo'] | SessionTreeNode['runtimeProvider'] | null | undefined
+): ProviderId {
+  if (provider === 'openai') return 'openai';
+  if (provider === 'anthropic') return 'anthropic';
+  if (provider === 'openclaw') return 'openclaw';
+  if (provider === 'orgx') return 'orgx';
+  return 'unknown';
+}
+
+function runtimeProviderId(runtime: RuntimeInstance | null | undefined): ProviderId {
+  return runtimeProviderIdFromLogo(runtime?.providerLogo ?? null);
 }
 
 function toEpoch(value: string | null | undefined): number {
@@ -147,6 +175,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   agentFilter,
   onReconnect,
   connectionStatus,
+  runtimeInstances = [],
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
@@ -188,6 +217,23 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     visibleSessionCount,
     archivedGroups,
   } = useMemo(() => {
+    const runtimeByRunId = new Map<string, RuntimeInstance>();
+    const runtimeByAgentId = new Map<string, RuntimeInstance[]>();
+    const sortedRuntime = [...runtimeInstances].sort(
+      (a, b) => toEpoch(b.lastEventAt ?? b.lastHeartbeatAt) - toEpoch(a.lastEventAt ?? a.lastHeartbeatAt)
+    );
+    for (const runtime of sortedRuntime) {
+      if (runtime.runId && !runtimeByRunId.has(runtime.runId)) {
+        runtimeByRunId.set(runtime.runId, runtime);
+      }
+      const normalizedAgentId = normalizeIdentity(runtime.agentId);
+      if (normalizedAgentId) {
+        const list = runtimeByAgentId.get(normalizedAgentId) ?? [];
+        list.push(runtime);
+        runtimeByAgentId.set(normalizedAgentId, list);
+      }
+    }
+
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
@@ -234,6 +280,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           agentName: node.agentName ?? node.agentId ?? 'Unassigned',
           nodes: [node],
           latest: node,
+          runtime: null,
+          runtimeActiveCount: 0,
         });
       }
     }
@@ -291,6 +339,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           nodes: [],
           latest: null,
           catalogAgent: catAgent,
+          runtime: null,
+          runtimeActiveCount: 0,
         });
       }
     }
@@ -300,6 +350,45 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         group.nodes.sort(sortByUpdated);
         group.latest = group.nodes[0];
       }
+
+      const runtimeCandidates: RuntimeInstance[] = [];
+      const seenRuntime = new Set<string>();
+
+      if (group.latest?.runId) {
+        const byRun = runtimeByRunId.get(group.latest.runId);
+        if (byRun && !seenRuntime.has(byRun.id)) {
+          runtimeCandidates.push(byRun);
+          seenRuntime.add(byRun.id);
+        }
+      }
+
+      for (const node of group.nodes) {
+        if (!node.runId) continue;
+        const byRun = runtimeByRunId.get(node.runId);
+        if (byRun && !seenRuntime.has(byRun.id)) {
+          runtimeCandidates.push(byRun);
+          seenRuntime.add(byRun.id);
+        }
+      }
+
+      const groupAgentId = normalizeIdentity(group.agentId);
+      if (groupAgentId) {
+        for (const runtime of runtimeByAgentId.get(groupAgentId) ?? []) {
+          if (seenRuntime.has(runtime.id)) continue;
+          runtimeCandidates.push(runtime);
+          seenRuntime.add(runtime.id);
+        }
+      }
+
+      runtimeCandidates.sort(
+        (a, b) =>
+          toEpoch(b.lastEventAt ?? b.lastHeartbeatAt) -
+          toEpoch(a.lastEventAt ?? a.lastHeartbeatAt)
+      );
+      group.runtime = runtimeCandidates[0] ?? null;
+      group.runtimeActiveCount = runtimeCandidates.filter((runtime) =>
+        isRuntimeActive(runtime)
+      ).length;
     }
 
     // Sort: groups with sessions first (by latest update), then 0-session groups
@@ -325,10 +414,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     let filteredOutSessionsByDate = 0;
 
     for (const group of sortedGroups) {
+      const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
       // Always include 0-session catalog agents
       if (group.nodes.length === 0) {
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
-        if (!isLiveWindow || catalogIsLive) {
+        if (!isLiveWindow || catalogIsLive || runtimeIsLive) {
           filteredGroups.push(group);
         }
         continue;
@@ -340,7 +430,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
         if (visibleNodes.length === 0) {
-          if (catalogIsLive) {
+          if (catalogIsLive || runtimeIsLive) {
             filteredGroups.push({
               ...group,
               nodes: [],
@@ -385,7 +475,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
       if (visibleNodes.length === 0) {
-        if (catalogIsLive) {
+        if (catalogIsLive || runtimeIsLive) {
           filteredGroups.push({
             ...group,
             nodes: [],
@@ -432,7 +522,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         .reduce((sum, group) => sum + group.nodes.length, 0),
       archivedGroups: archivedGroupsList,
     };
-  }, [offlineDateFilter, sessions.nodes, catalogAgents]);
+  }, [offlineDateFilter, sessions.nodes, catalogAgents, runtimeInstances]);
 
   // Reset archived disclosure when filter changes
   useEffect(() => {
@@ -643,6 +733,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const lead = group.latest;
           const hasSessions = group.nodes.length > 0;
           const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
+          const runtime = group.runtime ?? null;
+          const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
           const active = lead ? selectedSessionId === lead.id : false;
           const displayName = group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
           const visibleChildren = isCollapsed
@@ -664,7 +756,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
                 isFiltered && 'border-[#0AD4C4]/30',
-                !hasSessions && !catalogIsLive && 'opacity-55'
+                !hasSessions && !catalogIsLive && !runtimeIsLive && 'opacity-55'
               )}
             >
               {/* Agent group header: avatar + name + status dot + session count + detail + collapse */}
@@ -709,6 +801,25 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(displayName)}</span>
                     )}
                   </span>
+                  {runtime && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-white/70"
+                      title={
+                        runtime.currentTask
+                          ? `${runtime.displayName}: ${runtime.currentTask}`
+                          : runtime.lastMessage ?? runtime.displayName
+                      }
+                    >
+                      <ProviderLogo provider={runtimeProviderId(runtime)} size="xs" showRing={false} className="h-4 w-4" />
+                      <span>{runtime.displayName}</span>
+                      {runtime.progressPct !== null && (
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {Math.round(runtime.progressPct)}%
+                        </span>
+                      )}
+                      {runtimeIsLive && <span className="h-1.5 w-1.5 rounded-full bg-lime status-breathe" />}
+                    </span>
+                  )}
                   {hasSessions ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
@@ -731,7 +842,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         {group.nodes.length}
                       </span>
                     </span>
-                  ) : catalogIsLive ? (
+                  ) : catalogIsLive || runtimeIsLive ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]">
                         <span
@@ -850,18 +961,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                     {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                                   </span>
                                 </div>
-                                {node.progress !== null && (
-                                  <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
-                                    <div
-                                      className="h-0.5 rounded-full"
-                                      style={{
-                                        width: `${Math.round(node.progress)}%`,
-                                        background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
-                                      }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
+                          {node.progress !== null && (
+                            <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
+                              <div
+                                className="h-0.5 rounded-full"
+                                style={{
+                                  width: `${Math.round(node.progress)}%`,
+                                  background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
                               <span
                                 className="h-2 w-2 flex-shrink-0 rounded-full"
                                 style={{ backgroundColor: statusColor(node.status) }}
@@ -963,7 +1074,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 >
               <div className="space-y-1.5 border-t border-white/[0.06] p-2">
                 {paginatedArchivedSessions.map(({ node, agentName }) => {
-                  const provider = resolveProvider(node.agentName, node.title, node.lastEventSummary, node);
+                  const provider = node.runtimeProvider
+                    ? { id: runtimeProviderIdFromLogo(node.runtimeProvider) }
+                    : resolveProvider(node.agentName, node.title, node.lastEventSummary, node);
                   return (
                     <button
                       key={node.id}

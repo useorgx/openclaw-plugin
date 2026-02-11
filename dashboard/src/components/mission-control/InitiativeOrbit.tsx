@@ -6,6 +6,10 @@ interface InitiativeOrbitProps {
   initiatives: Initiative[];
   selectedInitiativeIds?: Set<string>;
   onToggleInitiativeSelection?: (initiativeId: string, selected: boolean) => void;
+  runtimeActivityByInitiativeId?: ReadonlyMap<
+    string,
+    { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
+  >;
 }
 
 const container = {
@@ -30,6 +34,7 @@ export function InitiativeOrbit({
   initiatives,
   selectedInitiativeIds,
   onToggleInitiativeSelection,
+  runtimeActivityByInitiativeId,
 }: InitiativeOrbitProps) {
   return (
     <motion.div
@@ -49,6 +54,7 @@ export function InitiativeOrbit({
             initiative={initiative}
             selected={selectedInitiativeIds?.has(initiative.id) ?? false}
             onSelectionChange={onToggleInitiativeSelection}
+            runtimeActivity={runtimeActivityByInitiativeId?.get(initiative.id) ?? null}
           />
         </motion.div>
       ))}

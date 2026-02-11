@@ -49,6 +49,42 @@ async function postJson(url, payload, headers, fetchImpl = fetch) {
   }
 }
 
+export function buildRuntimePayload({
+  initiativeId,
+  runId,
+  correlationId,
+  sourceClient,
+  event,
+  phase,
+  message,
+  workstreamId,
+  taskId,
+  agentId,
+  agentName,
+  progressPct,
+  args,
+}) {
+  return {
+    source_client: sourceClient,
+    event,
+    run_id: runId,
+    correlation_id: correlationId,
+    initiative_id: initiativeId,
+    workstream_id: workstreamId,
+    task_id: taskId,
+    agent_id: agentId,
+    agent_name: agentName,
+    phase,
+    progress_pct: progressPct,
+    message,
+    metadata: {
+      source: "hook_runtime_relay",
+      raw_args: args,
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
 export function buildActivityPayload({
   initiativeId,
   runId,
@@ -107,17 +143,22 @@ export async function main({
 } = {}) {
   const args = parseArgs(argv);
 
-  const apiKey = pickString(env.ORGX_API_KEY);
-  if (!apiKey) {
-    return { ok: true, skipped: "missing_api_key" };
-  }
+  const runtimeHookUrl = pickString(
+    args.runtime_hook_url,
+    args.hook_url,
+    env.ORGX_RUNTIME_HOOK_URL,
+    "http://127.0.0.1:18789/orgx/api/hooks/runtime"
+  );
+  const runtimeHookToken = pickString(
+    args.hook_token,
+    args.runtime_hook_token,
+    env.ORGX_HOOK_TOKEN
+  );
 
   const baseUrl = pickString(env.ORGX_BASE_URL, "https://www.useorgx.com")
     .replace(/\/+$/, "");
   const initiativeId = pickString(args.initiative, env.ORGX_INITIATIVE_ID);
-  if (!initiativeId) {
-    return { ok: true, skipped: "missing_initiative_id" };
-  }
+  const apiKey = pickString(env.ORGX_API_KEY);
 
   const sourceClient = pickString(
     args.source_client,
@@ -135,10 +176,64 @@ export async function main({
 
   const event = pickString(args.event, "hook_event");
   const phase = pickString(args.phase, "execution");
+  const workstreamId = pickString(args.workstream_id, env.ORGX_WORKSTREAM_ID);
+  const taskId = pickString(args.task_id, env.ORGX_TASK_ID);
+  const agentId = pickString(args.agent_id, env.ORGX_AGENT_ID);
+  const agentName = pickString(args.agent_name, env.ORGX_AGENT_NAME);
+  const progressPctRaw = pickString(args.progress_pct, env.ORGX_PROGRESS_PCT);
+  const progressPct = progressPctRaw ? Number(progressPctRaw) : undefined;
   const message = pickString(
     args.message,
     `Hook event: ${event}`
   );
+
+  let runtimePosted = false;
+  let runtimePostFailed = false;
+  if (runtimeHookToken && runtimeHookUrl) {
+    const runtimePayload = buildRuntimePayload({
+      initiativeId,
+      runId,
+      correlationId,
+      sourceClient,
+      event,
+      phase,
+      message,
+      workstreamId,
+      taskId,
+      agentId,
+      agentName,
+      progressPct: Number.isFinite(progressPct) ? progressPct : undefined,
+      args,
+    });
+    try {
+      await postJson(
+        runtimeHookUrl,
+        runtimePayload,
+        { "X-OrgX-Hook-Token": runtimeHookToken },
+        fetchImpl
+      );
+      runtimePosted = true;
+    } catch {
+      runtimePostFailed = true;
+    }
+  }
+
+  if (!apiKey) {
+    return {
+      ok: true,
+      runtime_posted: runtimePosted,
+      skipped: "missing_api_key",
+      ...(runtimePostFailed ? { runtime_skipped: "runtime_post_failed" } : {}),
+    };
+  }
+  if (!initiativeId) {
+    return {
+      ok: true,
+      runtime_posted: runtimePosted,
+      skipped: "missing_initiative_id",
+      ...(runtimePostFailed ? { runtime_skipped: "runtime_post_failed" } : {}),
+    };
+  }
 
   const headers = {
     Authorization: `Bearer ${apiKey}`,
@@ -168,14 +263,22 @@ export async function main({
       fetchImpl
     );
   } catch {
-    return { ok: true, skipped: "activity_post_failed" };
+    return {
+      ok: true,
+      runtime_posted: runtimePosted,
+      skipped: "activity_post_failed",
+    };
   }
 
   const shouldApplyCompletion =
     args.apply_completion === "true" || args.apply_completion === "1";
-  const taskId = pickString(args.task_id, env.ORGX_TASK_ID);
   if (!shouldApplyCompletion || !taskId) {
-    return { ok: true, activity_posted: true, changeset_posted: false };
+    return {
+      ok: true,
+      runtime_posted: runtimePosted,
+      activity_posted: true,
+      changeset_posted: false,
+    };
   }
 
   const changesetPayload = buildCompletionChangesetPayload({
@@ -197,13 +300,19 @@ export async function main({
   } catch {
     return {
       ok: true,
+      runtime_posted: runtimePosted,
       activity_posted: true,
       changeset_posted: false,
       skipped: "changeset_post_failed",
     };
   }
 
-  return { ok: true, activity_posted: true, changeset_posted: true };
+  return {
+    ok: true,
+    runtime_posted: runtimePosted,
+    activity_posted: true,
+    changeset_posted: true,
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

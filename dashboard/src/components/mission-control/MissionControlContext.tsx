@@ -22,7 +22,7 @@ export type MissionControlDatePreset =
   | 'custom_range';
 
 export type GroupByOption = 'none' | 'status' | 'date' | 'category';
-export type SortByOption = 'default' | 'date_asc' | 'date_desc';
+export type SortByOption = 'default' | 'date_asc' | 'date_desc' | 'priority_high' | 'priority_low';
 
 export type EntityModalTarget =
   | { type: 'initiative'; entity: Initiative }
@@ -91,7 +91,7 @@ export function MissionControlProvider({
   const [expandedInitiatives, setExpandedInitiatives] = useState<Set<string>>(new Set());
   const [modalTarget, setModalTarget] = useState<EntityModalTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [statusFilters, setStatusFiltersState] = useState<string[]>([]);
   const [dateField, setDateField] = useState<MissionControlDateField>('target');
   const [datePreset, setDatePreset] = useState<MissionControlDatePreset>('any');
   const [dateStart, setDateStart] = useState('');
@@ -134,8 +134,19 @@ export function MissionControlProvider({
     setModalTarget(null);
   }, []);
 
+  const setStatusFilters = useCallback((filters: string[]) => {
+    const normalized = Array.from(
+      new Set(
+        (filters ?? [])
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+    setStatusFiltersState(normalized);
+  }, []);
+
   const toggleStatusFilter = useCallback((status: string) => {
-    setStatusFilters((previous) => {
+    setStatusFiltersState((previous) => {
       const normalized = status.trim().toLowerCase();
       if (!normalized) return previous;
       if (previous.includes(normalized)) {
@@ -147,17 +158,19 @@ export function MissionControlProvider({
 
   const clearFilters = useCallback(() => {
     setSearchQuery('');
-    setStatusFilters([]);
+    setStatusFiltersState([]);
     setDateField('target');
     setDatePreset('any');
     setDateStart('');
     setDateEnd('');
   }, []);
 
-  const activeFilterCount =
-    statusFilters.length +
-    (dateField !== 'target' ? 1 : 0) +
-    (datePreset !== 'any' ? 1 : 0);
+  const hasCustomRangeBounds =
+    dateStart.trim().length > 0 || dateEnd.trim().length > 0;
+  const hasDateCriteria =
+    datePreset !== 'any' &&
+    (datePreset !== 'custom_range' || hasCustomRangeBounds);
+  const activeFilterCount = statusFilters.length + (hasDateCriteria ? 1 : 0);
 
   const hasActiveFilters =
     searchQuery.trim().length > 0 || activeFilterCount > 0;

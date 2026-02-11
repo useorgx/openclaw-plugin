@@ -1,5 +1,6 @@
 import { colors } from '@/lib/tokens';
 import type { LiveActivityItem, LiveActivityType } from '@/types';
+import { WorkstreamGlyph } from '@/components/shared/WorkstreamGlyph';
 
 export type ActivityIconName =
   | 'play'
@@ -213,7 +214,7 @@ export function ActivityEventIcon({
     case 'flag':
       return <svg {...commonProps}><path d="M5 3v18" /><path d="m5 4 12 1-2 4 2 4-12-1" /></svg>;
     case 'workflow':
-      return <svg {...commonProps}><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="M7 6h10M6.5 7.5 11 16M17.5 7.5 13 16" /></svg>;
+      return <WorkstreamGlyph size={size} className={className} strokeWidth={1.8} />;
     case 'memory_sync':
       return <svg {...commonProps}><ellipse cx="12" cy="5.5" rx="6.5" ry="2.5" /><path d="M5.5 5.5v6c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-6" /><path d="m8 17-2 2 2 2" /><path d="M16 17l2 2-2 2" /></svg>;
     case 'heartbeat':

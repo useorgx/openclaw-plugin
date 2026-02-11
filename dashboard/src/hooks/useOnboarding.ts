@@ -5,6 +5,209 @@ import type { OnboardingState } from '@/types';
 const DEFAULT_DOCS_URL = 'https://orgx.mintlify.site/guides/openclaw-plugin-setup';
 const DEFAULT_POLL_MS = 1500;
 const ONBOARDING_SKIP_STORAGE_KEY = 'orgx.onboarding.skip';
+const PAIRING_INTERSTITIAL_DELAY_MS = 680;
+const PAIRING_INTERSTITIAL_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connecting to OrgX</title>
+    <style>
+      :root {
+        --bg: #02040a;
+        --surface: #0c0e14;
+        --surface-soft: #0f121a;
+        --line: rgba(255, 255, 255, 0.1);
+        --text: #f2f7ff;
+        --muted: rgba(242, 247, 255, 0.62);
+        --lime: #bfff00;
+        --teal: #14b8a6;
+        --iris: #7c7cff;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(920px 460px at 14% 14%, rgba(124, 124, 255, 0.12), transparent 68%),
+          radial-gradient(840px 420px at 84% 88%, rgba(20, 184, 166, 0.12), transparent 72%),
+          var(--bg);
+        color: var(--text);
+        font-family: "SF Pro Text", "SF Pro Display", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .shell {
+        width: min(640px, 100%);
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+          var(--surface);
+        box-shadow:
+          0 28px 80px rgba(0, 0, 0, 0.58),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        overflow: hidden;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(0, 0, 0, 0.16);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-mark {
+        width: 22px;
+        height: 22px;
+        color: var(--lime);
+        opacity: 0.95;
+      }
+
+      .brand-name {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: rgba(242, 247, 255, 0.92);
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid rgba(191, 255, 0, 0.3);
+        background: rgba(191, 255, 0, 0.12);
+        color: #d8ffa1;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--lime);
+        box-shadow: 0 0 0 0 rgba(191, 255, 0, 0.56);
+        animation: pulse 1.6s infinite ease-out;
+      }
+
+      .content {
+        padding: 20px 20px 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.18;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .steps {
+        margin-top: 16px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--surface-soft);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+
+      .step svg {
+        flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+      }
+
+      .meta {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        color: rgba(242, 247, 255, 0.42);
+        font-size: 11px;
+      }
+
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(191, 255, 0, 0.56); }
+        100% { box-shadow: 0 0 0 12px rgba(191, 255, 0, 0); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.5 7h5.8l6.7 6"></path>
+            <path d="M5.5 17h5.8l6.7-6"></path>
+            <path d="M5.5 12h12.5"></path>
+            <path d="m15.3 9.3 2.7 2.7-2.7 2.7"></path>
+          </svg>
+          <span class="brand-name">OrgX</span>
+        </div>
+        <div class="chip"><span class="dot"></span>Pairing</div>
+      </header>
+      <section class="content">
+        <h1>Connecting to OrgX</h1>
+        <p class="subtitle">Preparing a secure workspace session. This window will continue automatically.</p>
+        <div class="steps">
+          <div class="step">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <circle cx="12" cy="12" r="4.5"></circle>
+            </svg>
+            <span>Initializing plugin handshake</span>
+          </div>
+          <div class="step">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#14B8A6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 3v18"></path>
+              <path d="m5 4 12 1-2 4 2 4-12-1z"></path>
+            </svg>
+            <span>Opening browser approval for this workspace</span>
+          </div>
+          <div class="step">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#BFFF00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="4"></rect>
+              <path d="M9 12.2 11 14.2 15.2 10"></path>
+            </svg>
+            <span>Syncing initiatives, tasks, and decisions</span>
+          </div>
+        </div>
+        <div class="meta">If redirect does not start, return to OpenClaw and click “Approve in browser”.</div>
+      </section>
+    </main>
+  </body>
+</html>`;
 
 const DEFAULT_STATE: OnboardingState = {
   status: 'idle',
@@ -131,8 +334,9 @@ export function useOnboarding() {
       if (!win) return null;
       win.opener = null;
       win.document.title = 'Connecting to OrgX…';
-      win.document.body.innerHTML =
-        '<div style="font-family:system-ui,-apple-system,sans-serif;padding:20px;color:#111">Connecting to OrgX...</div>';
+      win.document.open();
+      win.document.write(PAIRING_INTERSTITIAL_HTML);
+      win.document.close();
       return win;
     } catch {
       return null;
@@ -162,7 +366,8 @@ export function useOnboarding() {
         })
       );
 
-      if (!payload.ok || !payload.data?.state) {
+      const data = payload.data;
+      if (!payload.ok || !data?.state) {
         if (pairingWindow && !pairingWindow.closed) {
           pairingWindow.close();
         }
@@ -176,14 +381,23 @@ export function useOnboarding() {
         return;
       }
 
-      setState(payload.data.state);
-      if (payload.data.connectUrl) {
+      setState(data.state);
+      const connectUrl = data.connectUrl;
+      if (connectUrl) {
         const targetWindow = pairingWindowRef.current;
         let opened = false;
 
         if (targetWindow && !targetWindow.closed) {
           try {
-            targetWindow.location.href = payload.data.connectUrl;
+            window.setTimeout(() => {
+              if (!targetWindow.closed) {
+                try {
+                  targetWindow.location.href = connectUrl;
+                } catch {
+                  // Ignore navigation errors; fallback path below handles blocked popups.
+                }
+              }
+            }, PAIRING_INTERSTITIAL_DELAY_MS);
             opened = true;
           } catch {
             opened = false;
@@ -191,7 +405,7 @@ export function useOnboarding() {
         }
 
         if (!opened) {
-          const fallback = window.open(payload.data.connectUrl, '_blank', 'noopener,noreferrer');
+          const fallback = window.open(connectUrl, '_blank', 'noopener,noreferrer');
           opened = Boolean(fallback);
         }
 

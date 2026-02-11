@@ -568,21 +568,21 @@ export function HierarchyTreeTable({
 
   return (
     <section className="space-y-2.5">
-      <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div className="w-full xl:max-w-[360px]">
+      <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="w-full xl:max-w-[380px]">
           <SearchInput
             value={searchQuery}
             onChange={setSearchQuery}
             placeholder="Search items or agents..."
           />
         </div>
-        <div className="flex min-h-[34px] min-w-0 flex-wrap items-center gap-2.5">
+        <div className="flex min-h-[40px] min-w-0 flex-wrap items-center gap-2.5">
           {onToggleEditMode && (
             <button
               type="button"
               onClick={onToggleEditMode}
               data-state={editMode ? 'active' : 'idle'}
-              className={`control-pill inline-flex items-center gap-1.5 px-3.5 text-[11px] font-semibold ${
+              className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold ${
                 editMode
                   ? 'text-[#D8FFA1]'
                   : 'text-white/65 hover:text-white/85'
@@ -694,23 +694,27 @@ export function HierarchyTreeTable({
               )}
             </AnimatePresence>
           </div>
-          <button
-            type="button"
-            onClick={clearAllHierarchyFilters}
-            disabled={!hasToolbarFilters}
-            className={`text-[11px] transition-colors ${
-              hasToolbarFilters
-                ? 'text-white/50 hover:text-white/75'
-                : 'pointer-events-none select-none invisible'
-            }`}
-          >
-            Clear
-          </button>
+          <AnimatePresence initial={false}>
+            {hasToolbarFilters && (
+              <motion.button
+                key="hierarchy-clear-filters"
+                type="button"
+                onClick={clearAllHierarchyFilters}
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -4 }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="control-pill inline-flex h-8 items-center px-2.5 text-[11px] font-medium text-white/70 hover:text-white/88"
+              >
+                Clear
+              </motion.button>
+            )}
+          </AnimatePresence>
           <button
             type="button"
             onClick={toggleSelectAllVisibleRows}
             data-state={allVisibleSelected ? 'active' : 'idle'}
-            className="control-pill inline-flex items-center gap-1.5 px-3.5 text-[11px] font-semibold"
+            className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold"
           >
             {allVisibleSelected ? 'Clear visible' : 'Select visible'}
           </button>
@@ -724,8 +728,8 @@ export function HierarchyTreeTable({
             : 'border-white/[0.08] bg-white/[0.02]'
         }`}
       >
-        <div className="flex h-12 min-w-max items-center gap-2 overflow-x-auto whitespace-nowrap">
-          <label className="inline-flex items-center gap-2 text-[11px] text-white/75">
+        <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
+          <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
             <input
               ref={selectAllRef}
               type="checkbox"
@@ -735,11 +739,11 @@ export function HierarchyTreeTable({
             />
             Select all visible
           </label>
-          <span className="text-[11px] text-white/58">
+          <span className="flex-shrink-0 text-[11px] text-white/58">
             {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
           </span>
           {selectedRowCount > 0 && (
-            <div className="flex flex-shrink-0 items-center gap-2">
+            <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
               <button
                 type="button"
                 onClick={() => {

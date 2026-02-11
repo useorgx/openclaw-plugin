@@ -365,6 +365,7 @@ export interface EntityListFilters {
 // =============================================================================
 
 export type ReportingSourceClient = 'openclaw' | 'codex' | 'claude-code' | 'api';
+export type RuntimeSourceClient = ReportingSourceClient | 'unknown';
 export type ReportingPhase =
   | 'intent'
   | 'execution'
@@ -476,6 +477,30 @@ export type LiveActivityType =
   | 'milestone_completed'
   | 'delegation';
 
+export type RuntimeInstanceState = 'active' | 'stale' | 'stopped' | 'error';
+
+export interface RuntimeInstance {
+  id: string;
+  sourceClient: RuntimeSourceClient;
+  displayName: string;
+  providerLogo: 'openai' | 'anthropic' | 'openclaw' | 'orgx' | 'unknown';
+  state: RuntimeInstanceState;
+  runId: string | null;
+  correlationId: string | null;
+  initiativeId: string | null;
+  workstreamId: string | null;
+  taskId: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  phase: string | null;
+  progressPct: number | null;
+  currentTask: string | null;
+  lastHeartbeatAt: string | null;
+  lastEventAt: string;
+  lastMessage: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 export interface LiveActivityItem {
   id: string;
   type: LiveActivityType;
@@ -492,6 +517,11 @@ export interface LiveActivityItem {
   summary?: string | null;
   decisionRequired?: boolean;
   costDelta?: number | null;
+  runtimeClient?: RuntimeSourceClient | null;
+  runtimeLabel?: string | null;
+  runtimeProvider?: RuntimeInstance['providerLogo'] | null;
+  instanceId?: string | null;
+  lastHeartbeatAt?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -519,6 +549,11 @@ export interface SessionTreeNode {
   cost?: number | null;
   checkpointCount?: number | null;
   blockerReason?: string | null;
+  runtimeClient?: RuntimeSourceClient | null;
+  runtimeLabel?: string | null;
+  runtimeProvider?: RuntimeInstance['providerLogo'] | null;
+  instanceId?: string | null;
+  lastHeartbeatAt?: string | null;
 }
 
 export interface SessionTreeEdge {
