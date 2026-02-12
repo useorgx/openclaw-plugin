@@ -141,6 +141,7 @@ function usage() {
     "  --state_file=<path>               Persist runtime job state JSON",
     "  --logs_dir=<path>                 Worker logs directory",
     "  --config_file=<path>              JSON overrides (cwd/prompt mapping)",
+    "  --default_cwd=<path>              Default worker cwd (overrides config_file.defaultCwd)",
     "  --codex_bin=<command>             Codex executable (default codex)",
     "  --codex_args=\"--full-auto\"        Codex args string",
     "                                  (Note: the script auto-injects `exec` when missing)",
@@ -1473,6 +1474,10 @@ export async function main({
 
   const configFile = pickString(args.config_file);
   const jobConfig = mergeJobConfig(maybeLoadConfig(configFile));
+  const defaultCwdArg = pickString(args.default_cwd);
+  if (defaultCwdArg) {
+    jobConfig.defaultCwd = defaultCwdArg;
+  }
 
   const allWorkstreams = parseBoolean(args.all_workstreams, false);
   const explicitWorkstreamIds = splitCsv(args.workstream_ids);
@@ -1513,7 +1518,11 @@ export async function main({
   const planHash = stableHash(planText);
 
   const logsRoot = resolve(pickString(args.logs_dir, env.ORGX_JOB_LOGS_DIR, defaultLogsDir()));
-  const jobId = pickString(args.job_id, `codex-job-${Date.now()}`);
+  // Avoid collisions when launching multiple dispatch jobs in parallel.
+  const jobId = pickString(
+    args.job_id,
+    `codex-job-${Date.now()}-${randomUUID().slice(0, 8)}`
+  );
   const logsDir = join(logsRoot, jobId);
   ensureDir(logsDir);
 

@@ -47,6 +47,7 @@ import {
 import type { OutboxEvent } from "./outbox.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
+import { posthogCapture } from "./telemetry/posthog.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -552,6 +553,20 @@ export default function register(api: PluginAPI): void {
     return;
   }
 
+  void posthogCapture({
+    event: "openclaw_plugin_loaded",
+    distinctId: config.installationId,
+    properties: {
+      plugin_version: config.pluginVersion,
+      dashboard_enabled: config.dashboardEnabled,
+      has_api_key: Boolean(config.apiKey),
+      api_key_source: config.apiKeySource,
+      base_url: config.baseUrl,
+    },
+  }).catch(() => {
+    // best effort
+  });
+
   if (!config.apiKey) {
     api.log?.warn?.(
       "[orgx] No API key. Set plugins.entries.orgx.config.apiKey, ORGX_API_KEY env, or ~/Code/orgx/orgx/.env.local"
@@ -660,6 +675,149 @@ export default function register(api: PluginAPI): void {
     if (err instanceof Error) return err.message;
     return typeof err === "string" ? err : "Unexpected error";
   }
+
+  const registerTool = api.registerTool.bind(api);
+  api.registerTool = (tool, options) => {
+    const toolName = tool.name;
+    const optional = Boolean(options?.optional);
+
+    registerTool(
+      {
+        ...tool,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        execute: async (callId: string, params?: any) => {
+          const startedAt = Date.now();
+
+          void posthogCapture({
+            event: "openclaw_tool_called",
+            distinctId: config.installationId,
+            properties: {
+              tool_name: toolName,
+              tool_optional: optional,
+              call_id: callId,
+              plugin_version: config.pluginVersion,
+            },
+          }).catch(() => {
+            // best effort
+          });
+
+          try {
+            const result = await tool.execute(callId, params);
+            const durationMs = Date.now() - startedAt;
+
+            void posthogCapture({
+              event: "openclaw_tool_succeeded",
+              distinctId: config.installationId,
+              properties: {
+                tool_name: toolName,
+                tool_optional: optional,
+                call_id: callId,
+                duration_ms: durationMs,
+                plugin_version: config.pluginVersion,
+              },
+            }).catch(() => {
+              // best effort
+            });
+
+            return result;
+          } catch (err) {
+            const durationMs = Date.now() - startedAt;
+
+            void posthogCapture({
+              event: "openclaw_tool_failed",
+              distinctId: config.installationId,
+              properties: {
+                tool_name: toolName,
+                tool_optional: optional,
+                call_id: callId,
+                duration_ms: durationMs,
+                plugin_version: config.pluginVersion,
+                error: toErrorMessage(err),
+              },
+            }).catch(() => {
+              // best effort
+            });
+
+            throw err;
+          }
+        },
+      },
+      options
+    );
+  };
+
+  const registerService = api.registerService.bind(api);
+  api.registerService = (service) => {
+    registerService({
+      ...service,
+      start: async () => {
+        const startedAt = Date.now();
+        try {
+          await service.start();
+          const durationMs = Date.now() - startedAt;
+          void posthogCapture({
+            event: "openclaw_service_started",
+            distinctId: config.installationId,
+            properties: {
+              service_id: service.id,
+              duration_ms: durationMs,
+              plugin_version: config.pluginVersion,
+            },
+          }).catch(() => {
+            // best effort
+          });
+        } catch (err) {
+          const durationMs = Date.now() - startedAt;
+          void posthogCapture({
+            event: "openclaw_service_start_failed",
+            distinctId: config.installationId,
+            properties: {
+              service_id: service.id,
+              duration_ms: durationMs,
+              plugin_version: config.pluginVersion,
+              error: toErrorMessage(err),
+            },
+          }).catch(() => {
+            // best effort
+          });
+          throw err;
+        }
+      },
+      stop: async () => {
+        const startedAt = Date.now();
+        try {
+          await service.stop();
+          const durationMs = Date.now() - startedAt;
+          void posthogCapture({
+            event: "openclaw_service_stopped",
+            distinctId: config.installationId,
+            properties: {
+              service_id: service.id,
+              duration_ms: durationMs,
+              plugin_version: config.pluginVersion,
+            },
+          }).catch(() => {
+            // best effort
+          });
+        } catch (err) {
+          const durationMs = Date.now() - startedAt;
+          void posthogCapture({
+            event: "openclaw_service_stop_failed",
+            distinctId: config.installationId,
+            properties: {
+              service_id: service.id,
+              duration_ms: durationMs,
+              plugin_version: config.pluginVersion,
+              error: toErrorMessage(err),
+            },
+          }).catch(() => {
+            // best effort
+          });
+          throw err;
+        }
+      },
+    });
+  };
 
   function clearPairingState() {
     activePairing = null;
