@@ -306,6 +306,7 @@ async function main() {
     });
 
     let autoRun = null;
+    let nextUpUpgradeGateOnce = true;
 
     await context.addInitScript(() => {
       try {
@@ -339,9 +340,78 @@ async function main() {
       });
     });
 
+    await context.route('**/orgx/api/mission-control/next-up?*', async (route) => {
+      const now = new Date().toISOString();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          generatedAt: now,
+          total: 1,
+          items: [
+            {
+              initiativeId: 'init-1',
+              initiativeTitle: 'Q4 Feature Ship',
+              initiativeStatus: 'active',
+              workstreamId: 'ws-4',
+              workstreamTitle: 'Dashboard UI pass',
+              workstreamStatus: 'in_progress',
+              nextTaskId: 'init-1-task-2',
+              nextTaskTitle: 'Screenshot grid evidence',
+              nextTaskPriority: null,
+              nextTaskDueAt: null,
+              runnerAgentId: 'engineering-agent',
+              runnerAgentName: 'Eli',
+              runnerSource: 'assigned',
+              queueState: autoRun?.status === 'running' ? 'running' : 'queued',
+              blockReason: null,
+              autoContinue: autoRun
+                ? {
+                    status: autoRun.status,
+                    activeTaskId: autoRun.activeTaskId,
+                    activeRunId: autoRun.activeRunId,
+                    stopReason: autoRun.stopReason,
+                    updatedAt: autoRun.updatedAt,
+                  }
+                : null,
+            },
+          ],
+          degraded: [],
+        }),
+      });
+    });
+
     await context.route('**/orgx/api/mission-control/auto-continue/start', async (route) => {
       const now = new Date().toISOString();
       const payload = route.request().postDataJSON?.() ?? {};
+
+      if (
+        nextUpUpgradeGateOnce &&
+        Array.isArray(payload.workstreamIds) &&
+        payload.workstreamIds.length > 0
+      ) {
+        nextUpUpgradeGateOnce = false;
+        await route.fulfill({
+          status: 402,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'upgrade_required',
+            error:
+              'Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.',
+            currentPlan: 'free',
+            requiredPlan: 'starter',
+            actions: {
+              checkout: '/orgx/api/billing/checkout',
+              portal: '/orgx/api/billing/portal',
+              pricing: 'https://useorgx.com/pricing',
+            },
+          }),
+        });
+        return;
+      }
+
       autoRun = {
         initiativeId: payload.initiativeId ?? 'init-1',
         agentId: 'engineering-agent',
@@ -363,6 +433,22 @@ async function main() {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ ok: true, run: autoRun }),
+      });
+    });
+
+    await context.route('**/orgx/api/billing/checkout', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { url: 'https://useorgx.com/pricing' } }),
+      });
+    });
+
+    await context.route('**/orgx/api/billing/portal', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, data: { url: 'https://useorgx.com/pricing' } }),
       });
     });
 
@@ -531,6 +617,24 @@ async function main() {
       await runInteraction('autopilot_stop', async () => {
         await autoButton.click();
       }, 650);
+    }
+
+    const nextUpOpenButton = page.locator('button[title="Expand Next Up rail"]').first();
+    if (await nextUpOpenButton.isVisible().catch(() => false)) {
+      await runInteraction('next_up_open_rail', async () => {
+        await nextUpOpenButton.click();
+      }, 650);
+    }
+
+    const nextUpCard = page.locator('section').filter({
+      has: page.getByRole('heading', { name: /^Next Up$/i }),
+    }).first();
+    const nextUpAutoButton = nextUpCard.getByRole('button', { name: /^Auto$/i }).first();
+    if (await nextUpAutoButton.isVisible().catch(() => false)) {
+      await runInteraction('next_up_auto_upgrade_gate', async () => {
+        await nextUpAutoButton.click();
+      }, 720);
+      await page.waitForSelector('text=Upgrade required', { timeout: 2500 }).catch(() => {});
     }
 
     const initiativeCheckboxes = page.locator('input[aria-label^="Select initiative "]');
