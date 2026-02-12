@@ -151,6 +151,11 @@ Key behavior:
 - Auto-creates a blocking decision when a task exhausts retries (disable with `--decision_on_block=false`)
 - Persists resumable state to `.orgx-codex-jobs/<job-id>/job-state.json`
 
+Resume patterns:
+- Resume an existing job run (reuse `--job_id`): add `--resume=true`
+- Retry tasks previously blocked in the state file: add `--retry_blocked=true` (requires `--resume=true`)
+- Local safety guardrails: `--resource_guard=true` and `--worker_timeout_sec`/`--worker_log_stall_sec` prevent runaway local dispatch
+
 Notes:
 - `ORGX_USER_ID` is legacy and only needed with legacy service-key flows.
 - User-scoped `oxk_...` API keys should not send `X-Orgx-User-Id`.
