@@ -2761,9 +2761,10 @@ export function createHttpHandler(
 
   async function checkSpawnGuardSafe(input: {
     domain: string;
-    taskId: string;
+    taskId?: string | null;
     initiativeId: string | null;
     correlationId: string;
+    targetLabel?: string | null;
   }): Promise<unknown | null> {
     const scopedClient = client as OrgXClient & {
       checkSpawnGuard?: (domain: string, taskId?: string) => Promise<unknown>;
@@ -2772,24 +2773,291 @@ export function createHttpHandler(
       return null;
     }
 
+    const taskId = input.taskId?.trim() ?? "";
+    const targetLabel =
+      input.targetLabel?.trim() ||
+      (taskId ? `task ${taskId}` : "dispatch target");
+
     try {
-      return await scopedClient.checkSpawnGuard(input.domain, input.taskId);
+      return await scopedClient.checkSpawnGuard(
+        input.domain,
+        taskId || undefined
+      );
     } catch (err: unknown) {
       await emitActivitySafe({
         initiativeId: input.initiativeId,
         correlationId: input.correlationId,
         phase: "blocked",
         level: "warn",
-        message: `Spawn guard check degraded for task ${input.taskId}; continuing with local policy.`,
+        message: `Spawn guard check degraded for ${targetLabel}; continuing with local policy.`,
         metadata: {
           event: "spawn_guard_degraded",
-          task_id: input.taskId,
+          task_id: taskId || null,
           domain: input.domain,
           error: safeErrorMessage(err),
         },
       });
       return null;
     }
+  }
+
+  function extractSpawnGuardModelTier(result: unknown): string | null {
+    if (!result || typeof result !== "object") return null;
+    return (
+      pickString(result as Record<string, unknown>, ["modelTier", "model_tier"]) ??
+      null
+    );
+  }
+
+  function formatRequiredSkills(requiredSkills: string[]): string {
+    const normalized = requiredSkills
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+      .map((entry) => (entry.startsWith("$") ? entry : `$${entry}`));
+    return normalized.length > 0
+      ? normalized.join(", ")
+      : "$orgx-engineering-agent";
+  }
+
+  function buildPolicyEnforcedMessage(input: {
+    baseMessage: string;
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    spawnGuardResult?: unknown | null;
+  }): string {
+    const modelTier = extractSpawnGuardModelTier(input.spawnGuardResult ?? null);
+    return [
+      `Execution policy: ${input.executionPolicy.domain}`,
+      `Required skills: ${formatRequiredSkills(input.executionPolicy.requiredSkills)}`,
+      modelTier ? `Spawn guard model tier: ${modelTier}` : null,
+      "",
+      input.baseMessage,
+    ]
+      .filter((entry): entry is string => Boolean(entry))
+      .join("\n");
+  }
+
+  async function resolveDispatchExecutionPolicy(input: {
+    initiativeId: string | null;
+    initiativeTitle?: string | null;
+    workstreamId?: string | null;
+    workstreamTitle?: string | null;
+    taskId?: string | null;
+    taskTitle?: string | null;
+    message?: string | null;
+  }): Promise<{
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    taskTitle: string | null;
+    workstreamTitle: string | null;
+  }> {
+    const initiativeId = input.initiativeId?.trim() ?? "";
+    const taskId = input.taskId?.trim() ?? "";
+    const workstreamId = input.workstreamId?.trim() ?? "";
+    let resolvedTaskTitle = input.taskTitle?.trim() || null;
+    let resolvedWorkstreamTitle = input.workstreamTitle?.trim() || null;
+
+    if (initiativeId && (taskId || workstreamId)) {
+      try {
+        const graph = await buildMissionControlGraph(client, initiativeId);
+        const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+        const taskNode = taskId ? nodeById.get(taskId) ?? null : null;
+        const workstreamNode = workstreamId ? nodeById.get(workstreamId) ?? null : null;
+
+        if (taskNode && taskNode.type === "task") {
+          resolvedTaskTitle = resolvedTaskTitle ?? taskNode.title;
+          const relatedWorkstream =
+            (taskNode.workstreamId ? nodeById.get(taskNode.workstreamId) ?? null : null) ??
+            workstreamNode;
+          const normalizedWorkstream =
+            relatedWorkstream && relatedWorkstream.type === "workstream"
+              ? relatedWorkstream
+              : null;
+          resolvedWorkstreamTitle =
+            resolvedWorkstreamTitle ?? normalizedWorkstream?.title ?? null;
+          return {
+            executionPolicy: deriveExecutionPolicy(taskNode, normalizedWorkstream),
+            taskTitle: resolvedTaskTitle,
+            workstreamTitle: resolvedWorkstreamTitle,
+          };
+        }
+
+        if (workstreamNode && workstreamNode.type === "workstream") {
+          resolvedWorkstreamTitle = resolvedWorkstreamTitle ?? workstreamNode.title;
+          const assignedDomain = workstreamNode.assignedAgents
+            .map((agent) => normalizeExecutionDomain(agent.domain))
+            .find((entry): entry is string => Boolean(entry));
+          const domain =
+            assignedDomain ??
+            inferExecutionDomainFromText(
+              workstreamNode.title,
+              input.initiativeTitle,
+              input.message
+            );
+          const normalizedDomain = normalizeExecutionDomain(domain) ?? "engineering";
+          return {
+            executionPolicy: {
+              domain: normalizedDomain,
+              requiredSkills: [
+                ORGX_SKILL_BY_DOMAIN[normalizedDomain] ??
+                  ORGX_SKILL_BY_DOMAIN.engineering,
+              ],
+            },
+            taskTitle: resolvedTaskTitle,
+            workstreamTitle: resolvedWorkstreamTitle,
+          };
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    const inferredDomain =
+      normalizeExecutionDomain(
+        inferExecutionDomainFromText(
+          resolvedTaskTitle,
+          resolvedWorkstreamTitle,
+          input.initiativeTitle,
+          input.message
+        )
+      ) ?? "engineering";
+    return {
+      executionPolicy: {
+        domain: inferredDomain,
+        requiredSkills: [
+          ORGX_SKILL_BY_DOMAIN[inferredDomain] ?? ORGX_SKILL_BY_DOMAIN.engineering,
+        ],
+      },
+      taskTitle: resolvedTaskTitle,
+      workstreamTitle: resolvedWorkstreamTitle,
+    };
+  }
+
+  async function enforceSpawnGuardForDispatch(input: {
+    sourceEventPrefix: string;
+    initiativeId: string | null;
+    correlationId: string;
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    agentId?: string | null;
+    taskId?: string | null;
+    taskTitle?: string | null;
+    workstreamId?: string | null;
+    workstreamTitle?: string | null;
+    milestoneId?: string | null;
+  }): Promise<{
+    allowed: boolean;
+    retryable: boolean;
+    blockedReason: string | null;
+    spawnGuardResult: unknown | null;
+  }> {
+    const taskId = input.taskId?.trim() ?? "";
+    const workstreamId = input.workstreamId?.trim() ?? "";
+    const taskTitle = input.taskTitle?.trim() || null;
+    const workstreamTitle = input.workstreamTitle?.trim() || null;
+    const targetLabel = taskId
+      ? `task ${taskTitle ?? taskId}`
+      : workstreamId
+        ? `workstream ${workstreamTitle ?? workstreamId}`
+        : "dispatch target";
+
+    const spawnGuardResult = await checkSpawnGuardSafe({
+      domain: input.executionPolicy.domain,
+      taskId: taskId || workstreamId || null,
+      initiativeId: input.initiativeId,
+      correlationId: input.correlationId,
+      targetLabel,
+    });
+
+    if (!spawnGuardResult || typeof spawnGuardResult !== "object") {
+      return {
+        allowed: true,
+        retryable: false,
+        blockedReason: null,
+        spawnGuardResult,
+      };
+    }
+
+    const allowed = (spawnGuardResult as Record<string, unknown>).allowed;
+    if (allowed !== false) {
+      return {
+        allowed: true,
+        retryable: false,
+        blockedReason: null,
+        spawnGuardResult,
+      };
+    }
+
+    const blockedReason = summarizeSpawnGuardBlockReason(spawnGuardResult);
+    const retryable = spawnGuardIsRateLimited(spawnGuardResult);
+    const blockedEvent = retryable
+      ? `${input.sourceEventPrefix}_spawn_guard_rate_limited`
+      : `${input.sourceEventPrefix}_spawn_guard_blocked`;
+
+    await emitActivitySafe({
+      initiativeId: input.initiativeId,
+      correlationId: input.correlationId,
+      phase: "blocked",
+      level: retryable ? "warn" : "error",
+      message: retryable
+        ? `Spawn guard rate-limited ${targetLabel}; deferring launch.`
+        : `Spawn guard blocked ${targetLabel}.`,
+      metadata: {
+        event: blockedEvent,
+        agent_id: input.agentId ?? null,
+        task_id: taskId || null,
+        task_title: taskTitle,
+        workstream_id: workstreamId || null,
+        workstream_title: workstreamTitle,
+        domain: input.executionPolicy.domain,
+        required_skills: input.executionPolicy.requiredSkills,
+        blocked_reason: blockedReason,
+        spawn_guard: spawnGuardResult,
+      },
+      nextStep: retryable
+        ? "Retry dispatch when spawn rate limits recover."
+        : "Review decision and unblock guard checks before retry.",
+    });
+
+    if (!retryable && input.initiativeId && taskId) {
+      try {
+        await client.updateEntity("task", taskId, { status: "blocked" });
+      } catch {
+        // best effort
+      }
+      await syncParentRollupsForTask({
+        initiativeId: input.initiativeId,
+        taskId,
+        workstreamId: workstreamId || null,
+        milestoneId: input.milestoneId ?? null,
+        correlationId: input.correlationId,
+      });
+    }
+
+    if (!retryable) {
+      await requestDecisionSafe({
+        initiativeId: input.initiativeId,
+        correlationId: input.correlationId,
+        title: `Unblock ${targetLabel}`,
+        summary: [
+          `${targetLabel} failed spawn guard checks.`,
+          `Reason: ${blockedReason}`,
+          `Domain: ${input.executionPolicy.domain}`,
+          `Required skills: ${input.executionPolicy.requiredSkills.join(", ")}`,
+        ].join(" "),
+        urgency: "high",
+        options: [
+          "Approve exception and continue",
+          "Reassign task/domain",
+          "Pause and investigate quality gate",
+        ],
+        blocking: true,
+      });
+    }
+
+    return {
+      allowed: false,
+      retryable,
+      blockedReason,
+      spawnGuardResult,
+    };
   }
 
   async function syncParentRollupsForTask(input: {
@@ -3284,40 +3552,76 @@ export function createHttpHandler(
     workstreamId: string;
     workstreamTitle: string;
     agentId: string;
-  }): Promise<{ sessionId: string; pid: number | null }> {
+  }): Promise<{
+    sessionId: string | null;
+    pid: number | null;
+    blockedReason: string | null;
+    retryable: boolean;
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    spawnGuardResult: unknown | null;
+  }> {
     const now = new Date().toISOString();
     const sessionId = randomUUID();
-    const fallbackDomain = inferExecutionDomainFromText(
-      input.workstreamTitle,
-      input.initiativeTitle
-    );
-    const fallbackSkill =
-      ORGX_SKILL_BY_DOMAIN[fallbackDomain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
-    const message = [
+    const policyResolution = await resolveDispatchExecutionPolicy({
+      initiativeId: input.initiativeId,
+      initiativeTitle: input.initiativeTitle,
+      workstreamId: input.workstreamId,
+      workstreamTitle: input.workstreamTitle,
+      message:
+        "Continue this workstream from the latest context. Identify and execute the next concrete task.",
+    });
+    const executionPolicy = policyResolution.executionPolicy;
+    const resolvedWorkstreamTitle =
+      policyResolution.workstreamTitle ?? input.workstreamTitle;
+
+    const guard = await enforceSpawnGuardForDispatch({
+      sourceEventPrefix: "next_up_fallback",
+      initiativeId: input.initiativeId,
+      correlationId: sessionId,
+      executionPolicy,
+      agentId: input.agentId,
+      workstreamId: input.workstreamId,
+      workstreamTitle: resolvedWorkstreamTitle,
+    });
+    if (!guard.allowed) {
+      return {
+        sessionId: null,
+        pid: null,
+        blockedReason: guard.blockedReason,
+        retryable: guard.retryable,
+        executionPolicy,
+        spawnGuardResult: guard.spawnGuardResult,
+      };
+    }
+
+    const baseMessage = [
       `Initiative: ${input.initiativeTitle}`,
-      `Workstream: ${input.workstreamTitle}`,
-      "",
-      `Execution policy: ${fallbackDomain}`,
-      `Required skills: $${fallbackSkill}`,
+      `Workstream: ${resolvedWorkstreamTitle}`,
       "",
       "Continue this workstream from the latest context.",
       "Identify and execute the next concrete task, then provide a concise progress summary.",
     ].join("\n");
+    const message = buildPolicyEnforcedMessage({
+      baseMessage,
+      executionPolicy,
+      spawnGuardResult: guard.spawnGuardResult,
+    });
 
     await emitActivitySafe({
       initiativeId: input.initiativeId,
       correlationId: sessionId,
       phase: "execution",
       level: "info",
-      message: `Next Up dispatched ${input.workstreamTitle}.`,
+      message: `Next Up dispatched ${resolvedWorkstreamTitle}.`,
       metadata: {
         event: "next_up_manual_dispatch_started",
         agent_id: input.agentId,
         session_id: sessionId,
         workstream_id: input.workstreamId,
-        workstream_title: input.workstreamTitle,
-        domain: fallbackDomain,
-        required_skills: [fallbackSkill],
+        workstream_title: resolvedWorkstreamTitle,
+        domain: executionPolicy.domain,
+        required_skills: executionPolicy.requiredSkills,
+        spawn_guard_model_tier: extractSpawnGuardModelTier(guard.spawnGuardResult),
         fallback: true,
       },
     });
@@ -3351,7 +3655,14 @@ export function createHttpHandler(
       status: "running",
     });
 
-    return { sessionId, pid: spawned.pid };
+    return {
+      sessionId,
+      pid: spawned.pid,
+      blockedReason: null,
+      retryable: false,
+      executionPolicy,
+      spawnGuardResult: guard.spawnGuardResult,
+    };
   }
 
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
@@ -4778,13 +5089,25 @@ export function createHttpHandler(
               searchParams.get("text") ??
               "")
               .trim();
-          const message =
+          const baseMessage =
             messageInput ||
             (initiativeTitle
               ? `Kick off: ${initiativeTitle}`
               : initiativeId
                 ? `Kick off initiative ${initiativeId}`
                 : `Kick off agent ${agentId}`);
+          const policyResolution = await resolveDispatchExecutionPolicy({
+            initiativeId,
+            initiativeTitle,
+            workstreamId,
+            taskId,
+            message: baseMessage,
+          });
+          const executionPolicy = policyResolution.executionPolicy;
+          const resolvedTaskTitle = policyResolution.taskTitle;
+          const resolvedWorkstreamTitle =
+            policyResolution.workstreamTitle ??
+            (workstreamId ? `Workstream ${workstreamId}` : null);
 
           if (dryRun) {
             sendJson(res, 200, {
@@ -4798,10 +5121,47 @@ export function createHttpHandler(
               provider: routingProvider,
               model: requestedModel,
               startedAt: new Date().toISOString(),
-              message,
+              message: baseMessage,
+              domain: executionPolicy.domain,
+              requiredSkills: executionPolicy.requiredSkills,
             });
             return true;
           }
+
+          const guard = await enforceSpawnGuardForDispatch({
+            sourceEventPrefix: "agent_launch",
+            initiativeId,
+            correlationId: sessionId,
+            executionPolicy,
+            agentId,
+            taskId,
+            taskTitle: resolvedTaskTitle,
+            workstreamId,
+            workstreamTitle: resolvedWorkstreamTitle,
+          });
+          if (!guard.allowed) {
+            sendJson(res, guard.retryable ? 429 : 409, {
+              ok: false,
+              code: guard.retryable
+                ? "spawn_guard_rate_limited"
+                : "spawn_guard_blocked",
+              error:
+                guard.blockedReason ??
+                "Spawn guard denied this agent launch.",
+              retryable: guard.retryable,
+              initiativeId,
+              workstreamId,
+              taskId,
+              domain: executionPolicy.domain,
+              requiredSkills: executionPolicy.requiredSkills,
+            });
+            return true;
+          }
+          const message = buildPolicyEnforcedMessage({
+            baseMessage,
+            executionPolicy,
+            spawnGuardResult: guard.spawnGuardResult,
+          });
 
           if (initiativeId) {
             try {
@@ -4842,6 +5202,11 @@ export function createHttpHandler(
               task_id: taskId,
               provider: routingProvider,
               model: requestedModel,
+              domain: executionPolicy.domain,
+              required_skills: executionPolicy.requiredSkills,
+              spawn_guard_model_tier: extractSpawnGuardModelTier(
+                guard.spawnGuardResult
+              ),
             },
           });
 
@@ -4898,6 +5263,8 @@ export function createHttpHandler(
             workstreamId,
             taskId,
             startedAt: new Date().toISOString(),
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
           });
         } catch (err: unknown) {
           sendJson(res, 500, {
@@ -5045,7 +5412,48 @@ export function createHttpHandler(
           }
 
           const sessionId = randomUUID();
-          const message = messageOverride ?? record.message ?? `Restart agent ${record.agentId}`;
+          const baseMessage =
+            messageOverride ?? record.message ?? `Restart agent ${record.agentId}`;
+          const policyResolution = await resolveDispatchExecutionPolicy({
+            initiativeId: record.initiativeId,
+            initiativeTitle: record.initiativeTitle,
+            workstreamId: record.workstreamId,
+            taskId: record.taskId,
+            message: baseMessage,
+          });
+          const executionPolicy = policyResolution.executionPolicy;
+          const guard = await enforceSpawnGuardForDispatch({
+            sourceEventPrefix: "agent_restart",
+            initiativeId: record.initiativeId,
+            correlationId: sessionId,
+            executionPolicy,
+            agentId: record.agentId,
+            taskId: record.taskId,
+            taskTitle: policyResolution.taskTitle,
+            workstreamId: record.workstreamId,
+            workstreamTitle: policyResolution.workstreamTitle,
+          });
+          if (!guard.allowed) {
+            sendJson(res, guard.retryable ? 429 : 409, {
+              ok: false,
+              code: guard.retryable
+                ? "spawn_guard_rate_limited"
+                : "spawn_guard_blocked",
+              error:
+                guard.blockedReason ??
+                "Spawn guard denied this restart.",
+              retryable: guard.retryable,
+              previousRunId,
+              domain: executionPolicy.domain,
+              requiredSkills: executionPolicy.requiredSkills,
+            });
+            return true;
+          }
+          const message = buildPolicyEnforcedMessage({
+            baseMessage,
+            executionPolicy,
+            spawnGuardResult: guard.spawnGuardResult,
+          });
 
           let routedProvider: string | null = routingProvider ?? null;
           let routedModel: string | null = requestedModel ?? null;
@@ -5096,6 +5504,8 @@ export function createHttpHandler(
             pid: spawned.pid,
             provider: routedProvider,
             model: routedModel,
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
           });
         } catch (err: unknown) {
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
@@ -5206,8 +5616,12 @@ export function createHttpHandler(
 
           let fallbackDispatch:
             | {
-                sessionId: string;
+                sessionId: string | null;
                 pid: number | null;
+                blockedReason: string | null;
+                retryable: boolean;
+                executionPolicy: { domain: string; requiredSkills: string[] };
+                spawnGuardResult: unknown | null;
               }
             | null = null;
           if (
@@ -5224,26 +5638,39 @@ export function createHttpHandler(
             });
           }
 
+          const fallbackStarted = Boolean(fallbackDispatch?.sessionId);
           const dispatchMode = run.activeRunId
             ? "task"
-            : fallbackDispatch
+            : fallbackStarted
               ? "fallback"
               : "none";
           if (dispatchMode === "none") {
+            const fallbackBlockedReason = fallbackDispatch?.blockedReason ?? null;
             const reason =
-              run.stopReason === "blocked"
+              fallbackBlockedReason ??
+              (run.stopReason === "blocked"
                 ? "No dispatchable task is ready for this workstream yet."
                 : run.stopReason === "completed"
                   ? "No queued task is available for this workstream."
-                  : "Unable to dispatch this workstream right now.";
-            sendJson(res, 409, {
+                  : "Unable to dispatch this workstream right now.");
+            sendJson(
+              res,
+              fallbackDispatch?.retryable ? 429 : 409,
+              {
               ok: false,
+              code: fallbackBlockedReason
+                ? fallbackDispatch?.retryable
+                  ? "spawn_guard_rate_limited"
+                  : "spawn_guard_blocked"
+                : undefined,
               error: reason,
               run,
               initiativeId,
               workstreamId,
               agentId,
-            });
+              fallbackDispatch,
+            }
+            );
             return true;
           }
 
