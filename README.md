@@ -144,6 +144,7 @@ Key behavior:
 - Pulls tasks from OrgX for selected workstreams
 - Runs `orgx_spawn_check` preflight per task before dispatch
 - Injects required OrgX skill context (for example `orgx-engineering-agent`) into worker prompts
+- Applies the same spawn-guard + skill-policy enforcement to manual launch, restart, and Next Up fallback dispatch paths
 - Spawns parallel Codex workers per task
 - Retries failures with backoff up to `--max_attempts`
 - Emits activity and task status transitions into OrgX DB
