@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import type { OnboardingState } from '@/types';
 import { OrgxConnectionPanel } from '@/components/settings/OrgxConnectionPanel';
 import { ByokSettingsPanel } from '@/components/settings/ByokSettingsPanel';
+import { LegalLinks } from '@/components/shared/LegalLinks';
 
 export type SettingsTab = 'orgx' | 'providers';
 
@@ -113,6 +114,9 @@ export function SettingsModal({
           ) : (
             <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />
           )}
+        </div>
+        <div className="w-full border-t border-white/[0.06] px-5 py-2.5 sm:px-6">
+          <LegalLinks compact />
         </div>
       </div>
     </Modal>

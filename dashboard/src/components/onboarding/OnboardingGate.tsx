@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { ExplainerPanel } from '@/components/onboarding/ExplainerPanel';
 import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
+import { LegalLinks } from '@/components/shared/LegalLinks';
 import type { OnboardingState, OnboardingStatus } from '@/types';
 
 interface OnboardingGateProps {
@@ -247,6 +248,12 @@ export function OnboardingGate({
               </button>
             </div>
           </motion.div>
+        )}
+
+        {!isLoading && (
+          <div className="mt-3 flex justify-center">
+            <LegalLinks compact />
+          </div>
         )}
       </motion.div>
     </div>

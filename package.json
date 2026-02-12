@@ -41,7 +41,7 @@
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
-    "build:core": "tsc && node ./scripts/copy-manifest.mjs",
+    "build:core": "rm -rf dist && tsc && node ./scripts/copy-manifest.mjs",
     "build": "npm run build:dashboard && npm run build:core",
     "clean": "rm -rf dist",
     "pack": "npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts",

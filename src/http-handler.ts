@@ -998,11 +998,31 @@ const CORS_HEADERS: Record<string, string> = {
   Vary: "Origin",
 };
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "object-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "media-src 'self'",
+  "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai http://127.0.0.1:* http://localhost:*",
+].join("; ");
+
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "same-origin",
+  "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=(), magnetometer=(), gyroscope=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
+  "Origin-Agent-Cluster": "?1",
+  "X-Permitted-Cross-Domain-Policies": "none",
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
 };
 
 function normalizeHost(value: string): string {
@@ -7091,6 +7111,12 @@ export function createHttpHandler(
     // Requests under /orgx/live
     if (url === "/orgx/live" || url.startsWith("/orgx/live/")) {
       const subPath = url.replace(/^\/orgx\/live\/?/, "");
+
+      // Never expose source maps in shipped plugin dashboards.
+      if (/\.map$/i.test(subPath)) {
+        send404(res);
+        return true;
+      }
 
       // Static assets: /orgx/live/assets/* → dashboard/dist/assets/*
       // Hashed filenames get long-lived cache
