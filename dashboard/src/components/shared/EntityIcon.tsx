@@ -5,6 +5,9 @@ import { WorkstreamGlyph } from '@/components/shared/WorkstreamGlyph';
 export type EntityIconType =
   | MissionControlNodeType
   | 'session'
+  | 'active'
+  | 'blocked'
+  | 'failed'
   | 'handoff'
   | 'outbox'
   | 'decision'
@@ -14,9 +17,10 @@ interface EntityIconProps {
   type: EntityIconType;
   className?: string;
   size?: number;
+  accent?: string;
 }
 
-export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps) {
+export function EntityIcon({ type, className = '', size = 14, accent }: EntityIconProps) {
   const commonProps = {
     className,
     width: size,
@@ -29,33 +33,36 @@ export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps)
   };
 
   if (type === 'initiative') {
+    const tone = accent ?? colors.iris;
     return (
-      <svg {...commonProps} stroke={colors.iris}>
-        <circle cx="12" cy="12" r="9" fill={`${colors.iris}1A`} />
+      <svg {...commonProps} stroke={tone}>
+        <circle cx="12" cy="12" r="9" fill={`${tone}1A`} />
         <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1.5" fill={colors.iris} stroke="none" />
+        <circle cx="12" cy="12" r="1.5" fill={tone} stroke="none" />
       </svg>
     );
   }
 
   if (type === 'workstream') {
+    const tone = accent ?? colors.lime;
     return (
       <WorkstreamGlyph
         size={size}
         className={className}
-        stroke={colors.lime}
+        stroke={tone}
         strokeWidth={commonProps.strokeWidth}
         withBackground
-        backgroundColor={`${colors.lime}1A`}
+        backgroundColor={`${tone}1A`}
       />
     );
   }
 
   if (type === 'milestone') {
+    const tone = accent ?? colors.teal;
     return (
-      <svg {...commonProps} stroke={colors.teal}>
+      <svg {...commonProps} stroke={tone}>
         <path d="M5 3v18" />
-        <path d="m5 4 12 1-2 4 2 4-12-1z" fill={`${colors.teal}1A`} />
+        <path d="m5 4 12 1-2 4 2 4-12-1z" fill={`${tone}1A`} />
       </svg>
     );
   }
@@ -70,18 +77,20 @@ export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps)
   }
 
   if (type === 'decision') {
+    const tone = accent ?? colors.amber;
     return (
-      <svg {...commonProps} stroke={colors.amber}>
-        <path d="M12 3 5.2 6.1v5.7c0 4.8 3.2 7.5 6.8 9 3.6-1.5 6.8-4.2 6.8-9V6.1z" fill={`${colors.amber}1A`} />
+      <svg {...commonProps} stroke={tone}>
+        <path d="M12 3 5.2 6.1v5.7c0 4.8 3.2 7.5 6.8 9 3.6-1.5 6.8-4.2 6.8-9V6.1z" fill={`${tone}1A`} />
         <path d="m9.3 12.1 1.8 1.9 3.6-3.6" />
       </svg>
     );
   }
 
   if (type === 'session') {
+    const tone = accent ?? colors.teal;
     return (
-      <svg {...commonProps} stroke={colors.teal}>
-        <rect x="4" y="5" width="16" height="14" rx="4" fill={`${colors.teal}14`} />
+      <svg {...commonProps} stroke={tone}>
+        <rect x="4" y="5" width="16" height="14" rx="4" fill={`${tone}14`} />
         <path d="M8 9h8" />
         <path d="M8 13h5" />
         <path d="M8 17h3" />
@@ -89,9 +98,42 @@ export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps)
     );
   }
 
-  if (type === 'handoff') {
+  if (type === 'active') {
+    const tone = accent ?? colors.lime;
     return (
-      <svg {...commonProps} stroke={colors.iris}>
+      <svg {...commonProps} stroke={tone}>
+        <rect x="4" y="4" width="16" height="16" rx="6" fill={`${tone}12`} />
+        <path d="M7 13h2l1.6-6 3.1 12 1.6-6H17" />
+      </svg>
+    );
+  }
+
+  if (type === 'blocked') {
+    const tone = accent ?? colors.red;
+    return (
+      <svg {...commonProps} stroke={tone}>
+        <rect x="4" y="4" width="16" height="16" rx="6" fill={`${tone}12`} />
+        <rect x="7.5" y="11" width="9" height="7" rx="2" fill="rgba(255,255,255,0.03)" />
+        <path d="M9 11V9.2a3 3 0 0 1 6 0V11" />
+      </svg>
+    );
+  }
+
+  if (type === 'failed') {
+    const tone = accent ?? colors.red;
+    return (
+      <svg {...commonProps} stroke={tone}>
+        <circle cx="12" cy="12" r="9" fill={`${tone}12`} />
+        <path d="M9 9l6 6" />
+        <path d="M15 9l-6 6" />
+      </svg>
+    );
+  }
+
+  if (type === 'handoff') {
+    const tone = accent ?? colors.iris;
+    return (
+      <svg {...commonProps} stroke={tone}>
         <path d="M7 12h10" />
         <path d="m13 8 4 4-4 4" />
         <path d="M7 8v8" opacity="0.55" />
@@ -100,18 +142,20 @@ export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps)
   }
 
   if (type === 'outbox') {
+    const tone = accent ?? colors.amber;
     return (
-      <svg {...commonProps} stroke={colors.amber}>
+      <svg {...commonProps} stroke={tone}>
         <path d="M4 12h16" />
-        <path d="M6 7h12l2 5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7z" fill={`${colors.amber}12`} />
+        <path d="M6 7h12l2 5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7z" fill={`${tone}12`} />
         <path d="M9 14h6" />
       </svg>
     );
   }
 
+  const tone = accent ?? colors.cyan;
   return (
-    <svg {...commonProps} stroke={colors.cyan}>
-      <path d="M12 3a6 6 0 0 0-6 6v2.9c0 .7-.3 1.4-.8 1.9L4 15.2h16l-1.2-1.4a2.8 2.8 0 0 1-.8-1.9V9a6 6 0 0 0-6-6z" fill={`${colors.cyan}1A`} />
+    <svg {...commonProps} stroke={tone}>
+      <path d="M12 3a6 6 0 0 0-6 6v2.9c0 .7-.3 1.4-.8 1.9L4 15.2h16l-1.2-1.4a2.8 2.8 0 0 1-.8-1.9V9a6 6 0 0 0-6-6z" fill={`${tone}1A`} />
       <path d="M9.2 18a2.8 2.8 0 0 0 5.6 0" />
     </svg>
   );

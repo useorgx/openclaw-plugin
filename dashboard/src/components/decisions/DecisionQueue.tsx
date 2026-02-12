@@ -5,6 +5,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { DecisionDetailModal } from '@/components/decisions/DecisionDetailModal';
 
 const PAGE_SIZE = 40;
 
@@ -36,6 +37,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [detailDecisionId, setDetailDecisionId] = useState<string | null>(null);
 
   const sorted = useMemo(
     () =>
@@ -72,6 +74,19 @@ export const DecisionQueue = memo(function DecisionQueue({
     }
     return true;
   }, [selected, visible]);
+
+  const detailDecision = useMemo(
+    () => (detailDecisionId ? sorted.find((decision) => decision.id === detailDecisionId) ?? null : null),
+    [detailDecisionId, sorted]
+  );
+
+  const handleApproveFromDetail = async (decisionId: string) => {
+    const result = await onApproveDecision(decisionId);
+    if (result.failed === 0 && result.updated > 0) {
+      setDetailDecisionId(null);
+    }
+    return result;
+  };
 
   useEffect(() => {
     setVisibleCount((prev) => {
@@ -208,6 +223,12 @@ export const DecisionQueue = memo(function DecisionQueue({
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+      <DecisionDetailModal
+        open={detailDecisionId !== null}
+        decision={detailDecision}
+        onClose={() => setDetailDecisionId(null)}
+        onApprove={handleApproveFromDetail}
+      />
       <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -255,8 +276,8 @@ export const DecisionQueue = memo(function DecisionQueue({
         </div>
       </div>
 
-	      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-	        {sorted.length === 0 && (
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-center">
             <svg
               width="24"
@@ -276,140 +297,166 @@ export const DecisionQueue = memo(function DecisionQueue({
           </div>
         )}
 
-	        {enableMotion ? (
-	          <AnimatePresence mode="popLayout">
-	            {visible.map((decision) => {
-	              const isApproving = approving.has(decision.id);
-	              const urgency = urgencyAccent(decision.waitingMinutes);
-	              const isSelected = selected.has(decision.id);
-	              return (
-	                <motion.article
-	                  key={decision.id}
-	                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
-	                  animate={{ opacity: 1, y: 0, scale: 1 }}
-	                  exit={{ opacity: 0, scale: 0.95 }}
-	                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-	                  layout
-	                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-	                  style={{
-	                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
-	                    borderLeftWidth: 3,
-	                    borderLeftColor: `${urgency.border}80`,
-	                    boxShadow: urgency.glow,
-	                  }}
-	                >
-	                  <div className="flex items-start gap-2.5">
-	                    <input
-	                      type="checkbox"
-	                      checked={isSelected}
-	                      onChange={() => toggleSelect(decision.id)}
-	                      disabled={isApproving || isApprovingAll}
-	                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-	                    />
-	                    <div className="min-w-0 flex-1">
-	                      <div className="flex items-start justify-between gap-3">
-	                        <div className="min-w-0 flex-1">
-	                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
-                              <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
-                              <span className="truncate">{decision.title}</span>
+        {enableMotion ? (
+          <AnimatePresence mode="popLayout">
+            {visible.map((decision) => {
+              const isApproving = approving.has(decision.id);
+              const urgency = urgencyAccent(decision.waitingMinutes);
+              const isSelected = selected.has(decision.id);
+              return (
+                <motion.article
+                  key={decision.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetailDecisionId(decision.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setDetailDecisionId(decision.id);
+                    }
+                  }}
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                  layout
+                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+                  style={{
+                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
+                    borderLeftWidth: 3,
+                    borderLeftColor: `${urgency.border}80`,
+                    boxShadow: urgency.glow,
+                  }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(decision.id)}
+                      disabled={isApproving || isApprovingAll}
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
+                            <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
+                            <span className="truncate">{decision.title}</span>
+                          </p>
+                          {decision.context && (
+                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
+                              {decision.context}
                             </p>
-	                          {decision.context && (
-	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
-	                              {decision.context}
-	                            </p>
-	                          )}
-	                          <p className="mt-1.5 text-[10px] text-white/40">
-	                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
-	                            {decision.requestedAt
-	                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
-	                              : ''}
-	                          </p>
-	                        </div>
-	
-	                        <button
-	                          onClick={() => handleApproveOne(decision.id)}
-	                          disabled={isApproving || isApprovingAll}
-	                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
-	                        >
-	                          {isApproving ? 'Approving…' : 'Approve'}
-	                        </button>
-	                      </div>
-	                    </div>
-	                  </div>
-	                </motion.article>
-	              );
-	            })}
-	          </AnimatePresence>
-	        ) : (
-	          <>
-	            {visible.map((decision) => {
-	              const isApproving = approving.has(decision.id);
-	              const urgency = urgencyAccent(decision.waitingMinutes);
-	              const isSelected = selected.has(decision.id);
-	              return (
-	                <article
-	                  key={decision.id}
-	                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-	                  style={{
-	                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
-	                    borderLeftWidth: 3,
-	                    borderLeftColor: `${urgency.border}80`,
-	                    boxShadow: urgency.glow,
-	                  }}
-	                >
-	                  <div className="flex items-start gap-2.5">
-	                    <input
-	                      type="checkbox"
-	                      checked={isSelected}
-	                      onChange={() => toggleSelect(decision.id)}
-	                      disabled={isApproving || isApprovingAll}
-	                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-	                    />
-	                    <div className="min-w-0 flex-1">
-	                      <div className="flex items-start justify-between gap-3">
-	                        <div className="min-w-0 flex-1">
-	                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
-                              <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
-                              <span className="truncate">{decision.title}</span>
-                            </p>
-	                          {decision.context && (
-	                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
-	                              {decision.context}
-	                            </p>
-	                          )}
-	                          <p className="mt-1.5 text-[10px] text-white/40">
-	                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
-	                            {decision.requestedAt
-	                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
-	                              : ''}
-	                          </p>
-	                        </div>
-	
-	                        <button
-	                          onClick={() => handleApproveOne(decision.id)}
-	                          disabled={isApproving || isApprovingAll}
-	                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
-	                        >
-	                          {isApproving ? 'Approving…' : 'Approve'}
-	                        </button>
-	                      </div>
-	                    </div>
-	                  </div>
-	                </article>
-	              );
-	            })}
-	          </>
-	        )}
+                          )}
+                          <p className="mt-1.5 text-[10px] text-white/40">
+                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
+                            {decision.requestedAt
+                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
+                              : ''}
+                          </p>
+                        </div>
 
-	        {visible.length < sorted.length && (
-	          <button
-	            onClick={() => setVisibleCount((prev) => Math.min(sorted.length, prev + PAGE_SIZE))}
-	            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05]"
-	          >
-	            Load more ({sorted.length - visible.length} remaining)
-	          </button>
-	        )}
-	      </div>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleApproveOne(decision.id);
+                          }}
+                          disabled={isApproving || isApprovingAll}
+                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
+                        >
+                          {isApproving ? 'Approving…' : 'Approve'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </motion.article>
+              );
+            })}
+          </AnimatePresence>
+        ) : (
+          <>
+            {visible.map((decision) => {
+              const isApproving = approving.has(decision.id);
+              const urgency = urgencyAccent(decision.waitingMinutes);
+              const isSelected = selected.has(decision.id);
+              return (
+                <article
+                  key={decision.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetailDecisionId(decision.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setDetailDecisionId(decision.id);
+                    }
+                  }}
+                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+                  style={{
+                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
+                    borderLeftWidth: 3,
+                    borderLeftColor: `${urgency.border}80`,
+                    boxShadow: urgency.glow,
+                  }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(decision.id)}
+                      disabled={isApproving || isApprovingAll}
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-white">
+                            <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
+                            <span className="truncate">{decision.title}</span>
+                          </p>
+                          {decision.context && (
+                            <p className="mt-1 line-clamp-2 text-[11px] text-white/55">
+                              {decision.context}
+                            </p>
+                          )}
+                          <p className="mt-1.5 text-[10px] text-white/40">
+                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
+                            {decision.requestedAt
+                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
+                              : ''}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleApproveOne(decision.id);
+                          }}
+                          disabled={isApproving || isApprovingAll}
+                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-white/45"
+                        >
+                          {isApproving ? 'Approving…' : 'Approve'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </>
+        )}
+
+        {visible.length < sorted.length && (
+          <button
+            onClick={() => setVisibleCount((prev) => Math.min(sorted.length, prev + PAGE_SIZE))}
+            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05]"
+          >
+            Load more ({sorted.length - visible.length} remaining)
+          </button>
+        )}
+      </div>
 
       {notice && (
         <div className="flex items-center gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[12px] text-white/55">

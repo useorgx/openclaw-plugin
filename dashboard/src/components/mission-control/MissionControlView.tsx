@@ -12,6 +12,8 @@ import type {
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import { openUpgradeCheckout } from '@/lib/billing';
+import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { MissionControlProvider, useMissionControl } from './MissionControlContext';
@@ -748,6 +750,8 @@ function MissionControlInner({
     embedMode,
     enabled: Boolean(autopilotInitiativeId),
   });
+  const [autopilotUpgradeGate, setAutopilotUpgradeGate] =
+    useState<UpgradeRequiredError | null>(null);
   const autopilotRun = autopilot.run;
   const autopilotError = autopilot.error?.toLowerCase() ?? '';
   const autopilotUnavailable =
@@ -759,17 +763,27 @@ function MissionControlInner({
     autopilotInitiativeId ? runtimeActivityByInitiativeId.get(autopilotInitiativeId) ?? null : null;
   const hasActiveRuntime = (nextActionRuntime?.activeCount ?? 0) > 0;
   const hasRuntimePresence = (nextActionRuntime?.totalCount ?? 0) > 0;
-  const autopilotStateLabel = !autopilotInitiativeId
-    ? 'No target'
-    : autopilot.isRunning
-      ? hasActiveRuntime
-        ? `Running · ${nextActionRuntime?.activeCount ?? 0} live`
-        : hasRuntimePresence
-          ? `Enabled · ${nextActionRuntime?.totalCount ?? 0} idle`
-          : 'Enabled · waiting'
-      : autopilotRun?.stopReason
-        ? `Idle · ${autopilotRun.stopReason.replace(/_/g, ' ')}`
-        : 'Idle';
+  const autopilotStateLabel = autopilotUpgradeGate
+    ? `Upgrade required · ${formatPlanLabel(autopilotUpgradeGate.currentPlan)} → ${formatPlanLabel(
+        autopilotUpgradeGate.requiredPlan
+      )}`
+    : !autopilotInitiativeId
+      ? 'No target'
+      : autopilot.isRunning
+        ? hasActiveRuntime
+          ? `Running · ${nextActionRuntime?.activeCount ?? 0} live`
+          : hasRuntimePresence
+            ? `Enabled · ${nextActionRuntime?.totalCount ?? 0} idle`
+            : 'Enabled · waiting'
+        : autopilotRun?.stopReason
+          ? `Idle · ${autopilotRun.stopReason.replace(/_/g, ' ')}`
+          : 'Idle';
+  const autopilotNeedsUpgrade = Boolean(autopilotUpgradeGate) && !autopilot.isRunning;
+  const autopilotTone = autopilotNeedsUpgrade ? 'amber' : 'teal';
+
+  useEffect(() => {
+    setAutopilotUpgradeGate(null);
+  }, [autopilotInitiativeId]);
 
   useEffect(() => {
     const element = stickyToolbarRef.current;
@@ -1252,10 +1266,27 @@ function MissionControlInner({
                     type="button"
                     onClick={() => {
                       if (autopilotUnavailable || !autopilotInitiativeId) return;
+                      if (autopilotNeedsUpgrade && autopilotUpgradeGate) {
+                        void openUpgradeCheckout({
+                          actions: autopilotUpgradeGate.actions,
+                          requiredPlan: autopilotUpgradeGate.requiredPlan,
+                        }).catch((err) => {
+                          console.warn('[billing] checkout failed', err);
+                        });
+                        return;
+                      }
+
                       const action = autopilot.isRunning ? autopilot.stop : autopilot.start;
-                      void action().catch((err) => {
-                        console.warn('[autopilot] toggle failed', err);
-                      });
+                      void action()
+                        .then(() => setAutopilotUpgradeGate(null))
+                        .catch((err) => {
+                          if (err instanceof UpgradeRequiredError) {
+                            setAutopilotUpgradeGate(err);
+                          } else {
+                            setAutopilotUpgradeGate(null);
+                            console.warn('[autopilot] toggle failed', err);
+                          }
+                        });
                     }}
                     disabled={
                       autopilotUnavailable ||
@@ -1265,15 +1296,33 @@ function MissionControlInner({
                     title={
                       autopilotUnavailable
                         ? 'Select an initiative to run Autopilot'
-                        : autopilot.isRunning
-                          ? 'Stop Autopilot'
-                          : `Start Autopilot${nextActionInitiative ? ` for ${nextActionInitiative.name}` : ''}`
+                        : autopilotNeedsUpgrade
+                          ? 'Upgrade to enable auto-continue for BYOK agents'
+                          : autopilot.isRunning
+                            ? 'Stop Autopilot'
+                            : `Start Autopilot${nextActionInitiative ? ` for ${nextActionInitiative.name}` : ''}`
                     }
-                    data-state={autopilot.isRunning ? 'active' : 'idle'}
-                    data-tone="teal"
+                    data-state={
+                      autopilot.isRunning || autopilotNeedsUpgrade ? 'active' : 'idle'
+                    }
+                    data-tone={autopilotTone}
                     className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold disabled:opacity-40"
                   >
-                    {autopilot.isRunning ? (
+                    {autopilotNeedsUpgrade ? (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M18 11l-6-6-6 6" />
+                      </svg>
+                    ) : autopilot.isRunning ? (
                       hasActiveRuntime ? (
                         <svg
                           width="14"
@@ -1307,7 +1356,11 @@ function MissionControlInner({
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     )}
-                    <span>{autopilot.isRunning ? 'Stop' : 'Start'} Autopilot</span>
+                    <span>
+                      {autopilotNeedsUpgrade
+                        ? 'Upgrade Autopilot'
+                        : `${autopilot.isRunning ? 'Stop' : 'Start'} Autopilot`}
+                    </span>
                     {autopilot.isRunning && hasActiveRuntime && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
                     )}
@@ -1772,6 +1825,8 @@ function MissionControlInner({
                             embedMode={embedMode}
                             onFollowWorkstream={handleFollowFromNextUp}
                             onOpenInitiative={openInitiativeFromNextUp}
+                            onOpenSettings={onOpenSettings}
+                            onUpgradeGate={setAutopilotUpgradeGate}
                           />
                         </div>
                       </motion.div>
@@ -1831,6 +1886,8 @@ function MissionControlInner({
                               openInitiativeFromNextUp(initiativeId, initiativeTitle);
                               setNextUpDrawerOpen(false);
                             }}
+                            onOpenSettings={onOpenSettings}
+                            onUpgradeGate={setAutopilotUpgradeGate}
                           />
                       </motion.div>
                     </div>

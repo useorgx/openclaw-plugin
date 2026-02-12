@@ -1,26 +1,26 @@
 {
-  "generatedAt": "2026-02-11T23:08:33.211Z",
+  "generatedAt": "2026-02-12T21:14:25.180Z",
   "baseUrl": "http://127.0.0.1:4181/orgx/live",
-  "finalCls": 0.0011,
+  "finalCls": 0.0006,
   "stickyAlignment": {
-    "toolbarBottom": 217.5,
-    "initiativeTop": 132.5,
+    "toolbarBottom": 190,
+    "initiativeTop": 133,
     "hierarchyTop": null,
-    "initiativeComputedTop": "173px",
+    "initiativeComputedTop": "145px",
     "hierarchyComputedTop": null,
     "initiativeBelowToolbar": false,
     "hierarchyBelowToolbar": null
   },
-  "interactionCount": 9,
+  "interactionCount": 11,
   "interactions": [
     {
       "name": "expand_all_initiatives",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 15,
-        "maxDelta": 91.69999999999999,
-        "avgDelta": 14.453333333333335,
-        "over24": 1,
+        "frameCount": 63,
+        "maxDelta": 91.20000000000005,
+        "avgDelta": 10.47142857142857,
+        "over24": 3,
         "over50": 1
       }
     },
@@ -29,8 +29,8 @@
       "clsDelta": 0,
       "probe": {
         "frameCount": 82,
-        "maxDelta": 15.799999999999955,
-        "avgDelta": 8.429268292682925,
+        "maxDelta": 10.100000000000136,
+        "avgDelta": 8.32439024390244,
         "over24": 0,
         "over50": 0
       }
@@ -39,9 +39,31 @@
       "name": "autopilot_stop",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 81,
-        "maxDelta": 9.199999999999818,
-        "avgDelta": 8.32716049382716,
+        "frameCount": 80,
+        "maxDelta": 10.200000000000045,
+        "avgDelta": 8.341249999999999,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "next_up_open_rail",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 84,
+        "maxDelta": 25,
+        "avgDelta": 8.630952380952381,
+        "over24": 1,
+        "over50": 0
+      }
+    },
+    {
+      "name": "next_up_auto_upgrade_gate",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 89,
+        "maxDelta": 16.699999999999818,
+        "avgDelta": 8.521348314606737,
         "over24": 0,
         "over50": 0
       }
@@ -50,9 +72,9 @@
       "name": "select_first_initiative_row",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 57,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.331578947368422,
+        "frameCount": 58,
+        "maxDelta": 10,
+        "avgDelta": 8.332758620689658,
         "over24": 0,
         "over50": 0
       }
@@ -61,9 +83,9 @@
       "name": "select_second_initiative_row",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 57,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.342105263157896,
+        "frameCount": 59,
+        "maxDelta": 9.899999999999636,
+        "avgDelta": 8.350847457627115,
         "over24": 0,
         "over50": 0
       }
@@ -72,9 +94,9 @@
       "name": "initiative_bulk_clear_selection",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 56,
-        "maxDelta": 9.400000000000091,
-        "avgDelta": 8.339285714285714,
+        "frameCount": 57,
+        "maxDelta": 10.199999999999818,
+        "avgDelta": 8.356140350877196,
         "over24": 0,
         "over50": 0
       }
@@ -83,9 +105,9 @@
       "name": "hierarchy_bulk_select_visible_toggle",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 57,
-        "maxDelta": 9.399999999999636,
-        "avgDelta": 8.331578947368415,
+        "frameCount": 58,
+        "maxDelta": 10.200000000000728,
+        "avgDelta": 8.332758620689658,
         "over24": 0,
         "over50": 0
       }
@@ -94,9 +116,9 @@
       "name": "hierarchy_bulk_plan_action",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 65,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.338461538461539,
+        "frameCount": 64,
+        "maxDelta": 9.899999999999636,
+        "avgDelta": 8.328125,
         "over24": 0,
         "over50": 0
       }
@@ -106,8 +128,8 @@
       "clsDelta": 0,
       "probe": {
         "frameCount": 67,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.329850746268662,
+        "maxDelta": 10.199999999999818,
+        "avgDelta": 8.31641791044776,
         "over24": 0,
         "over50": 0
       }
@@ -115,24 +137,21 @@
   ],
   "worstProbe": {
     "name": "expand_all_initiatives",
-    "frameCount": 15,
-    "maxDelta": 91.69999999999999,
-    "avgDelta": 14.453333333333335,
-    "over24": 1,
+    "frameCount": 63,
+    "maxDelta": 91.20000000000005,
+    "avgDelta": 10.47142857142857,
+    "over24": 3,
     "over50": 1
   },
   "consoleWarnings": [
     "error: Failed to load resource: the server responded with a status of 404 (File not found)",
     "error: Failed to load resource: the server responded with a status of 404 (File not found)",
-    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
-    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 402 (Payment Required)",
     "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
     "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
     "error: Failed to load resource: the server responded with a status of 404 (File not found)",
-    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
     "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
     "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
-    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
     "error: Failed to load resource: the server responded with a status of 404 (File not found)"
   ],
   "thresholds": {

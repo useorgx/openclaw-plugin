@@ -8,9 +8,9 @@ OrgX plugin for [OpenClaw](https://openclaw.ai) — connect your AI agents to Or
 2. Open `http://127.0.0.1:18789/orgx/live`.
 3. Click **Connect OrgX**.
 4. Sign in at [useorgx.com](https://useorgx.com) and approve the connection.
-5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically.
+5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically (no key copy/paste).
 
-If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To opt out, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1` in your environment.
+If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To opt out, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
 
 Manual API key entry is still available as a permanent fallback from the onboarding panel.
 
@@ -19,6 +19,23 @@ Manual API key entry is still available as a permanent fallback from the onboard
 ```bash
 openclaw plugins install @useorgx/openclaw-plugin
 ```
+
+## Local MCP Bridge (Claude/Codex/Cursor)
+
+This plugin exposes the same `orgx_*` tools over a local MCP HTTP endpoint served by the OpenClaw gateway:
+
+- URL: `http://127.0.0.1:18789/orgx/mcp` (port follows your OpenClaw gateway config)
+- Why: avoids the separate cloud MCP OAuth flow and keeps the `oxk_...` key stored only in the plugin's credential store.
+
+On successful browser pairing, the plugin will attempt to patch:
+
+- `~/.claude/mcp.json` (rewire `mcpServers.orgx.url` to the local bridge)
+- `~/.codex/config.toml` (rewire `[mcp_servers.orgx].url` to the local bridge)
+- `~/.cursor/mcp.json` (adds `mcpServers["orgx-openclaw"]` pointing to the local bridge)
+
+Each file is backed up first (only when a change is needed) with a `*.bak.<timestamp>-<rand>` suffix.
+
+Disable auto-config by setting `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
 
 Or manually add to your OpenClaw config:
 
@@ -44,9 +61,16 @@ Or manually add to your OpenClaw config:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `apiKey` | string | — | Your OrgX API key (get one at [useorgx.com](https://useorgx.com)) |
+| `apiKey` | string | — | Your OrgX API key (optional if you use browser pairing from `/orgx/live`) |
 | `baseUrl` | string | `https://www.useorgx.com` | OrgX API base URL |
+| `syncIntervalMs` | number | `300000` | Background sync interval (ms) |
+| `enabled` | boolean | `true` | Enable/disable the plugin |
 | `dashboardEnabled` | boolean | `true` | Enable the live dashboard at `/orgx/live` |
+
+Environment overrides:
+
+- `ORGX_API_KEY` overrides `apiKey`
+- `ORGX_BASE_URL` overrides `baseUrl`
 
 ## Features
 
@@ -97,6 +121,22 @@ Returns: { allowed: true, modelTier: "sonnet" }
   ↓
 Agent spawns with recommended model
 ```
+
+### 🔑 BYOK (Bring Your Own Keys)
+
+If you use BYOK models (OpenAI, Anthropic, OpenRouter), store your provider keys in OpenClaw. The OrgX plugin reads OpenClaw settings and injects keys when it invokes OpenClaw CLI commands, so you do not need to put provider keys in the OrgX plugin config.
+
+### 🩺 Diagnostics
+
+- `openclaw orgx doctor` runs local checks and can optionally probe the OrgX API.
+- `openclaw gateway status --json` shows the OpenClaw gateway port and runtime state.
+
+### 🔁 Gateway Watchdog
+
+The plugin starts a lightweight watchdog daemon that periodically probes the local OpenClaw gateway and restarts it if needed.
+
+- Disable: `ORGX_DISABLE_GATEWAY_WATCHDOG=1`
+- Tune: `ORGX_GATEWAY_WATCHDOG_INTERVAL_MS`, `ORGX_GATEWAY_WATCHDOG_FAILURES`, `ORGX_GATEWAY_WATCHDOG_TIMEOUT_MS`
 
 ## Feature Matrix
 
@@ -193,6 +233,25 @@ When the plugin is loaded, these HTTP endpoints are available:
 - OpenClaw 2026.1.0 or later
 - Node.js 18+
 - OrgX account (browser pairing recommended, API key fallback supported)
+
+## Maintainers: Release to NPM
+
+This repo publishes on GitHub Release via `.github/workflows/publish.yml`.
+
+1. Update versions
+   - `package.json` version (NPM version)
+   - `openclaw.plugin.json` version (what `openclaw plugins list` displays)
+   - `CHANGELOG.md`
+2. Verify
+   - `npm run typecheck`
+   - `npm run test:hooks`
+   - `npm run build`
+   - Optional: `npm run verify:clean-install`
+3. Publish
+   - Create a GitHub release for the tag (workflow publishes with provenance)
+4. Smoke test
+   - `openclaw plugins install @useorgx/openclaw-plugin@<version>`
+   - Verify `http://127.0.0.1:18789/orgx/live` pairing and `http://127.0.0.1:18789/orgx/mcp` MCP bridge
 
 ## Links
 

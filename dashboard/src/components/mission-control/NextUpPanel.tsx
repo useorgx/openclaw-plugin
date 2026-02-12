@@ -4,6 +4,8 @@ import { formatRelativeTime } from '@/lib/time';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
+import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
 
 interface NextUpPanelProps {
@@ -16,6 +18,8 @@ interface NextUpPanelProps {
   disableEnterAnimation?: boolean;
   onFollowWorkstream?: (item: NextUpQueueItem) => void;
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
+  onOpenSettings?: () => void;
+  onUpgradeGate?: (gate: UpgradeRequiredError | null) => void;
 }
 
 interface ActionGlyphProps {
@@ -94,8 +98,13 @@ export function NextUpPanel({
   disableEnterAnimation = false,
   onFollowWorkstream,
   onOpenInitiative,
+  onOpenSettings,
+  onUpgradeGate,
 }: NextUpPanelProps) {
   const [notice, setNotice] = useState<string | null>(null);
+  const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
+    null
+  );
   const [actionKey, setActionKey] = useState<string | null>(null);
   const {
     items,
@@ -125,16 +134,31 @@ export function NextUpPanel({
     successMessage: string
   ) => {
     setNotice(null);
+    setUpgradeGate(null);
+    onUpgradeGate?.(null);
     setActionKey(key);
     try {
       await action();
       setNotice(successMessage);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Action failed');
+      if (err instanceof UpgradeRequiredError) {
+        setUpgradeGate(err);
+        onUpgradeGate?.(err);
+      } else {
+        setNotice(err instanceof Error ? err.message : 'Action failed');
+      }
     } finally {
       setActionKey(null);
     }
   };
+
+  const statusTone: 'upgrade' | 'error' | 'notice' | null = upgradeGate
+    ? 'upgrade'
+    : error
+      ? 'error'
+      : notice
+        ? 'notice'
+        : null;
 
   return (
     <PremiumCard
@@ -152,34 +176,119 @@ export function NextUpPanel({
         </div>
       </div>
 
-      <AnimatePresence initial={false}>
-        {notice && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
-            className="mx-3 mt-2 rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75"
-          >
-            {notice}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
-            className="mx-3 mt-2 rounded-lg border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-[11px] text-red-100"
-          >
-            {error}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className="px-3 pt-2">
+        <div className="min-h-[56px]">
+          <AnimatePresence initial={false} mode="wait">
+            {statusTone === 'upgrade' && upgradeGate ? (
+              <motion.div
+                key="upgrade"
+                initial={{ opacity: 0, y: -4, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-[11px] text-amber-100"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full border border-amber-200/25 bg-amber-200/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-100/90">
+                        Upgrade required
+                      </span>
+                      <span className="truncate text-[10px] text-white/55">
+                        {formatPlanLabel(upgradeGate.currentPlan)} →{' '}
+                        {formatPlanLabel(upgradeGate.requiredPlan)}
+                      </span>
+                    </div>
+                    <div
+                      className="mt-1 line-clamp-2 text-[11px] leading-snug text-amber-50/90"
+                      title={upgradeGate.message}
+                    >
+                      {upgradeGate.message}
+                    </div>
+                    {notice ? (
+                      <div className="mt-1 text-[10px] text-rose-50/85">
+                        {notice}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void openUpgradeCheckout({
+                            actions: upgradeGate.actions,
+                            requiredPlan: upgradeGate.requiredPlan,
+                          }).catch((err) =>
+                            setNotice(err instanceof Error ? err.message : 'Checkout failed')
+                          )
+                        }
+                        className="h-7 rounded-full border border-amber-200/25 bg-amber-200/15 px-3 text-[10px] font-semibold text-amber-50 transition-colors hover:bg-amber-200/20"
+                      >
+                        Upgrade
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void openBillingPortal({ actions: upgradeGate.actions }).catch((err) =>
+                            setNotice(err instanceof Error ? err.message : 'Portal failed')
+                          )
+                        }
+                        className="h-7 rounded-full border border-white/[0.14] bg-white/[0.04] px-3 text-[10px] font-semibold text-white/75 transition-colors hover:bg-white/[0.08]"
+                      >
+                        Billing
+                      </button>
+                      {onOpenSettings && (
+                        <button
+                          type="button"
+                          onClick={onOpenSettings}
+                          className="h-7 rounded-full border border-white/[0.14] bg-white/[0.04] px-2.5 text-[10px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                        >
+                          Settings
+                        </button>
+                      )}
+                    </div>
+                    {upgradeGate.actions?.pricing ? (
+                      <a
+                        href={upgradeGate.actions.pricing}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-white/55 underline decoration-white/20 hover:text-white/80"
+                      >
+                        View pricing
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              </motion.div>
+            ) : statusTone === 'error' && error ? (
+              <motion.div
+                key="error"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+                className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-[11px] text-red-100"
+              >
+                {error}
+              </motion.div>
+            ) : statusTone === 'notice' && notice ? (
+              <motion.div
+                key="notice"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+                className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75"
+              >
+                {notice}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
+      </div>
 
-      <div className="flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
+      <div className="flex-1 space-y-2.5 overflow-y-auto px-3 pb-3 pt-1">
         {!isLoading && visibleItems.length === 0 && !error && (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-[12px] text-white/50">
             No queued workstreams right now.
