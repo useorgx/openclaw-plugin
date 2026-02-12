@@ -1,0 +1,142 @@
+{
+  "generatedAt": "2026-02-11T23:08:33.211Z",
+  "baseUrl": "http://127.0.0.1:4181/orgx/live",
+  "finalCls": 0.0011,
+  "stickyAlignment": {
+    "toolbarBottom": 217.5,
+    "initiativeTop": 132.5,
+    "hierarchyTop": null,
+    "initiativeComputedTop": "173px",
+    "hierarchyComputedTop": null,
+    "initiativeBelowToolbar": false,
+    "hierarchyBelowToolbar": null
+  },
+  "interactionCount": 9,
+  "interactions": [
+    {
+      "name": "expand_all_initiatives",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 15,
+        "maxDelta": 91.69999999999999,
+        "avgDelta": 14.453333333333335,
+        "over24": 1,
+        "over50": 1
+      }
+    },
+    {
+      "name": "autopilot_start",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 82,
+        "maxDelta": 15.799999999999955,
+        "avgDelta": 8.429268292682925,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "autopilot_stop",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 81,
+        "maxDelta": 9.199999999999818,
+        "avgDelta": 8.32716049382716,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "select_first_initiative_row",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 57,
+        "maxDelta": 9.300000000000182,
+        "avgDelta": 8.331578947368422,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "select_second_initiative_row",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 57,
+        "maxDelta": 9.300000000000182,
+        "avgDelta": 8.342105263157896,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "initiative_bulk_clear_selection",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 56,
+        "maxDelta": 9.400000000000091,
+        "avgDelta": 8.339285714285714,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "hierarchy_bulk_select_visible_toggle",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 57,
+        "maxDelta": 9.399999999999636,
+        "avgDelta": 8.331578947368415,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "hierarchy_bulk_plan_action",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 65,
+        "maxDelta": 9.300000000000182,
+        "avgDelta": 8.338461538461539,
+        "over24": 0,
+        "over50": 0
+      }
+    },
+    {
+      "name": "hierarchy_bulk_start_action",
+      "clsDelta": 0,
+      "probe": {
+        "frameCount": 67,
+        "maxDelta": 9.300000000000182,
+        "avgDelta": 8.329850746268662,
+        "over24": 0,
+        "over50": 0
+      }
+    }
+  ],
+  "worstProbe": {
+    "name": "expand_all_initiatives",
+    "frameCount": 15,
+    "maxDelta": 91.69999999999999,
+    "avgDelta": 14.453333333333335,
+    "over24": 1,
+    "over50": 1
+  },
+  "consoleWarnings": [
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
+    "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
+    "error: Failed to load resource: the server responded with a status of 501 (Unsupported method ('PATCH'))",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)",
+    "error: Failed to load resource: the server responded with a status of 404 (File not found)"
+  ],
+  "thresholds": {
+    "clsWarningAt": 0.1,
+    "frameDropWarningMs": 50
+  }
+}

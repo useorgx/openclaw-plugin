@@ -70,6 +70,29 @@ const PHASE_BY_EVENT = {
   complete: "completed",
 };
 
+const ORGX_SKILL_BY_DOMAIN = {
+  engineering: "orgx-engineering-agent",
+  product: "orgx-product-agent",
+  marketing: "orgx-marketing-agent",
+  sales: "orgx-sales-agent",
+  operations: "orgx-operations-agent",
+  design: "orgx-design-agent",
+  orchestration: "orgx-orchestrator-agent",
+};
+
+const DOMAIN_BY_SKILL = Object.entries(ORGX_SKILL_BY_DOMAIN).reduce(
+  (acc, [domain, skill]) => {
+    acc[skill] = domain;
+    return acc;
+  },
+  {}
+);
+
+const DOMAIN_ALIASES = {
+  orchestrator: "orchestration",
+  ops: "operations",
+};
+
 function usage() {
   return [
     "Usage: node scripts/run-codex-dispatch-job.mjs [options]",
@@ -97,6 +120,7 @@ function usage() {
     "  --codex_args=\"--full-auto\"        Codex args string",
     "  --dry_run=true                    Do not execute codex or mutate DB",
     "  --auto_complete=true              Mark task done on successful worker run",
+    "  --decision_on_block=true          Auto-create OrgX decision when a task blocks",
     "  --max_tasks=<n>                   Cap number of tasks to dispatch",
     "  --help                            Show this message",
   ].join("\n");
@@ -155,6 +179,148 @@ function splitShellArgs(value, fallback = ["--full-auto"]) {
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function dedupeStrings(items = []) {
+  const seen = new Set();
+  const output = [];
+  for (const item of items) {
+    const normalized = String(item ?? "").trim();
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function normalizeDomain(value) {
+  const raw = pickString(value)?.toLowerCase();
+  if (!raw) return null;
+  const mapped = DOMAIN_ALIASES[raw] ?? raw;
+  return Object.prototype.hasOwnProperty.call(ORGX_SKILL_BY_DOMAIN, mapped)
+    ? mapped
+    : null;
+}
+
+function normalizeSkillName(value) {
+  const raw = pickString(value)
+    ?.replace(/^\$/, "")
+    .trim()
+    .toLowerCase();
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, "-");
+  if (DOMAIN_BY_SKILL[compact]) return compact;
+  const mappedDomain = normalizeDomain(compact);
+  if (mappedDomain) return ORGX_SKILL_BY_DOMAIN[mappedDomain];
+  if (compact.endsWith("-agent")) return compact;
+  return null;
+}
+
+function parseTaskStringArray(task, keys) {
+  const values = [];
+  for (const key of keys) {
+    const value = task?.[key];
+    if (Array.isArray(value)) {
+      values.push(
+        ...value.filter((entry) => typeof entry === "string")
+      );
+      continue;
+    }
+    if (typeof value === "string") {
+      values.push(...value.split(","));
+    }
+  }
+  return dedupeStrings(values);
+}
+
+function inferDomainFromText(...values) {
+  const text = values
+    .map((value) => pickString(value))
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!text) return null;
+  if (/\b(marketing|campaign|copy|ad|content)\b/.test(text)) return "marketing";
+  if (/\b(sales|meddic|pipeline|deal|outreach)\b/.test(text)) return "sales";
+  if (/\b(design|ui|ux|brand|wcag)\b/.test(text)) return "design";
+  if (/\b(product|prd|roadmap|prioritization|initiative)\b/.test(text)) return "product";
+  if (/\b(ops|operations|incident|reliability|oncall|slo)\b/.test(text)) return "operations";
+  if (/\b(orchestration|orchestrator|handoff|dispatch)\b/.test(text)) return "orchestration";
+  return "engineering";
+}
+
+export function deriveTaskExecutionPolicy(task = {}) {
+  const explicitDomain = normalizeDomain(
+    pickString(
+      task.domain,
+      task.agent_domain,
+      task.agentDomain,
+      task.owner_domain,
+      task.ownerDomain,
+      task.workstream_domain,
+      task.workstreamDomain
+    )
+  );
+
+  const explicitSkills = parseTaskStringArray(task, [
+    "required_skills",
+    "requiredSkills",
+    "skills",
+    "skill",
+    "agent_skills",
+    "agentSkills",
+  ])
+    .map((entry) => normalizeSkillName(entry))
+    .filter(Boolean);
+
+  const skillDerivedDomain = explicitSkills
+    .map((skill) => DOMAIN_BY_SKILL[skill] ?? null)
+    .find(Boolean);
+
+  const domain =
+    explicitDomain ??
+    skillDerivedDomain ??
+    inferDomainFromText(task.title, task.workstream_name, task.milestone_title) ??
+    "engineering";
+
+  const defaultSkill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
+  const requiredSkills = dedupeStrings([...explicitSkills, defaultSkill]);
+
+  return {
+    domain,
+    requiredSkills,
+  };
+}
+
+function isSpawnGuardUnsupportedError(error) {
+  const message = String(error?.message ?? error ?? "").toLowerCase();
+  return (
+    message.includes("404") ||
+    message.includes("not found") ||
+    message.includes("spawn endpoint") ||
+    message.includes("/api/client/spawn")
+  );
+}
+
+export function isSpawnGuardRetryable(result) {
+  const rateLimitPassed = result?.checks?.rateLimit?.passed;
+  return rateLimitPassed === false;
+}
+
+function summarizeSpawnGuardBlockedReason(result) {
+  const blockedReason = pickString(result?.blockedReason);
+  if (blockedReason) return blockedReason;
+  if (result?.checks?.qualityGate?.passed === false) {
+    return "Quality gate denied spawn for this task.";
+  }
+  if (result?.checks?.taskAssigned?.passed === false) {
+    return "Task assignment check failed for spawn.";
+  }
+  if (result?.checks?.rateLimit?.passed === false) {
+    return "Spawn rate limit reached.";
+  }
+  return "Spawn guard denied dispatch.";
 }
 
 function ensureDir(pathname) {
@@ -371,7 +537,15 @@ export function buildCodexPrompt({
   attempt,
   totalTasks,
   completedTasks,
+  taskDomain,
+  requiredSkills,
+  spawnGuardResult,
 }) {
+  const skillLine =
+    Array.isArray(requiredSkills) && requiredSkills.length > 0
+      ? requiredSkills.map((skill) => `$${skill}`).join(", ")
+      : "none";
+
   return [
     "You are an implementation worker for the OrgX Saturday Launch initiative.",
     "",
@@ -392,6 +566,11 @@ export function buildCodexPrompt({
     `Dispatcher Job ID: ${jobId}`,
     `Attempt: ${attempt}`,
     `Progress Snapshot: ${completedTasks}/${totalTasks} tasks complete`,
+    "",
+    "Routing + skill policy:",
+    `- Spawn domain: ${taskDomain ?? "engineering"}`,
+    `- Required OrgX skills: ${skillLine}`,
+    `- Spawn guard model tier: ${pickString(spawnGuardResult?.modelTier) ?? "unknown"}`,
     "",
     `Original Plan Reference: ${planPath}`,
     "Relevant Plan Excerpt:",
@@ -651,11 +830,57 @@ export function createReporter({
     return response;
   }
 
+  async function requestDecision({
+    title,
+    summary,
+    urgency = "high",
+    options = [],
+    blocking = true,
+    idempotencyParts = [],
+    metadata = {},
+  }) {
+    const response = await applyChangeset({
+      idempotencyParts: [
+        "dispatch",
+        jobId,
+        "decision",
+        ...idempotencyParts,
+        title,
+      ],
+      operations: [
+        {
+          op: "decision.create",
+          title,
+          summary,
+          urgency,
+          options,
+          blocking,
+        },
+      ],
+    });
+
+    await emit({
+      message: `Decision requested: ${title}`,
+      phase: "review",
+      level: blocking ? "warn" : "info",
+      metadata: {
+        event: "decision_requested",
+        urgency,
+        blocking,
+        ...metadata,
+      },
+      nextStep: "Resolve pending decision and rerun blocked task(s).",
+    }).catch(() => undefined);
+
+    return response;
+  }
+
   return {
     emit,
     taskStatus,
     milestoneStatus,
     workstreamStatus,
+    requestDecision,
     getRunId: () => runId,
   };
 }
@@ -864,6 +1089,7 @@ export async function main({
 
   const dryRun = parseBoolean(args.dry_run, false);
   const autoComplete = parseBoolean(args.auto_complete, true);
+  const decisionOnBlock = parseBoolean(args.decision_on_block, true);
   const concurrency = Math.max(1, parseInteger(args.concurrency, DEFAULT_CONCURRENCY));
   const maxAttempts = Math.max(1, parseInteger(args.max_attempts, DEFAULT_MAX_ATTEMPTS));
   const pollIntervalMs = Math.max(
@@ -1132,6 +1358,7 @@ export async function main({
       empty_workstreams: emptyWorkstreams,
       codex_bin: codexBin,
       codex_args: codexArgs,
+      decision_on_block: decisionOnBlock,
     },
   });
 
@@ -1161,18 +1388,6 @@ export async function main({
       const promptSuffix =
         pickString(jobConfig.workstreamPrompt?.[task.workstream_id]) ?? "";
       const taskPromptSuffix = pickString(jobConfig.taskPrompt?.[task.id]) ?? "";
-      const prompt = buildCodexPrompt({
-        task,
-        planPath,
-        planContext:
-          [taskPlanContext, promptSuffix, taskPromptSuffix].filter(Boolean).join("\n\n"),
-        initiativeId,
-        jobId,
-        attempt: nextAttempt,
-        totalTasks,
-        completedTasks: completedCount,
-      });
-
       const workerLogPath = join(logsDir, `${task.id}-attempt-${nextAttempt}.log`);
       const workerEnv = {
         ...env,
@@ -1183,6 +1398,171 @@ export async function main({
         ORGX_PLAN_FILE: planPath,
         ORGX_DISPATCH_JOB_ID: jobId,
       };
+
+      const taskPolicy = deriveTaskExecutionPolicy(task);
+      let spawnGuardResult = null;
+      let spawnGuardError = null;
+      try {
+        spawnGuardResult = await client.checkSpawnGuard(taskPolicy.domain, task.id);
+      } catch (error) {
+        spawnGuardError = error;
+      }
+
+      if (spawnGuardError) {
+        const errorMessage = String(spawnGuardError?.message ?? spawnGuardError);
+        const unsupported = isSpawnGuardUnsupportedError(spawnGuardError);
+        await reporter.emit({
+          message: unsupported
+            ? `Spawn guard unavailable for ${summarizeTask(task)}. Continuing with local policy.`
+            : `Spawn guard check failed for ${summarizeTask(task)}. Continuing with local policy.`,
+          phase: "blocked",
+          level: unsupported ? "warn" : "error",
+          progressPct: toPercent(completedCount, totalTasks),
+          metadata: {
+            event: "spawn_guard_warning",
+            task_id: task.id,
+            task_title: task.title,
+            attempt: nextAttempt,
+            domain: taskPolicy.domain,
+            required_skills: taskPolicy.requiredSkills,
+            error: errorMessage,
+            unsupported,
+          },
+        }).catch((error) => {
+          console.warn(`[job] activity emit failed for spawn guard warning ${task.id}: ${error.message}`);
+        });
+      }
+
+      if (spawnGuardResult && spawnGuardResult.allowed === false) {
+        const blockedReason = summarizeSpawnGuardBlockedReason(spawnGuardResult);
+        const retryable = isSpawnGuardRetryable(spawnGuardResult) && nextAttempt < maxAttempts;
+        const nextAvailableAt = Date.now() + backoffMs(nextAttempt);
+        state.taskStates[task.id] = {
+          status: retryable ? "retry_pending" : "blocked",
+          attempts: nextAttempt,
+          guardBlocked: true,
+          finishedAt: nowIso(),
+          logPath: workerLogPath,
+          spawnGuardResult,
+        };
+
+        if (retryable) {
+          pending.push({ task, availableAt: nextAvailableAt });
+          await reporter.emit({
+            message: `Spawn guard deferred ${summarizeTask(task)} (retry ${nextAttempt + 1}/${maxAttempts}).`,
+            phase: PHASE_BY_EVENT.retry,
+            level: "warn",
+            progressPct: toPercent(completedCount, totalTasks),
+            metadata: {
+              event: "spawn_guard_retry",
+              task_id: task.id,
+              task_title: task.title,
+              attempt: nextAttempt,
+              next_attempt: nextAttempt + 1,
+              available_at: new Date(nextAvailableAt).toISOString(),
+              domain: taskPolicy.domain,
+              required_skills: taskPolicy.requiredSkills,
+              spawn_guard: spawnGuardResult,
+            },
+          }).catch((error) => {
+            console.warn(`[job] activity emit failed on spawn guard retry ${task.id}: ${error.message}`);
+          });
+          persistState(stateFile, state);
+          continue;
+        }
+
+        failed.add(task.id);
+        state.failed = failed.size;
+        if (autoComplete) {
+          try {
+            await reporter.taskStatus({
+              taskId: task.id,
+              status: "blocked",
+              attempt: nextAttempt,
+              reason: blockedReason,
+              metadata: {
+                event: "status_update",
+                to: "blocked",
+                spawn_guard_blocked: true,
+              },
+            });
+            taskStatusById.set(task.id, "blocked");
+            await syncParentRollups(task, nextAttempt);
+          } catch (error) {
+            console.warn(
+              `[job] task status update failed on spawn guard block (${task.id}): ${error.message}`
+            );
+          }
+        }
+
+        await reporter.emit({
+          message: `Task blocked by spawn guard: ${summarizeTask(task)}.`,
+          phase: PHASE_BY_EVENT.failure,
+          level: "error",
+          progressPct: toPercent(completedCount, totalTasks),
+          metadata: {
+            event: "spawn_guard_blocked",
+            task_id: task.id,
+            task_title: task.title,
+            attempt: nextAttempt,
+            domain: taskPolicy.domain,
+            required_skills: taskPolicy.requiredSkills,
+            blocked_reason: blockedReason,
+            spawn_guard: spawnGuardResult,
+          },
+          nextStep: "Review guard checks and resolve decision before retry.",
+        }).catch((error) => {
+          console.warn(`[job] activity emit failed on spawn guard block ${task.id}: ${error.message}`);
+        });
+
+        if (decisionOnBlock) {
+          await reporter.requestDecision({
+            title: `Unblock dispatch for task ${task.title}`,
+            summary: [
+              `Task ${task.id} was blocked by spawn guard.`,
+              `Reason: ${blockedReason}`,
+              `Domain: ${taskPolicy.domain}`,
+              `Required skills: ${taskPolicy.requiredSkills.join(", ")}`,
+              `Attempt: ${nextAttempt}/${maxAttempts}`,
+              `Worker log: ${workerLogPath}`,
+            ].join(" "),
+            urgency: "high",
+            options: [
+              "Approve exception and continue",
+              "Reassign task owner/domain",
+              "Pause and investigate quality gate",
+            ],
+            blocking: true,
+            idempotencyParts: ["spawn-guard", task.id, String(nextAttempt)],
+            metadata: {
+              task_id: task.id,
+              domain: taskPolicy.domain,
+              required_skills: taskPolicy.requiredSkills,
+              blocked_reason: blockedReason,
+            },
+          }).catch((error) => {
+            console.warn(`[job] decision request failed on spawn guard block ${task.id}: ${error.message}`);
+          });
+        }
+
+        persistState(stateFile, state);
+        continue;
+      }
+
+      const prompt = buildCodexPrompt({
+        task,
+        planPath,
+        planContext:
+          [taskPlanContext, promptSuffix, taskPromptSuffix].filter(Boolean).join("\n\n"),
+        initiativeId,
+        jobId,
+        attempt: nextAttempt,
+        totalTasks,
+        completedTasks: completedCount,
+        taskDomain: taskPolicy.domain,
+        requiredSkills: taskPolicy.requiredSkills,
+        spawnGuardResult,
+      });
 
       await reporter.emit({
         message: `Dispatching ${summarizeTask(task)} (attempt ${nextAttempt}/${maxAttempts})`,
@@ -1197,6 +1577,10 @@ export async function main({
           cwd,
           attempt: nextAttempt,
           max_attempts: maxAttempts,
+          domain: taskPolicy.domain,
+          required_skills: taskPolicy.requiredSkills,
+          spawn_guard_model_tier: spawnGuardResult?.modelTier ?? null,
+          spawn_guard_allowed: spawnGuardResult?.allowed ?? null,
           worker_log: workerLogPath,
         },
       }).catch((error) => {
@@ -1402,6 +1786,37 @@ export async function main({
           }).catch((error) => {
             console.warn(`[job] activity emit failed on failure ${task.id}: ${error.message}`);
           });
+
+          if (decisionOnBlock) {
+            await reporter.requestDecision({
+              title: `Unblock failed task ${task.title}`,
+              summary: [
+                `Task ${task.id} failed after ${attempt} attempts in dispatch job ${jobId}.`,
+                `Last exit code: ${result.code}.`,
+                result.signal ? `Signal: ${result.signal}.` : null,
+                `Worker log: ${logPath}.`,
+              ]
+                .filter(Boolean)
+                .join(" "),
+              urgency: "high",
+              options: [
+                "Approve another retry window",
+                "Assign to manual owner",
+                "Pause workstream and investigate",
+              ],
+              blocking: true,
+              idempotencyParts: ["worker-failed", task.id, String(attempt)],
+              metadata: {
+                task_id: task.id,
+                attempt,
+                exit_code: result.code,
+                signal: result.signal,
+                worker_log: logPath,
+              },
+            }).catch((error) => {
+              console.warn(`[job] decision request failed on worker failure ${task.id}: ${error.message}`);
+            });
+          }
         }
       }
       persistState(stateFile, state);
@@ -1458,6 +1873,7 @@ export async function main({
       blocked: failed.size,
       state_file: stateFile,
       run_id: reporter.getRunId(),
+      decision_on_block: decisionOnBlock,
     },
     nextStep: success
       ? "Validate merged outputs and close launch milestone."

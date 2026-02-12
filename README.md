@@ -142,9 +142,12 @@ npm run job:dispatch -- \
 
 Key behavior:
 - Pulls tasks from OrgX for selected workstreams
+- Runs `orgx_spawn_check` preflight per task before dispatch
+- Injects required OrgX skill context (for example `orgx-engineering-agent`) into worker prompts
 - Spawns parallel Codex workers per task
 - Retries failures with backoff up to `--max_attempts`
 - Emits activity and task status transitions into OrgX DB
+- Auto-creates a blocking decision when a task exhausts retries (disable with `--decision_on_block=false`)
 - Persists resumable state to `.orgx-codex-jobs/<job-id>/job-state.json`
 
 Notes:

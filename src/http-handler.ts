@@ -73,6 +73,10 @@ import {
   type RuntimeInstanceRecord,
   type RuntimeSourceClient,
 } from "./runtime-instance-store.js";
+import {
+  readOpenClawSettingsSnapshot,
+  resolvePreferredOpenClawProvider,
+} from "./openclaw-settings.js";
 
 // =============================================================================
 // Helpers
@@ -263,49 +267,64 @@ async function listOpenClawProviderModels(input: {
   agentId: string;
   provider: OpenClawProvider;
 }): Promise<Array<{ key: string; tags: string[] }>> {
-  const result = await runCommandCollect({
-    command: "openclaw",
-    args: [
-      "models",
-      "--agent",
-      input.agentId,
-      "list",
-      "--provider",
-      input.provider,
-      "--json",
-    ],
-    timeoutMs: 10_000,
-    env: resolveByokEnvOverrides(),
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() || "openclaw models list failed");
-  }
-  const parsed = parseJsonSafe<unknown>(result.stdout);
-  if (!parsed || typeof parsed !== "object") {
-    const trimmed = result.stdout.trim();
-    if (!trimmed || /no models found/i.test(trimmed)) {
-      return [];
+  const providerArgs = input.provider === "openai" ? ["openai-codex", "openai"] : [input.provider];
+  let lastError: Error | null = null;
+
+  for (const providerArg of providerArgs) {
+    const result = await runCommandCollect({
+      command: "openclaw",
+      args: [
+        "models",
+        "--agent",
+        input.agentId,
+        "list",
+        "--provider",
+        providerArg,
+        "--json",
+      ],
+      timeoutMs: 10_000,
+      env: resolveByokEnvOverrides(),
+    });
+    if (result.exitCode !== 0) {
+      lastError = new Error(result.stderr.trim() || "openclaw models list failed");
+      continue;
     }
-    throw new Error("openclaw models list returned invalid JSON");
+
+    const parsed = parseJsonSafe<unknown>(result.stdout);
+    if (!parsed || typeof parsed !== "object") {
+      const trimmed = result.stdout.trim();
+      if (!trimmed || /no models found/i.test(trimmed)) {
+        if (providerArg === providerArgs[providerArgs.length - 1]) return [];
+        continue;
+      }
+      lastError = new Error("openclaw models list returned invalid JSON");
+      continue;
+    }
+
+    const modelsRaw =
+      "models" in parsed && Array.isArray((parsed as Record<string, unknown>).models)
+        ? ((parsed as Record<string, unknown>).models as unknown[])
+        : [];
+
+    const models = modelsRaw
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const row = entry as Record<string, unknown>;
+        const key = typeof row.key === "string" ? row.key.trim() : "";
+        const tags = Array.isArray(row.tags)
+          ? row.tags.filter((t): t is string => typeof t === "string")
+          : [];
+        if (!key) return null;
+        return { key, tags };
+      })
+      .filter((entry): entry is { key: string; tags: string[] } => Boolean(entry));
+
+    if (models.length > 0 || providerArg === providerArgs[providerArgs.length - 1]) {
+      return models;
+    }
   }
 
-  const modelsRaw =
-    "models" in parsed && Array.isArray((parsed as Record<string, unknown>).models)
-      ? ((parsed as Record<string, unknown>).models as unknown[])
-      : [];
-
-  return modelsRaw
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const row = entry as Record<string, unknown>;
-      const key = typeof row.key === "string" ? row.key.trim() : "";
-      const tags = Array.isArray(row.tags)
-        ? row.tags.filter((t): t is string => typeof t === "string")
-        : [];
-      if (!key) return null;
-      return { key, tags };
-    })
-    .filter((entry): entry is { key: string; tags: string[] } => Boolean(entry));
+  throw lastError ?? new Error("openclaw models list failed");
 }
 
 function pickPreferredModel(models: Array<{ key: string; tags: string[] }>): string | null {
@@ -323,7 +342,7 @@ async function configureOpenClawProviderRouting(input: {
 
   // Fast path: use known aliases where possible.
   const aliasByProvider: Record<OpenClawProvider, string | null> = {
-    anthropic: "opus",
+    anthropic: "sonnet",
     openrouter: "sonnet",
     openai: null,
   };
@@ -351,6 +370,17 @@ async function configureOpenClawProviderRouting(input: {
 
   await setOpenClawAgentModel({ agentId: input.agentId, model: selected });
   return { provider: input.provider, model: selected };
+}
+
+function resolveAutoOpenClawProvider(): OpenClawProvider | null {
+  try {
+    const settings = readOpenClawSettingsSnapshot();
+    const provider = resolvePreferredOpenClawProvider(settings.raw);
+    if (!provider) return null;
+    return provider;
+  } catch {
+    return null;
+  }
 }
 
 function isPidAlive(pid: number): boolean {
@@ -1500,6 +1530,82 @@ interface MissionControlNode {
   updatedAt: string | null;
 }
 
+const ORGX_SKILL_BY_DOMAIN: Record<string, string> = {
+  engineering: "orgx-engineering-agent",
+  product: "orgx-product-agent",
+  marketing: "orgx-marketing-agent",
+  sales: "orgx-sales-agent",
+  operations: "orgx-operations-agent",
+  design: "orgx-design-agent",
+  orchestration: "orgx-orchestrator-agent",
+};
+
+function normalizeExecutionDomain(value: string | null | undefined): string | null {
+  const raw = (value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "orchestrator") return "orchestration";
+  if (raw === "ops") return "operations";
+  return Object.prototype.hasOwnProperty.call(ORGX_SKILL_BY_DOMAIN, raw)
+    ? raw
+    : null;
+}
+
+function inferExecutionDomainFromText(...values: Array<string | null | undefined>): string {
+  const text = values
+    .map((value) => (value ?? "").trim().toLowerCase())
+    .filter((value) => value.length > 0)
+    .join(" ");
+  if (!text) return "engineering";
+  if (/\b(marketing|campaign|copy|ad|content)\b/.test(text)) return "marketing";
+  if (/\b(sales|meddic|pipeline|deal|outreach)\b/.test(text)) return "sales";
+  if (/\b(design|ui|ux|brand|wcag)\b/.test(text)) return "design";
+  if (/\b(product|prd|roadmap|prioritization)\b/.test(text)) return "product";
+  if (/\b(ops|operations|incident|reliability|oncall|slo)\b/.test(text)) return "operations";
+  if (/\b(orchestration|dispatch|handoff)\b/.test(text)) return "orchestration";
+  return "engineering";
+}
+
+function deriveExecutionPolicy(
+  taskNode: MissionControlNode,
+  workstreamNode: MissionControlNode | null
+): { domain: string; requiredSkills: string[] } {
+  const domainCandidate =
+    taskNode.assignedAgents
+      .map((agent) => normalizeExecutionDomain(agent.domain))
+      .find((domain): domain is string => Boolean(domain)) ??
+    (workstreamNode
+      ? workstreamNode.assignedAgents
+          .map((agent) => normalizeExecutionDomain(agent.domain))
+          .find((domain): domain is string => Boolean(domain))
+      : null) ??
+    inferExecutionDomainFromText(taskNode.title, workstreamNode?.title ?? null);
+
+  const domain = normalizeExecutionDomain(domainCandidate) ?? "engineering";
+  const requiredSkill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
+  return { domain, requiredSkills: [requiredSkill] };
+}
+
+function spawnGuardIsRateLimited(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const record = result as Record<string, unknown>;
+  const checks = record.checks;
+  if (!checks || typeof checks !== "object") return false;
+  const rateLimit = (checks as Record<string, unknown>).rateLimit;
+  if (!rateLimit || typeof rateLimit !== "object") return false;
+  return (rateLimit as Record<string, unknown>).passed === false;
+}
+
+function summarizeSpawnGuardBlockReason(result: unknown): string {
+  if (!result || typeof result !== "object") return "Spawn guard denied dispatch.";
+  const record = result as Record<string, unknown>;
+  const blockedReason = pickString(record, ["blockedReason", "blocked_reason"]);
+  if (blockedReason) return blockedReason;
+  if (spawnGuardIsRateLimited(result)) {
+    return "Spawn guard rate limit reached.";
+  }
+  return "Spawn guard denied dispatch.";
+}
+
 interface MissionControlEdge {
   from: string;
   to: string;
@@ -2612,6 +2718,80 @@ export function createHttpHandler(
     }
   }
 
+  async function requestDecisionSafe(input: {
+    initiativeId: string | null;
+    correlationId?: string | null;
+    title: string;
+    summary?: string | null;
+    urgency?: "low" | "medium" | "high" | "urgent";
+    options?: string[];
+    blocking?: boolean;
+  }): Promise<void> {
+    const initiativeId = input.initiativeId?.trim() ?? "";
+    const title = input.title.trim();
+    if (!initiativeId || !title) return;
+
+    try {
+      await client.applyChangeset({
+        initiative_id: initiativeId,
+        correlation_id: input.correlationId?.trim() || undefined,
+        source_client: "openclaw",
+        idempotency_key: idempotencyKey([
+          "openclaw",
+          "decision",
+          initiativeId,
+          title,
+          input.correlationId ?? null,
+        ]),
+        operations: [
+          {
+            op: "decision.create",
+            title,
+            summary: input.summary ?? undefined,
+            urgency: input.urgency ?? "high",
+            options: input.options ?? [],
+            blocking: input.blocking ?? true,
+          },
+        ],
+      });
+    } catch {
+      // best effort
+    }
+  }
+
+  async function checkSpawnGuardSafe(input: {
+    domain: string;
+    taskId: string;
+    initiativeId: string | null;
+    correlationId: string;
+  }): Promise<unknown | null> {
+    const scopedClient = client as OrgXClient & {
+      checkSpawnGuard?: (domain: string, taskId?: string) => Promise<unknown>;
+    };
+    if (typeof scopedClient.checkSpawnGuard !== "function") {
+      return null;
+    }
+
+    try {
+      return await scopedClient.checkSpawnGuard(input.domain, input.taskId);
+    } catch (err: unknown) {
+      await emitActivitySafe({
+        initiativeId: input.initiativeId,
+        correlationId: input.correlationId,
+        phase: "blocked",
+        level: "warn",
+        message: `Spawn guard check degraded for task ${input.taskId}; continuing with local policy.`,
+        metadata: {
+          event: "spawn_guard_degraded",
+          task_id: input.taskId,
+          domain: input.domain,
+          error: safeErrorMessage(err),
+        },
+      });
+      return null;
+    }
+  }
+
   async function syncParentRollupsForTask(input: {
     initiativeId: string | null;
     taskId: string | null;
@@ -3107,9 +3287,18 @@ export function createHttpHandler(
   }): Promise<{ sessionId: string; pid: number | null }> {
     const now = new Date().toISOString();
     const sessionId = randomUUID();
+    const fallbackDomain = inferExecutionDomainFromText(
+      input.workstreamTitle,
+      input.initiativeTitle
+    );
+    const fallbackSkill =
+      ORGX_SKILL_BY_DOMAIN[fallbackDomain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
     const message = [
       `Initiative: ${input.initiativeTitle}`,
       `Workstream: ${input.workstreamTitle}`,
+      "",
+      `Execution policy: ${fallbackDomain}`,
+      `Required skills: $${fallbackSkill}`,
       "",
       "Continue this workstream from the latest context.",
       "Identify and execute the next concrete task, then provide a concise progress summary.",
@@ -3127,6 +3316,8 @@ export function createHttpHandler(
         session_id: sessionId,
         workstream_id: input.workstreamId,
         workstream_title: input.workstreamTitle,
+        domain: fallbackDomain,
+        required_skills: [fallbackSkill],
         fallback: true,
       },
     });
@@ -3233,6 +3424,28 @@ export function createHttpHandler(
             error_message: summary.errorMessage,
           },
         });
+
+        if (summary.hadError && record.taskId) {
+          await requestDecisionSafe({
+            initiativeId: run.initiativeId,
+            correlationId: record.runId,
+            title: `Unblock auto-continue task ${record.taskId}`,
+            summary: [
+              `Task ${record.taskId} finished with runtime error in session ${record.runId}.`,
+              summary.errorMessage ? `Error: ${summary.errorMessage}` : null,
+              `Workstream: ${record.workstreamId ?? "unknown"}.`,
+            ]
+              .filter((line): line is string => Boolean(line))
+              .join(" "),
+            urgency: "high",
+            options: [
+              "Retry task in auto-continue",
+              "Assign manual recovery owner",
+              "Pause initiative until fixed",
+            ],
+            blocking: true,
+          });
+        }
 
         run.lastRunId = record.runId;
         run.lastTaskId = record.taskId ?? run.lastTaskId;
@@ -3379,6 +3592,102 @@ export function createHttpHandler(
       nextTaskNode.milestoneId
         ? nodeById.get(nextTaskNode.milestoneId)?.title ?? null
         : null;
+    const workstreamNode =
+      nextTaskNode.workstreamId
+        ? nodeById.get(nextTaskNode.workstreamId) ?? null
+        : null;
+    const executionPolicy = deriveExecutionPolicy(nextTaskNode, workstreamNode);
+    const spawnGuardResult = await checkSpawnGuardSafe({
+      domain: executionPolicy.domain,
+      taskId: nextTaskNode.id,
+      initiativeId: run.initiativeId,
+      correlationId: sessionId,
+    });
+    if (spawnGuardResult && typeof spawnGuardResult === "object") {
+      const allowed = (spawnGuardResult as Record<string, unknown>).allowed;
+      if (allowed === false) {
+        const blockedReason = summarizeSpawnGuardBlockReason(spawnGuardResult);
+        if (spawnGuardIsRateLimited(spawnGuardResult)) {
+          run.lastError = blockedReason;
+          run.updatedAt = now;
+          await emitActivitySafe({
+            initiativeId: run.initiativeId,
+            correlationId: sessionId,
+            phase: "blocked",
+            level: "warn",
+            message: `Spawn guard rate-limited task ${nextTaskNode.id}; waiting to retry.`,
+            metadata: {
+              event: "auto_continue_spawn_guard_rate_limited",
+              task_id: nextTaskNode.id,
+              task_title: nextTaskNode.title,
+              domain: executionPolicy.domain,
+              required_skills: executionPolicy.requiredSkills,
+              spawn_guard: spawnGuardResult,
+            },
+          });
+          return;
+        }
+
+        try {
+          await client.updateEntity("task", nextTaskNode.id, {
+            status: "blocked",
+          });
+        } catch {
+          // best effort
+        }
+
+        await syncParentRollupsForTask({
+          initiativeId: run.initiativeId,
+          taskId: nextTaskNode.id,
+          workstreamId: nextTaskNode.workstreamId,
+          milestoneId: nextTaskNode.milestoneId,
+          correlationId: sessionId,
+        });
+
+        await emitActivitySafe({
+          initiativeId: run.initiativeId,
+          correlationId: sessionId,
+          phase: "blocked",
+          level: "error",
+          message: `Auto-continue blocked by spawn guard on task ${nextTaskNode.id}.`,
+          metadata: {
+            event: "auto_continue_spawn_guard_blocked",
+            task_id: nextTaskNode.id,
+            task_title: nextTaskNode.title,
+            domain: executionPolicy.domain,
+            required_skills: executionPolicy.requiredSkills,
+            blocked_reason: blockedReason,
+            spawn_guard: spawnGuardResult,
+          },
+        });
+
+        await requestDecisionSafe({
+          initiativeId: run.initiativeId,
+          correlationId: sessionId,
+          title: `Unblock auto-continue task ${nextTaskNode.title}`,
+          summary: [
+            `Task ${nextTaskNode.id} failed spawn guard checks.`,
+            `Reason: ${blockedReason}`,
+            `Domain: ${executionPolicy.domain}`,
+            `Required skills: ${executionPolicy.requiredSkills.join(", ")}`,
+          ].join(" "),
+          urgency: "high",
+          options: [
+            "Approve exception and continue",
+            "Reassign task/domain",
+            "Pause and investigate quality gate",
+          ],
+          blocking: true,
+        });
+
+        await stopAutoContinueRun({
+          run,
+          reason: "blocked",
+          error: blockedReason,
+        });
+        return;
+      }
+    }
 
     const message = [
       initiativeNode ? `Initiative: ${initiativeNode.title}` : null,
@@ -3386,26 +3695,25 @@ export function createHttpHandler(
       milestoneTitle ? `Milestone: ${milestoneTitle}` : null,
       "",
       `Task: ${nextTaskNode.title}`,
+      `Execution policy: ${executionPolicy.domain}`,
+      `Required skills: ${executionPolicy.requiredSkills.map((skill) => `$${skill}`).join(", ")}`,
       "",
       "Execute this task. When finished, provide a concise completion summary and any relevant commands/notes.",
     ]
       .filter((line): line is string => typeof line === "string")
       .join("\n");
 
-    if (nextTaskNode.workstreamId) {
-      const workstreamNode = nodeById.get(nextTaskNode.workstreamId);
-      if (
-        workstreamNode &&
-        !isInProgressStatus(workstreamNode.status) &&
-        isDispatchableWorkstreamStatus(workstreamNode.status)
-      ) {
-        try {
-          await client.updateEntity("workstream", workstreamNode.id, {
-            status: "active",
-          });
-        } catch {
-          // best effort
-        }
+    if (
+      workstreamNode &&
+      !isInProgressStatus(workstreamNode.status) &&
+      isDispatchableWorkstreamStatus(workstreamNode.status)
+    ) {
+      try {
+        await client.updateEntity("workstream", workstreamNode.id, {
+          status: "active",
+        });
+      } catch {
+        // best effort
       }
     }
 
@@ -3446,6 +3754,15 @@ export function createHttpHandler(
         workstream_title: workstreamTitle,
         milestone_id: nextTaskNode.milestoneId,
         milestone_title: milestoneTitle,
+        domain: executionPolicy.domain,
+        required_skills: executionPolicy.requiredSkills,
+        spawn_guard_model_tier:
+          spawnGuardResult && typeof spawnGuardResult === "object"
+            ? pickString(
+                spawnGuardResult as Record<string, unknown>,
+                ["modelTier", "model_tier"]
+              ) ?? null
+            : null,
       },
     });
 
@@ -4402,6 +4719,8 @@ export function createHttpHandler(
               searchParams.get("model_id") ??
               "")
               .trim() || null;
+          const routingProvider =
+            provider ?? (!provider && !requestedModel ? resolveAutoOpenClawProvider() : null);
           const dryRunRaw =
             payload.dryRun ??
             (payload as Record<string, unknown>).dry_run ??
@@ -4413,7 +4732,8 @@ export function createHttpHandler(
               ? dryRunRaw
               : parseBooleanQuery(typeof dryRunRaw === "string" ? dryRunRaw : null);
 
-          let requiresPremiumLaunch = Boolean(provider) || modelImpliesByok(requestedModel);
+          let requiresPremiumLaunch =
+            Boolean(routingProvider) || modelImpliesByok(requestedModel);
           if (!requiresPremiumLaunch) {
             try {
               const agents = await listAgents();
@@ -4475,6 +4795,8 @@ export function createHttpHandler(
               workstreamId,
               taskId,
               requiresPremiumLaunch,
+              provider: routingProvider,
+              model: requestedModel,
               startedAt: new Date().toISOString(),
               message,
             });
@@ -4518,17 +4840,17 @@ export function createHttpHandler(
               session_id: sessionId,
               workstream_id: workstreamId,
               task_id: taskId,
-              provider,
+              provider: routingProvider,
               model: requestedModel,
             },
           });
 
           let routedProvider: string | null = null;
           let routedModel: string | null = null;
-          if (provider) {
+          if (routingProvider) {
             const routed = await configureOpenClawProviderRouting({
               agentId,
-              provider,
+              provider: routingProvider,
               requestedModel,
             });
             routedProvider = routed.provider;
@@ -4676,9 +4998,12 @@ export function createHttpHandler(
               record.model ??
               "")
               .trim() || null;
+          const routingProvider =
+            providerOverride ??
+            (!providerOverride && !requestedModel ? resolveAutoOpenClawProvider() : null);
 
           let requiresPremiumRestart =
-            Boolean(providerOverride) ||
+            Boolean(routingProvider) ||
             modelImpliesByok(requestedModel) ||
             modelImpliesByok(record.model ?? null);
           if (!requiresPremiumRestart) {
@@ -4722,12 +5047,12 @@ export function createHttpHandler(
           const sessionId = randomUUID();
           const message = messageOverride ?? record.message ?? `Restart agent ${record.agentId}`;
 
-          let routedProvider: string | null = providerOverride ?? null;
+          let routedProvider: string | null = routingProvider ?? null;
           let routedModel: string | null = requestedModel ?? null;
-          if (providerOverride) {
+          if (routingProvider) {
             const routed = await configureOpenClawProviderRouting({
               agentId: record.agentId,
-              provider: providerOverride,
+              provider: routingProvider,
               requestedModel,
             });
             routedProvider = routed.provider;

@@ -6,6 +6,8 @@ import {
   buildTaskQueue,
   extractPlanContext,
   buildCodexPrompt,
+  deriveTaskExecutionPolicy,
+  isSpawnGuardRetryable,
   createReporter,
   classifyTaskState,
   summarizeTaskStatuses,
@@ -109,12 +111,53 @@ test("buildCodexPrompt includes task and plan references", () => {
     attempt: 1,
     totalTasks: 29,
     completedTasks: 3,
+    taskDomain: "engineering",
+    requiredSkills: ["orgx-engineering-agent"],
+    spawnGuardResult: { modelTier: "sonnet", allowed: true },
   });
 
   assert.match(prompt, /Original Plan Reference:/);
   assert.match(prompt, /Inject OrgXClient into orchestration/);
   assert.match(prompt, /two-tool reporting contract/i);
   assert.match(prompt, /codex-job-abc123/);
+  assert.match(prompt, /Spawn domain:\s+engineering/);
+  assert.match(prompt, /\$orgx-engineering-agent/);
+  assert.match(prompt, /Spawn guard model tier:\s+sonnet/);
+});
+
+test("deriveTaskExecutionPolicy infers domain and required skill", () => {
+  const policy = deriveTaskExecutionPolicy({
+    title: "Investigate incident response and oncall reliability",
+    workstream_name: "Ops Hardening",
+  });
+
+  assert.equal(policy.domain, "operations");
+  assert.ok(policy.requiredSkills.includes("orgx-operations-agent"));
+});
+
+test("isSpawnGuardRetryable returns true when rate-limit check fails", () => {
+  assert.equal(
+    isSpawnGuardRetryable({
+      allowed: false,
+      checks: {
+        rateLimit: { passed: false, current: 10, max: 10 },
+        qualityGate: { passed: true, score: 5, threshold: 3 },
+        taskAssigned: { passed: true },
+      },
+    }),
+    true
+  );
+  assert.equal(
+    isSpawnGuardRetryable({
+      allowed: false,
+      checks: {
+        rateLimit: { passed: true, current: 1, max: 10 },
+        qualityGate: { passed: false, score: 2, threshold: 3 },
+        taskAssigned: { passed: true },
+      },
+    }),
+    false
+  );
 });
 
 test("createReporter routes mutations through injected OrgXClient", async () => {
@@ -168,6 +211,19 @@ test("createReporter routes mutations through injected OrgXClient", async () => 
   assert.equal(calls.changesets[0].initiative_id, "init_1");
   assert.equal(calls.changesets[0].run_id, "run_1");
   assert.equal(calls.changesets[0].operations[0].op, "task.update");
+
+  await reporter.requestDecision({
+    title: "Unblock dispatch",
+    summary: "Guard rejected spawn.",
+    urgency: "high",
+    options: ["Retry", "Pause"],
+    blocking: true,
+    idempotencyParts: ["task_1", "blocked"],
+    metadata: { task_id: "task_1" },
+  });
+
+  assert.equal(calls.changesets.length, 2);
+  assert.equal(calls.changesets[1].operations[0].op, "decision.create");
 
   await reporter.workstreamStatus({
     workstreamId: "ws_1",

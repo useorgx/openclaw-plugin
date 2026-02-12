@@ -46,6 +46,7 @@ import {
 } from "./outbox.js";
 import type { OutboxEvent } from "./outbox.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
+import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -1493,6 +1494,12 @@ export default function register(api: PluginAPI): void {
     id: "orgx-sync",
     start: async () => {
       syncServiceRunning = true;
+      const watchdog = ensureGatewayWatchdog(api.log ?? {});
+      if (watchdog.started) {
+        api.log?.info?.("[orgx] Gateway watchdog started", {
+          pid: watchdog.pid,
+        });
+      }
       api.log?.info?.("[orgx] Starting sync service", {
         interval: config.syncIntervalMs,
       });
