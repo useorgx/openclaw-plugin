@@ -4,6 +4,9 @@ import { WorkstreamGlyph } from '@/components/shared/WorkstreamGlyph';
 
 export type EntityIconType =
   | MissionControlNodeType
+  | 'session'
+  | 'handoff'
+  | 'outbox'
   | 'decision'
   | 'notification';
 
@@ -71,6 +74,37 @@ export function EntityIcon({ type, className = '', size = 14 }: EntityIconProps)
       <svg {...commonProps} stroke={colors.amber}>
         <path d="M12 3 5.2 6.1v5.7c0 4.8 3.2 7.5 6.8 9 3.6-1.5 6.8-4.2 6.8-9V6.1z" fill={`${colors.amber}1A`} />
         <path d="m9.3 12.1 1.8 1.9 3.6-3.6" />
+      </svg>
+    );
+  }
+
+  if (type === 'session') {
+    return (
+      <svg {...commonProps} stroke={colors.teal}>
+        <rect x="4" y="5" width="16" height="14" rx="4" fill={`${colors.teal}14`} />
+        <path d="M8 9h8" />
+        <path d="M8 13h5" />
+        <path d="M8 17h3" />
+      </svg>
+    );
+  }
+
+  if (type === 'handoff') {
+    return (
+      <svg {...commonProps} stroke={colors.iris}>
+        <path d="M7 12h10" />
+        <path d="m13 8 4 4-4 4" />
+        <path d="M7 8v8" opacity="0.55" />
+      </svg>
+    );
+  }
+
+  if (type === 'outbox') {
+    return (
+      <svg {...commonProps} stroke={colors.amber}>
+        <path d="M4 12h16" />
+        <path d="M6 7h12l2 5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7z" fill={`${colors.amber}12`} />
+        <path d="M9 14h6" />
       </svg>
     );
   }

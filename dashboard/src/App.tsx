@@ -21,6 +21,10 @@ import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon'
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
 import { SettingsModal, type SettingsTab } from '@/components/settings/SettingsModal';
+import { BulkSessionsModal, type BulkSessionsMode } from '@/components/bulk/BulkSessionsModal';
+import { BulkDecisionsModal } from '@/components/bulk/BulkDecisionsModal';
+import { BulkOutboxModal } from '@/components/bulk/BulkOutboxModal';
+import { BulkHandoffsModal } from '@/components/bulk/BulkHandoffsModal';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -219,6 +223,9 @@ function DashboardShell({
     open: false,
     tab: 'orgx',
   });
+  const [bulkModal, setBulkModal] = useState<
+    BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs' | null
+  >(null);
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('decisions');
@@ -1177,40 +1184,19 @@ function DashboardShell({
     (metricId: string) => {
       if (dashboardView !== 'activity') return;
 
-      if (metricId === 'sessions') {
-        setAgentFilter(null);
-        setActivityFilterSessionId(null);
-        setActivityFilterWorkstreamId(null);
-        setActivityFilterWorkstreamLabel(null);
-        setMobileTab('agents');
-        return;
-      }
-      if (metricId === 'active') {
-        focusActivitySessionByStatus(['running', 'active', 'queued', 'pending', 'in_progress']);
-        return;
-      }
-      if (metricId === 'blocked') {
-        focusActivitySessionByStatus(['blocked']);
-        return;
-      }
-      if (metricId === 'failed') {
-        focusActivitySessionByStatus(['failed']);
-        return;
-      }
-      if (metricId === 'decisions') {
-        setExpandedRightPanel('decisions');
-        setMobileTab('decisions');
-        return;
-      }
-      if (metricId === 'outbox') {
-        openSettings('orgx');
-        return;
-      }
-      if (metricId === 'handoffs') {
-        setMobileTab('agents');
+      if (
+        metricId === 'sessions' ||
+        metricId === 'active' ||
+        metricId === 'blocked' ||
+        metricId === 'failed' ||
+        metricId === 'decisions' ||
+        metricId === 'outbox' ||
+        metricId === 'handoffs'
+      ) {
+        setBulkModal(metricId as BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs');
       }
     },
-    [dashboardView, focusActivitySessionByStatus, openSettings]
+    [dashboardView]
   );
 
   if (isLoading) {
@@ -1289,12 +1275,19 @@ function DashboardShell({
             </Badge>
             {(data.outbox.pendingTotal > 0 || data.outbox.replayStatus === 'error') && (
               <div className="hidden sm:block">
-                <Badge
-                  color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
-                  pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
+                <button
+                  type="button"
+                  onClick={() => setBulkModal('outbox')}
+                  className="transition-opacity hover:opacity-80"
+                  title="Open outbox details"
                 >
-                  Outbox {data.outbox.pendingTotal}
-                </Badge>
+                  <Badge
+                    color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
+                    pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
+                  >
+                    Outbox {data.outbox.pendingTotal}
+                  </Badge>
+                </button>
               </div>
             )}
           </div>
@@ -1595,7 +1588,7 @@ function DashboardShell({
               type="button"
               onClick={() => handleCompactMetricClick(metric.id)}
               className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
-              title={`Focus ${metric.label.toLowerCase()}`}
+              title={`Bulk actions: ${metric.label.toLowerCase()}`}
             >
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
               <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -1907,6 +1900,58 @@ function DashboardShell({
         onboarding={onboarding}
         authToken={null}
         embedMode={false}
+      />
+
+      <BulkSessionsModal
+        open={
+          bulkModal === 'sessions' ||
+          bulkModal === 'active' ||
+          bulkModal === 'blocked' ||
+          bulkModal === 'failed'
+        }
+        onClose={() => setBulkModal(null)}
+        mode={
+          bulkModal === 'active' || bulkModal === 'blocked' || bulkModal === 'failed'
+            ? bulkModal
+            : 'sessions'
+        }
+        sessions={data.sessions.nodes}
+        onOpenSession={(session) => {
+          handleSelectSession(session.id);
+          setBulkModal(null);
+        }}
+        onRunAction={async (session, action) => {
+          await runControlAction(session, action, { reason: `bulk_${action}_from_header` });
+        }}
+        onRefetch={async () => refetch()}
+        onSetNotice={(message) => setOpsNotice(message)}
+      />
+
+      <BulkDecisionsModal
+        open={bulkModal === 'decisions'}
+        onClose={() => setBulkModal(null)}
+        decisions={decisionsVisible ? data.decisions : []}
+        onApproveDecision={approveDecision}
+        onApproveAll={approveAllDecisions}
+      />
+
+      <BulkOutboxModal
+        open={bulkModal === 'outbox'}
+        onClose={() => setBulkModal(null)}
+        outbox={data.outbox}
+        onOpenSettings={() => {
+          setBulkModal(null);
+          openSettings('orgx');
+        }}
+        onRefresh={() => {
+          void refetch();
+        }}
+      />
+
+      <BulkHandoffsModal
+        open={bulkModal === 'handoffs'}
+        onClose={() => setBulkModal(null)}
+        handoffs={data.handoffs}
       />
 
       <FirstRunGuideModal

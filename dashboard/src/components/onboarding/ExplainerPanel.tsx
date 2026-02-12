@@ -146,6 +146,9 @@ const featureAccentByType: Record<EntityIconType, string> = {
   workstream: 'text-[#BFFF00]',
   milestone: 'text-[#43E7D8]',
   task: 'text-white/80',
+  session: 'text-[#43E7D8]',
+  handoff: 'text-[#A8A0FF]',
+  outbox: 'text-[#F5D37A]',
   decision: 'text-[#F5D37A]',
   notification: 'text-[#7EEDE1]',
 };
