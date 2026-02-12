@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-02-12T21:03:28.708Z",
+  "generatedAt": "2026-02-12T21:14:25.180Z",
   "baseUrl": "http://127.0.0.1:4181/orgx/live",
-  "finalCls": 0.0011,
+  "finalCls": 0.0006,
   "stickyAlignment": {
     "toolbarBottom": 190,
     "initiativeTop": 133,
@@ -17,10 +17,10 @@
       "name": "expand_all_initiatives",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 55,
-        "maxDelta": 66.69999999999999,
-        "avgDelta": 10.00181818181818,
-        "over24": 2,
+        "frameCount": 63,
+        "maxDelta": 91.20000000000005,
+        "avgDelta": 10.47142857142857,
+        "over24": 3,
         "over50": 1
       }
     },
@@ -28,9 +28,9 @@
       "name": "autopilot_start",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 81,
-        "maxDelta": 9.299999999999955,
-        "avgDelta": 8.344444444444445,
+        "frameCount": 82,
+        "maxDelta": 10.100000000000136,
+        "avgDelta": 8.32439024390244,
         "over24": 0,
         "over50": 0
       }
@@ -40,8 +40,8 @@
       "clsDelta": 0,
       "probe": {
         "frameCount": 80,
-        "maxDelta": 9.200000000000045,
-        "avgDelta": 8.3325,
+        "maxDelta": 10.200000000000045,
+        "avgDelta": 8.341249999999999,
         "over24": 0,
         "over50": 0
       }
@@ -50,9 +50,9 @@
       "name": "next_up_open_rail",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 83,
-        "maxDelta": 24.90000000000009,
-        "avgDelta": 8.734939759036145,
+        "frameCount": 84,
+        "maxDelta": 25,
+        "avgDelta": 8.630952380952381,
         "over24": 1,
         "over50": 0
       }
@@ -61,9 +61,9 @@
       "name": "next_up_auto_upgrade_gate",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 90,
-        "maxDelta": 9.099999999999909,
-        "avgDelta": 8.332222222222217,
+        "frameCount": 89,
+        "maxDelta": 16.699999999999818,
+        "avgDelta": 8.521348314606737,
         "over24": 0,
         "over50": 0
       }
@@ -73,8 +73,8 @@
       "clsDelta": 0,
       "probe": {
         "frameCount": 58,
-        "maxDelta": 9.199999999999818,
-        "avgDelta": 8.334482758620684,
+        "maxDelta": 10,
+        "avgDelta": 8.332758620689658,
         "over24": 0,
         "over50": 0
       }
@@ -83,9 +83,9 @@
       "name": "select_second_initiative_row",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 57,
-        "maxDelta": 9.099999999999454,
-        "avgDelta": 8.331578947368415,
+        "frameCount": 59,
+        "maxDelta": 9.899999999999636,
+        "avgDelta": 8.350847457627115,
         "over24": 0,
         "over50": 0
       }
@@ -95,8 +95,8 @@
       "clsDelta": 0,
       "probe": {
         "frameCount": 57,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.349122807017537,
+        "maxDelta": 10.199999999999818,
+        "avgDelta": 8.356140350877196,
         "over24": 0,
         "over50": 0
       }
@@ -105,9 +105,9 @@
       "name": "hierarchy_bulk_select_visible_toggle",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 57,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.338596491228074,
+        "frameCount": 58,
+        "maxDelta": 10.200000000000728,
+        "avgDelta": 8.332758620689658,
         "over24": 0,
         "over50": 0
       }
@@ -116,9 +116,9 @@
       "name": "hierarchy_bulk_plan_action",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 67,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.33432835820895,
+        "frameCount": 64,
+        "maxDelta": 9.899999999999636,
+        "avgDelta": 8.328125,
         "over24": 0,
         "over50": 0
       }
@@ -127,9 +127,9 @@
       "name": "hierarchy_bulk_start_action",
       "clsDelta": 0,
       "probe": {
-        "frameCount": 66,
-        "maxDelta": 9.300000000000182,
-        "avgDelta": 8.333333333333334,
+        "frameCount": 67,
+        "maxDelta": 10.199999999999818,
+        "avgDelta": 8.31641791044776,
         "over24": 0,
         "over50": 0
       }
@@ -137,10 +137,10 @@
   ],
   "worstProbe": {
     "name": "expand_all_initiatives",
-    "frameCount": 55,
-    "maxDelta": 66.69999999999999,
-    "avgDelta": 10.00181818181818,
-    "over24": 2,
+    "frameCount": 63,
+    "maxDelta": 91.20000000000005,
+    "avgDelta": 10.47142857142857,
+    "over24": 3,
     "over50": 1
   },
   "consoleWarnings": [
