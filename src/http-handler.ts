@@ -2702,13 +2702,23 @@ export function createHttpHandler(
           type: "progress",
           timestamp,
           payload: {
-            phase: input.phase,
+            // Keep this payload aligned with OrgXClient.emitActivity input
+            // so outbox replay can forward it without shape translation.
+            initiative_id: initiativeId,
+            run_id: input.runId?.trim() || undefined,
+            correlation_id: input.runId
+              ? undefined
+              : (input.correlationId?.trim() || `openclaw-${Date.now()}`),
+            source_client: "openclaw",
             message,
+            phase: input.phase,
+            progress_pct:
+              typeof input.progressPct === "number" && Number.isFinite(input.progressPct)
+                ? Math.max(0, Math.min(100, Math.round(input.progressPct)))
+                : undefined,
             level: input.level ?? "info",
-            runId,
-            initiativeId,
-            nextStep: input.nextStep ?? null,
-            metadata: input.metadata ?? null,
+            next_step: input.nextStep ?? undefined,
+            metadata: input.metadata ?? undefined,
           },
           activityItem,
         });

@@ -10,6 +10,8 @@ OrgX plugin for [OpenClaw](https://openclaw.ai) — connect your AI agents to Or
 4. Sign in at [useorgx.com](https://useorgx.com) and approve the connection.
 5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically.
 
+If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To opt out, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1` in your environment.
+
 Manual API key entry is still available as a permanent fallback from the onboarding panel.
 
 ## Installation
@@ -184,6 +186,7 @@ When the plugin is loaded, these HTTP endpoints are available:
 | `GET /orgx/api/live/activity` | Live activity feed |
 | `GET /orgx/api/live/stream` | Live SSE stream |
 | `GET /orgx/api/handoffs` | Handoff summaries |
+| `POST /orgx/mcp` | Local MCP bridge (tools/list, tools/call) |
 
 ## Requirements
 

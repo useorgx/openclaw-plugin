@@ -47,6 +47,9 @@ import {
 import type { OutboxEvent } from "./outbox.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
+import { createMcpHttpHandler, type RegisteredTool } from "./mcp-http-handler.js";
+import { autoConfigureDetectedMcpClients } from "./mcp-client-setup.js";
+import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 import { posthogCapture } from "./telemetry/posthog.js";
 
 // Re-export types for consumers
@@ -460,6 +463,11 @@ interface ReportingContextInput {
   run_id?: unknown;
   correlation_id?: unknown;
   source_client?: unknown;
+  // Backward compatibility: older adapters/outbox payloads used camelCase.
+  initiativeId?: unknown;
+  runId?: unknown;
+  correlationId?: unknown;
+  sourceClient?: unknown;
 }
 
 interface ResolvedReportingContext {
@@ -612,6 +620,7 @@ export default function register(api: PluginAPI): void {
   ): { ok: true; value: ResolvedReportingContext } | { ok: false; error: string } {
     const initiativeId = pickNonEmptyString(
       input.initiative_id,
+      input.initiativeId,
       process.env.ORGX_INITIATIVE_ID
     );
 
@@ -625,6 +634,7 @@ export default function register(api: PluginAPI): void {
 
     const sourceCandidate = pickNonEmptyString(
       input.source_client,
+      input.sourceClient,
       process.env.ORGX_SOURCE_CLIENT,
       "openclaw"
     );
@@ -646,6 +656,10 @@ export default function register(api: PluginAPI): void {
       ? undefined
       : pickNonEmptyString(
           input.correlation_id,
+          input.correlationId,
+          // Legacy: some buffered payloads only stored a local `runId` which is
+          // better treated as a correlation key than a server-backed run_id.
+          input.runId,
           defaultReportingCorrelationId,
           `openclaw-${Date.now()}`
         );
@@ -923,6 +937,25 @@ export default function register(api: PluginAPI): void {
       installationId: config.installationId,
       workspaceName: input.workspaceName ?? onboardingState.workspaceName,
     });
+
+    if (
+      input.source === "browser_pairing" &&
+      process.env.ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG !== "1"
+    ) {
+      try {
+        const snapshot = readOpenClawSettingsSnapshot();
+        const port = readOpenClawGatewayPort(snapshot.raw);
+        const localMcpUrl = `http://127.0.0.1:${port}/orgx/mcp`;
+        void autoConfigureDetectedMcpClients({
+          localMcpUrl,
+          logger: api.log ?? {},
+        }).catch(() => {
+          // best effort
+        });
+      } catch {
+        // best effort
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -932,7 +965,6 @@ export default function register(api: PluginAPI): void {
   let syncTimer: ReturnType<typeof setTimeout> | null = null;
   let syncInFlight: Promise<void> | null = null;
   let syncServiceRunning = false;
-  const outboxQueues = ["progress", "decisions", "artifacts"] as const;
   let outboxReplayState: {
     status: ReplayStatus;
     lastReplayAttemptAt: string | null;
@@ -1134,7 +1166,11 @@ export default function register(api: PluginAPI): void {
       }
       const rawPhase = pickStringField(payload, "phase") ?? "implementing";
       const progressPct =
-        typeof payload.progress_pct === "number" ? payload.progress_pct : undefined;
+        typeof payload.progress_pct === "number"
+          ? payload.progress_pct
+          : typeof (payload as Record<string, unknown>).progressPct === "number"
+            ? ((payload as Record<string, unknown>).progressPct as number)
+            : undefined;
       const phase =
         rawPhase === "intent" ||
         rawPhase === "execution" ||
@@ -1144,7 +1180,14 @@ export default function register(api: PluginAPI): void {
         rawPhase === "completed"
           ? (rawPhase as ReportingPhase)
           : toReportingPhase(rawPhase, progressPct);
-      await client.emitActivity({
+
+      const metaRaw = payload.metadata;
+      const meta =
+        metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
+          ? (metaRaw as Record<string, unknown>)
+          : {};
+
+      const emitPayload = {
         initiative_id: context.value.initiativeId,
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
@@ -1153,12 +1196,46 @@ export default function register(api: PluginAPI): void {
         phase,
         progress_pct: progressPct,
         level: pickStringField(payload, "level") as "info" | "warn" | "error" | undefined,
-        next_step: pickStringField(payload, "next_step") ?? undefined,
+        next_step:
+          pickStringField(payload, "next_step") ??
+          pickStringField(payload, "nextStep") ??
+          undefined,
         metadata: {
+          ...meta,
           source: "orgx_openclaw_outbox_replay",
           outbox_event_id: event.id,
         },
-      });
+      } satisfies Parameters<typeof client.emitActivity>[0];
+
+      try {
+        await client.emitActivity(emitPayload);
+      } catch (err: unknown) {
+        // Some locally-buffered events carry a UUID that *looks* like an OrgX run_id
+        // but was only ever used as a local correlation/grouping key. If OrgX
+        // doesn't recognize it, retry by treating it as correlation_id so OrgX can
+        // create/attach a run deterministically.
+        const msg = toErrorMessage(err);
+        if (
+          emitPayload.run_id &&
+          /^404\\b/.test(msg) &&
+          /\\brun\\b/i.test(msg) &&
+          /not found/i.test(msg)
+        ) {
+          await client.emitActivity({
+            ...emitPayload,
+            run_id: undefined,
+            // Avoid passing a bare UUID as correlation_id since some server
+            // paths may interpret UUIDs as run_id lookups.
+            correlation_id: `openclaw:${emitPayload.run_id}`,
+            metadata: {
+              ...emitPayload.metadata,
+              replay_run_id_as_correlation: true,
+            },
+          });
+        } else {
+          throw err;
+        }
+      }
       return;
     }
 
@@ -1260,7 +1337,15 @@ export default function register(api: PluginAPI): void {
     let hadReplayFailure = false;
     let lastReplayError: string | null = null;
 
-    for (const queue of outboxQueues) {
+    // Outbox files are keyed by *session id* (e.g. initiative/run correlation),
+    // not by event type.
+    const outboxSummary = await readOutboxSummary();
+    const queues = Object.entries(outboxSummary.pendingByQueue)
+      .filter(([, count]) => typeof count === "number" && count > 0)
+      .map(([queueId]) => queueId)
+      .sort();
+
+    for (const queue of queues) {
       const pending = await readOutbox(queue);
       if (pending.length === 0) {
         continue;
@@ -1817,8 +1902,14 @@ export default function register(api: PluginAPI): void {
   // 2. MCP Tools (Model Context Protocol compatible)
   // ---------------------------------------------------------------------------
 
+  const mcpToolRegistry = new Map<string, RegisteredTool>();
+  const registerMcpTool: PluginAPI["registerTool"] = (tool, options) => {
+    mcpToolRegistry.set(tool.name, tool as unknown as RegisteredTool);
+    api.registerTool(tool, options);
+  };
+
   // --- orgx_status ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_status",
       description:
@@ -1847,7 +1938,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_sync ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_sync",
       description:
@@ -1886,7 +1977,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_delegation_preflight ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_delegation_preflight",
       description:
@@ -1957,7 +2048,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_run_action ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_run_action",
       description:
@@ -2015,7 +2106,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_checkpoints_list ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_checkpoints_list",
       description: "List checkpoints for a run.",
@@ -2048,7 +2139,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_checkpoint_restore ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_checkpoint_restore",
       description: "Restore a run to a specific checkpoint.",
@@ -2095,7 +2186,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_spawn_check ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_spawn_check",
       description:
@@ -2137,7 +2228,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_quality_score ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_quality_score",
       description:
@@ -2191,7 +2282,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_create_entity ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_create_entity",
       description:
@@ -2295,7 +2386,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_update_entity ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_update_entity",
       description: "Update an existing OrgX entity by type and ID.",
@@ -2348,7 +2439,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_list_entities ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_list_entities",
       description:
@@ -2555,7 +2646,7 @@ export default function register(api: PluginAPI): void {
   }
 
   // --- orgx_emit_activity ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_emit_activity",
       description:
@@ -2634,7 +2725,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_apply_changeset ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_apply_changeset",
       description:
@@ -2692,7 +2783,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_report_progress (alias -> orgx_emit_activity) ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_report_progress",
       description:
@@ -2772,7 +2863,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_request_decision (alias -> orgx_apply_changeset decision.create) ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_request_decision",
       description:
@@ -2881,7 +2972,7 @@ export default function register(api: PluginAPI): void {
   );
 
   // --- orgx_register_artifact ---
-  api.registerTool(
+  registerMcpTool(
     {
       name: "orgx_register_artifact",
       description:
@@ -3100,7 +3191,18 @@ export default function register(api: PluginAPI): void {
         buildHealthReport({ probeRemote: input.probeRemote === true }),
     }
   );
-  api.registerHttpHandler(httpHandler);
+  const mcpHttpHandler = createMcpHttpHandler({
+    tools: mcpToolRegistry,
+    logger: api.log ?? {},
+    serverName: "@useorgx/openclaw-plugin",
+    serverVersion: config.pluginVersion,
+  });
+
+  const compositeHttpHandler: typeof httpHandler = async (req, res) => {
+    if (await mcpHttpHandler(req, res)) return true;
+    return await httpHandler(req, res);
+  };
+  api.registerHttpHandler(compositeHttpHandler);
 
   api.log?.info?.("[orgx] Plugin registered", {
     baseUrl: config.baseUrl,
