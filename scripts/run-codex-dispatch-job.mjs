@@ -2,15 +2,30 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  createWriteStream,
+} from "node:fs";
+import { cpus, freemem, homedir, loadavg, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL = "https://www.useorgx.com";
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_ATTEMPTS = 2;
 const DEFAULT_POLL_INTERVAL_SEC = 10;
 const DEFAULT_HEARTBEAT_SEC = 45;
+const DEFAULT_WORKER_TIMEOUT_SEC = 60 * 60; // 60 minutes
+const DEFAULT_WORKER_LOG_STALL_SEC = 12 * 60; // 12 minutes
+const DEFAULT_KILL_GRACE_SEC = 20;
+const DEFAULT_MAX_LOAD_RATIO = 0.9;
+const DEFAULT_MIN_FREE_MEM_MB = 1024;
+const DEFAULT_MIN_FREE_MEM_RATIO = 0.05;
 
 async function createOrgXClient({ apiKey, baseUrl, userId }) {
   // Orchestration uses the shared OrgXClient implementation from the built plugin.
@@ -105,19 +120,30 @@ function usage() {
     "Optional env: ORGX_USER_ID, ORGX_BASE_URL",
     "",
     "Options:",
-    "  --plan_file=<path>                Original plan file path",
+    "  --plan_file=<path>                Original plan file path (optional)",
     "  --workstream_ids=<csv>            Limit to specific workstream IDs",
     "  --task_ids=<csv>                  Limit to specific task IDs",
     "  --all_workstreams=true            Ignore default technical subset",
+    "  --include_done=true               Include tasks already marked done/completed",
+    "  --resume=true                     Resume from existing state_file/job_id state (skips done by default)",
+    "  --retry_blocked=true              Retry tasks previously blocked in state_file (requires --resume=true)",
     "  --concurrency=<n>                 Parallel codex workers (default 4)",
     "  --max_attempts=<n>                Max attempts per task (default 2)",
     "  --poll_interval_sec=<n>           Monitor loop interval (default 10)",
     "  --heartbeat_sec=<n>               Activity heartbeat cadence (default 45)",
+    "  --worker_timeout_sec=<n>          Kill/mark worker stuck after N seconds (default 3600)",
+    "  --worker_log_stall_sec=<n>        Kill/mark worker stuck after log stalls N seconds (default 720)",
+    "  --kill_grace_sec=<n>              Grace period before SIGKILL after SIGTERM (default 20)",
+    "  --resource_guard=true             Enable CPU/memory backpressure (default true)",
+    "  --max_load_ratio=<float>          Throttle spawns when load1/cpuCount exceeds (default 0.9)",
+    "  --min_free_mem_mb=<n>             Throttle spawns when free memory below MB (default 1024)",
+    "  --min_free_mem_ratio=<float>      Throttle spawns when free/total below ratio (default 0.05)",
     "  --state_file=<path>               Persist runtime job state JSON",
     "  --logs_dir=<path>                 Worker logs directory",
     "  --config_file=<path>              JSON overrides (cwd/prompt mapping)",
     "  --codex_bin=<command>             Codex executable (default codex)",
     "  --codex_args=\"--full-auto\"        Codex args string",
+    "                                  (Note: the script auto-injects `exec` when missing)",
     "  --dry_run=true                    Do not execute codex or mutate DB",
     "  --auto_complete=true              Mark task done on successful worker run",
     "  --decision_on_block=true          Auto-create OrgX decision when a task blocks",
@@ -163,6 +189,14 @@ function parseInteger(value, fallback) {
   return parsed;
 }
 
+function parseFloatNumber(value, fallback) {
+  const raw = pickString(value);
+  if (!raw) return fallback;
+  const parsed = Number.parseFloat(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+}
+
 function splitCsv(value) {
   const raw = pickString(value);
   if (!raw) return [];
@@ -179,6 +213,42 @@ function splitShellArgs(value, fallback = ["--full-auto"]) {
     .split(/\s+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeCodexArgs(args) {
+  const normalized = Array.isArray(args) ? [...args] : [];
+  const first = normalized[0];
+  const looksLikeFlag = typeof first === "string" && first.startsWith("-");
+  const looksLikeCommand =
+    first === "exec" ||
+    first === "e" ||
+    first === "review" ||
+    first === "resume" ||
+    first === "help" ||
+    first === "features" ||
+    first === "mcp" ||
+    first === "mcp-server" ||
+    first === "app" ||
+    first === "app-server" ||
+    first === "debug" ||
+    first === "cloud";
+
+  // `codex` without a subcommand expects a TTY; this job runs headless.
+  if (!looksLikeCommand || looksLikeFlag) {
+    normalized.unshift("exec");
+  }
+
+  // Many tasks run outside a git repo; avoid hard failures.
+  if (!normalized.includes("--skip-git-repo-check")) {
+    normalized.push("--skip-git-repo-check");
+  }
+
+  // Default to a safe reasoning effort (some models reject xhigh).
+  if (!normalized.some((arg) => String(arg).includes("model_reasoning_effort"))) {
+    normalized.push("-c", 'model_reasoning_effort="high"');
+  }
+
+  return normalized;
 }
 
 function dedupeStrings(items = []) {
@@ -475,9 +545,16 @@ function idempotencyKey(parts) {
 function resolvePlanFile(input) {
   const explicit = pickString(input);
   if (explicit) return resolve(explicit);
-  return resolve(
-    "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md"
+  const defaultPath = fileURLToPath(
+    new URL(
+      "../docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md",
+      import.meta.url
+    )
   );
+  if (existsSync(defaultPath)) {
+    return resolve(defaultPath);
+  }
+  return null;
 }
 
 function loadJsonFile(pathname) {
@@ -528,6 +605,65 @@ function toWorkerCwd(task, jobConfig) {
   return resolve(jobConfig.defaultCwd || "/Users/hopeatina/Code/orgx-openclaw-plugin");
 }
 
+const skillDocCache = new Map();
+
+function resolveSkillDocPath(skillName) {
+  const raw = pickString(skillName)?.replace(/^\$/, "");
+  if (!raw) return null;
+  const candidates = [];
+
+  // Primary: Codex skills directory (~/.codex/skills/*/SKILL.md)
+  candidates.push(join(homedir(), ".codex", "skills", raw, "SKILL.md"));
+  if (raw.startsWith("orgx-")) {
+    candidates.push(
+      join(homedir(), ".codex", "skills", raw.replace(/^orgx-/, ""), "SKILL.md")
+    );
+  }
+
+  // Secondary: Claude Code / agent skills (~/.agents/skills/*/SKILL.md)
+  candidates.push(join(homedir(), ".agents", "skills", raw, "SKILL.md"));
+  if (raw.startsWith("orgx-")) {
+    candidates.push(
+      join(homedir(), ".agents", "skills", raw.replace(/^orgx-/, ""), "SKILL.md")
+    );
+  }
+
+  for (const pathname of candidates) {
+    try {
+      if (existsSync(pathname)) return pathname;
+    } catch {
+      // best effort
+    }
+  }
+
+  return null;
+}
+
+function loadSkillDoc(skillName) {
+  const key = pickString(skillName)?.replace(/^\$/, "") ?? "";
+  if (!key) return null;
+
+  if (skillDocCache.has(key)) {
+    return skillDocCache.get(key);
+  }
+
+  const pathname = resolveSkillDocPath(key);
+  if (!pathname) {
+    skillDocCache.set(key, null);
+    return null;
+  }
+
+  try {
+    const content = readFileSync(pathname, "utf8").trim();
+    const doc = content ? { skill: key, path: pathname, content } : null;
+    skillDocCache.set(key, doc);
+    return doc;
+  } catch {
+    skillDocCache.set(key, null);
+    return null;
+  }
+}
+
 export function buildCodexPrompt({
   task,
   planPath,
@@ -540,14 +676,29 @@ export function buildCodexPrompt({
   taskDomain,
   requiredSkills,
   spawnGuardResult,
+  skillDocs,
 }) {
   const skillLine =
     Array.isArray(requiredSkills) && requiredSkills.length > 0
       ? requiredSkills.map((skill) => `$${skill}`).join(", ")
       : "none";
 
+  const embeddedSkillDocs =
+    Array.isArray(skillDocs) && skillDocs.length > 0
+      ? [
+          "",
+          "Embedded skill docs:",
+          ...skillDocs.flatMap((doc) => [
+            `### $${doc.skill}${doc.path ? ` (${doc.path})` : ""}`,
+            "```md",
+            doc.content,
+            "```",
+          ]),
+        ]
+      : [];
+
   return [
-    "You are an implementation worker for the OrgX Saturday Launch initiative.",
+    "You are an implementation worker for an OrgX initiative.",
     "",
     "Execution requirements:",
     "- Run in full-auto and complete this task end-to-end in the current workspace.",
@@ -572,11 +723,12 @@ export function buildCodexPrompt({
     `- Required OrgX skills: ${skillLine}`,
     `- Spawn guard model tier: ${pickString(spawnGuardResult?.modelTier) ?? "unknown"}`,
     "",
-    `Original Plan Reference: ${planPath}`,
+    `Original Plan Reference: ${planPath ?? "none"}`,
     "Relevant Plan Excerpt:",
     "```md",
     planContext || "No plan excerpt found.",
     "```",
+    ...embeddedSkillDocs,
     "",
     "Definition of done for this task:",
     "1. Code/config/docs changes are implemented.",
@@ -976,6 +1128,7 @@ export function buildTaskQueue({
   tasks,
   selectedWorkstreamIds,
   selectedTaskIds,
+  includeDone = false,
 }) {
   const selectedWs = new Set(selectedWorkstreamIds);
   const selectedTasks = new Set(selectedTaskIds);
@@ -983,7 +1136,15 @@ export function buildTaskQueue({
   const scoped = tasks.filter((task) => {
     const inWorkstream = selectedWs.size === 0 || selectedWs.has(task.workstream_id);
     const inTaskSet = selectedTasks.size === 0 || selectedTasks.has(task.id);
-    return inWorkstream && inTaskSet;
+    if (!inWorkstream || !inTaskSet) return false;
+
+    // Exclude "done" tasks by default to avoid wasting cycles. If the user
+    // explicitly selects a taskId, always include it.
+    if (!includeDone && !selectedTasks.has(task.id)) {
+      return classifyTaskState(task.status) !== "done";
+    }
+
+    return true;
   });
 
   return sortTasks(scoped);
@@ -1048,6 +1209,215 @@ function backoffMs(attempt) {
   return Math.min(180_000, 15_000 * Math.pow(2, pow));
 }
 
+function mbToBytes(mb) {
+  return Math.max(0, Number(mb) || 0) * 1024 * 1024;
+}
+
+function bytesToMb(bytes) {
+  if (!Number.isFinite(bytes)) return null;
+  return Math.round(bytes / (1024 * 1024));
+}
+
+function getResourceSample() {
+  const cpuCount = Math.max(1, Array.isArray(cpus()) ? cpus().length : 1);
+  const loads = Array.isArray(loadavg()) ? loadavg() : [0, 0, 0];
+  const load1 = Number.isFinite(loads[0]) ? loads[0] : 0;
+  const freeMemBytes = freemem();
+  const totalMemBytes = totalmem();
+  return {
+    cpuCount,
+    load1,
+    freeMemBytes,
+    totalMemBytes,
+  };
+}
+
+export function evaluateResourceGuard(
+  sample,
+  {
+    maxLoadRatio = DEFAULT_MAX_LOAD_RATIO,
+    minFreeMemBytes = mbToBytes(DEFAULT_MIN_FREE_MEM_MB),
+    minFreeMemRatio = DEFAULT_MIN_FREE_MEM_RATIO,
+  } = {}
+) {
+  const reasons = [];
+  const cpuCount = Math.max(1, Number(sample?.cpuCount) || 1);
+  const load1 = Number(sample?.load1) || 0;
+  const freeMemBytes = Number(sample?.freeMemBytes) || 0;
+  const totalMemBytes = Number(sample?.totalMemBytes) || 0;
+
+  const loadRatio = cpuCount > 0 ? load1 / cpuCount : load1;
+  const freeMemRatio =
+    totalMemBytes > 0 ? freeMemBytes / totalMemBytes : 1;
+
+  if (Number.isFinite(maxLoadRatio) && maxLoadRatio > 0 && loadRatio > maxLoadRatio) {
+    reasons.push(
+      `load ratio ${loadRatio.toFixed(2)} exceeded max ${maxLoadRatio.toFixed(2)}`
+    );
+  }
+
+  if (
+    Number.isFinite(minFreeMemBytes) &&
+    minFreeMemBytes > 0 &&
+    freeMemBytes < minFreeMemBytes
+  ) {
+    reasons.push(
+      `free memory ${bytesToMb(freeMemBytes)}MB below ${bytesToMb(minFreeMemBytes)}MB`
+    );
+  }
+
+  if (
+    Number.isFinite(minFreeMemRatio) &&
+    minFreeMemRatio > 0 &&
+    freeMemRatio < minFreeMemRatio
+  ) {
+    reasons.push(
+      `free memory ratio ${(freeMemRatio * 100).toFixed(1)}% below ${(minFreeMemRatio * 100).toFixed(1)}%`
+    );
+  }
+
+  return {
+    throttle: reasons.length > 0,
+    reasons,
+    metrics: {
+      cpuCount,
+      load1,
+      loadRatio,
+      freeMemBytes,
+      totalMemBytes,
+      freeMemRatio,
+    },
+  };
+}
+
+function readLogTail(pathname, maxBytes = 64_000) {
+  try {
+    const content = readFileSync(pathname, "utf8");
+    if (content.length <= maxBytes) return content;
+    return content.slice(content.length - maxBytes);
+  } catch {
+    return "";
+  }
+}
+
+export function detectMcpHandshakeFailure(logText) {
+  const text = String(logText ?? "");
+  const lower = text.toLowerCase();
+  const handshakeSignals = [
+    "mcp startup failed",
+    "handshaking with mcp server failed",
+    "initialize response",
+    "send message error transport",
+  ];
+
+  if (!handshakeSignals.some((needle) => lower.includes(needle))) {
+    return null;
+  }
+
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const signalLine =
+    lines.find((line) => /mcp startup failed|handshaking with mcp server failed/i.test(line)) ??
+    lines.find((line) => /initialize response|send message error transport/i.test(line)) ??
+    null;
+
+  const serverMatch =
+    signalLine?.match(/mcp(?:\s*:\s*)?\s*([a-z0-9_-]+)\s+failed:/i) ??
+    signalLine?.match(/mcp client for\s+`?([^`]+)`?\s+failed to start/i) ??
+    signalLine?.match(/mcp client for\s+\[?([^\]]+)\]?\s+failed to start/i) ??
+    null;
+
+  const server = serverMatch
+    ? pickString(serverMatch[1]) ?? null
+    : null;
+
+  return {
+    kind: "mcp_handshake",
+    server,
+    line: signalLine,
+  };
+}
+
+export function shouldKillWorker(
+  { nowEpochMs, startedAtEpochMs, logUpdatedAtEpochMs },
+  { timeoutMs = DEFAULT_WORKER_TIMEOUT_SEC * 1_000, stallMs = DEFAULT_WORKER_LOG_STALL_SEC * 1_000 } = {}
+) {
+  const now = Number(nowEpochMs) || Date.now();
+  const startedAt = Number(startedAtEpochMs) || now;
+  const logUpdatedAt = Number(logUpdatedAtEpochMs) || startedAt;
+
+  const elapsedMs = Math.max(0, now - startedAt);
+  const idleMs = Math.max(0, now - logUpdatedAt);
+
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0 && elapsedMs > timeoutMs) {
+    return {
+      kill: true,
+      kind: "timeout",
+      reason: `Worker exceeded timeout (${Math.round(timeoutMs / 1_000)}s)`,
+      elapsedMs,
+      idleMs,
+    };
+  }
+
+  if (Number.isFinite(stallMs) && stallMs > 0 && idleMs > stallMs) {
+    return {
+      kill: true,
+      kind: "log_stall",
+      reason: `Worker log stalled (${Math.round(stallMs / 1_000)}s)`,
+      elapsedMs,
+      idleMs,
+    };
+  }
+
+  return { kill: false, elapsedMs, idleMs };
+}
+
+function loadJsonState(pathname) {
+  if (!existsSync(pathname)) return null;
+  try {
+    return JSON.parse(readFileSync(pathname, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function deriveResumePlan({
+  queue,
+  resumeState,
+  retryBlocked,
+  selectedTaskIds,
+}) {
+  const selected = new Set(Array.isArray(selectedTaskIds) ? selectedTaskIds : []);
+  const previousStates = resumeState?.taskStates ?? {};
+
+  const attempts = new Map();
+  const pending = [];
+  const skipped = {
+    done: [],
+    blocked: [],
+  };
+
+  for (const task of queue) {
+    const prior = previousStates?.[task.id];
+    const priorStatus = pickString(prior?.status)?.toLowerCase() ?? null;
+    const priorAttempts = Number.isFinite(prior?.attempts) ? prior.attempts : 0;
+    attempts.set(task.id, priorAttempts);
+
+    if (priorStatus === "done" && !selected.has(task.id)) {
+      skipped.done.push(task.id);
+      continue;
+    }
+
+    if (priorStatus === "blocked" && !retryBlocked && !selected.has(task.id)) {
+      skipped.blocked.push(task.id);
+      continue;
+    }
+
+    pending.push(task);
+  }
+
+  return { pending, attempts, skipped };
+}
+
 function mergeJobConfig(rawConfig = {}) {
   return {
     defaultCwd: pickString(rawConfig.defaultCwd),
@@ -1105,18 +1475,41 @@ export async function main({
   const jobConfig = mergeJobConfig(maybeLoadConfig(configFile));
 
   const allWorkstreams = parseBoolean(args.all_workstreams, false);
-  const selectedWorkstreamIds = allWorkstreams
+  const explicitWorkstreamIds = splitCsv(args.workstream_ids);
+  let selectedWorkstreamIds = allWorkstreams
     ? []
-    : splitCsv(args.workstream_ids).length > 0
-      ? splitCsv(args.workstream_ids)
+    : explicitWorkstreamIds.length > 0
+      ? explicitWorkstreamIds
       : [...DEFAULT_TECHNICAL_WORKSTREAM_IDS];
+  const usedDefaultWorkstreams = !allWorkstreams && explicitWorkstreamIds.length === 0;
   const selectedTaskIds = splitCsv(args.task_ids);
+  const includeDone = parseBoolean(args.include_done, false);
+  const resume = parseBoolean(args.resume, false);
+  const retryBlocked = parseBoolean(args.retry_blocked, false);
+
+  const workerTimeoutMs = Math.max(
+    0,
+    parseInteger(args.worker_timeout_sec, DEFAULT_WORKER_TIMEOUT_SEC) * 1_000
+  );
+  const workerLogStallMs = Math.max(
+    0,
+    parseInteger(args.worker_log_stall_sec, DEFAULT_WORKER_LOG_STALL_SEC) * 1_000
+  );
+  const killGraceMs = Math.max(
+    0,
+    parseInteger(args.kill_grace_sec, DEFAULT_KILL_GRACE_SEC) * 1_000
+  );
+
+  const resourceGuard = parseBoolean(args.resource_guard, true);
+  const maxLoadRatio = parseFloatNumber(args.max_load_ratio, DEFAULT_MAX_LOAD_RATIO);
+  const minFreeMemMb = Math.max(0, parseInteger(args.min_free_mem_mb, DEFAULT_MIN_FREE_MEM_MB));
+  const minFreeMemRatio = parseFloatNumber(args.min_free_mem_ratio, DEFAULT_MIN_FREE_MEM_RATIO);
 
   const codexBin = pickString(args.codex_bin, env.ORGX_CODEX_BIN, "codex");
-  const codexArgs = splitShellArgs(args.codex_args, ["--full-auto"]);
+  const codexArgs = normalizeCodexArgs(splitShellArgs(args.codex_args, ["--full-auto"]));
 
   const planPath = resolvePlanFile(args.plan_file);
-  const planText = readPlan(planPath);
+  const planText = planPath ? readPlan(planPath) : "";
   const planHash = stableHash(planText);
 
   const logsRoot = resolve(pickString(args.logs_dir, env.ORGX_JOB_LOGS_DIR, defaultLogsDir()));
@@ -1127,6 +1520,14 @@ export async function main({
   const stateFile = resolve(
     pickString(args.state_file, join(logsDir, "job-state.json"))
   );
+
+  const resumeState = resume ? loadJsonState(stateFile) : null;
+  if (resume && !resumeState) {
+    console.warn(`[job] resume requested but state file missing/invalid: ${stateFile}`);
+  }
+  if (retryBlocked && !resume) {
+    console.warn("[job] retry_blocked=true ignored without --resume=true");
+  }
 
   const client = await createOrgXClient({ apiKey, baseUrl, userId });
 
@@ -1166,11 +1567,38 @@ export async function main({
     }),
   ]);
 
-  const queue = buildTaskQueue({
+  let queue = buildTaskQueue({
     tasks,
     selectedWorkstreamIds,
     selectedTaskIds,
+    includeDone,
   });
+
+  if (queue.length === 0 && usedDefaultWorkstreams && selectedTaskIds.length === 0) {
+    const previousWorkstreams = selectedWorkstreamIds;
+    selectedWorkstreamIds = [];
+    queue = buildTaskQueue({
+      tasks,
+      selectedWorkstreamIds,
+      selectedTaskIds,
+      includeDone,
+    });
+
+    await reporter.emit({
+      message:
+        "No tasks matched default workstream subset; falling back to all workstreams.",
+      phase: "intent",
+      level: "warn",
+      progressPct: 0,
+      metadata: {
+        event: "dispatch_workstream_fallback",
+        default_workstream_ids: previousWorkstreams,
+        selected_workstreams: "all",
+      },
+    }).catch((error) => {
+      console.warn(`[job] activity emit failed on workstream fallback: ${error.message}`);
+    });
+  }
 
   const maxTasks = parseInteger(args.max_tasks, Number.POSITIVE_INFINITY);
   const limitedQueue = Number.isFinite(maxTasks) ? queue.slice(0, maxTasks) : queue;
@@ -1205,8 +1633,21 @@ export async function main({
       name: workstream.name,
     }));
 
-  const totalTasks = limitedQueue.length;
-  const state = buildInitialState({
+  const resumePlan = resumeState
+    ? deriveResumePlan({
+        queue: limitedQueue,
+        resumeState,
+        retryBlocked: retryBlocked && resume,
+        selectedTaskIds,
+      })
+    : { pending: limitedQueue, attempts: new Map(), skipped: { done: [], blocked: [] } };
+
+  const totalTasks =
+    resumeState && Number.isFinite(resumeState.totalTasks)
+      ? resumeState.totalTasks
+      : limitedQueue.length;
+
+  const baselineState = buildInitialState({
     jobId,
     initiativeId,
     planPath,
@@ -1214,6 +1655,18 @@ export async function main({
     selectedWorkstreamIds,
     totalTasks,
   });
+
+  const state = resumeState
+    ? {
+        ...baselineState,
+        ...resumeState,
+        finishedAt: null,
+        result: "running",
+        activeWorkers: {},
+        taskStates: resumeState.taskStates ?? {},
+        rollups: resumeState.rollups ?? baselineState.rollups,
+      }
+    : baselineState;
 
   const taskStatusById = new Map(
     tasks.map((task) => [task.id, String(task.status ?? "todo")])
@@ -1345,13 +1798,52 @@ export async function main({
     }
   }
 
+  const pending = resumePlan.pending.map((task) => ({ task, availableAt: 0 }));
+  const running = new Map();
+  const completed = new Set();
+  const failed = new Set();
+  const attempts = new Map(resumePlan.attempts);
+  const finishedEvents = [];
+
+  for (const [taskId, entry] of Object.entries(state.taskStates ?? {})) {
+    const normalized = pickString(entry?.status)?.toLowerCase();
+    if (normalized === "done") completed.add(taskId);
+    if (normalized === "blocked") failed.add(taskId);
+    if (!attempts.has(taskId) && Number.isFinite(entry?.attempts)) {
+      attempts.set(taskId, entry.attempts);
+    }
+  }
+
+  state.completed = completed.size;
+  state.failed = failed.size;
+  persistState(stateFile, state);
+
+  const resumeMetadata = resumeState
+    ? {
+        resume: true,
+        retry_blocked: retryBlocked && resume,
+        skipped_done: resumePlan.skipped.done,
+        skipped_blocked: resumePlan.skipped.blocked,
+        state_file: stateFile,
+      }
+    : { resume: false };
+
+  let lastHeartbeatAt = 0;
+  let completedCount = completed.size;
+  let lastResourceThrottleAt = 0;
+
   await reporter.emit({
-    message: `Codex dispatch job started for ${totalTasks} tasks.`,
+    message: resumeState
+      ? `Codex dispatch job resumed for ${totalTasks} tasks (${pending.length} pending).`
+      : `Codex dispatch job started for ${totalTasks} tasks.`,
     phase: "intent",
     level: "info",
-    progressPct: 0,
+    progressPct: toPercent(completedCount, totalTasks),
     metadata: {
       total_tasks: totalTasks,
+      pending_tasks: pending.length,
+      already_completed: completed.size,
+      already_blocked: failed.size,
       selected_workstreams: selectedWorkstreamIds.length > 0
         ? selectedWorkstreamIds
         : "all",
@@ -1359,23 +1851,50 @@ export async function main({
       codex_bin: codexBin,
       codex_args: codexArgs,
       decision_on_block: decisionOnBlock,
+      worker_timeout_sec: Math.round(workerTimeoutMs / 1_000),
+      worker_log_stall_sec: Math.round(workerLogStallMs / 1_000),
+      resource_guard: resourceGuard,
+      max_load_ratio: maxLoadRatio,
+      min_free_mem_mb: minFreeMemMb,
+      min_free_mem_ratio: minFreeMemRatio,
+      ...resumeMetadata,
     },
   });
 
-  const pending = limitedQueue.map((task) => ({ task, availableAt: 0 }));
-  const running = new Map();
-  const completed = new Set();
-  const failed = new Set();
-  const attempts = new Map();
-  const finishedEvents = [];
-
-  let lastHeartbeatAt = 0;
-  let completedCount = 0;
-
   while (pending.length > 0 || running.size > 0) {
     const now = Date.now();
+    const resourceDecision = resourceGuard
+      ? evaluateResourceGuard(getResourceSample(), {
+          maxLoadRatio,
+          minFreeMemBytes: mbToBytes(minFreeMemMb),
+          minFreeMemRatio,
+        })
+      : { throttle: false, reasons: [], metrics: null };
+
+    if (resourceDecision.throttle && now - lastResourceThrottleAt >= 60_000) {
+      lastResourceThrottleAt = now;
+      await reporter.emit({
+        message: `Resource guard throttling worker spawns: ${resourceDecision.reasons.join(
+          "; "
+        )}.`,
+        phase: "execution",
+        level: "warn",
+        progressPct: toPercent(completedCount, totalTasks),
+        metadata: {
+          event: "resource_throttle",
+          reasons: resourceDecision.reasons,
+          metrics: resourceDecision.metrics,
+          running: running.size,
+          queued: pending.length,
+        },
+        nextStep: "Wait for system load to drop or lower --concurrency.",
+      }).catch((error) => {
+        console.warn(`[job] activity emit failed on resource throttle: ${error.message}`);
+      });
+    }
 
     while (running.size < concurrency) {
+      if (resourceDecision.throttle) break;
       const nextIndex = pending.findIndex((item) => item.availableAt <= now);
       if (nextIndex === -1) break;
 
@@ -1549,6 +2068,10 @@ export async function main({
         continue;
       }
 
+      const skillDocs = taskPolicy.requiredSkills
+        .map((skill) => loadSkillDoc(skill))
+        .filter(Boolean);
+
       const prompt = buildCodexPrompt({
         task,
         planPath,
@@ -1562,6 +2085,7 @@ export async function main({
         taskDomain: taskPolicy.domain,
         requiredSkills: taskPolicy.requiredSkills,
         spawnGuardResult,
+        skillDocs,
       });
 
       await reporter.emit({
@@ -1630,28 +2154,38 @@ export async function main({
         logFile: workerLogPath,
       });
 
+      const startedAtIso = nowIso();
+      const startedAtEpochMs = Date.now();
+
       running.set(task.id, {
         task,
         attempt: nextAttempt,
-        startedAt: nowIso(),
+        startedAt: startedAtIso,
+        startedAtEpochMs,
         logPath: workerLogPath,
         pid: worker.child.pid,
+        child: worker.child,
+        killState: null,
+        forcedFailure: null,
       });
 
       state.activeWorkers[task.id] = {
         pid: worker.child.pid,
         attempt: nextAttempt,
-        startedAt: nowIso(),
+        startedAt: startedAtIso,
+        startedAtEpochMs,
         logPath: workerLogPath,
       };
       persistState(stateFile, state);
 
       worker.done.then((result) => {
+        const runningEntry = running.get(task.id);
         finishedEvents.push({
           task,
           attempt: nextAttempt,
           result,
           logPath: workerLogPath,
+          forcedFailure: runningEntry?.forcedFailure ?? null,
         });
       });
     }
@@ -1659,15 +2193,23 @@ export async function main({
     while (finishedEvents.length > 0) {
       const finished = finishedEvents.shift();
       if (!finished) continue;
-      const { task, attempt, result, logPath } = finished;
+      const { task, attempt, result, logPath, forcedFailure } = finished;
       running.delete(task.id);
       delete state.activeWorkers[task.id];
 
-      const isSuccess = result.code === 0;
+      const logTail = readLogTail(logPath);
+      const mcpHandshake = detectMcpHandshakeFailure(logTail);
+      const failureKind = forcedFailure?.kind ?? (mcpHandshake ? "mcp_handshake" : null);
+
+      const isSuccess = result.code === 0 && !forcedFailure;
       if (isSuccess) {
+        if (!completed.has(task.id)) {
+          completedCount += 1;
+        }
         completed.add(task.id);
-        completedCount += 1;
+        failed.delete(task.id);
         state.completed = completed.size;
+        state.failed = failed.size;
         state.taskStates[task.id] = {
           status: "done",
           attempts: attempt,
@@ -1716,6 +2258,10 @@ export async function main({
       } else {
         const retryable = attempt < maxAttempts;
         const nextAvailableAt = Date.now() + backoffMs(attempt);
+        const retryReason =
+          failureKind === "mcp_handshake"
+            ? `MCP handshake failure${mcpHandshake?.server ? ` (${mcpHandshake.server})` : ""}`
+            : forcedFailure?.reason ?? `non-zero exit (${result.code})`;
         state.taskStates[task.id] = {
           status: retryable ? "retry_pending" : "blocked",
           attempts: attempt,
@@ -1723,12 +2269,15 @@ export async function main({
           signal: result.signal,
           finishedAt: nowIso(),
           logPath,
+          failureKind,
+          forcedFailure: forcedFailure ?? null,
+          mcpHandshake: mcpHandshake ?? null,
         };
 
         if (retryable) {
           pending.push({ task, availableAt: nextAvailableAt });
           await reporter.emit({
-            message: `Retry scheduled for ${summarizeTask(task)} after non-zero exit (${result.code}).`,
+            message: `Retry scheduled for ${summarizeTask(task)} after ${retryReason}.`,
             phase: PHASE_BY_EVENT.retry,
             level: "warn",
             progressPct: toPercent(completedCount, totalTasks),
@@ -1739,6 +2288,9 @@ export async function main({
               next_attempt: attempt + 1,
               available_at: new Date(nextAvailableAt).toISOString(),
               exit_code: result.code,
+              failure_kind: failureKind,
+              forced_failure: forcedFailure ?? null,
+              mcp_handshake: mcpHandshake ?? null,
               worker_log: logPath,
             },
           }).catch((error) => {
@@ -1753,11 +2305,12 @@ export async function main({
                 taskId: task.id,
                 status: "blocked",
                 attempt,
-                reason: `Worker failed after ${attempt} attempts (exit ${result.code})`,
+                reason: `Worker failed after ${attempt} attempts (${retryReason})`,
                 metadata: {
                   event: "status_update",
                   to: "blocked",
                   exit_code: result.code,
+                  failure_kind: failureKind,
                 },
               });
               taskStatusById.set(task.id, "blocked");
@@ -1780,6 +2333,9 @@ export async function main({
               attempt,
               exit_code: result.code,
               signal: result.signal,
+              failure_kind: failureKind,
+              forced_failure: forcedFailure ?? null,
+              mcp_handshake: mcpHandshake ?? null,
               worker_log: logPath,
             },
             nextStep: "Review worker log and unblock before rerun.",
@@ -1792,8 +2348,10 @@ export async function main({
               title: `Unblock failed task ${task.title}`,
               summary: [
                 `Task ${task.id} failed after ${attempt} attempts in dispatch job ${jobId}.`,
+                `Failure kind: ${failureKind ?? "exit_nonzero"}.`,
                 `Last exit code: ${result.code}.`,
                 result.signal ? `Signal: ${result.signal}.` : null,
+                mcpHandshake?.line ? `Detected: ${mcpHandshake.line}` : null,
                 `Worker log: ${logPath}.`,
               ]
                 .filter(Boolean)
@@ -1820,6 +2378,99 @@ export async function main({
         }
       }
       persistState(stateFile, state);
+    }
+
+    const nowForWatchdog = Date.now();
+    for (const [taskId, entry] of running.entries()) {
+      const startedAtEpochMs = Number(entry?.startedAtEpochMs) || nowForWatchdog;
+      let logUpdatedAtEpochMs = startedAtEpochMs;
+      try {
+        logUpdatedAtEpochMs = statSync(entry.logPath).mtimeMs;
+      } catch {
+        // best effort - if we cannot stat the log file, fall back to startedAt.
+      }
+
+      if (!entry.killState) {
+        const killDecision = shouldKillWorker(
+          {
+            nowEpochMs: nowForWatchdog,
+            startedAtEpochMs,
+            logUpdatedAtEpochMs,
+          },
+          { timeoutMs: workerTimeoutMs, stallMs: workerLogStallMs }
+        );
+
+        if (killDecision.kill) {
+          const killRequestedAt = nowIso();
+          entry.killState = {
+            kind: killDecision.kind,
+            phase: "sigterm",
+            requestedAtEpochMs: nowForWatchdog,
+            sigkillAtEpochMs: nowForWatchdog + killGraceMs,
+          };
+          entry.forcedFailure = {
+            kind: killDecision.kind,
+            reason: killDecision.reason,
+            requestedAt: killRequestedAt,
+            elapsedMs: killDecision.elapsedMs,
+            idleMs: killDecision.idleMs,
+          };
+
+          try {
+            entry.child?.kill("SIGTERM");
+          } catch (error) {
+            console.warn(
+              `[job] failed to SIGTERM worker ${taskId}: ${error?.message ?? error}`
+            );
+          }
+
+          state.activeWorkers[taskId] = {
+            ...(state.activeWorkers[taskId] ?? {}),
+            kill_requested_at: killRequestedAt,
+            kill_reason: killDecision.reason,
+            kill_signal: "SIGTERM",
+          };
+          persistState(stateFile, state);
+
+          await reporter.emit({
+            message: `Worker stuck, terminating ${summarizeTask(entry.task)}: ${killDecision.reason}.`,
+            phase: "blocked",
+            level: "warn",
+            progressPct: toPercent(completedCount, totalTasks),
+            metadata: {
+              event: "worker_kill_requested",
+              task_id: taskId,
+              attempt: entry.attempt,
+              pid: entry.pid,
+              log_path: entry.logPath,
+              kill_kind: killDecision.kind,
+              kill_reason: killDecision.reason,
+              elapsed_ms: killDecision.elapsedMs,
+              idle_ms: killDecision.idleMs,
+            },
+            nextStep: "Review worker log; rerun will retry if attempts remain.",
+          }).catch((error) => {
+            console.warn(`[job] activity emit failed on worker kill: ${error.message}`);
+          });
+        }
+      } else if (
+        entry.killState.phase === "sigterm" &&
+        nowForWatchdog >= entry.killState.sigkillAtEpochMs
+      ) {
+        try {
+          entry.child?.kill("SIGKILL");
+          entry.killState.phase = "sigkill";
+          state.activeWorkers[taskId] = {
+            ...(state.activeWorkers[taskId] ?? {}),
+            kill_signal: "SIGKILL",
+          };
+          persistState(stateFile, state);
+        } catch (error) {
+          console.warn(
+            `[job] failed to SIGKILL worker ${taskId}: ${error?.message ?? error}`
+          );
+        }
+      }
     }
 
     const nowForHeartbeat = Date.now();

@@ -8,6 +8,10 @@ import {
   buildCodexPrompt,
   deriveTaskExecutionPolicy,
   isSpawnGuardRetryable,
+  evaluateResourceGuard,
+  detectMcpHandshakeFailure,
+  shouldKillWorker,
+  deriveResumePlan,
   createReporter,
   classifyTaskState,
   summarizeTaskStatuses,
@@ -28,8 +32,7 @@ test("parseArgs parses --key=value pairs", () => {
 });
 
 test("buildTaskQueue filters by workstream/task and sorts by due + priority", () => {
-  const queue = buildTaskQueue({
-    tasks: [
+  const tasks = [
       {
         id: "t3",
         title: "later due",
@@ -55,6 +58,14 @@ test("buildTaskQueue filters by workstream/task and sorts by due + priority", ()
         workstream_id: "wsA",
       },
       {
+        id: "t5",
+        title: "already done",
+        status: "done",
+        priority: "high",
+        due_date: "2026-02-01",
+        workstream_id: "wsA",
+      },
+      {
         id: "t4",
         title: "other workstream",
         status: "todo",
@@ -62,7 +73,10 @@ test("buildTaskQueue filters by workstream/task and sorts by due + priority", ()
         due_date: "2026-02-08",
         workstream_id: "wsB",
       },
-    ],
+    ];
+
+  const queue = buildTaskQueue({
+    tasks,
     selectedWorkstreamIds: ["wsA"],
     selectedTaskIds: [],
   });
@@ -71,6 +85,26 @@ test("buildTaskQueue filters by workstream/task and sorts by due + priority", ()
     queue.map((task) => task.id),
     ["t1", "t3", "t2"]
   );
+
+  const queueWithDone = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: [],
+    includeDone: true,
+  });
+
+  assert.deepEqual(
+    queueWithDone.map((task) => task.id),
+    ["t1", "t3", "t2", "t5"]
+  );
+
+  const queueExplicitDone = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: ["t5"],
+  });
+
+  assert.ok(queueExplicitDone.some((task) => task.id === "t5"));
 });
 
 test("extractPlanContext prefers task/workstream match", () => {
@@ -123,6 +157,39 @@ test("buildCodexPrompt includes task and plan references", () => {
   assert.match(prompt, /Spawn domain:\s+engineering/);
   assert.match(prompt, /\$orgx-engineering-agent/);
   assert.match(prompt, /Spawn guard model tier:\s+sonnet/);
+});
+
+test("buildCodexPrompt embeds skill docs when provided", () => {
+  const prompt = buildCodexPrompt({
+    task: {
+      id: "task_1",
+      title: "Task",
+      workstream_id: "ws_1",
+      milestone_id: "ms_1",
+    },
+    planPath: "/tmp/plan.md",
+    planContext: "plan excerpt",
+    initiativeId: "init_1",
+    jobId: "job_1",
+    attempt: 1,
+    totalTasks: 1,
+    completedTasks: 0,
+    taskDomain: "engineering",
+    requiredSkills: ["orgx-engineering-agent"],
+    spawnGuardResult: { modelTier: "sonnet", allowed: true },
+    skillDocs: [
+      {
+        skill: "orgx-engineering-agent",
+        path: "/tmp/skill.md",
+        content: "# Skill content",
+      },
+    ],
+  });
+
+  assert.match(prompt, /Embedded skill docs:/);
+  assert.match(prompt, /orgx-engineering-agent/);
+  assert.match(prompt, /\/tmp\/skill\.md/);
+  assert.match(prompt, /# Skill content/);
 });
 
 test("deriveTaskExecutionPolicy infers domain and required skill", () => {
@@ -309,4 +376,136 @@ test("computeWorkstreamRollup derives status + percent from task states", () => 
   const complete = computeWorkstreamRollup(["done", "completed"]);
   assert.equal(complete.status, "done");
   assert.equal(complete.progressPct, 100);
+});
+
+test("evaluateResourceGuard throttles when load or memory exceeds thresholds", () => {
+  const throttled = evaluateResourceGuard(
+    {
+      cpuCount: 4,
+      load1: 5,
+      freeMemBytes: 256 * 1024 * 1024,
+      totalMemBytes: 8 * 1024 * 1024 * 1024,
+    },
+    {
+      maxLoadRatio: 0.9,
+      minFreeMemBytes: 512 * 1024 * 1024,
+      minFreeMemRatio: 0.05,
+    }
+  );
+
+  assert.equal(throttled.throttle, true);
+  assert.ok(throttled.reasons.some((reason) => reason.includes("load ratio")));
+  assert.ok(throttled.reasons.some((reason) => reason.includes("free memory")));
+
+  const ok = evaluateResourceGuard(
+    {
+      cpuCount: 8,
+      load1: 1,
+      freeMemBytes: 4 * 1024 * 1024 * 1024,
+      totalMemBytes: 8 * 1024 * 1024 * 1024,
+    },
+    {
+      maxLoadRatio: 0.9,
+      minFreeMemBytes: 512 * 1024 * 1024,
+      minFreeMemRatio: 0.05,
+    }
+  );
+  assert.equal(ok.throttle, false);
+});
+
+test("detectMcpHandshakeFailure extracts server and reason from worker logs", () => {
+  const payload = [
+    "OpenAI Codex v0.98.0",
+    "mcp: Github failed: MCP client for `Github` failed to start: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response",
+    "other output",
+  ].join("\n");
+
+  const detected = detectMcpHandshakeFailure(payload);
+  assert.ok(detected);
+  assert.equal(detected.kind, "mcp_handshake");
+  assert.equal(detected.server?.toLowerCase(), "github");
+  assert.match(detected.line, /handshaking with mcp server failed/i);
+});
+
+test("shouldKillWorker triggers when timeout or log stall is exceeded", () => {
+  const now = 1_000_000;
+  const decisionTimeout = shouldKillWorker(
+    {
+      nowEpochMs: now,
+      startedAtEpochMs: now - 11_000,
+      logUpdatedAtEpochMs: now - 1_000,
+    },
+    { timeoutMs: 10_000, stallMs: 60_000 }
+  );
+  assert.equal(decisionTimeout.kill, true);
+  assert.equal(decisionTimeout.kind, "timeout");
+
+  const decisionStall = shouldKillWorker(
+    {
+      nowEpochMs: now,
+      startedAtEpochMs: now - 5_000,
+      logUpdatedAtEpochMs: now - 70_000,
+    },
+    { timeoutMs: 60_000, stallMs: 60_000 }
+  );
+  assert.equal(decisionStall.kill, true);
+  assert.equal(decisionStall.kind, "log_stall");
+
+  const ok = shouldKillWorker(
+    {
+      nowEpochMs: now,
+      startedAtEpochMs: now - 5_000,
+      logUpdatedAtEpochMs: now - 1_000,
+    },
+    { timeoutMs: 60_000, stallMs: 60_000 }
+  );
+  assert.equal(ok.kill, false);
+});
+
+test("deriveResumePlan skips done/blocked tasks unless selected or retry_blocked", () => {
+  const queue = [
+    { id: "t1", title: "done", status: "todo" },
+    { id: "t2", title: "blocked", status: "todo" },
+    { id: "t3", title: "todo", status: "todo" },
+  ];
+
+  const resumeState = {
+    taskStates: {
+      t1: { status: "done", attempts: 1 },
+      t2: { status: "blocked", attempts: 2 },
+    },
+  };
+
+  const noRetry = deriveResumePlan({
+    queue,
+    resumeState,
+    retryBlocked: false,
+    selectedTaskIds: [],
+  });
+  assert.deepEqual(
+    noRetry.pending.map((task) => task.id),
+    ["t3"]
+  );
+
+  const withRetry = deriveResumePlan({
+    queue,
+    resumeState,
+    retryBlocked: true,
+    selectedTaskIds: [],
+  });
+  assert.deepEqual(
+    withRetry.pending.map((task) => task.id),
+    ["t2", "t3"]
+  );
+
+  const selectedOverrides = deriveResumePlan({
+    queue,
+    resumeState,
+    retryBlocked: false,
+    selectedTaskIds: ["t1", "t2"],
+  });
+  assert.deepEqual(
+    selectedOverrides.pending.map((task) => task.id),
+    ["t1", "t2", "t3"]
+  );
 });
