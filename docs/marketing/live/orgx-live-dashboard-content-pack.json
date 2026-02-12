@@ -1,0 +1,35 @@
+{
+  "campaign_id": "orgx-live-dashboard-activation-2026-02",
+  "content_items": [
+    {
+      "channel": "web",
+      "content": "Hero H1 options for /live:\nA) OrgX Live: a command center for your agents\nB) Watch execution. Approve decisions. Ship faster.\nC) One live dashboard for agentic work\n\nSubhead options:\nA) Orchestrate agents, approve decisions, and track progress from a single live dashboard inside OpenClaw.\nB) Real-time activity, mission control for initiatives, and a decisions queue that unblocks execution.\n\nPrimary CTA options:\n- Open Live Dashboard\n- Connect OrgX\n- Pair Workspace\n\nSecondary CTA options:\n- Explore demo dashboard\n- Use API key\n- Setup guide\n\nHelper microcopy under CTA:\n- Local-first. Connect when ready.\n- Demo mode available. Continue offline supported.",
+      "cta": "Open Live Dashboard"
+    },
+    {
+      "channel": "web",
+      "content": "Section: What you get (scan bullets)\n- Activity Timeline: a real-time feed of agent work with threaded session views.\n- Decisions: pending approvals with inline approve/reject so work keeps moving.\n- Mission Control: initiatives, workstreams, milestones, and tasks in one place.\n- Reliability: buffered outbox + replay visibility so you do not lose the execution story.\n\nSection CTA (mid-page):\n- Start with the demo\n- Connect OrgX to go live\n\nRisk reversal line:\n- You can explore the dashboard before connecting.",
+      "cta": "Connect OrgX"
+    },
+    {
+      "channel": "in_product",
+      "content": "Onboarding panel copy (tight):\nHeadline: Connect your workspace\nSubhead: Orchestrate agents, approve decisions, and track progress from a single live dashboard.\nPrimary button: Connect OrgX\nSecondary button: Use API key\nTertiary links: Explore demo dashboard | Continue offline | Setup guide\n\nError state copy:\n- Could not connect. Check pairing status or try API key.\n- Retry\n\nSuccess toast copy:\n- Connected. Live session stream is now active.",
+      "cta": "Connect OrgX"
+    },
+    {
+      "channel": "twitter",
+      "content": "1/ Shipping agentic work without a command center is chaos: runs go dark, approvals get lost, and plans drift.\n\n2/ OrgX Live is a single dashboard inside OpenClaw that shows what agents are doing right now.\n\n3/ You get an Activity Timeline (threaded sessions), Mission Control for initiatives, and a Decisions queue with inline approve/reject.\n\n4/ The best part: reliability. Offline events buffer + replay so you keep the full execution story.\n\n5/ Setup is low friction: install the plugin, open /orgx/live, then connect via browser pairing or paste an API key.\n\n6/ Want to look first? Explore the demo dashboard, then connect when ready.\n\nTry it: open http://127.0.0.1:18789/orgx/live",
+      "cta": "Open /orgx/live"
+    },
+    {
+      "channel": "linkedin",
+      "content": "If you are running agents in production (or even just shipping with them daily), you need one thing: a live command center.\n\nOrgX Live (inside OpenClaw) gives you a single dashboard for agentic execution:\n- Activity Timeline with threaded sessions\n- Mission Control for initiatives, workstreams, milestones, and tasks\n- Decisions queue with inline approve/reject\n- Offline buffering + replay visibility for reliable timelines\n\nLocal-first setup: install the plugin, open /orgx/live, then connect via pairing or API key.\n\nIf you want to see it before you connect, the demo dashboard is built in.\n\nWhat would you want on your agent mission control screen first: decisions, progress, or run timelines?",
+      "cta": "Open /orgx/live"
+    },
+    {
+      "channel": "email",
+      "content": "Subject options: Your OrgX Live dashboard is ready | Get a live command center for your agents\n\nBody snippet:\nOpenClaw + OrgX now has a live dashboard at /orgx/live. You can watch execution in real time, approve decisions inline, and track progress across initiatives without losing the thread.\n\nIf you are not ready to connect yet, start in demo mode and get familiar with the surfaces. When you are ready, connect via pairing (recommended) or paste an API key from useorgx.com.\n\nPS: Offline? No problem. Events buffer and replay so your activity timeline stays complete.",
+      "cta": "Open /orgx/live"
+    }
+  ]
+}

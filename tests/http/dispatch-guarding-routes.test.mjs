@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { createHttpHandler } from "../../dist/http-handler.js";
 
 function createStubResponse() {
@@ -243,6 +247,15 @@ test("Agent launch returns 429 when spawn-guard is rate-limited", async () => {
 });
 
 test("Agent restart blocks on spawn-guard denial before spawning a new run", async () => {
+  // Hermetic env: avoid accidentally reading/writing real ~/.openclaw during tests.
+  const originalHome = process.env.HOME;
+  const originalOpenClawHome = process.env.OPENCLAW_HOME;
+  const home = mkdtempSync(join(tmpdir(), "orgx-dispatch-guarding-"));
+  const openclawHome = join(home, ".openclaw");
+  mkdirSync(openclawHome, { recursive: true });
+  process.env.HOME = home;
+  process.env.OPENCLAW_HOME = openclawHome;
+
   const config = baseConfig();
   const calls = {
     applyChangeset: [],
@@ -252,120 +265,125 @@ test("Agent restart blocks on spawn-guard denial before spawning a new run", asy
   let guardBlocked = false;
   let spawnCount = 0;
 
-  const client = {
-    getBaseUrl: () => config.baseUrl,
-    listEntities: async (type) => {
-      if (type === "task") {
-        return {
-          data: [
-            {
-              id: "task-1",
-              status: "todo",
-              initiative_id: "init-1",
-              workstream_id: "ws-1",
+  try {
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      listEntities: async (type) => {
+        if (type === "task") {
+          return {
+            data: [
+              {
+                id: "task-1",
+                status: "todo",
+                initiative_id: "init-1",
+                workstream_id: "ws-1",
+              },
+            ],
+          };
+        }
+        return { data: [] };
+      },
+      updateEntity: async () => ({ ok: true }),
+      applyChangeset: async (payload) => {
+        calls.applyChangeset.push(payload);
+        return { ok: true, run_id: "run_1", changeset_id: "cs_1" };
+      },
+      emitActivity: async (payload) => {
+        calls.emitActivity.push(payload);
+        return { ok: true, run_id: "run_1", event_id: null, reused_run: false };
+      },
+      checkSpawnGuard: async (domain, taskId) => {
+        calls.checkSpawnGuard.push({ domain, taskId });
+        if (!guardBlocked) {
+          return {
+            allowed: true,
+            modelTier: "sonnet",
+            checks: {
+              rateLimit: { passed: true, current: 1, max: 10 },
+              qualityGate: { passed: true, score: 4, threshold: 3 },
+              taskAssigned: { passed: true, taskId, status: "todo" },
             },
-          ],
-        };
-      }
-      return { data: [] };
-    },
-    updateEntity: async () => ({ ok: true }),
-    applyChangeset: async (payload) => {
-      calls.applyChangeset.push(payload);
-      return { ok: true, run_id: "run_1", changeset_id: "cs_1" };
-    },
-    emitActivity: async (payload) => {
-      calls.emitActivity.push(payload);
-      return { ok: true, run_id: "run_1", event_id: null, reused_run: false };
-    },
-    checkSpawnGuard: async (domain, taskId) => {
-      calls.checkSpawnGuard.push({ domain, taskId });
-      if (!guardBlocked) {
+          };
+        }
         return {
-          allowed: true,
+          allowed: false,
           modelTier: "sonnet",
           checks: {
             rateLimit: { passed: true, current: 1, max: 10 },
-            qualityGate: { passed: true, score: 4, threshold: 3 },
+            qualityGate: { passed: false, score: 2, threshold: 3 },
             taskAssigned: { passed: true, taskId, status: "todo" },
           },
+          blockedReason: "Quality gate threshold not met",
         };
-      }
-      return {
-        allowed: false,
-        modelTier: "sonnet",
-        checks: {
-          rateLimit: { passed: true, current: 1, max: 10 },
-          qualityGate: { passed: false, score: 2, threshold: 3 },
-          taskAssigned: { passed: true, taskId, status: "todo" },
-        },
-        blockedReason: "Quality gate threshold not met",
-      };
-    },
-  };
-
-  const handler = createHttpHandler(
-    config,
-    client,
-    () => null,
-    createNoopOnboarding(),
-    undefined,
-    {
-      openclaw: {
-        listAgents: async () => [{ id: "agent-1", model: "local" }],
-        spawnAgentTurn: () => {
-          spawnCount += 1;
-          return { pid: 321 };
-        },
       },
-    }
-  );
+    };
 
-  const launchRes = createStubResponse();
-  await handler(
-    {
-      method: "POST",
-      url: "/orgx/api/agents/launch?agentId=agent-1&sessionId=00000000-0000-0000-0000-000000000111&initiativeId=init-1&workstreamId=ws-1&taskId=task-1",
-      headers: {},
-    },
-    launchRes
-  );
-  assert.equal(launchRes.status, 202);
-  const launchBody = JSON.parse(launchRes.body);
-  assert.equal(launchBody?.ok, true);
+    const handler = createHttpHandler(
+      config,
+      client,
+      () => null,
+      createNoopOnboarding(),
+      undefined,
+      {
+        openclaw: {
+          listAgents: async () => [{ id: "agent-1", model: "local" }],
+          spawnAgentTurn: () => {
+            spawnCount += 1;
+            return { pid: 321 };
+          },
+        },
+      }
+    );
 
-  guardBlocked = true;
+    const launchRes = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/agents/launch?agentId=agent-1&sessionId=00000000-0000-0000-0000-000000000111&initiativeId=init-1&workstreamId=ws-1&taskId=task-1",
+        headers: {},
+      },
+      launchRes
+    );
+    assert.equal(launchRes.status, 202);
+    const launchBody = JSON.parse(launchRes.body);
+    assert.equal(launchBody?.ok, true);
 
-  const restartRes = createStubResponse();
-  await handler(
-    {
-      method: "POST",
-      url: "/orgx/api/agents/restart?runId=00000000-0000-0000-0000-000000000111",
-      headers: {},
-    },
-    restartRes
-  );
+    guardBlocked = true;
 
-  assert.equal(restartRes.status, 409);
-  const restartBody = JSON.parse(restartRes.body);
-  assert.equal(restartBody?.ok, false);
-  assert.equal(restartBody?.code, "spawn_guard_blocked");
-  assert.equal(spawnCount, 1);
+    const restartRes = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/agents/restart?runId=00000000-0000-0000-0000-000000000111",
+        headers: {},
+      },
+      restartRes
+    );
 
-  assert.ok(
-    calls.applyChangeset.some(
-      (entry) =>
-        Array.isArray(entry.operations) &&
-        entry.operations.some((op) => op.op === "decision.create")
-    ),
-    "expected decision.create changeset on blocked restart"
-  );
-  assert.ok(
-    calls.emitActivity.some(
-      (entry) => entry?.metadata?.event === "agent_restart_spawn_guard_blocked"
-    ),
-    "expected blocked restart activity event"
-  );
+    assert.equal(restartRes.status, 409);
+    const restartBody = JSON.parse(restartRes.body);
+    assert.equal(restartBody?.ok, false);
+    assert.equal(restartBody?.code, "spawn_guard_blocked");
+    assert.equal(spawnCount, 1);
+
+    assert.ok(
+      calls.applyChangeset.some(
+        (entry) =>
+          Array.isArray(entry.operations) &&
+          entry.operations.some((op) => op.op === "decision.create")
+      ),
+      "expected decision.create changeset on blocked restart"
+    );
+    assert.ok(
+      calls.emitActivity.some(
+        (entry) => entry?.metadata?.event === "agent_restart_spawn_guard_blocked"
+      ),
+      "expected blocked restart activity event"
+    );
+  } finally {
+    process.env.HOME = originalHome;
+    process.env.OPENCLAW_HOME = originalOpenClawHome;
+  }
 });
 
 test("Next-up fallback dispatch blocks on spawn-guard denial and raises decision", async () => {

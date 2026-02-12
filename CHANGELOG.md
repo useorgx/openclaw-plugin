@@ -2,6 +2,21 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.4 - 2026-02-12
+
+### Dispatch and Reliability
+- Added resume support, resource guards, and stuck-worker recovery to the Codex dispatch job.
+- Enforced spawn-guard parity across agent launch/restart/fallback routes.
+- Made dispatch reporting best-effort so transient reporting/API errors do not abort execution.
+
+### Telemetry
+- Added PostHog telemetry hooks for improved operational visibility.
+
+### Docs and Tooling
+- Added auth flow investigation notes and ADR for identity normalization (Clerk external id → Supabase UUID).
+- Added a manual marketing-agent dispatch “golden prompt” and a live dashboard marketing copy pack.
+- Refined dispatch tooling and tests for more hermetic execution.
+
 ## 0.4.3 - 2026-02-12
 
 ### Security and IP Hardening

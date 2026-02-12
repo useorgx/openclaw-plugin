@@ -1,0 +1,34 @@
+{
+  "emails": [
+    {
+      "day": 0,
+      "subject": "{{first_name}}, your OrgX Live dashboard is ready",
+      "body": "Hi {{first_name}},\n\nOrgX Live gives you a single command center for agentic work inside OpenClaw: a real-time Activity Timeline, Mission Control for initiatives, and a Decisions queue to approve/reject inline.\n\nIf you want to see the surfaces before connecting, start with the demo dashboard. When you are ready, connect via browser pairing (recommended) or paste an API key from useorgx.com.\n\nOpen it here: http://127.0.0.1:18789/orgx/live\n\nReply to this email if pairing is blocked and we will help you get it running.",
+      "cta": "Open /orgx/live"
+    },
+    {
+      "day": 1,
+      "subject": "Pair in 60 seconds (or use an API key)",
+      "body": "You do not need a long setup to get value from OrgX Live.\n\n1) Install the plugin\n2) Open /orgx/live\n3) Connect your workspace\n\nOnce connected, you will see live sessions grouped by agent, a threaded activity feed, and the decisions that are blocking execution.\n\nIf pairing is not possible in your environment, paste a user-scoped key (oxk_...) from useorgx.com and you are good to go.",
+      "cta": "Connect OrgX"
+    },
+    {
+      "day": 3,
+      "subject": "Stop losing approvals in chat",
+      "body": "Most teams do not get stuck because agents cannot do work. They get stuck because approvals and decisions vanish into chat threads.\n\nOrgX Live keeps pending decisions in one queue with inline approve/reject, so execution does not stall while someone hunts for context.\n\nIf you have not connected yet, open the demo dashboard first and see how decisions and activity stay linked to the same session thread.",
+      "cta": "Explore demo dashboard"
+    },
+    {
+      "day": 5,
+      "subject": "Mission Control: initiatives stay aligned with live execution",
+      "body": "OrgX Live is not just a feed. It is Mission Control: initiatives, workstreams, milestones, and tasks visible alongside the sessions doing the work.\n\nThat means less drift between what you planned and what is actually happening. When something is blocked, you can see it quickly and route the right next action.\n\nIf you want this to feel reliable, the dashboard also shows buffering and replay indicators for offline events.",
+      "cta": "Open Mission Control"
+    },
+    {
+      "day": 7,
+      "subject": "Want a fast walkthrough?",
+      "body": "If you want a quick, guided walkthrough, reply with one sentence: what are you trying to ship this week?\n\nWe will point you to the fastest path inside OrgX Live to see active sessions, approvals, and progress in one place.\n\nOpen the dashboard here: http://127.0.0.1:18789/orgx/live\n\nIf you are already connected, great: the next step is to route a task through orgx_spawn_check so the right model tier is picked automatically.",
+      "cta": "Reply with your goal"
+    }
+  ]
+}

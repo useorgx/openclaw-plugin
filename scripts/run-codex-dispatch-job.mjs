@@ -352,7 +352,7 @@ export function deriveTaskExecutionPolicy(task = {}) {
   const domain =
     explicitDomain ??
     skillDerivedDomain ??
-    inferDomainFromText(task.title, task.workstream_name, task.milestone_title) ??
+    inferDomainFromText(task.title, task.description, task.workstream_name, task.milestone_title) ??
     "engineering";
 
   const defaultSkill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
@@ -419,9 +419,12 @@ function priorityWeight(value) {
 
 function stateWeight(status) {
   const normalized = String(status ?? "").toLowerCase();
-  if (normalized === "in_progress") return 0;
-  if (normalized === "todo") return 1;
-  if (normalized === "blocked") return 2;
+  // Default dispatch behavior: prefer fresh TODO work before re-dispatching
+  // tasks already marked in-progress elsewhere. Blocked tasks come next, then
+  // anything already running/in_progress.
+  if (normalized === "todo") return 0;
+  if (normalized === "blocked") return 1;
+  if (normalized === "in_progress") return 2;
   return 9;
 }
 
@@ -516,8 +519,11 @@ function sortTasks(items) {
   return [...items].sort((a, b) => {
     const statusDelta = stateWeight(a.status) - stateWeight(b.status);
     if (statusDelta !== 0) return statusDelta;
-    const dueDelta = toDateEpoch(a.due_date) - toDateEpoch(b.due_date);
-    if (dueDelta !== 0) return dueDelta;
+    const dueA = toDateEpoch(a.due_date);
+    const dueB = toDateEpoch(b.due_date);
+    // Avoid `Infinity - Infinity = NaN`, which breaks the comparator and
+    // silently disables all subsequent tie-breakers (priority/sequence/title).
+    if (dueA !== dueB) return dueA < dueB ? -1 : 1;
     const priorityDelta = priorityWeight(a.priority) - priorityWeight(b.priority);
     if (priorityDelta !== 0) return priorityDelta;
     const seqA = Number.isFinite(a.sequence) ? a.sequence : Number.POSITIVE_INFINITY;
@@ -1135,8 +1141,12 @@ export function buildTaskQueue({
   const selectedTasks = new Set(selectedTaskIds);
 
   const scoped = tasks.filter((task) => {
-    const inWorkstream = selectedWs.size === 0 || selectedWs.has(task.workstream_id);
-    const inTaskSet = selectedTasks.size === 0 || selectedTasks.has(task.id);
+    const isExplicitTask = selectedTasks.has(task.id);
+    // Explicit --task_ids should override workstream scoping so a single task
+    // can be dispatched without forcing --all_workstreams=true.
+    const inTaskSet = selectedTasks.size === 0 || isExplicitTask;
+    const inWorkstream =
+      selectedWs.size === 0 || selectedWs.has(task.workstream_id) || isExplicitTask;
     if (!inWorkstream || !inTaskSet) return false;
 
     // Exclude "done" tasks by default to avoid wasting cycles. If the user
@@ -1613,16 +1623,20 @@ export async function main({
   const limitedQueue = Number.isFinite(maxTasks) ? queue.slice(0, maxTasks) : queue;
 
   if (limitedQueue.length === 0) {
-    await reporter.emit({
-      message: "Dispatcher found no matching tasks to execute.",
-      phase: "completed",
-      level: "warn",
-      progressPct: 100,
-      metadata: {
-        queue_size: 0,
-        selected_workstreams: selectedWorkstreamIds,
-      },
-    });
+    await reporter
+      .emit({
+        message: "Dispatcher found no matching tasks to execute.",
+        phase: "completed",
+        level: "warn",
+        progressPct: 100,
+        metadata: {
+          queue_size: 0,
+          selected_workstreams: selectedWorkstreamIds,
+        },
+      })
+      .catch((error) => {
+        console.warn(`[job] final emit failed (no tasks): ${error.message}`);
+      });
     console.log("[job] no tasks to run");
     return { ok: true, jobId, totalTasks: 0 };
   }
@@ -1841,34 +1855,38 @@ export async function main({
   let completedCount = completed.size;
   let lastResourceThrottleAt = 0;
 
-  await reporter.emit({
-    message: resumeState
-      ? `Codex dispatch job resumed for ${totalTasks} tasks (${pending.length} pending).`
-      : `Codex dispatch job started for ${totalTasks} tasks.`,
-    phase: "intent",
-    level: "info",
-    progressPct: toPercent(completedCount, totalTasks),
-    metadata: {
-      total_tasks: totalTasks,
-      pending_tasks: pending.length,
-      already_completed: completed.size,
-      already_blocked: failed.size,
-      selected_workstreams: selectedWorkstreamIds.length > 0
-        ? selectedWorkstreamIds
-        : "all",
-      empty_workstreams: emptyWorkstreams,
-      codex_bin: codexBin,
-      codex_args: codexArgs,
-      decision_on_block: decisionOnBlock,
-      worker_timeout_sec: Math.round(workerTimeoutMs / 1_000),
-      worker_log_stall_sec: Math.round(workerLogStallMs / 1_000),
-      resource_guard: resourceGuard,
-      max_load_ratio: maxLoadRatio,
-      min_free_mem_mb: minFreeMemMb,
-      min_free_mem_ratio: minFreeMemRatio,
-      ...resumeMetadata,
-    },
-  });
+  // Reporting is best-effort; don't abort the dispatch loop on transient API errors.
+  await reporter
+    .emit({
+      message: resumeState
+        ? `Codex dispatch job resumed for ${totalTasks} tasks (${pending.length} pending).`
+        : `Codex dispatch job started for ${totalTasks} tasks.`,
+      phase: "intent",
+      level: "info",
+      progressPct: toPercent(completedCount, totalTasks),
+      metadata: {
+        total_tasks: totalTasks,
+        pending_tasks: pending.length,
+        already_completed: completed.size,
+        already_blocked: failed.size,
+        selected_workstreams:
+          selectedWorkstreamIds.length > 0 ? selectedWorkstreamIds : "all",
+        empty_workstreams: emptyWorkstreams,
+        codex_bin: codexBin,
+        codex_args: codexArgs,
+        decision_on_block: decisionOnBlock,
+        worker_timeout_sec: Math.round(workerTimeoutMs / 1_000),
+        worker_log_stall_sec: Math.round(workerLogStallMs / 1_000),
+        resource_guard: resourceGuard,
+        max_load_ratio: maxLoadRatio,
+        min_free_mem_mb: minFreeMemMb,
+        min_free_mem_ratio: minFreeMemRatio,
+        ...resumeMetadata,
+      },
+    })
+    .catch((error) => {
+      console.warn(`[job] activity emit failed on startup: ${error.message}`);
+    });
 
   while (pending.length > 0 || running.size > 0) {
     const now = Date.now();

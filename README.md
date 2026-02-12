@@ -160,6 +160,9 @@ Notes:
 - `ORGX_USER_ID` is legacy and only needed with legacy service-key flows.
 - User-scoped `oxk_...` API keys should not send `X-Orgx-User-Id`.
 
+Manual dispatch:
+- Use `docs/marketing/manual-agent-dispatch-golden-prompt.md` when manually launching a marketing agent for a specific task (non-batched dispatch).
+
 ## API Endpoints
 
 When the plugin is loaded, these HTTP endpoints are available:

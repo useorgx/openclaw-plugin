@@ -1,0 +1,12 @@
+{
+  "title": "ADR-0001: Treat Clerk user IDs as external identity; normalize to Supabase UUID at API boundaries",
+  "status": "accepted",
+  "context": "OrgX spans multiple auth surfaces: Clerk (web sign-in), API keys for client integrations (oxk_), a service key for the MCP worker, and OAuth access tokens for MCP clients (including ChatGPT connectors). Across these surfaces, a user identity may appear as a Clerk user id (user_...) or a Supabase UUID. OrgX tables and APIs commonly require UUID-typed owner/requester identifiers. Without a consistent normalization rule, different routes can either fail with invalid UUID errors or write mismatched owner identifiers. Evidence: OrgX API key auth resolves api_keys.user_id (Clerk external id) to a Supabase UUID (orgx/lib/server/auth/apiKeyAuth.ts). Client write auth resolves X-Orgx-User-Id (propagated from the MCP worker) to a Supabase UUID (orgx/lib/server/auth/clientWriteAuth.ts).",
+  "decision": "We treat Clerk user ids (user_...) as external identity only. Any API boundary that accepts a user identifier from a client, a gateway header (X-Orgx-User-Id), OAuth props, or request bodies must normalize that external id to a Supabase UUID before database access or before emitting UUID-typed identifiers. For the OpenClaw plugin, user-scoped oxk_ API keys are the primary identity signal; the plugin must not send X-Orgx-User-Id for oxk_ keys, and persisted auth must keep userId null for oxk_ keys.",
+  "consequences": [
+    "Service-key routes can safely propagate X-Orgx-User-Id as a Clerk external id, but handlers must resolve it to a Supabase UUID (createIfMissing=false) before DB writes to UUID-typed columns.",
+    "Client routes authenticated via API keys should rely on the API key auth result for requester identity and should not require clients to provide user IDs.",
+    "Any new route that uses gateway-propagated user identity must either (a) resolve it via resolveSupabaseUserIdForExternal, or (b) call a shared helper that enforces the normalization rule, to avoid silent drift.",
+    "If the system later chooses to propagate Supabase UUIDs directly in OAuth props, this ADR would be revisited; current implementation assumes OAuth userId is the Clerk id."
+  ]
+}

@@ -28,6 +28,8 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - Disconnect flow:
   - `POST /orgx/api/onboarding/disconnect`
 - Runtime credential update and secure persisted storage.
+- Auth flow investigation notes (Clerk, MCP, ChatGPT, OpenClaw):
+  - `docs/auth/auth-flows-investigation-2026-02-12.md`
 
 ## 3) MCP Tool Inventory (Current)
 

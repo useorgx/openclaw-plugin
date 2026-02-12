@@ -1,0 +1,100 @@
+{
+  "campaign_name": "OrgX Live Dashboard (/orgx/live) Conversion Copy",
+  "objective": "By 2026-02-14, increase /orgx/live onboarding-start conversion to 15% and drive 60 successful OrgX workspace connects (pairing or API key) with 20 weekly active dashboards.",
+  "target_audience": {
+    "primary_icp": "Builders and operators shipping agentic workflows (founders, product/eng leads, ops leads) who need a single place to monitor agents, unblock approvals, and keep execution aligned.",
+    "secondary_icp": "Teams adopting OpenClaw who want orchestration and auditability without standing up a separate control plane.",
+    "pain_points": [
+      "Agent runs feel like a black box: you cannot quickly see what is happening, what is blocked, and what is next.",
+      "Approvals and decisions get lost in chat tools, slowing execution and creating rework.",
+      "Work tracking drifts: plans, tasks, and what agents are actually doing fall out of sync.",
+      "When connectivity is flaky, events get dropped and you lose a reliable execution timeline.",
+      "Teams want a low-friction setup (pairing or key) that works locally first, then scales."
+    ]
+  },
+  "offer": {
+    "primary": "A live command center for OrgX inside OpenClaw: watch execution, approve decisions, and track progress in real time.",
+    "setup": "Install the plugin, open /orgx/live, then connect via browser pairing or API key.",
+    "risk_reversal": "Explore the demo dashboard or continue offline first; connect when ready."
+  },
+  "messaging_pillars": [
+    {
+      "pillar": "One dashboard for execution",
+      "proof_points": [
+        "Activity Timeline with threaded session views.",
+        "Initiatives, workstreams, milestones, and tasks visible in Mission Control."
+      ]
+    },
+    {
+      "pillar": "Approve and unblock in minutes",
+      "proof_points": [
+        "Decisions queue with inline approve/reject.",
+        "Agent status + current tasks surfaced without hunting across tools."
+      ]
+    },
+    {
+      "pillar": "Reliable live signal (even when offline)",
+      "proof_points": [
+        "SSE live stream plus local fallback paths.",
+        "Outbox buffering + replay visibility for offline events."
+      ]
+    },
+    {
+      "pillar": "Model routing and quality gates",
+      "proof_points": [
+        "Pre-spawn quality gate via orgx_spawn_check.",
+        "Automatic model tier routing (opus/sonnet/local) by task type."
+      ]
+    }
+  ],
+  "channels": [
+    "web (/live landing + /orgx/live onboarding surfaces)",
+    "in-product (onboarding panels + empty states)",
+    "twitter (thread + short clips/GIFs)",
+    "linkedin (one post + one follow-up comment)",
+    "email (5-touch activation sequence)"
+  ],
+  "success_metrics": [
+    {
+      "metric": "Onboarding-start conversion from /orgx/live",
+      "target": "15% by 2026-02-14"
+    },
+    {
+      "metric": "Successful connects (pairing or API key)",
+      "target": "60 connects by 2026-02-14"
+    },
+    {
+      "metric": "Weekly active dashboards",
+      "target": "20 WAU by 2026-02-14"
+    },
+    {
+      "metric": "Decision approvals completed from dashboard",
+      "target": "30 approvals by 2026-02-14"
+    }
+  ],
+  "timeline": [
+    {
+      "milestone": "Copy package drafted + validated",
+      "date": "2026-02-12"
+    },
+    {
+      "milestone": "Ship /live page + onboarding copy updates",
+      "date": "2026-02-13"
+    },
+    {
+      "milestone": "Launch distribution (thread + LinkedIn + email)",
+      "date": "2026-02-14"
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesis": "If we lead with 'single live dashboard' + explicit proof (decisions queue, mission control, offline replay), then more users will start onboarding because the value is concrete and de-risked.",
+      "how_to_test": "A/B test hero headline + subhead; measure click-through on primary CTA and onboarding-start rate.",
+      "success_criteria": "Primary CTA CTR +25% and onboarding-start conversion >= 15%."
+    }
+  ],
+  "notes": {
+    "naming": "Task request says /live; plugin route is /orgx/live. This campaign targets both: /live as marketing entry and /orgx/live as the actual dashboard.",
+    "compliance": "Avoid unsupported performance claims; keep proof points tied to shipping features listed in repo docs."
+  }
+}
