@@ -2,6 +2,20 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.5 - 2026-02-12
+
+### Plugin Runtime
+- Fixed outbox replay reliability and improved resiliency during reconnection.
+- Added a local MCP bridge to support more robust local operations and tooling.
+
+### Dashboard UX
+- Elevated Agents, Decisions, and Mission Control UX polish.
+- Added bulk modals for header metrics to enable cleaner batch actions.
+
+### Docs and QA Artifacts
+- Clarified local MCP bridge setup, configuration, and ops controls.
+- Refreshed Mission Control UX audit fixtures and snapshot artifacts.
+
 ## 0.4.4 - 2026-02-12
 
 ### Dispatch and Reliability
