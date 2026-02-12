@@ -6,6 +6,7 @@ import { resolveProvider } from '@/lib/providers';
 import type { Initiative, LiveActivityItem, SessionTreeNode } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
+import { Markdown } from '@/components/shared/Markdown';
 
 interface SessionInspectorProps {
   session: SessionTreeNode | null;
@@ -274,9 +275,9 @@ export const SessionInspector = memo(function SessionInspector({
           )}
 
           {sessionSummary && (
-            <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[12px] leading-relaxed text-white/65">
-              {sessionSummary}
-            </p>
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+              <Markdown>{sessionSummary}</Markdown>
+            </div>
           )}
 
           {progressValue !== null && (

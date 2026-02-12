@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AutoContinueStatusResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
+import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 
 interface UseAutoContinueOptions {
   initiativeId?: string | null;
@@ -113,10 +114,12 @@ export function useAutoContinue({
 
       const body = (await response.json().catch(() => null)) as
         | AutoContinueStatusResponse
-        | { ok?: boolean; run?: unknown; error?: string; message?: string }
+        | { ok?: boolean; run?: unknown; error?: string; message?: string; code?: string }
         | null;
 
       if (!response.ok) {
+        const upgradeError = parseUpgradeRequiredError(body);
+        if (upgradeError) throw upgradeError;
         const message =
           (typeof (body as any)?.error === 'string' && (body as any).error) ||
           (typeof (body as any)?.message === 'string' && (body as any).message) ||

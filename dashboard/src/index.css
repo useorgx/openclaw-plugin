@@ -191,6 +191,18 @@
     color: #8ff7ec;
   }
 
+  .control-pill[data-tone='amber'] {
+    border-color: rgba(251, 191, 36, 0.3);
+    background: rgba(251, 191, 36, 0.12);
+    color: rgba(255, 246, 214, 0.92);
+  }
+
+  .control-pill[data-tone='amber']:hover {
+    border-color: rgba(251, 191, 36, 0.42);
+    background: rgba(251, 191, 36, 0.16);
+    color: rgba(255, 250, 230, 0.98);
+  }
+
   .status-pill {
     display: inline-flex;
     align-items: center;

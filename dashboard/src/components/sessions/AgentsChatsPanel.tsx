@@ -32,16 +32,16 @@ interface AgentsChatsPanelProps {
 
 const MAX_VISIBLE_GROUPS = 120;
 const MAX_VISIBLE_CHILD_SESSIONS = 10;
-const LIVE_STATUSES = new Set([
+const ACTIVE_STATUSES = new Set([
   'running',
   'active',
   'queued',
   'pending',
-  'blocked',
   'in_progress',
   'working',
   'planning',
 ]);
+const ATTENTION_STATUSES = new Set(['blocked', 'failed']);
 const HISTORY_FILTERS = [
   { id: 'live', label: 'Live', minutes: null },
   { id: 'all', label: 'All', minutes: null },
@@ -111,7 +111,14 @@ function sessionGroupKey(node: SessionTreeNode): string {
 
 function isLiveStatus(status: string | null | undefined): boolean {
   const normalized = normalizeIdentity(status);
-  return normalized ? LIVE_STATUSES.has(normalized) : false;
+  return normalized
+    ? ACTIVE_STATUSES.has(normalized) || ATTENTION_STATUSES.has(normalized)
+    : false;
+}
+
+function isActiveStatus(status: string | null | undefined): boolean {
+  const normalized = normalizeIdentity(status);
+  return normalized ? ACTIVE_STATUSES.has(normalized) : false;
 }
 
 function isCatalogAgentLive(agent: OpenClawCatalogAgent | null | undefined): boolean {
@@ -467,7 +474,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
 
       const visibleNodes = group.nodes.filter((node) => {
-        if (isLiveStatus(node.status)) return true;
+        // Treat only actively progressing runs as "always visible" within time windows.
+        // Blocked/failed runs should respect the selected time filter so "24h/7d" feels real.
+        if (isActiveStatus(node.status)) return true;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch >= cutoffEpoch;
       });
@@ -490,7 +499,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
 
       const archivedNodes = group.nodes.filter((node) => {
-        if (isLiveStatus(node.status)) return false;
+        if (isActiveStatus(node.status)) return false;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch < cutoffEpoch;
       });
@@ -535,6 +544,25 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     [archivedGroups]
   );
 
+  const groupKeysWithSessions = useMemo(
+    () => agents.filter((group) => group.nodes.length > 0).map((group) => group.groupKey),
+    [agents]
+  );
+
+  const collapseAllState = useMemo(() => {
+    if (groupKeysWithSessions.length === 0) {
+      return { allCollapsed: false, allExpanded: true };
+    }
+    let collapsedCount = 0;
+    for (const key of groupKeysWithSessions) {
+      if (collapsed.has(key)) collapsedCount += 1;
+    }
+    return {
+      allCollapsed: collapsedCount === groupKeysWithSessions.length,
+      allExpanded: collapsedCount === 0,
+    };
+  }, [collapsed, groupKeysWithSessions]);
+
   const paginatedArchivedSessions = useMemo(() => {
     const allSessions: { node: SessionTreeNode; agentName: string }[] = [];
     for (const group of archivedGroups) {
@@ -555,6 +583,15 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         next.add(id);
       }
       return next;
+    });
+  };
+
+  const toggleCollapseAll = () => {
+    setCollapsed(() => {
+      if (collapseAllState.allCollapsed) {
+        return new Set();
+      }
+      return new Set(groupKeysWithSessions);
     });
   };
 
@@ -614,13 +651,26 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               {visibleSessionCount}/{sessions.nodes.length}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setLaunchModalOpen(true)}
-            className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
-          >
-            Launch
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleCollapseAll}
+              disabled={groupKeysWithSessions.length === 0}
+              className="hidden rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-45 sm:inline-flex"
+              title={
+                collapseAllState.allCollapsed ? 'Expand all agent groups' : 'Collapse all agent groups'
+              }
+            >
+              {collapseAllState.allCollapsed ? 'Expand all' : 'Collapse all'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLaunchModalOpen(true)}
+              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              Launch
+            </button>
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[11px] text-white/45">History</span>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NextUpQueueItem, NextUpQueueResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
+import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 
 interface UseNextUpQueueOptions {
   initiativeId?: string | null;
@@ -27,7 +28,7 @@ async function readResponseJson<T>(response: Response): Promise<T | null> {
 
 function normalizeErrorMessage(
   response: Response,
-  body: { error?: string; message?: string } | null,
+  body: any | null,
   fallback: string
 ): string {
   return (
@@ -141,8 +142,10 @@ export function useNextUpQueue({
         }),
       });
 
-      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      const body = await readResponseJson<unknown>(response);
       if (!response.ok) {
+        const upgradeError = parseUpgradeRequiredError(body);
+        if (upgradeError) throw upgradeError;
         throw new Error(
           normalizeErrorMessage(response, body, 'Failed to start auto-continue')
         );

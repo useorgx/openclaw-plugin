@@ -67,6 +67,16 @@ const SESSION_PRIORITY: Record<string, number> = {
   archived: 7,
 };
 
+const ACTIVE_SESSION_METRIC_STATUSES = new Set([
+  'running',
+  'active',
+  'queued',
+  'pending',
+  'in_progress',
+  'working',
+  'planning',
+]);
+
 type HeaderNotification = {
   id: string;
   kind: 'error' | 'info';
@@ -404,7 +414,8 @@ function DashboardShell({
   );
 
   const activeSessionCount = useMemo(
-    () => data.sessions.nodes.filter((node) => ['running', 'queued', 'pending'].includes(node.status)).length,
+    () =>
+      data.sessions.nodes.filter((node) => ACTIVE_SESSION_METRIC_STATUSES.has(node.status)).length,
     [data.sessions.nodes]
   );
 
@@ -424,30 +435,35 @@ function DashboardShell({
       label: string;
       value: number;
       color: string;
+      icon: EntityIconType;
     }> = [
       {
         id: 'sessions',
         label: 'Sessions',
         value: data.sessions.nodes.length,
         color: colors.teal,
+        icon: 'session',
       },
       {
         id: 'active',
         label: 'Active',
         value: activeSessionCount,
         color: activeSessionCount > 0 ? colors.lime : colors.textMuted,
+        icon: 'active',
       },
       {
         id: 'blocked',
         label: 'Blocked',
         value: blockedCount,
         color: blockedCount > 0 ? colors.red : colors.textMuted,
+        icon: 'blocked',
       },
       {
         id: 'failed',
         label: 'Failed',
         value: failedCount,
         color: failedCount > 0 ? colors.red : colors.textMuted,
+        icon: 'failed',
       },
       {
         id: 'decisions',
@@ -457,6 +473,7 @@ function DashboardShell({
           decisionsVisible && data.decisions.length > 0
             ? colors.amber
             : colors.textMuted,
+        icon: 'decision',
       },
       {
         id: 'outbox',
@@ -468,6 +485,7 @@ function DashboardShell({
             : data.outbox.pendingTotal > 0
               ? colors.amber
               : colors.textMuted,
+        icon: 'outbox',
       },
     ];
     if (data.handoffs.length > 0) {
@@ -476,6 +494,7 @@ function DashboardShell({
         label: 'Handoffs',
         value: data.handoffs.length,
         color: colors.iris,
+        icon: 'handoff',
       });
     }
     return metrics;
@@ -1457,7 +1476,7 @@ function DashboardShell({
                       key={metric.id}
                       className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px]"
                     >
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
+                      <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
                       <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
                       <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {metric.value}
@@ -1587,10 +1606,12 @@ function DashboardShell({
               key={metric.id}
               type="button"
               onClick={() => handleCompactMetricClick(metric.id)}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
               title={`Bulk actions: ${metric.label.toLowerCase()}`}
             >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: metric.color }} />
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.02]">
+                <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
+              </span>
               <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {metric.value}
               </span>
