@@ -286,10 +286,25 @@ export class OrgXClient {
     domain: string,
     taskId?: string
   ): Promise<SpawnGuardResult> {
-    return this.post<SpawnGuardResult>("/api/client/spawn", {
+    const response = await this.post<
+      SpawnGuardResult | { ok?: boolean; data?: SpawnGuardResult }
+    >("/api/client/spawn", {
       domain,
       taskId,
     });
+
+    // Newer servers wrap responses in { ok, data } while older clients expect the
+    // SpawnGuardResult fields at top-level.
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data as SpawnGuardResult;
+    }
+
+    return response as SpawnGuardResult;
   }
 
   // ===========================================================================
@@ -297,7 +312,25 @@ export class OrgXClient {
   // ===========================================================================
 
   async recordQuality(score: QualityScore): Promise<{ success: boolean }> {
-    return this.post<{ success: boolean }>("/api/client/quality", score);
+    const response = await this.post<
+      { success: boolean } | { ok?: boolean; data?: unknown }
+    >("/api/client/quality", score);
+
+    // Backwards-compatible: accept either { success: true } or { ok: true, data: ... }.
+    if (
+      response &&
+      typeof response === "object" &&
+      "success" in response &&
+      typeof (response as { success: unknown }).success === "boolean"
+    ) {
+      return response as { success: boolean };
+    }
+
+    if (response && typeof response === "object" && "ok" in response) {
+      return { success: Boolean((response as { ok?: unknown }).ok) };
+    }
+
+    return { success: true };
   }
 
   // ===========================================================================

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import posthog from 'posthog-js';
 
 import type { OnboardingState } from '@/types';
 
@@ -249,6 +250,16 @@ async function readJson<T>(request: Promise<Response>): Promise<ApiResponse<T>> 
   return payload ?? {};
 }
 
+function maybeIdentify(installationId: string | null | undefined) {
+  if (!installationId) return;
+  try {
+    // Keep dashboard + plugin runtime events correlated on the same distinct_id.
+    posthog.identify(installationId);
+  } catch {
+    // best effort
+  }
+}
+
 export function useOnboarding() {
   const [state, setState] = useState<OnboardingState>(DEFAULT_STATE);
   const [isLoading, setIsLoading] = useState(true);
@@ -277,6 +288,7 @@ export function useOnboarding() {
       return fallback;
     }
 
+    maybeIdentify(payload.data.installationId ?? null);
     setState(payload.data);
     return payload.data;
   }, []);
@@ -309,6 +321,7 @@ export function useOnboarding() {
         fetch('/orgx/api/onboarding/status', { method: 'GET' })
       );
       if (payload.ok && payload.data) {
+        maybeIdentify(payload.data.installationId ?? null);
         setState(payload.data);
       }
     }, intervalMs);
@@ -457,6 +470,7 @@ export function useOnboarding() {
           );
 
           if (payload.ok && payload.data) {
+            maybeIdentify(payload.data.installationId ?? null);
             setState(payload.data);
             return payload.data;
           }
@@ -486,6 +500,7 @@ export function useOnboarding() {
     );
 
     if (payload.ok && payload.data) {
+      maybeIdentify(payload.data.installationId ?? null);
       setState(payload.data);
       return payload.data;
     }

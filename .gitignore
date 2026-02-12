@@ -69,3 +69,6 @@ artifacts/**/*.webp
 
 # dotenv environment variables file
 .env
+
+# Local Codex dispatch scratch
+.orgx-codex-jobs/
