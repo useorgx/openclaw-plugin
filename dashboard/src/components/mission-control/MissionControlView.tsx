@@ -1520,7 +1520,9 @@ function MissionControlInner({
                       className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                        {nextActionQueueItem ? (
+                        {nextActionQueue.isLoading ? (
+                          <Skeleton className="h-6 w-6 rounded-full" />
+                        ) : nextActionQueueItem ? (
                           <AgentAvatar
                             name={nextActionQueueItem.runnerAgentName}
                             hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
@@ -1534,17 +1536,33 @@ function MissionControlInner({
                             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
                               Next Up
                             </span>
-                            <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
-                              {nextUpInlineStatusLabel}
-                            </span>
+                            {nextActionQueue.isLoading ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.04] px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] text-white/60">
+                                <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
+                                Syncing
+                              </span>
+                            ) : (
+                              <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
+                                {nextUpInlineStatusLabel}
+                              </span>
+                            )}
                           </div>
-                          <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
-                            {nextUpInlineSummary}
-                          </p>
-                          <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
-                            {nextUpInlineContextLabel}
-                            {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
-                          </p>
+                          {nextActionQueue.isLoading ? (
+                            <div className="mt-1.5 space-y-1">
+                              <Skeleton className="h-3 w-56 rounded" />
+                              <Skeleton className="h-3 w-44 rounded" />
+                            </div>
+                          ) : (
+                            <>
+                              <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
+                                {nextUpInlineSummary}
+                              </p>
+                              <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
+                                {nextUpInlineContextLabel}
+                                {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="ml-auto flex items-center gap-1.5">

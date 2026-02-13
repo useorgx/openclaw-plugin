@@ -331,6 +331,22 @@
   }
 }
 
+@keyframes nextUpSweep {
+  0% {
+    transform: translateX(-35%);
+    opacity: 0;
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(135%);
+    opacity: 0;
+  }
+}
+
 @keyframes drawIn {
   from {
     stroke-dashoffset: 1;
@@ -364,6 +380,30 @@
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
     border-radius: 12px;
+  }
+
+  /* Next Up loading cards get a subtle "scanner" sweep for extra delight. */
+  .nextup-skeleton-card {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .nextup-skeleton-card::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(
+      90deg,
+      rgba(191, 255, 0, 0) 0%,
+      rgba(191, 255, 0, 0.06) 45%,
+      rgba(191, 255, 0, 0.1) 52%,
+      rgba(191, 255, 0, 0.06) 58%,
+      rgba(191, 255, 0, 0) 100%
+    );
+    transform: translateX(-35%);
+    animation: nextUpSweep 2.8s ease-in-out infinite;
+    pointer-events: none;
+    mix-blend-mode: screen;
   }
 
   .draw-in {
