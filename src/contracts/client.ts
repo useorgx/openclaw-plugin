@@ -38,13 +38,48 @@ import type {
   SkillPackResponse,
 } from "./types.js";
 
-const REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+const DEFAULT_LIVE_TIMEOUT_MS = 30_000;
+const DEFAULT_SYNC_TIMEOUT_MS = 45_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 const DECISION_MUTATION_CONCURRENCY = 6;
 const DEFAULT_CLIENT_BASE_URL = "https://www.useorgx.com";
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
+}
+
+function parseTimeoutMsEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  // Keep it sane: timeouts below 1s tend to create pathological "offline" loops.
+  return Math.max(1_000, Math.floor(parsed));
+}
+
+function resolveRequestTimeoutMs(path: string): number {
+  const configured =
+    parseTimeoutMsEnv("ORGX_HTTP_TIMEOUT_MS") ??
+    parseTimeoutMsEnv("ORGX_API_TIMEOUT_MS");
+  const base = configured ?? DEFAULT_REQUEST_TIMEOUT_MS;
+
+  // Live endpoints frequently return larger payloads (sessions, activity, agents).
+  if (path.startsWith("/api/client/live/")) {
+    return Math.max(base, DEFAULT_LIVE_TIMEOUT_MS);
+  }
+
+  // Sync can include a full org snapshot and may take longer than typical CRUD.
+  if (path === "/api/client/sync") {
+    return Math.max(base, DEFAULT_SYNC_TIMEOUT_MS);
+  }
+
+  // Handoffs can require server-side aggregation.
+  if (path === "/api/client/handoffs") {
+    return Math.max(base, DEFAULT_LIVE_TIMEOUT_MS);
+  }
+
+  return base;
 }
 
 function normalizeHost(value: string): string {
@@ -145,7 +180,8 @@ export class OrgXClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutMs = resolveRequestTimeoutMs(path);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const headers: Record<string, string> = {
@@ -190,7 +226,7 @@ export class OrgXClient {
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         throw new Error(
-          `OrgX API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS}ms`
+          `OrgX API ${method} ${path} timed out after ${timeoutMs}ms`
         );
       }
       throw err;
@@ -298,7 +334,8 @@ export class OrgXClient {
     const url = `${this.baseUrl}/api/client/skill-pack?name=${encodeURIComponent(name)}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeoutMs = resolveRequestTimeoutMs("/api/client/skill-pack");
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const headers: Record<string, string> = {
@@ -348,7 +385,7 @@ export class OrgXClient {
         return {
           ok: false,
           status: 504,
-          error: `OrgX API GET /api/client/skill-pack timed out after ${REQUEST_TIMEOUT_MS}ms`,
+          error: `OrgX API GET /api/client/skill-pack timed out after ${timeoutMs}ms`,
         };
       }
       return { ok: false, status: 502, error: err instanceof Error ? err.message : "SkillPack request failed" };
