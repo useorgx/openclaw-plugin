@@ -92,6 +92,7 @@ type AgentGroup = {
   catalogAgent?: OpenClawCatalogAgent | null;
   runtime?: RuntimeInstance | null;
   runtimeActiveCount?: number;
+  runtimeOnly?: boolean;
 };
 
 function normalizeIdentity(value: string | null | undefined): string | null {

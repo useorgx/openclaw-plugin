@@ -7,6 +7,8 @@ import { writeFileAtomicSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 
 import type { Logger } from "./mcp-http-handler.js";
 
+const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -49,23 +51,23 @@ export function patchClaudeMcpConfig(input: {
   localMcpUrl: string;
 }): { updated: boolean; next: Record<string, unknown> } {
   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
-  const currentOrgx = isRecord(currentServers.orgx) ? currentServers.orgx : {};
-  const priorUrl = typeof currentOrgx.url === "string" ? currentOrgx.url : "";
-  const priorType = typeof currentOrgx.type === "string" ? currentOrgx.type : "";
+  const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
+  const priorUrl = typeof existing.url === "string" ? existing.url : "";
+  const priorType = typeof existing.type === "string" ? existing.type : "";
 
-  const nextOrgx: Record<string, unknown> = {
-    ...currentOrgx,
+  const nextEntry: Record<string, unknown> = {
+    ...existing,
     type: "http",
     url: input.localMcpUrl,
     description:
-      typeof currentOrgx.description === "string" && currentOrgx.description.trim().length > 0
-        ? currentOrgx.description
+      typeof existing.description === "string" && existing.description.trim().length > 0
+        ? existing.description
         : "OrgX platform via local OpenClaw plugin (no OAuth)",
   };
 
   const nextServers: Record<string, unknown> = {
     ...currentServers,
-    orgx: nextOrgx,
+    [ORGX_LOCAL_MCP_KEY]: nextEntry,
   };
 
   const next: Record<string, unknown> = {
@@ -82,8 +84,7 @@ export function patchCursorMcpConfig(input: {
   localMcpUrl: string;
 }): { updated: boolean; next: Record<string, unknown> } {
   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
-  const key = "orgx-openclaw";
-  const existing = isRecord(currentServers[key]) ? currentServers[key] : {};
+  const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
   const priorUrl = typeof existing.url === "string" ? existing.url : "";
 
   const nextEntry: Record<string, unknown> = {
@@ -93,7 +94,7 @@ export function patchCursorMcpConfig(input: {
 
   const nextServers: Record<string, unknown> = {
     ...currentServers,
-    [key]: nextEntry,
+    [ORGX_LOCAL_MCP_KEY]: nextEntry,
   };
 
   const next: Record<string, unknown> = {
@@ -110,7 +111,11 @@ export function patchCodexConfigToml(input: {
   localMcpUrl: string;
 }): { updated: boolean; next: string } {
   const lines = input.current.split(/\r?\n/);
-  const headerRegex = /^\[mcp_servers\.(?:orgx|"orgx")\]\s*$/;
+  // Never overwrite `[mcp_servers.orgx]` because users commonly point that at the
+  // hosted OAuth-backed MCP server. We add/update a separate entry for the local
+  // OpenClaw bridge instead.
+  const headerRegex =
+    /^\[mcp_servers\.(?:"orgx-openclaw"|"orgx_openclaw"|orgx-openclaw|orgx_openclaw)\]\s*$/;
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i += 1) {
     if (headerRegex.test(lines[i].trim())) {
@@ -124,7 +129,7 @@ export function patchCodexConfigToml(input: {
   if (headerIndex === -1) {
     const suffix = [
       "",
-      "[mcp_servers.orgx]",
+      "[mcp_servers.\"orgx-openclaw\"]",
       urlLine,
       "",
     ].join("\n");

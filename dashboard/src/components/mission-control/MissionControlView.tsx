@@ -1393,198 +1393,199 @@ function MissionControlInner({
                   )}
                 </div>
               </div>
-              {sortedInitiatives.length > 0 && (
-                <div
-                  data-mc-selection-bar="true"
-                  className={`mt-2.5 flex min-h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 py-1 whitespace-nowrap ${
-                    selectedInitiativeCount > 0
-                      ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
-                      : 'border-white/[0.08] bg-white/[0.02]'
-                  }`}
-                >
-                  <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleSelectAllVisibleInitiatives}
-                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
-                    />
-                    Select visible
-                  </label>
-                  <span className="flex-shrink-0 text-[11px] text-white/58">
-                    {selectedInitiativeCount > 0
-                      ? `${selectedInitiativeCount} selected`
-                      : `${sortedInitiatives.length} visible`}
-                  </span>
-                  {selectedInitiativeCount > 0 && (
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runBulkInitiativeStatusUpdate('active');
-                        }}
-                        disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                        data-state="active"
-                      >
-                        Mark active
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runBulkInitiativeStatusUpdate('paused');
-                        }}
-                        disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                      >
-                        Pause
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runBulkInitiativeStatusUpdate('blocked');
-                        }}
-                        disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                      >
-                        Block
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runBulkInitiativeStatusUpdate('completed');
-                        }}
-                        disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                      >
-                        Complete
-                      </button>
-                      {confirmBulkInitiativeDelete ? (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-white/58">Delete selected?</span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void runBulkInitiativeDelete();
-                            }}
-                            disabled={isBulkInitiativeMutating}
-                            className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
-                          >
-                            Delete
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmBulkInitiativeDelete(false)}
-                            disabled={isBulkInitiativeMutating}
-                            className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
-                          >
-                            Keep
-                          </button>
-                        </div>
-                      ) : (
+            </div>
+
+            {sortedInitiatives.length > 0 && (
+              <div
+                data-mc-selection-bar="true"
+                className={`mt-3 flex min-h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 py-1 whitespace-nowrap ${
+                  selectedInitiativeCount > 0
+                    ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+                    : 'border-white/[0.08] bg-white/[0.02]'
+                }`}
+              >
+                <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisibleInitiatives}
+                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                  />
+                  Select visible
+                </label>
+                <span className="flex-shrink-0 text-[11px] text-white/58">
+                  {selectedInitiativeCount > 0
+                    ? `${selectedInitiativeCount} selected`
+                    : `${sortedInitiatives.length} visible`}
+                </span>
+                {selectedInitiativeCount > 0 && (
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runBulkInitiativeStatusUpdate('active');
+                      }}
+                      disabled={isBulkInitiativeMutating}
+                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                      data-state="active"
+                    >
+                      Mark active
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runBulkInitiativeStatusUpdate('paused');
+                      }}
+                      disabled={isBulkInitiativeMutating}
+                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                    >
+                      Pause
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runBulkInitiativeStatusUpdate('blocked');
+                      }}
+                      disabled={isBulkInitiativeMutating}
+                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                    >
+                      Block
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runBulkInitiativeStatusUpdate('completed');
+                      }}
+                      disabled={isBulkInitiativeMutating}
+                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                    >
+                      Complete
+                    </button>
+                    {confirmBulkInitiativeDelete ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-white/58">Delete selected?</span>
                         <button
                           type="button"
-                          onClick={() => setConfirmBulkInitiativeDelete(true)}
+                          onClick={() => {
+                            void runBulkInitiativeDelete();
+                          }}
                           disabled={isBulkInitiativeMutating}
-                          className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                          className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
                         >
                           Delete
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => setConfirmBulkInitiativeDelete(false)}
+                          disabled={isBulkInitiativeMutating}
+                          className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+                        >
+                          Keep
+                        </button>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={clearInitiativeSelection}
+                        onClick={() => setConfirmBulkInitiativeDelete(true)}
                         disabled={isBulkInitiativeMutating}
-                        className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                        className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
                       >
-                        Clear
+                        Delete
                       </button>
-                    </div>
-                  )}
-                  <AnimatePresence initial={false} mode="popLayout">
-                    {!nextUpRailOpen && !nextUpDrawerOpen && (
-                      <motion.div
-                        key="next-up-inline-card"
-                        layout="position"
-                        layoutId={nextUpRailLayoutId}
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0, ...nextUpInlineShellTone }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{
-                          layout: nextUpMorphTransition,
-                          duration: 0.2,
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
-                        className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
-                      >
-                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                          {nextActionQueueItem ? (
-                            <AgentAvatar
-                              name={nextActionQueueItem.runnerAgentName}
-                              hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
-                              size="xs"
-                            />
-                          ) : (
-                            <div className="h-6 w-6 rounded-full border border-white/[0.16] bg-white/[0.05]" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
-                                Next Up
-                              </span>
-                              <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
-                                {nextUpInlineStatusLabel}
-                              </span>
-                            </div>
-                            <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
-                              {nextUpInlineSummary}
-                            </p>
-                            <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
-                              {nextUpInlineContextLabel}
-                              {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="ml-auto flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={startNextAction}
-                            disabled={!nextActionQueueItem || nextActionBusy}
-                            className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
-                            title={
-                              nextActionQueueItem
-                                ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
-                                : 'No queued workstream to dispatch'
-                            }
-                          >
-                            ▶ Play
-                          </button>
-                          <button
-                            type="button"
-                            onClick={toggleNextUpSurface}
-                            className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
-                            title="Expand Next Up rail"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </motion.div>
                     )}
-                  </AnimatePresence>
-                </div>
-              )}
-              {bulkInitiativeNotice && (
-                <div
-                  className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${
-                    bulkInitiativeNotice.tone === 'success'
-                      ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
-                      : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
-                  }`}
-                >
-                  {bulkInitiativeNotice.message}
-                </div>
-              )}
-            </div>
+                    <button
+                      type="button"
+                      onClick={clearInitiativeSelection}
+                      disabled={isBulkInitiativeMutating}
+                      className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <AnimatePresence initial={false} mode="popLayout">
+                  {!nextUpRailOpen && !nextUpDrawerOpen && (
+                    <motion.div
+                      key="next-up-inline-card"
+                      layout="position"
+                      layoutId={nextUpRailLayoutId}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0, ...nextUpInlineShellTone }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{
+                        layout: nextUpMorphTransition,
+                        duration: 0.2,
+                        ease: [0.22, 1, 0.36, 1],
+                      }}
+                      className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                        {nextActionQueueItem ? (
+                          <AgentAvatar
+                            name={nextActionQueueItem.runnerAgentName}
+                            hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
+                            size="xs"
+                          />
+                        ) : (
+                          <div className="h-6 w-6 rounded-full border border-white/[0.16] bg-white/[0.05]" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
+                              Next Up
+                            </span>
+                            <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
+                              {nextUpInlineStatusLabel}
+                            </span>
+                          </div>
+                          <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
+                            {nextUpInlineSummary}
+                          </p>
+                          <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
+                            {nextUpInlineContextLabel}
+                            {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={startNextAction}
+                          disabled={!nextActionQueueItem || nextActionBusy}
+                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
+                          title={
+                            nextActionQueueItem
+                              ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
+                              : 'No queued workstream to dispatch'
+                          }
+                        >
+                          ▶ Play
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleNextUpSurface}
+                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
+                          title="Expand Next Up rail"
+                        >
+                          Open
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+            {bulkInitiativeNotice && (
+              <div
+                className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${
+                  bulkInitiativeNotice.tone === 'success'
+                    ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
+                    : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
+                }`}
+              >
+                {bulkInitiativeNotice.message}
+              </div>
+            )}
 
             {/* Content */}
             <motion.div
@@ -1805,9 +1806,9 @@ function MissionControlInner({
                         initial={{ borderRadius: 12 }}
                         animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
                         transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
-                        className="origin-top-right overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
+                        className="origin-top-right flex h-[calc(100vh-var(--mc-toolbar-offset)-24px)] min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
                       >
-                        <div className="relative">
+                        <div className="relative flex-1 min-h-0">
                           <button
                             type="button"
                             onClick={toggleNextUpSurface}
@@ -1818,7 +1819,6 @@ function MissionControlInner({
                           </button>
                           <NextUpPanel
                             title="Next Up"
-                            compact
                             className="!bg-transparent !shadow-none !border-transparent"
                             disableEnterAnimation
                             authToken={authToken}

@@ -7,7 +7,7 @@ async function importFreshModule() {
   return import(url.href);
 }
 
-test("patchClaudeMcpConfig rewrites orgx url to local bridge", async () => {
+test("patchClaudeMcpConfig adds orgx-openclaw entry without overwriting orgx", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
   const current = {
@@ -22,8 +22,9 @@ test("patchClaudeMcpConfig rewrites orgx url to local bridge", async () => {
 
   const patched = mod.patchClaudeMcpConfig({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
-  assert.equal(patched.next.mcpServers.orgx.url, local);
-  assert.equal(patched.next.mcpServers.orgx.type, "http");
+  assert.equal(patched.next.mcpServers.orgx.url, "https://mcp.useorgx.com/mcp");
+  assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
+  assert.equal(patched.next.mcpServers["orgx-openclaw"].type, "http");
 });
 
 test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
@@ -44,7 +45,7 @@ test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
   assert.equal(patched.next.mcpServers["orgx-production"].args[1], "https://mcp.useorgx.com/sse");
 });
 
-test("patchCodexConfigToml updates existing orgx url", async () => {
+test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
   const current = [
@@ -57,6 +58,7 @@ test("patchCodexConfigToml updates existing orgx url", async () => {
 
   const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
+  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
+  assert.ok(patched.next.includes(`url = "https://mcp.useorgx.com/mcp"`));
   assert.ok(patched.next.includes(`url = "${local}"`));
 });
-

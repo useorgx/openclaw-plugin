@@ -650,14 +650,16 @@ async function main() {
       }
     }
 
-    const topSelectVisible = page.locator('div.sticky.top-0.z-40 button:has-text("Select visible"), div.sticky.top-0.z-40 button:has-text("Clear visible")').first();
+    const topSelectVisible = page
+      .locator('[data-mc-selection-bar="true"] button:has-text("Select visible"), [data-mc-selection-bar="true"] button:has-text("Clear visible")')
+      .first();
     if (await topSelectVisible.isVisible().catch(() => false)) {
       await runInteraction('initiative_bulk_select_visible_toggle', async () => {
         await topSelectVisible.click();
       });
     }
 
-    const topClearSelection = page.locator('div.sticky.top-0.z-40 button:has-text("Clear")').first();
+    const topClearSelection = page.locator('[data-mc-selection-bar="true"] button:has-text("Clear")').first();
     if (await topClearSelection.isVisible().catch(() => false)) {
       await runInteraction('initiative_bulk_clear_selection', async () => {
         await topClearSelection.click();
