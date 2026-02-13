@@ -416,6 +416,8 @@ export interface NextUpQueueItem {
   runnerSource: NextUpRunnerSource;
   queueState: NextUpQueueState;
   blockReason: string | null;
+  isPinned?: boolean;
+  pinnedRank?: number | null;
   autoContinue: {
     status: AutoContinueStatus;
     activeTaskId: string | null;

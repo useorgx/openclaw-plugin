@@ -1261,6 +1261,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     const eventSource = new EventSource('/orgx/api/live/stream');
 
+    // Local runtime telemetry (Codex/Claude/OpenClaw hooks) streams independently from cloud SSE.
+    const runtimeEventSource = new EventSource('/orgx/api/hooks/runtime/stream');
+
     let pendingSnapshot:
       | {
           sessions: SessionTreeResponse;
@@ -1479,15 +1482,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       }
     });
 
-    eventSource.addEventListener('runtime.updated', (event) => {
+    const handleRuntimeUpdated = (event: Event) => {
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as RuntimeInstance[] | RuntimeInstance;
+        const payload = JSON.parse((event as MessageEvent).data) as
+          | RuntimeInstance[]
+          | RuntimeInstance;
         pendingRuntimeInstances = Array.isArray(payload) ? payload : [payload];
         scheduleFlush();
       } catch {
         // ignore malformed events
       }
-    });
+    };
+
+    eventSource.addEventListener('runtime.updated', handleRuntimeUpdated);
+    runtimeEventSource.addEventListener('runtime.updated', handleRuntimeUpdated);
 
     eventSource.addEventListener('handoff.updated', (event) => {
       try {
@@ -1513,6 +1521,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         clearTimeout(flushTimer);
       }
       eventSource.close();
+      runtimeEventSource.close();
     };
   }, [
     applySnapshot,

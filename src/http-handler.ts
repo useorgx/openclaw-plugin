@@ -16,12 +16,21 @@
  *   /orgx/api/runs/:id/actions/:action → run control action
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, extname, normalize, resolve, relative, sep } from "node:path";
+import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+
+import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
+import { getOrgxPluginConfigDir } from "./paths.js";
+import {
+  readNextUpQueuePins,
+  removeNextUpQueuePin,
+  setNextUpQueuePinOrder,
+  upsertNextUpQueuePin,
+} from "./next-up-queue-store.js";
 
 import type { OrgXClient } from "./api.js";
 import type {
@@ -74,6 +83,7 @@ import {
   type RuntimeSourceClient,
 } from "./runtime-instance-store.js";
 import {
+  readOpenClawGatewayPort,
   readOpenClawSettingsSnapshot,
   resolvePreferredOpenClawProvider,
 } from "./openclaw-settings.js";
@@ -111,6 +121,126 @@ function maskSecret(value: string | null): string | null {
   if (!trimmed) return null;
   if (trimmed.length <= 8) return `${trimmed[0]}…${trimmed.slice(-1)}`;
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
+type RuntimeStreamSubscriber = {
+  id: string;
+  write: (chunk: Buffer) => boolean;
+  end: () => void;
+};
+
+const runtimeStreamSubscribers = new Map<string, RuntimeStreamSubscriber>();
+let runtimeStreamKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
+let runtimeStreamStalenessTimer: ReturnType<typeof setInterval> | null = null;
+let runtimeStreamFingerprintById: Map<string, string> = new Map();
+
+function runtimeStreamFingerprint(instance: RuntimeInstanceRecord): string {
+  return [
+    instance.state,
+    instance.lastHeartbeatAt ?? "",
+    instance.lastEventAt ?? "",
+    instance.progressPct ?? "",
+    instance.phase ?? "",
+  ].join("|");
+}
+
+function writeRuntimeSseEvent(
+  subscriber: RuntimeStreamSubscriber,
+  event: string,
+  payload: unknown
+): void {
+  const data = JSON.stringify(payload ?? null);
+  subscriber.write(Buffer.from(`event: ${event}
+data: ${data}
+
+`, "utf8"));
+}
+
+function stopRuntimeStreamTimers(): void {
+  if (runtimeStreamKeepaliveTimer) {
+    clearInterval(runtimeStreamKeepaliveTimer);
+    runtimeStreamKeepaliveTimer = null;
+  }
+  if (runtimeStreamStalenessTimer) {
+    clearInterval(runtimeStreamStalenessTimer);
+    runtimeStreamStalenessTimer = null;
+  }
+  runtimeStreamFingerprintById = new Map();
+}
+
+function broadcastRuntimeSse(event: string, payload: unknown): void {
+  if (runtimeStreamSubscribers.size === 0) return;
+
+  for (const subscriber of runtimeStreamSubscribers.values()) {
+    try {
+      writeRuntimeSseEvent(subscriber, event, payload);
+    } catch {
+      try {
+        subscriber.end();
+      } catch {
+        // ignore
+      }
+      runtimeStreamSubscribers.delete(subscriber.id);
+    }
+  }
+
+  if (runtimeStreamSubscribers.size === 0) {
+    stopRuntimeStreamTimers();
+  }
+}
+
+function ensureRuntimeStreamTimers(): void {
+  if (runtimeStreamKeepaliveTimer || runtimeStreamStalenessTimer) return;
+
+  runtimeStreamKeepaliveTimer = setInterval(() => {
+    if (runtimeStreamSubscribers.size === 0) {
+      stopRuntimeStreamTimers();
+      return;
+    }
+
+    const payload = Buffer.from(`: ping ${Date.now()}
+`, "utf8");
+    for (const subscriber of runtimeStreamSubscribers.values()) {
+      try {
+        subscriber.write(payload);
+      } catch {
+        try {
+          subscriber.end();
+        } catch {
+          // ignore
+        }
+        runtimeStreamSubscribers.delete(subscriber.id);
+      }
+    }
+  }, 20_000);
+  runtimeStreamKeepaliveTimer.unref?.();
+
+  runtimeStreamStalenessTimer = setInterval(() => {
+    if (runtimeStreamSubscribers.size === 0) {
+      stopRuntimeStreamTimers();
+      return;
+    }
+
+    // listRuntimeInstances applies staleness before returning.
+    const instances = listRuntimeInstances({ limit: 600 });
+    const nextFingerprintById = new Map<string, string>();
+
+    for (const instance of instances) {
+      const fingerprint = runtimeStreamFingerprint(instance);
+      nextFingerprintById.set(instance.id, fingerprint);
+
+      const previous = runtimeStreamFingerprintById.get(instance.id);
+      if (previous && previous === fingerprint) {
+        continue;
+      }
+
+      runtimeStreamFingerprintById.set(instance.id, fingerprint);
+      broadcastRuntimeSse("runtime.updated", instance);
+    }
+
+    runtimeStreamFingerprintById = nextFingerprintById;
+  }, 15_000);
+  runtimeStreamStalenessTimer.unref?.();
 }
 
 function modelImpliesByok(model: string | null): boolean {
@@ -3221,6 +3351,8 @@ export function createHttpHandler(
     runnerSource: NextUpRunnerSource;
     queueState: NextUpQueueState;
     blockReason: string | null;
+    isPinned: boolean;
+    pinnedRank: number | null;
     autoContinue: {
       status: AutoContinueStatus;
       activeTaskId: string | null;
@@ -4301,6 +4433,19 @@ export function createHttpHandler(
     const degraded: string[] = [];
     const requestedInitiativeId = input?.initiativeId?.trim() || null;
 
+    const pinnedQueue = readNextUpQueuePins();
+    const pinnedRankByKey = new Map<string, number>();
+    const pinnedByKey = new Map<string, { preferredTaskId: string | null; preferredMilestoneId: string | null }>();
+    for (let idx = 0; idx < pinnedQueue.pins.length; idx += 1) {
+      const pin = pinnedQueue.pins[idx];
+      const key = `${pin.initiativeId}:${pin.workstreamId}`;
+      if (!pinnedRankByKey.has(key)) pinnedRankByKey.set(key, idx);
+      pinnedByKey.set(key, {
+        preferredTaskId: pin.preferredTaskId ?? null,
+        preferredMilestoneId: pin.preferredMilestoneId ?? null,
+      });
+    }
+
     const initiativeTitleById = new Map<string, string>();
     const initiativeStatusById = new Map<string, string>();
     const initiativePriorityById = new Map<string, string>();
@@ -4342,6 +4487,14 @@ export function createHttpHandler(
     const sortQueueItems = (a: NextUpQueueItem, b: NextUpQueueItem): number => {
       const queueDelta = queueRank(a.queueState) - queueRank(b.queueState);
       if (queueDelta !== 0) return queueDelta;
+
+      const aPinnedRank = pinnedRankByKey.get(`${a.initiativeId}:${a.workstreamId}`);
+      const bPinnedRank = pinnedRankByKey.get(`${b.initiativeId}:${b.workstreamId}`);
+      if (aPinnedRank !== undefined || bPinnedRank !== undefined) {
+        const aRank = aPinnedRank ?? Number.POSITIVE_INFINITY;
+        const bRank = bPinnedRank ?? Number.POSITIVE_INFINITY;
+        if (aRank !== bRank) return aRank - bRank;
+      }
 
       const priorityRank = (value: string | null | undefined): number => {
         const normalized = (value ?? "").trim().toLowerCase();
@@ -4491,10 +4644,11 @@ export function createHttpHandler(
           initiativeTitleById.get(`agent:${runnerAgentId}`) ||
           runnerAgentId;
 
-        fallbackItems.push({
-          initiativeId: entry.initiativeId,
-          initiativeTitle: entry.initiativeTitle,
-          initiativeStatus: entry.initiativeStatus,
+          const pinKey = `${entry.initiativeId}:${entry.workstreamId}`;
+	        fallbackItems.push({
+	          initiativeId: entry.initiativeId,
+	          initiativeTitle: entry.initiativeTitle,
+	          initiativeStatus: entry.initiativeStatus,
           workstreamId: entry.workstreamId,
           workstreamTitle: entry.workstreamTitle,
           workstreamStatus:
@@ -4507,15 +4661,17 @@ export function createHttpHandler(
           nextTaskPriority: null,
           nextTaskDueAt: null,
           runnerAgentId,
-          runnerAgentName,
-          runnerSource: "fallback",
-          queueState,
-          blockReason: hasBlocked
-            ? entry.blockers[0] ?? (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
-            : null,
-          autoContinue: null,
-        });
-      }
+	          runnerAgentName,
+	          runnerSource: "fallback",
+	          queueState,
+	          blockReason: hasBlocked
+	            ? entry.blockers[0] ?? (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
+	            : null,
+	          isPinned: pinnedRankByKey.has(pinKey),
+	          pinnedRank: pinnedRankByKey.get(pinKey) ?? null,
+	          autoContinue: null,
+	        });
+	      }
 
       fallbackItems.sort(sortQueueItems);
       return fallbackItems;
@@ -4628,16 +4784,44 @@ export function createHttpHandler(
               node.workstreamId === workstream.id &&
               isTodoStatus(node.status)
           ) as MissionControlNode[];
+
+        const pinKey = `${initiativeId}:${workstream.id}`;
+        const pin = pinnedByKey.get(pinKey) ?? null;
+        const preferredTask =
+          pin?.preferredTaskId && nodeById.get(pin.preferredTaskId)
+            ? nodeById.get(pin.preferredTaskId) ?? null
+            : null;
+        const preferredMilestone =
+          pin?.preferredMilestoneId && nodeById.get(pin.preferredMilestoneId)
+            ? nodeById.get(pin.preferredMilestoneId) ?? null
+            : null;
+        const preferredCandidates: MissionControlNode[] = [];
+        if (preferredTask && preferredTask.type === "task" && preferredTask.workstreamId === workstream.id && isTodoStatus(preferredTask.status)) {
+          preferredCandidates.push(preferredTask);
+        }
+        if (preferredMilestone && preferredMilestone.type === "milestone") {
+          for (const node of todoTasks) {
+            if (node.milestoneId === preferredMilestone.id) preferredCandidates.push(node);
+          }
+        }
+
         const readyTask = todoTasks.find(
           (task) => taskIsReady(task) && !taskHasBlockedParent(task)
         );
-        const candidateTask = readyTask ?? todoTasks[0] ?? null;
+        const preferredReadyTask = preferredCandidates.find(
+          (task) => taskIsReady(task) && !taskHasBlockedParent(task)
+        );
+        const candidateTask = preferredReadyTask ?? readyTask ?? todoTasks[0] ?? null;
 
         const autoContinueRun = runningAutoContinueForWorkstream(
           initiativeId,
           workstream.id
         );
-        let queueState: NextUpQueueState = autoContinueRun ? "running" : "queued";
+        let queueState: NextUpQueueState = autoContinueRun
+          ? "running"
+          : candidateTask
+            ? "queued"
+            : "idle";
         let blockReason: string | null = null;
 
         if (!autoContinueRun && !readyTask && candidateTask) {
@@ -4661,7 +4845,7 @@ export function createHttpHandler(
           }
         }
 
-        if (!candidateTask && !autoContinueRun) {
+        if (!candidateTask && !autoContinueRun && !pin) {
           continue;
         }
 
@@ -4712,6 +4896,8 @@ export function createHttpHandler(
           runnerSource,
           queueState,
           blockReason,
+          isPinned: Boolean(pin),
+          pinnedRank: pin ? (pinnedRankByKey.get(pinKey) ?? null) : null,
           autoContinue: autoContinueRun
             ? {
                 status: autoContinueRun.status,
@@ -4754,6 +4940,8 @@ export function createHttpHandler(
             runnerSource: "inferred",
             queueState: "running",
             blockReason: null,
+            isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),
+            pinnedRank: pinnedRankByKey.get(`${initiativeId}:${workstream.id}`) ?? null,
             autoContinue: {
               status: run.status,
               activeTaskId: run.activeTaskId,
@@ -4839,6 +5027,12 @@ export function createHttpHandler(
         route === "mission-control/assignments/auto";
       const isMissionControlNextUpPlayRoute =
         route === "mission-control/next-up/play";
+      const isMissionControlNextUpPinRoute =
+        route === "mission-control/next-up/pin";
+      const isMissionControlNextUpUnpinRoute =
+        route === "mission-control/next-up/unpin";
+      const isMissionControlNextUpReorderRoute =
+        route === "mission-control/next-up/reorder";
       const isMissionControlAutoContinueStartRoute =
         route === "mission-control/auto-continue/start";
       const isMissionControlAutoContinueStopRoute =
@@ -5699,6 +5893,107 @@ export function createHttpHandler(
         return true;
       }
 
+      if (method === "POST" && isMissionControlNextUpPinRoute) {
+        try {
+          const payload = await parseJsonRequest(req);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+          const workstreamId =
+            (pickString(payload, ["workstreamId", "workstream_id"]) ??
+              searchParams.get("workstreamId") ??
+              searchParams.get("workstream_id") ??
+              "")
+              .trim();
+          const preferredTaskId =
+            (pickString(payload, ["taskId", "task_id", "preferredTaskId", "preferred_task_id"]) ??
+              "")
+              .trim() || null;
+          const preferredMilestoneId =
+            (pickString(payload, ["milestoneId", "milestone_id", "preferredMilestoneId", "preferred_milestone_id"]) ??
+              "")
+              .trim() || null;
+
+          if (!initiativeId || !workstreamId) {
+            sendJson(res, 400, { ok: false, error: "initiativeId and workstreamId are required" });
+            return true;
+          }
+
+          const next = upsertNextUpQueuePin({
+            initiativeId,
+            workstreamId,
+            preferredTaskId,
+            preferredMilestoneId,
+          });
+
+          sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isMissionControlNextUpUnpinRoute) {
+        try {
+          const payload = await parseJsonRequest(req);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+          const workstreamId =
+            (pickString(payload, ["workstreamId", "workstream_id"]) ??
+              searchParams.get("workstreamId") ??
+              searchParams.get("workstream_id") ??
+              "")
+              .trim();
+
+          if (!initiativeId || !workstreamId) {
+            sendJson(res, 400, { ok: false, error: "initiativeId and workstreamId are required" });
+            return true;
+          }
+
+          const next = removeNextUpQueuePin({ initiativeId, workstreamId });
+          sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isMissionControlNextUpReorderRoute) {
+        try {
+          const payload = await parseJsonRequest(req);
+          const rawOrder = Array.isArray((payload as any)?.order) ? ((payload as any).order as unknown[]) : [];
+          const order: Array<{ initiativeId: string; workstreamId: string }> = [];
+
+          for (const entry of rawOrder) {
+            if (!entry) continue;
+            if (typeof entry === "string") {
+              const [initiativeId, workstreamId] = entry.split(":", 2).map((s) => s.trim());
+              if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
+              continue;
+            }
+            if (typeof entry === "object") {
+              const record = entry as Record<string, unknown>;
+              const initiativeId = (pickString(record, ["initiativeId", "initiative_id"]) ?? "").trim();
+              const workstreamId = (pickString(record, ["workstreamId", "workstream_id"]) ?? "").trim();
+              if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
+            }
+          }
+
+          const next = setNextUpQueuePinOrder({ order });
+          sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
       if (method === "POST" && isMissionControlAutoContinueStartRoute) {
         try {
           const payload = await parseJsonRequest(req);
@@ -6141,6 +6436,9 @@ export function createHttpHandler(
         !(isDelegationPreflight && method === "POST") &&
         !(isMissionControlAutoAssignmentRoute && method === "POST") &&
         !(isMissionControlNextUpPlayRoute && method === "POST") &&
+        !(isMissionControlNextUpPinRoute && method === "POST") &&
+        !(isMissionControlNextUpUnpinRoute && method === "POST") &&
+        !(isMissionControlNextUpReorderRoute && method === "POST") &&
         !(isEntitiesRoute && method === "POST") &&
         !(isEntitiesRoute && method === "PATCH") &&
         !(entityActionMatch && method === "POST") &&
@@ -6148,7 +6446,9 @@ export function createHttpHandler(
         !(isOnboardingManualKeyRoute && method === "POST") &&
         !(isOnboardingDisconnectRoute && method === "POST") &&
         !(isByokSettingsRoute && method === "POST") &&
-        !(isLiveActivityHeadlineRoute && method === "POST")
+        !(isLiveActivityHeadlineRoute && method === "POST") &&
+        !(route === "hooks/runtime" && method === "POST") &&
+        !(route === "hooks/runtime/setup" && method === "POST")
       ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
@@ -6347,6 +6647,387 @@ export function createHttpHandler(
           sendJson(res, 200, getOnboardingState(await onboarding.getStatus()));
           return true;
 
+        case "hooks/runtime/config": {
+          try {
+            const snapshot = readOpenClawSettingsSnapshot();
+            const port = readOpenClawGatewayPort(snapshot.raw);
+            const runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
+            const hookToken = resolveRuntimeHookToken();
+
+            const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
+            const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
+            const hookScriptInstalled = existsSync(hookScriptPath);
+
+            const codexHome = (process.env.CODEX_HOME ?? "").trim();
+            const codexCandidates = [
+              codexHome ? join(codexHome, "config.toml") : null,
+              join(homedir(), ".codex", "config.toml"),
+              join(homedir(), ".config", "codex", "config.toml"),
+            ].filter(Boolean) as string[];
+            const codexConfigPath =
+              codexCandidates.find((candidate) => existsSync(candidate)) ??
+              (codexCandidates[0] ?? null);
+
+            let codexInstalled = false;
+            let codexHasNotify = false;
+            if (codexConfigPath && existsSync(codexConfigPath)) {
+              const raw = readFileSync(codexConfigPath, "utf8");
+              codexHasNotify = /^\s*notify\s*=/m.test(raw);
+              codexInstalled =
+                raw.includes("post-reporting-event.mjs") &&
+                raw.includes("--source_client=codex");
+            }
+            const codexNotifyConflict = Boolean(codexHasNotify && !codexInstalled);
+
+            const claudeCandidates = [
+              join(homedir(), ".claude", "settings.json"),
+              join(homedir(), ".config", "claude", "settings.json"),
+            ];
+            const claudeSettingsPath =
+              claudeCandidates.find((candidate) => existsSync(candidate)) ??
+              claudeCandidates[0];
+
+            let claudeInstalled = false;
+            if (claudeSettingsPath && existsSync(claudeSettingsPath)) {
+              const raw = readFileSync(claudeSettingsPath, "utf8");
+              claudeInstalled =
+                raw.includes("post-reporting-event.mjs") &&
+                raw.includes("--source_client=claude-code");
+            }
+
+            sendJson(res, 200, {
+              ok: true,
+              runtimeHookUrl,
+              hookToken,
+              hookTokenHint: maskSecret(hookToken),
+              paths: {
+                hookScriptPath,
+                codexConfigPath,
+                claudeSettingsPath,
+              },
+              installed: {
+                hookScript: hookScriptInstalled,
+                codex: codexInstalled,
+                claudeCode: claudeInstalled,
+              },
+              conflicts: {
+                codexNotify: codexNotifyConflict,
+              },
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
+        case "hooks/runtime/setup": {
+          if (method !== "POST") {
+            sendJson(res, 405, {
+              ok: false,
+              error: "Use POST /orgx/api/hooks/runtime/setup",
+            });
+            return true;
+          }
+
+          try {
+            const payloadRecord = await parseJsonRequest(req);
+            const requestedTargets = Array.isArray(payloadRecord.targets)
+              ? payloadRecord.targets
+              : [];
+            const requested = requestedTargets
+              .map((value) => (typeof value === "string" ? value.trim().toLowerCase() : ""))
+              .filter((value) => value.length > 0);
+
+            const targets = new Set<string>();
+            for (const value of requested) {
+              if (value === "codex") targets.add("codex");
+              if (
+                value === "claude" ||
+                value === "claude-code" ||
+                value === "claude_code"
+              ) {
+                targets.add("claude-code");
+              }
+            }
+            if (targets.size === 0) {
+              targets.add("codex");
+              targets.add("claude-code");
+            }
+
+            const snapshot = readOpenClawSettingsSnapshot();
+            const port = readOpenClawGatewayPort(snapshot.raw);
+            const runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
+            const hookToken = resolveRuntimeHookToken();
+
+            const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
+            mkdirSync(hooksDir, { recursive: true, mode: 0o700 });
+            const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
+
+            const handlerFilename = fileURLToPath(import.meta.url);
+            const distDir = resolve(join(handlerFilename, ".."));
+            const bundledScriptPath = resolve(distDir, "hooks", "post-reporting-event.mjs");
+            const fallbackScriptPath = resolve(
+              distDir,
+              "..",
+              "templates",
+              "hooks",
+              "scripts",
+              "post-reporting-event.mjs"
+            );
+
+            let scriptContent = "";
+            let hookScriptSourcePath = bundledScriptPath;
+            try {
+              scriptContent = readFileSync(bundledScriptPath, "utf8");
+            } catch {
+              hookScriptSourcePath = fallbackScriptPath;
+              scriptContent = readFileSync(fallbackScriptPath, "utf8");
+            }
+
+            writeFileAtomicSync(hookScriptPath, scriptContent, {
+              mode: 0o700,
+              encoding: "utf8",
+            });
+
+            const result = {
+              ok: true,
+              runtimeHookUrl,
+              hookTokenHint: maskSecret(hookToken),
+              hookScriptPath,
+              hookScriptSourcePath,
+              targets: {
+                codex: targets.has("codex"),
+                claudeCode: targets.has("claude-code"),
+              },
+              codex: {
+                path: null as string | null,
+                installed: false,
+                conflict: false,
+              },
+              claudeCode: {
+                path: null as string | null,
+                installed: false,
+              },
+            };
+
+            if (targets.has("codex")) {
+              const codexHome = (process.env.CODEX_HOME ?? "").trim();
+              const codexCandidates = [
+                codexHome ? join(codexHome, "config.toml") : null,
+                join(homedir(), ".codex", "config.toml"),
+                join(homedir(), ".config", "codex", "config.toml"),
+              ].filter(Boolean) as string[];
+              const codexConfigPath =
+                codexCandidates.find((candidate) => existsSync(candidate)) ??
+                codexCandidates[0];
+
+              result.codex.path = codexConfigPath;
+
+              const notifySnippet = [
+                "",
+                "# OrgX runtime telemetry (installed by OpenClaw plugin)",
+                "notify = [",
+                '  "node",',
+                `  "${hookScriptPath}",`,
+                '  "--event=heartbeat",',
+                '  "--source_client=codex",',
+                '  "--phase=execution",',
+                '  "--message=Codex heartbeat",',
+                `  "--runtime_hook_url=${runtimeHookUrl}",`,
+                `  "--hook_token=${hookToken}",`,
+                "]",
+                "",
+              ].join("\n");
+
+              if (!existsSync(codexConfigPath)) {
+                mkdirSync(dirname(codexConfigPath), { recursive: true, mode: 0o700 });
+                const initial = [
+                  "# Codex config.toml",
+                  "# Auto-generated OrgX hook wiring (safe to edit).",
+                  notifySnippet.trimEnd(),
+                  "",
+                ].join("\n");
+                writeFileAtomicSync(codexConfigPath, initial, {
+                  mode: 0o600,
+                  encoding: "utf8",
+                });
+                result.codex.installed = true;
+              } else {
+                const raw = readFileSync(codexConfigPath, "utf8");
+                const alreadyInstalled =
+                  raw.includes("post-reporting-event.mjs") &&
+                  raw.includes("--source_client=codex");
+                const hasNotify = /^\s*notify\s*=/m.test(raw);
+
+                if (alreadyInstalled) {
+                  result.codex.installed = true;
+                } else if (hasNotify) {
+                  result.codex.conflict = true;
+                } else {
+                  const next = raw.replace(/\s*$/, "") + notifySnippet;
+                  writeFileAtomicSync(codexConfigPath, next, {
+                    mode: 0o600,
+                    encoding: "utf8",
+                  });
+                  result.codex.installed = true;
+                }
+              }
+            }
+
+            if (targets.has("claude-code")) {
+              const claudeCandidates = [
+                join(homedir(), ".claude", "settings.json"),
+                join(homedir(), ".config", "claude", "settings.json"),
+              ];
+              const claudeSettingsPath =
+                claudeCandidates.find((candidate) => existsSync(candidate)) ??
+                claudeCandidates[0];
+
+              result.claudeCode.path = claudeSettingsPath;
+
+              mkdirSync(dirname(claudeSettingsPath), { recursive: true, mode: 0o700 });
+
+              let settings: Record<string, unknown> = {};
+              if (existsSync(claudeSettingsPath)) {
+                const raw = readFileSync(claudeSettingsPath, "utf8");
+                const parsed = parseJsonSafe<Record<string, unknown>>(raw);
+                if (!parsed) {
+                  backupCorruptFileSync(claudeSettingsPath);
+                } else {
+                  settings = parsed;
+                }
+              }
+
+              const hooksRoot =
+                settings.hooks &&
+                typeof settings.hooks === "object" &&
+                !Array.isArray(settings.hooks)
+                  ? (settings.hooks as Record<string, unknown>)
+                  : {};
+              settings.hooks = hooksRoot;
+
+              const ensureClaudeHook = (hookName: string, matcher: string, command: string) => {
+                const list = Array.isArray(hooksRoot[hookName])
+                  ? (hooksRoot[hookName] as Array<Record<string, unknown>>)
+                  : [];
+
+                let rule = list.find(
+                  (entry) => entry && (entry as any).matcher === matcher
+                ) as any;
+                if (!rule) {
+                  rule = { matcher, hooks: [] };
+                  list.push(rule);
+                }
+                if (!Array.isArray(rule.hooks)) {
+                  rule.hooks = [];
+                }
+
+                const already = rule.hooks.some(
+                  (entry: any) =>
+                    entry &&
+                    entry.type === "command" &&
+                    typeof entry.command === "string" &&
+                    entry.command.includes("post-reporting-event.mjs") &&
+                    entry.command.includes(command)
+                );
+
+                if (!already) {
+                  rule.hooks.push({ type: "command", command });
+                }
+
+                hooksRoot[hookName] = list;
+              };
+
+              const baseArgs = `--runtime_hook_url=${runtimeHookUrl} --hook_token=${hookToken}`;
+              const startCmd = `node ${hookScriptPath} --event=session_start --source_client=claude-code --phase=intent --message=\"Claude session started\" ${baseArgs}`;
+              const toolCmd = `node ${hookScriptPath} --event=task_update --source_client=claude-code --phase=execution --message=\"Claude tool completed\" ${baseArgs}`;
+              const stopCmd = `node ${hookScriptPath} --event=session_stop --source_client=claude-code --phase=completed --message=\"Claude session completed\" ${baseArgs}`;
+
+              ensureClaudeHook("SessionStart", "", startCmd);
+              ensureClaudeHook("PostToolUse", "Write|Edit|Bash", toolCmd);
+              ensureClaudeHook("Stop", "", stopCmd);
+
+              writeFileAtomicSync(
+                claudeSettingsPath,
+                `${JSON.stringify(settings, null, 2)}\n`,
+                {
+                  mode: 0o600,
+                  encoding: "utf8",
+                }
+              );
+
+              result.claudeCode.installed = true;
+            }
+
+            sendJson(res, 200, result);
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
+        case "hooks/runtime/stream": {
+          const write = res.write?.bind(res);
+          if (!write) {
+            sendJson(res, 501, { ok: false, error: "Streaming not supported" });
+            return true;
+          }
+
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            ...SECURITY_HEADERS,
+            ...CORS_HEADERS,
+          });
+
+          const subscriberId = randomUUID();
+          const subscriber: RuntimeStreamSubscriber = {
+            id: subscriberId,
+            write: (chunk: Buffer) => write(chunk) !== false,
+            end: () => {
+              if (!res.writableEnded) {
+                res.end();
+              }
+            },
+          };
+
+          runtimeStreamSubscribers.set(subscriberId, subscriber);
+          ensureRuntimeStreamTimers();
+
+          try {
+            const initial = listRuntimeInstances({ limit: 320 });
+            writeRuntimeSseEvent(subscriber, "runtime.updated", initial);
+          } catch {
+            // ignore
+          }
+
+          const close = () => {
+            runtimeStreamSubscribers.delete(subscriberId);
+            try {
+              subscriber.end();
+            } catch {
+              // ignore
+            }
+            if (runtimeStreamSubscribers.size === 0) {
+              stopRuntimeStreamTimers();
+            }
+          };
+
+          req.on?.("close", close);
+          req.on?.("aborted", close);
+          res.on?.("close", close);
+          res.on?.("finish", close);
+
+          return true;
+        }
+
         case "hooks/runtime": {
           if (method !== "POST") {
             sendJson(res, 405, { ok: false, error: "Use POST /orgx/api/hooks/runtime" });
@@ -6394,6 +7075,8 @@ export function createHttpHandler(
             };
 
             const instance = upsertRuntimeInstanceFromHook(payload);
+            broadcastRuntimeSse("runtime.updated", instance);
+
 
             const fallbackPhaseByEvent: Record<string, string> = {
               session_start: "intent",

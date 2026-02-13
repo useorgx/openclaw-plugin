@@ -10,7 +10,7 @@ OrgX plugin for [OpenClaw](https://openclaw.ai) — connect your AI agents to Or
 4. Sign in at [useorgx.com](https://useorgx.com) and approve the connection.
 5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically (no key copy/paste).
 
-If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To opt out, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
+If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To avoid overwriting your hosted `orgx` server entry, the local bridge is installed under the name `orgx-openclaw`. To opt out entirely, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
 
 Manual API key entry is still available as a permanent fallback from the onboarding panel.
 
@@ -29,8 +29,8 @@ This plugin exposes the same `orgx_*` tools over a local MCP HTTP endpoint serve
 
 On successful browser pairing, the plugin will attempt to patch:
 
-- `~/.claude/mcp.json` (rewire `mcpServers.orgx.url` to the local bridge)
-- `~/.codex/config.toml` (rewire `[mcp_servers.orgx].url` to the local bridge)
+- `~/.claude/mcp.json` (adds `mcpServers["orgx-openclaw"]` pointing to the local bridge)
+- `~/.codex/config.toml` (add/update `[mcp_servers."orgx-openclaw"].url` to the local bridge)
 - `~/.cursor/mcp.json` (adds `mcpServers["orgx-openclaw"]` pointing to the local bridge)
 
 Each file is backed up first (only when a change is needed) with a `*.bak.<timestamp>-<rand>` suffix.

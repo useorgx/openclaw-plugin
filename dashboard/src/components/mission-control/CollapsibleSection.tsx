@@ -8,6 +8,7 @@ interface CollapsibleSectionProps {
   sticky?: boolean;
   stickyOffsetClass?: string;
   stickyTop?: string;
+  contentOverflowVisible?: boolean;
   children: React.ReactNode;
 }
 
@@ -37,11 +38,13 @@ export function CollapsibleSection({
   sticky = false,
   stickyOffsetClass = 'top-0',
   stickyTop,
+  contentOverflowVisible = false,
   children,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(() =>
     storageKey ? readStorage(storageKey, defaultOpen) : defaultOpen
   );
+  const [isAnimating, setIsAnimating] = useState(false);
   const stickyHeaderRef = useRef<HTMLButtonElement | null>(null);
   const [stickyHeaderOffset, setStickyHeaderOffset] = useState(40);
 
@@ -114,7 +117,13 @@ export function CollapsibleSection({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-            className="overflow-hidden"
+            onAnimationStart={() => setIsAnimating(true)}
+            onAnimationComplete={() => setIsAnimating(false)}
+            className={
+              contentOverflowVisible && !isAnimating
+                ? 'overflow-visible'
+                : 'overflow-hidden'
+            }
           >
             {children}
           </motion.div>

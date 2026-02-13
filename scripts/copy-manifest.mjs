@@ -31,3 +31,17 @@ if (Array.isArray(manifest.skills)) {
 }
 
 writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+// Bundle local runtime hook script into dist/ so the plugin can install hooks on user machines.
+const hookSource = resolve(rootDir, 'templates', 'hooks', 'scripts', 'post-reporting-event.mjs');
+const hookTargetDir = resolve(distDir, 'hooks');
+const hookTarget = resolve(hookTargetDir, 'post-reporting-event.mjs');
+
+if (existsSync(hookSource)) {
+  if (!existsSync(hookTargetDir)) {
+    mkdirSync(hookTargetDir, { recursive: true });
+  }
+  const hookRaw = readFileSync(hookSource, 'utf8');
+  writeFileSync(hookTarget, hookRaw, 'utf8');
+}
+

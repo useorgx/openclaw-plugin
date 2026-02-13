@@ -170,6 +170,7 @@ export function ExplainerPanel({
 }: ExplainerPanelProps) {
   const hasError = Boolean(state.lastError);
   const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [debugCopyState, setDebugCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [pauseAutoRotate, setPauseAutoRotate] = useState(false);
   const showKeySource = state.hasApiKey && state.keySource && state.keySource !== 'none';
@@ -180,6 +181,12 @@ export function ExplainerPanel({
     const timer = window.setTimeout(() => setCopyState('idle'), 2000);
     return () => window.clearTimeout(timer);
   }, [copyState]);
+
+  useEffect(() => {
+    if (debugCopyState === 'idle') return undefined;
+    const timer = window.setTimeout(() => setDebugCopyState('idle'), 2000);
+    return () => window.clearTimeout(timer);
+  }, [debugCopyState]);
 
   useEffect(() => {
     if (pauseAutoRotate) return undefined;
@@ -195,6 +202,28 @@ export function ExplainerPanel({
       setCopyState('ok');
     } catch {
       setCopyState('error');
+    }
+  };
+
+  const copyDebugDetails = async () => {
+    try {
+      const payload = {
+        at: new Date().toISOString(),
+        onboarding: {
+          status: state.status,
+          nextAction: state.nextAction,
+          hasApiKey: state.hasApiKey,
+          keySource: state.keySource,
+          installationId: state.installationId,
+          lastError: state.lastError,
+        },
+        page: typeof window !== 'undefined' ? window.location.href : null,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      };
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setDebugCopyState('ok');
+    } catch {
+      setDebugCopyState('error');
     }
   };
 
@@ -423,14 +452,35 @@ export function ExplainerPanel({
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-red-300/80">{state.lastError}</p>
             </div>
-            <button
-              type="button"
-              onClick={onConnect}
-              disabled={isStarting}
-              className="shrink-0 text-[12px] font-medium text-red-300/70 transition hover:text-red-200"
-            >
-              Retry
-            </button>
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void copyDebugDetails()}
+                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                title="Copy debug details for support"
+              >
+                {debugCopyState === 'ok'
+                  ? 'Copied'
+                  : debugCopyState === 'error'
+                    ? 'Copy failed'
+                    : 'Copy debug'}
+              </button>
+              <button
+                type="button"
+                onClick={onUseManualKey}
+                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+              >
+                Use API key
+              </button>
+              <button
+                type="button"
+                onClick={onConnect}
+                disabled={isStarting}
+                className="rounded-full border border-red-500/20 bg-red-500/[0.06] px-3 py-1 text-[11px] font-semibold text-red-200/85 transition hover:bg-red-500/[0.09] hover:text-red-100 disabled:opacity-50"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-2">

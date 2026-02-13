@@ -610,10 +610,76 @@ export default function register(api: PluginAPI): void {
 
   let activePairing: ActivePairing | null = null;
 
-  const baseApiUrl = config.baseUrl.replace(/\/+$/, "");
+  // NOTE: base URL can be updated at runtime (e.g. user edits OpenClaw config). Keep it mutable.
+  let baseApiUrl = config.baseUrl.replace(/\/+$/, "");
   const defaultReportingCorrelationId =
     pickNonEmptyString(process.env.ORGX_CORRELATION_ID) ??
     `openclaw-${config.installationId}`;
+
+  function refreshConfigFromSources(input?: {
+    reason?: string;
+    allowApiKeyChanges?: boolean;
+  }): boolean {
+    const allowApiKeyChanges = input?.allowApiKeyChanges !== false;
+    const previousApiKey = config.apiKey;
+    const previousBaseUrl = config.baseUrl;
+    const previousUserId = config.userId;
+    const previousDocsUrl = config.docsUrl;
+    const previousKeySource = config.apiKeySource;
+
+    const latestPersisted = loadAuthStore();
+    const next = resolveConfig(api, {
+      installationId: config.installationId,
+      persistedApiKey: latestPersisted?.apiKey ?? null,
+      persistedUserId: latestPersisted?.userId ?? null,
+    });
+
+    const nextApiKey = allowApiKeyChanges ? next.apiKey : previousApiKey;
+    const nextUserId = allowApiKeyChanges ? next.userId : previousUserId;
+
+    const changed =
+      nextApiKey !== previousApiKey ||
+      next.baseUrl !== previousBaseUrl ||
+      nextUserId !== previousUserId ||
+      next.docsUrl !== previousDocsUrl ||
+      next.apiKeySource !== previousKeySource;
+
+    if (!changed) {
+      return false;
+    }
+
+    if (allowApiKeyChanges) {
+      config.apiKey = nextApiKey;
+      config.userId = nextUserId;
+      config.apiKeySource = next.apiKeySource;
+    }
+    config.baseUrl = next.baseUrl;
+    config.docsUrl = next.docsUrl;
+    baseApiUrl = config.baseUrl.replace(/\/+$/, "");
+
+    client.setCredentials({
+      apiKey: config.apiKey,
+      userId: config.userId,
+      baseUrl: config.baseUrl,
+    });
+
+    // Keep onboarding state aligned with what's actually configured (without forcing a status transition).
+    updateOnboardingState({
+      hasApiKey: Boolean(config.apiKey),
+      keySource: config.apiKeySource,
+      docsUrl: config.docsUrl,
+      installationId: config.installationId,
+    });
+
+    api.log?.info?.("[orgx] Config refreshed", {
+      reason: input?.reason ?? "runtime_refresh",
+      baseUrl: config.baseUrl,
+      hasApiKey: Boolean(config.apiKey),
+      apiKeySource: config.apiKeySource,
+    });
+
+    return true;
+  }
 
   function resolveReportingContext(
     input: ReportingContextInput
@@ -864,17 +930,35 @@ export default function register(api: PluginAPI): void {
     body?: unknown
   ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
     try {
-      const response = await fetch(`${baseApiUrl}${path}`, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      const controller = new AbortController();
+      const timeoutMs = 12_000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-      const payload = (await response.json().catch(() => null)) as
-        | { ok?: boolean; data?: T; error?: unknown; message?: string }
-        | null;
+      let response: Response;
+      let rawText = "";
+      try {
+        response = await fetch(`${baseApiUrl}${path}`, {
+          method,
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        rawText = await response.text().catch(() => "");
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const payload = ((): { ok?: boolean; data?: T; error?: unknown; message?: string } | null => {
+        if (!rawText) return null;
+        try {
+          return JSON.parse(rawText) as { ok?: boolean; data?: T; error?: unknown; message?: string };
+        } catch {
+          return null;
+        }
+      })();
 
       if (!response.ok) {
         const rawError = payload?.error ?? payload?.message;
@@ -888,19 +972,68 @@ export default function register(api: PluginAPI): void {
           typeof (rawError as Record<string, unknown>).message === "string"
         ) {
           errorMessage = (rawError as Record<string, unknown>).message as string;
+        } else if (rawText && rawText.trim().length > 0) {
+          // Avoid dumping HTML (Cloudflare / Next.js error pages) into UI; keep it short.
+          const sanitized = rawText
+            .replace(/\s+/g, " ")
+            .replace(/<[^>]+>/g, "")
+            .trim();
+          errorMessage = sanitized.length > 0 ? sanitized.slice(0, 180) : `OrgX request failed (${response.status})`;
         } else {
           errorMessage = `OrgX request failed (${response.status})`;
         }
-        return { ok: false, status: response.status, error: errorMessage };
+
+        const statusToken = `HTTP ${response.status}`;
+        if (
+          response.status &&
+          !errorMessage.toLowerCase().includes(statusToken.toLowerCase()) &&
+          !errorMessage.includes(`(${response.status})`)
+        ) {
+          errorMessage = `${errorMessage} (HTTP ${response.status})`;
+        }
+
+
+        const debugParts: string[] = [];
+        const requestId = response.headers.get("x-request-id");
+        const vercelId = response.headers.get("x-vercel-id");
+        const cfRay = response.headers.get("cf-ray");
+        const clerkStatus = response.headers.get("x-clerk-auth-status");
+        const clerkReason = response.headers.get("x-clerk-auth-reason");
+
+        if (requestId) debugParts.push(`req=${requestId}`);
+        if (vercelId && vercelId !== requestId) debugParts.push(`vercel=${vercelId}`);
+        if (cfRay) debugParts.push(`cf-ray=${cfRay}`);
+        if (clerkStatus) debugParts.push(`clerk=${clerkStatus}`);
+        if (clerkReason) debugParts.push(`clerk_reason=${clerkReason}`);
+
+        const debugSuffix =
+          debugParts.length > 0 ? ` (${debugParts.join(", ")})` : "";
+
+        return {
+          ok: false,
+          status: response.status,
+          error: `${errorMessage}${debugSuffix}`,
+        };
       }
 
       if (payload?.data !== undefined) {
         return { ok: true, data: payload.data };
       }
 
-      return { ok: true, data: payload as unknown as T };
+      if (payload !== null) {
+        return { ok: true, data: payload as unknown as T };
+      }
+
+      return { ok: true, data: rawText as unknown as T };
     } catch (err: unknown) {
-      return { ok: false, status: 0, error: toErrorMessage(err) };
+      const message =
+        err &&
+        typeof err === "object" &&
+        "name" in err &&
+        (err as any).name === "AbortError"
+          ? `OrgX request timed out (method=${method}, path=${path})`
+          : toErrorMessage(err);
+      return { ok: false, status: 0, error: message };
     }
   }
 
@@ -986,6 +1119,8 @@ export default function register(api: PluginAPI): void {
     const probeRemote = input.probeRemote === true;
     const outbox = await readOutboxSummary();
     const checks: DoctorCheck[] = [];
+
+    refreshConfigFromSources({ reason: "health_check" });
     const hasApiKey = Boolean(config.apiKey);
 
     if (hasApiKey) {
@@ -1403,6 +1538,9 @@ export default function register(api: PluginAPI): void {
 
     syncInFlight = (async () => {
       if (!config.apiKey) {
+        refreshConfigFromSources({ reason: "sync_no_api_key" });
+      }
+      if (!config.apiKey) {
         updateOnboardingState({
           status: "idle",
           hasApiKey: false,
@@ -1510,7 +1648,8 @@ export default function register(api: PluginAPI): void {
         };
       }
 
-      const message = `Pairing start failed: ${started.error}`;
+      const statusLabel = started.status ? ` (HTTP ${started.status})` : "";
+      const message = `Pairing start failed${statusLabel}: ${started.error}`;
       updateOnboardingState({
         status: "error",
         hasApiKey: Boolean(config.apiKey),

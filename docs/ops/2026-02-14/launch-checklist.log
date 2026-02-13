@@ -1,0 +1,394 @@
+
+===== typecheck (2026-02-13T01:06:13.382Z) =====
+
+[exit] code=0
+
+===== test:hooks (2026-02-13T01:06:14.404Z) =====
+✔ byok-store persists keys in OpenClaw auth profiles (not plugin byok.json) (6.303125ms)
+✔ byok-store uses OpenClaw default agent from openclaw.json (2.85325ms)
+✔ parseArgs parses --key=value pairs (0.528292ms)
+✔ buildActivityPayload sets expected telemetry envelope (0.116416ms)
+✔ buildCompletionChangesetPayload emits a done task.update op (0.437125ms)
+✔ buildRuntimePayload emits runtime relay envelope (0.799916ms)
+✔ main returns early when API key is missing (0.273875ms)
+✔ main posts runtime relay when hook token is provided (0.328291ms)
+✔ main posts activity and optional completion changeset (0.235375ms)
+✔ Agent launch marks task in_progress, syncs rollups, and emits activity (8.14525ms)
+✔ Next-up play blocks on spawn-guard denial and raises decision (7.581041ms)
+✔ Agent launch blocks on spawn-guard denial and raises decision (14.525ms)
+✔ Agent launch returns 429 when spawn-guard is rate-limited (0.85575ms)
+✔ Agent restart blocks on spawn-guard denial before spawning a new run (2.907875ms)
+✔ Next-up fallback dispatch blocks on spawn-guard denial and raises decision (2.13075ms)
+✔ Premium gating blocks free plan BYOK launch (402 upgrade_required) (3.767584ms)
+✔ Premium gating allows paid plan BYOK launch in dry-run mode (1.58525ms)
+✔ Agent launch dry-run auto-selects sonnet-capable provider from OpenClaw settings (14.337166ms)
+✔ parseArgs parses --key=value pairs (0.574125ms)
+✔ buildTaskQueue filters by workstream/task and sorts by due + priority (0.633958ms)
+✔ extractPlanContext prefers task/workstream match (0.476542ms)
+✔ buildCodexPrompt includes task and plan references (0.234125ms)
+✔ buildCodexPrompt embeds skill docs when provided (0.124542ms)
+✔ deriveTaskExecutionPolicy infers domain and required skill (0.425333ms)
+✔ isSpawnGuardRetryable returns true when rate-limit check fails (0.075917ms)
+✔ createReporter routes mutations through injected OrgXClient (0.756541ms)
+✔ classifyTaskState buckets task lifecycle states (0.072792ms)
+✔ summarizeTaskStatuses returns deterministic counts (0.137083ms)
+✔ computeMilestoneRollup derives status + percent from task states (0.138209ms)
+✔ computeWorkstreamRollup derives status + percent from task states (0.099292ms)
+✔ evaluateResourceGuard throttles when load or memory exceeds thresholds (0.182ms)
+✔ detectMcpHandshakeFailure extracts server and reason from worker logs (0.244167ms)
+✔ shouldKillWorker triggers when timeout or log stall is exceeded (0.109208ms)
+✔ deriveResumePlan skips done/blocked tasks unless selected or retry_blocked (0.155458ms)
+✔ patchClaudeMcpConfig rewrites orgx url to local bridge (4.075958ms)
+✔ patchCursorMcpConfig adds orgx-openclaw entry (0.656916ms)
+✔ patchCodexConfigToml updates existing orgx url (0.776667ms)
+✔ initialize responds with serverInfo and tools capability (4.234916ms)
+✔ tools/list returns registered tools (1.260833ms)
+✔ tools/call executes tool and returns content (0.774041ms)
+✔ notifications do not produce a JSON-RPC response (1.291208ms)
+✔ resolvePreferredOpenClawProvider prefers sonnet-capable provider (10.06125ms)
+✔ summarizeOpenClawProviderModels counts openai-codex as openai (1.358917ms)
+✔ readOpenClawGatewayPort uses configured port and safe default (0.540917ms)
+✔ extractProgressOutboxMessage prefers message (1.085584ms)
+✔ extractProgressOutboxMessage falls back to summary (0.315ms)
+✔ extractProgressOutboxMessage returns null when empty (0.76875ms)
+✔ appendToOutbox dedupes events by id (10.175875ms)
+✔ readOutbox backs up corrupted JSON file and returns empty list (2.403125ms)
+✔ replaceOutbox([]) deletes the queue file (2.153042ms)
+✔ computeMilestoneRollup matches expected status rules (1.152625ms)
+✔ computeWorkstreamRollup matches expected status rules (0.408666ms)
+ℹ tests 52
+ℹ suites 0
+ℹ pass 52
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 806.101958
+
+[exit] code=0
+
+===== verify:clean-install (2026-02-13T01:06:16.467Z) =====
+[verify] packing plugin...
+vite v6.4.1 building for production...
+transforming...
+✓ 763 modules transformed.
+Circular chunk: vendor -> react-vendor -> vendor. Please adjust the manual chunk logic for these chunks.
+rendering chunks...
+computing gzip size...
+dist/index.html             1.20 kB │ gzip:   0.49 kB
+dist/assets/Fm0FhtnV.png   42.96 kB
+dist/assets/D1T0AaqW.css   64.74 kB │ gzip:  12.33 kB
+dist/assets/eExdW_tA.js    11.63 kB │ gzip:   3.12 kB
+dist/assets/C-KIc3Wc.js    38.04 kB │ gzip:  11.18 kB
+dist/assets/BoXlCHKa.js   110.75 kB │ gzip:  36.55 kB
+dist/assets/DD1jv1Hd.js   144.17 kB │ gzip:  46.70 kB
+dist/assets/CGUMM63S.js   158.23 kB │ gzip:  37.04 kB
+dist/assets/Dz-lAi1x.js   304.26 kB │ gzip:  77.35 kB
+dist/assets/BZZ-fiJx.js   338.59 kB │ gzip: 106.92 kB
+✓ built in 2.15s
+useorgx-openclaw-plugin-0.4.5.tgz
+[verify] temp dir: /var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-BR6DZ4
+[verify] npm init...
+Wrote to /private/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-BR6DZ4/package.json:
+
+{
+  "name": "orgx-openclaw-plugin-install-br6dz4",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
+
+
+
+[verify] npm install tgz...
+[verify] import package...
+import-ok
+[verify] ok: clean install + import succeeded
+
+[exit] code=0
+
+===== verify:billing (2026-02-13T01:06:32.577Z) =====
+[skip] ORGX_API_KEY not set
+
+===== typecheck (2026-02-13T01:33:23.110Z) =====
+
+[exit] code=0
+
+===== test:hooks (2026-02-13T01:33:24.087Z) =====
+✔ byok-store persists keys in OpenClaw auth profiles (not plugin byok.json) (6.325584ms)
+✔ byok-store uses OpenClaw default agent from openclaw.json (2.685458ms)
+✔ parseArgs parses --key=value pairs (0.519875ms)
+✔ buildActivityPayload sets expected telemetry envelope (0.116417ms)
+✔ buildCompletionChangesetPayload emits a done task.update op (0.434542ms)
+✔ buildRuntimePayload emits runtime relay envelope (0.948666ms)
+✔ main returns early when API key is missing (0.334959ms)
+✔ main posts runtime relay when hook token is provided (0.357917ms)
+✔ main posts activity and optional completion changeset (0.245167ms)
+✔ Agent launch marks task in_progress, syncs rollups, and emits activity (8.294458ms)
+✔ Next-up play blocks on spawn-guard denial and raises decision (8.399375ms)
+✔ Agent launch blocks on spawn-guard denial and raises decision (15.587625ms)
+✔ Agent launch returns 429 when spawn-guard is rate-limited (0.871084ms)
+✔ Agent restart blocks on spawn-guard denial before spawning a new run (3.522541ms)
+✔ Next-up fallback dispatch blocks on spawn-guard denial and raises decision (2.848375ms)
+✔ Premium gating blocks free plan BYOK launch (402 upgrade_required) (3.883833ms)
+✔ Premium gating allows paid plan BYOK launch in dry-run mode (1.800917ms)
+✔ Agent launch dry-run auto-selects sonnet-capable provider from OpenClaw settings (14.169334ms)
+✔ parseArgs parses --key=value pairs (0.59475ms)
+✔ buildTaskQueue filters by workstream/task and sorts by due + priority (0.645375ms)
+✔ extractPlanContext prefers task/workstream match (0.497541ms)
+✔ buildCodexPrompt includes task and plan references (0.233917ms)
+✔ buildCodexPrompt embeds skill docs when provided (0.12725ms)
+✔ deriveTaskExecutionPolicy infers domain and required skill (0.433458ms)
+✔ isSpawnGuardRetryable returns true when rate-limit check fails (0.079709ms)
+✔ createReporter routes mutations through injected OrgXClient (0.772084ms)
+✔ classifyTaskState buckets task lifecycle states (0.073666ms)
+✔ summarizeTaskStatuses returns deterministic counts (0.138791ms)
+✔ computeMilestoneRollup derives status + percent from task states (0.130416ms)
+✔ computeWorkstreamRollup derives status + percent from task states (0.087333ms)
+✔ evaluateResourceGuard throttles when load or memory exceeds thresholds (0.182125ms)
+✔ detectMcpHandshakeFailure extracts server and reason from worker logs (0.244583ms)
+✔ shouldKillWorker triggers when timeout or log stall is exceeded (0.106333ms)
+✔ deriveResumePlan skips done/blocked tasks unless selected or retry_blocked (0.153458ms)
+✔ patchClaudeMcpConfig adds orgx-openclaw entry without overwriting orgx (4.216625ms)
+✔ patchCursorMcpConfig adds orgx-openclaw entry (0.655792ms)
+✔ patchCodexConfigToml adds orgx-openclaw section without overwriting orgx (1.35625ms)
+✔ initialize responds with serverInfo and tools capability (3.876625ms)
+✔ tools/list returns registered tools (1.228041ms)
+✔ tools/call executes tool and returns content (0.740375ms)
+✔ notifications do not produce a JSON-RPC response (1.3355ms)
+✔ resolvePreferredOpenClawProvider prefers sonnet-capable provider (9.882209ms)
+✔ summarizeOpenClawProviderModels counts openai-codex as openai (1.398209ms)
+✔ readOpenClawGatewayPort uses configured port and safe default (0.551333ms)
+✔ extractProgressOutboxMessage prefers message (1.089167ms)
+✔ extractProgressOutboxMessage falls back to summary (0.312541ms)
+✔ extractProgressOutboxMessage returns null when empty (0.744ms)
+✔ appendToOutbox dedupes events by id (9.989375ms)
+✔ readOutbox backs up corrupted JSON file and returns empty list (2.103875ms)
+✔ replaceOutbox([]) deletes the queue file (2.028ms)
+✔ computeMilestoneRollup matches expected status rules (1.122583ms)
+✔ computeWorkstreamRollup matches expected status rules (0.404542ms)
+ℹ tests 52
+ℹ suites 0
+ℹ pass 52
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 810.554833
+
+[exit] code=0
+
+===== verify:clean-install (2026-02-13T01:33:26.112Z) =====
+[verify] packing plugin...
+vite v6.4.1 building for production...
+transforming...
+✓ 764 modules transformed.
+Circular chunk: vendor -> react-vendor -> vendor. Please adjust the manual chunk logic for these chunks.
+rendering chunks...
+computing gzip size...
+dist/index.html             1.20 kB │ gzip:   0.50 kB
+dist/assets/Fm0FhtnV.png   42.96 kB
+dist/assets/DC_m4baP.css   64.92 kB │ gzip:  12.39 kB
+dist/assets/DmQbLer1.js    11.63 kB │ gzip:   3.12 kB
+dist/assets/C-KIc3Wc.js    38.04 kB │ gzip:  11.18 kB
+dist/assets/uWTQMoSZ.js   113.52 kB │ gzip:  37.72 kB
+dist/assets/DD1jv1Hd.js   144.17 kB │ gzip:  46.70 kB
+dist/assets/Ckce1n8s.js   161.80 kB │ gzip:  37.76 kB
+dist/assets/ByaHR2ba.js   313.99 kB │ gzip:  78.89 kB
+dist/assets/BZZ-fiJx.js   338.59 kB │ gzip: 106.92 kB
+✓ built in 2.11s
+useorgx-openclaw-plugin-0.4.5.tgz
+[verify] temp dir: /var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-8g0tLd
+[verify] npm init...
+Wrote to /private/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-openclaw-plugin-install-8g0tLd/package.json:
+
+{
+  "name": "orgx-openclaw-plugin-install-8g0tld",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
+
+
+
+[verify] npm install tgz...
+[verify] import package...
+import-ok
+[verify] ok: clean install + import succeeded
+
+[exit] code=0
+
+===== qa:capture (2026-02-13T01:33:41.562Z) =====
+
+===== verify:billing (2026-02-13T01:33:41.562Z) =====
+[skip] ORGX_API_KEY not set
+vite v6.4.1 building for production...
+transforming...
+✓ 764 modules transformed.
+Circular chunk: vendor -> react-vendor -> vendor. Please adjust the manual chunk logic for these chunks.
+rendering chunks...
+computing gzip size...
+dist/index.html             1.20 kB │ gzip:   0.50 kB
+dist/assets/Fm0FhtnV.png   42.96 kB
+dist/assets/DC_m4baP.css   64.92 kB │ gzip:  12.39 kB
+dist/assets/DmQbLer1.js    11.63 kB │ gzip:   3.12 kB
+dist/assets/C-KIc3Wc.js    38.04 kB │ gzip:  11.18 kB
+dist/assets/uWTQMoSZ.js   113.52 kB │ gzip:  37.72 kB
+dist/assets/DD1jv1Hd.js   144.17 kB │ gzip:  46.70 kB
+dist/assets/Ckce1n8s.js   161.80 kB │ gzip:  37.76 kB
+dist/assets/ByaHR2ba.js   313.99 kB │ gzip:  78.89 kB
+dist/assets/BZZ-fiJx.js   338.59 kB │ gzip: 106.92 kB
+✓ built in 2.04s
+ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/7.1.1_3 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags='-Wl,-ld_classic' --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.101 / 61. 19.101
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+Input #0, image2, from '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/activity-view/flow-desktop-frames/frame-%02d.png':
+  Duration: 00:00:03.00, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1440x900, 1 fps, 1 tbr, 1 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0x125805ac0] using cpu capabilities: ARMv8 NEON
+[libx264 @ 0x125805ac0] profile High, level 3.2, 4:2:0, 8-bit
+[libx264 @ 0x125805ac0] 264 - core 164 r3108 31e19f9 - H.264/MPEG-4 AVC codec - Copyleft 2003-2023 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=16 lookahead_threads=5 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=1 keyint=250 keyint_min=1 scenecut=40 intra_refresh=0 rc_lookahead=10 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/activity-view/flow-desktop.mp4':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1280x800, q=2-31, 1 fps, 16384 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+[out#0/mp4 @ 0x6000025e4000] video:100KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.871050%
+frame=    3 fps=0.0 q=-1.0 Lsize=     101KiB time=00:00:01.00 bitrate= 827.3kbits/s speed=17.9x    
+[libx264 @ 0x125805ac0] frame I:1     Avg QP: 9.51  size: 81382
+[libx264 @ 0x125805ac0] frame P:1     Avg QP:10.82  size: 13841
+[libx264 @ 0x125805ac0] frame B:1     Avg QP:13.58  size:  6609
+[libx264 @ 0x125805ac0] consecutive B-frames: 33.3% 66.7%  0.0%  0.0%
+[libx264 @ 0x125805ac0] mb I  I16..4: 65.2%  6.6% 28.2%
+[libx264 @ 0x125805ac0] mb P  I16..4: 17.7%  1.8%  1.5%  P16..4:  6.1%  2.4%  1.4%  0.0%  0.0%    skip:69.2%
+[libx264 @ 0x125805ac0] mb B  I16..4: 17.0%  1.5%  0.2%  B16..8:  4.4%  1.1%  0.1%  direct:28.9%  skip:47.0%  L0:80.7% L1:19.3% BI: 0.0%
+[libx264 @ 0x125805ac0] 8x8 transform intra:7.0% inter:44.3%
+[libx264 @ 0x125805ac0] coded y,uvDC,uvAC intra: 30.4% 12.8% 10.9% inter: 9.7% 10.7% 1.4%
+[libx264 @ 0x125805ac0] i16 v,h,dc,p: 49% 49%  2%  1%
+[libx264 @ 0x125805ac0] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu:  7% 34% 54%  1%  0%  0%  1%  0%  4%
+[libx264 @ 0x125805ac0] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 23% 40% 18%  2%  5%  2%  3%  2%  5%
+[libx264 @ 0x125805ac0] i8c dc,h,v,p: 77% 17%  6%  1%
+[libx264 @ 0x125805ac0] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x125805ac0] kb/s:271.55
+ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/7.1.1_3 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags='-Wl,-ld_classic' --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.101 / 61. 19.101
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+Input #0, image2, from '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/activity-view/flow-desktop-frames/frame-%02d.png':
+  Duration: 00:00:03.00, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1440x900, 1 fps, 1 tbr, 1 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> gif (native))
+Press [q] to stop, [?] for help
+Output #0, gif, to '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/activity-view/flow-desktop.gif':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: gif, bgr8(pc, gbr/unknown/unknown, progressive), 960x600, q=2-31, 200 kb/s, 10 fps, 100 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 gif
+frame=   24 fps=0.0 q=-0.0 size=    4608KiB time=00:00:02.40 bitrate=15728.6kbits/s speed=4.71x    [out#0/gif @ 0x6000027383c0] video:6311KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.000309%
+frame=   30 fps=0.0 q=-0.0 Lsize=    6311KiB time=00:00:03.00 bitrate=17233.9kbits/s speed= 5.1x    
+ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/7.1.1_3 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags='-Wl,-ld_classic' --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.101 / 61. 19.101
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+Input #0, image2, from '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/mission-control/flow-desktop-frames/frame-%02d.png':
+  Duration: 00:00:03.00, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1440x900, 1 fps, 1 tbr, 1 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0x1268059f0] using cpu capabilities: ARMv8 NEON
+[libx264 @ 0x1268059f0] profile High, level 3.2, 4:2:0, 8-bit
+[libx264 @ 0x1268059f0] 264 - core 164 r3108 31e19f9 - H.264/MPEG-4 AVC codec - Copyleft 2003-2023 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=16 lookahead_threads=5 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=1 keyint=250 keyint_min=1 scenecut=40 intra_refresh=0 rc_lookahead=10 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/mission-control/flow-desktop.mp4':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1280x800, q=2-31, 1 fps, 16384 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+[out#0/mp4 @ 0x6000020840c0] video:86KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 1.001382%
+frame=    3 fps=0.0 q=-1.0 Lsize=      86KiB time=00:00:01.00 bitrate= 707.6kbits/s speed=  25x    
+[libx264 @ 0x1268059f0] frame I:1     Avg QP: 7.03  size: 33528
+[libx264 @ 0x1268059f0] frame P:2     Avg QP:11.04  size: 26682
+[libx264 @ 0x1268059f0] mb I  I16..4: 81.0%  7.6% 11.4%
+[libx264 @ 0x1268059f0] mb P  I16..4: 46.3%  4.5% 11.0%  P16..4:  4.4%  0.9%  0.3%  0.0%  0.0%    skip:32.5%
+[libx264 @ 0x1268059f0] 8x8 transform intra:7.4% inter:38.3%
+[libx264 @ 0x1268059f0] coded y,uvDC,uvAC intra: 22.7% 13.4% 10.0% inter: 9.7% 7.9% 1.0%
+[libx264 @ 0x1268059f0] i16 v,h,dc,p: 50% 48%  2%  0%
+[libx264 @ 0x1268059f0] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 10% 51% 34%  0%  0%  0%  0%  0%  3%
+[libx264 @ 0x1268059f0] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 25% 41% 19%  1%  4%  2%  3%  2%  4%
+[libx264 @ 0x1268059f0] i8c dc,h,v,p: 73% 22%  4%  1%
+[libx264 @ 0x1268059f0] Weighted P-Frames: Y:50.0% UV:50.0%
+[libx264 @ 0x1268059f0] kb/s:231.71
+ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
+  built with Apple clang version 16.0.0 (clang-1600.0.26.6)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/7.1.1_3 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags='-Wl,-ld_classic' --enable-ffplay --enable-gnutls --enable-gpl --enable-libaom --enable-libaribb24 --enable-libbluray --enable-libdav1d --enable-libharfbuzz --enable-libjxl --enable-libmp3lame --enable-libopus --enable-librav1e --enable-librist --enable-librubberband --enable-libsnappy --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libtesseract --enable-libtheora --enable-libvidstab --enable-libvmaf --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libxvid --enable-lzma --enable-libfontconfig --enable-libfreetype --enable-frei0r --enable-libass --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-libspeex --enable-libsoxr --enable-libzmq --enable-libzimg --disable-libjack --disable-indev=jack --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.101 / 61. 19.101
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+  libpostproc    58.  3.100 / 58.  3.100
+Input #0, image2, from '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/mission-control/flow-desktop-frames/frame-%02d.png':
+  Duration: 00:00:03.00, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1440x900, 1 fps, 1 tbr, 1 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> gif (native))
+Press [q] to stop, [?] for help
+Output #0, gif, to '/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-02-14/mission-control/flow-desktop.gif':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: gif, bgr8(pc, gbr/unknown/unknown, progressive), 960x600, q=2-31, 200 kb/s, 10 fps, 100 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 gif
+frame=   25 fps=0.0 q=-0.0 size=    4096KiB time=00:00:02.50 bitrate=13421.8kbits/s speed= 4.9x    [out#0/gif @ 0x600001e60000] video:5591KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.000349%
+frame=   30 fps=0.0 q=-0.0 Lsize=    5591KiB time=00:00:03.00 bitrate=15267.7kbits/s speed=5.21x    
+
+[exit] code=0

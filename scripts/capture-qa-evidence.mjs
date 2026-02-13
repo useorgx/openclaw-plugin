@@ -371,10 +371,37 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     await page.screenshot({ path: path.join(desktopDir, 'desktop-02-detail-modal.png') });
     await page.keyboard.press('Escape');
 
-    // Select a session so the right-panel inspector populates.
-    const sessionButton = page.getByRole('button', { name: /Eli|Dana|Pace|Mark/ }).first();
-    await sessionButton.click();
-    await page.getByText('Session Detail').first().waitFor();
+    // Open the session inspector drawer.
+    // Note: the agent group header button toggles filtering when filters are enabled,
+    // so click a session row (title text) instead of the agent name.
+    const openInspector = async () => {
+      const candidates = [
+        /Q4 Feature Ship.*Planning/i,
+        /Black Friday Email Campaign/i,
+        /Dashboard UI pass/i,
+        /Usage tracking instrumentation/i,
+      ];
+      for (const pattern of candidates) {
+        const hit = page.getByText(pattern).first();
+        if (await hit.isVisible().catch(() => false)) {
+          await hit.click();
+          return true;
+        }
+      }
+      // Fallback: click first visible session row title.
+      const firstTitle = page.locator('button p').first();
+      if (await firstTitle.isVisible().catch(() => false)) {
+        await firstTitle.click();
+        return true;
+      }
+      return false;
+    };
+
+    const opened = await openInspector();
+    if (!opened) {
+      throw new Error('Unable to locate a demo session row to open Session Detail.');
+    }
+    await page.getByRole('button', { name: 'Close session inspector' }).waitFor();
     await page.screenshot({ path: path.join(desktopDir, 'desktop-03-session-inspector.png') });
 
     // Frames for a lightweight flow recording (demo mode).
@@ -530,22 +557,32 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
   const mcDir = path.join(outDir, 'mission-control');
   await mkdir(mcDir, { recursive: true });
 
-  // 1) Desktop: table + dependency map + modals (demo mode + mocked graph).
-  {
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
-      reducedMotion: 'reduce',
-    });
-    await context.addInitScript(() => {
-      window.localStorage.setItem('orgx.onboarding.skip', '1');
-      window.localStorage.setItem('orgx.first_run_guide.dismissed', '1');
-    });
+	  // 1) Desktop: table + dependency map + modals (demo mode + mocked graph).
+	  {
+	    const context = await browser.newContext({
+	      viewport: { width: 1440, height: 900 },
+	      reducedMotion: 'reduce',
+	    });
+	    await context.addInitScript(() => {
+	      window.localStorage.setItem('orgx.onboarding.skip', '1');
+	      window.localStorage.setItem('orgx.first_run_guide.dismissed', '1');
+	    });
 
-    await context.route('**/orgx/api/mission-control/graph?*', async (route) => {
-      const url = new URL(route.request().url());
-      const id = url.searchParams.get('initiative_id');
-      const payload = mockMissionControlGraph(id ?? 'init-1');
-      await route.fulfill({
+	    // Demo Mission Control renders from session-derived initiatives; allow entity queries
+	    // and fulfill them with deterministic mocks.
+	    await context.route('**/orgx/api/entities?*', async (route) => {
+	      await route.fulfill({
+	        status: 200,
+	        contentType: 'application/json',
+	        body: JSON.stringify({ data: [] }),
+	      });
+	    });
+
+	    await context.route('**/orgx/api/mission-control/graph?*', async (route) => {
+	      const url = new URL(route.request().url());
+	      const id = url.searchParams.get('initiative_id');
+	      const payload = mockMissionControlGraph(id ?? 'init-1');
+	      await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(payload),
@@ -555,17 +592,27 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`${baseUrl}/?demo=1&view=mission-control`, { waitUntil: 'load' });
-    await page.getByPlaceholder('Search initiatives, status, or category...').waitFor();
+    await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);
 
-    // Expand initiatives so the graph/table panels render.
-    const expandAll = page.getByRole('button', { name: 'Expand All' });
-    if (await expandAll.isVisible().catch(() => false)) {
-      await expandAll.click();
-    }
+    // Expand the first initiative so the graph/table panels render.
+    // (The UI no longer has a global "Expand All" control.)
+    const firstInitiativeHeader = page
+      .locator('[id^="initiative-"] div[role="button"][aria-expanded]')
+      .first();
+    await firstInitiativeHeader.waitFor({ state: 'attached' });
+    await firstInitiativeHeader.scrollIntoViewIfNeeded();
+    // Click near the left edge (chevron) to avoid hitting the nested title button which opens a modal.
+    await firstInitiativeHeader.click({ position: { x: 14, y: 14 } });
+    await page
+      .locator('[id^="initiative-"] div[role="button"][aria-expanded="true"]')
+      .first()
+      .waitFor({ state: 'attached' });
 
-    // Wait for any graph-backed row to appear.
-    await page.locator('button[aria-label^="Open workstream details"]').first().waitFor();
+    // Wait for any graph-backed row to appear, then scroll it into view before capturing.
+    const workstreamDetailsBtn = page.locator('button[aria-label^="Open workstream details"]').first();
+    await workstreamDetailsBtn.waitFor({ state: 'attached' });
+    await workstreamDetailsBtn.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(mcDir, 'desktop-01-hierarchy-table.png') });
 
     // Scroll to the dependency map panel for a dedicated capture.
@@ -573,13 +620,49 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     await page.screenshot({ path: path.join(mcDir, 'desktop-02-dependency-map.png') });
 
     // Capture a workstream modal.
-    await page.locator('button[aria-label^="Open workstream details"]').first().click();
+    await workstreamDetailsBtn.scrollIntoViewIfNeeded();
+    await workstreamDetailsBtn.click();
     await page.getByRole('dialog').waitFor();
     await page.screenshot({ path: path.join(mcDir, 'desktop-03-modal-workstream.png') });
     await page.keyboard.press('Escape');
 
     // Capture a task modal.
-    await page.locator('button[aria-label^="Open task details"]').first().click();
+    // Tasks can be nested initiative -> workstream -> milestone -> task, so expand progressively.
+    const taskBtn = page.locator('button[aria-label^="Open task details"]').first();
+    const ensureSomeTaskAttached = async () => {
+      const hasAnyTask = async () =>
+        (await page.locator('button[aria-label^="Open task details"]').count()) > 0;
+
+      if (await hasAnyTask()) return true;
+
+      const expandWorkstream = page.locator('button[aria-label^="Expand workstream"]').first();
+      if (await expandWorkstream.isVisible().catch(() => false)) {
+        await expandWorkstream.click();
+      }
+      if (await hasAnyTask()) return true;
+
+      const expandMilestone = page.locator('button[aria-label^="Expand milestone"]').first();
+      if (await expandMilestone.isVisible().catch(() => false)) {
+        await expandMilestone.click();
+      }
+      if (await hasAnyTask()) return true;
+
+      // Give the UI a beat to compute default expanded rows after graph hydration.
+      try {
+        await taskBtn.waitFor({ state: 'attached', timeout: 3_000 });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const hasTask = await ensureSomeTaskAttached();
+    if (!hasTask) {
+      throw new Error('Unable to locate a task row in Mission Control mock graph.');
+    }
+
+    await taskBtn.scrollIntoViewIfNeeded();
+    await taskBtn.click();
     await page.getByRole('dialog').waitFor();
     await page.screenshot({ path: path.join(mcDir, 'desktop-04-modal-task.png') });
     await page.keyboard.press('Escape');
@@ -588,16 +671,19 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     const flowFrames = path.join(mcDir, 'flow-desktop-frames');
     await mkdir(flowFrames, { recursive: true });
     await page.goto(`${baseUrl}/?demo=1&view=mission-control`, { waitUntil: 'load' });
-    await page.getByPlaceholder('Search initiatives, status, or category...').waitFor();
+    await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);
-    if (await expandAll.isVisible().catch(() => false)) {
-      await expandAll.click();
-    }
-    await page.locator('button[aria-label^="Open workstream details"]').first().waitFor();
+    await firstInitiativeHeader.waitFor({ state: 'attached' });
+    await firstInitiativeHeader.scrollIntoViewIfNeeded();
+    await firstInitiativeHeader.click({ position: { x: 14, y: 14 } });
+    const flowWorkstreamBtn = page.locator('button[aria-label^="Open workstream details"]').first();
+    await flowWorkstreamBtn.waitFor({ state: 'attached' });
+    await flowWorkstreamBtn.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(flowFrames, 'frame-01.png') });
     await page.getByText('Dependency map').first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(flowFrames, 'frame-02.png') });
-    await page.locator('button[aria-label^="Open workstream details"]').first().click();
+    await flowWorkstreamBtn.scrollIntoViewIfNeeded();
+    await flowWorkstreamBtn.click();
     await page.getByRole('dialog').waitFor();
     await page.screenshot({ path: path.join(flowFrames, 'frame-03.png') });
     await page.keyboard.press('Escape');
@@ -637,22 +723,29 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     await context.close();
   }
 
-  // 2) Mobile: narrow-width validation (demo mode + mocked graph).
-  {
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      reducedMotion: 'reduce',
-    });
-    await context.addInitScript(() => {
-      window.localStorage.setItem('orgx.onboarding.skip', '1');
-      window.localStorage.setItem('orgx.first_run_guide.dismissed', '1');
-    });
-    await context.route('**/orgx/api/mission-control/graph?*', async (route) => {
-      const url = new URL(route.request().url());
-      const id = url.searchParams.get('initiative_id');
-      const payload = mockMissionControlGraph(id ?? 'init-1');
+	  // 2) Mobile: narrow-width validation (demo mode + mocked graph).
+	  {
+	    const context = await browser.newContext({
+	      viewport: { width: 390, height: 844 },
+	      isMobile: true,
+	      hasTouch: true,
+	      reducedMotion: 'reduce',
+	    });
+	    await context.addInitScript(() => {
+	      window.localStorage.setItem('orgx.onboarding.skip', '1');
+	      window.localStorage.setItem('orgx.first_run_guide.dismissed', '1');
+	    });
+	    await context.route('**/orgx/api/entities?*', async (route) => {
+	      await route.fulfill({
+	        status: 200,
+	        contentType: 'application/json',
+	        body: JSON.stringify({ data: [] }),
+	      });
+	    });
+	    await context.route('**/orgx/api/mission-control/graph?*', async (route) => {
+	      const url = new URL(route.request().url());
+	      const id = url.searchParams.get('initiative_id');
+	      const payload = mockMissionControlGraph(id ?? 'init-1');
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -663,7 +756,7 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`${baseUrl}/?demo=1&view=mission-control`, { waitUntil: 'load' });
-    await page.getByPlaceholder('Search initiatives, status, or category...').waitFor();
+    await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);
     await page.screenshot({ path: path.join(mcDir, 'mobile-01-mission-control.png') });
     await page.close();
@@ -683,7 +776,7 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`${baseUrl}/?view=mission-control`, { waitUntil: 'load' });
-    await page.getByPlaceholder('Search initiatives, status, or category...').waitFor();
+    await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);
     await page.screenshot({ path: path.join(mcDir, 'desktop-90-disconnected.png') });
     await page.close();
@@ -720,7 +813,7 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`${baseUrl}/?view=mission-control`, { waitUntil: 'load' });
-    await page.getByPlaceholder('Search initiatives, status, or category...').waitFor();
+    await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);
     await page.screenshot({ path: path.join(mcDir, 'desktop-91-empty.png') });
     await page.close();
