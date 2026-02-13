@@ -203,11 +203,11 @@ function nextUpModeLabel(mode: 'none' | 'running' | 'blocked' | 'queued' | 'star
 }
 
 function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'startable' | 'completed' | 'active_no_queue'): string {
-  if (mode === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
-  if (mode === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
-  if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
+  if (mode === 'running') return 'border-teal-300/24 bg-teal-400/[0.08] text-teal-100/90';
+  if (mode === 'blocked') return 'border-red-400/24 bg-red-500/[0.08] text-red-100/90';
+  if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.06] text-[#E8FFD0]/95';
   if (mode === 'completed') return 'border-white/[0.16] bg-white/[0.05] text-white/60';
-  return 'border-white/[0.16] bg-white/[0.05] text-white/68';
+  return 'border-white/[0.14] bg-white/[0.04] text-white/68';
 }
 
 export function MissionControlView({
@@ -1130,8 +1130,10 @@ function MissionControlInner({
   );
   const nextUpInlineShellTone = useMemo(
     () => ({
-      backgroundColor: 'rgba(10, 14, 21, 0.82)',
-      borderColor: 'rgba(255, 255, 255, 0.12)',
+      // Match the selection bar shell so the inline Next Up surface reads as "docked",
+      // not like a competing card.
+      backgroundColor: 'rgba(10, 14, 21, 0.66)',
+      borderColor: 'rgba(255, 255, 255, 0.10)',
     }),
     []
   );
@@ -1414,13 +1416,24 @@ function MissionControlInner({
             {sortedInitiatives.length > 0 && (
               <div
                 data-mc-selection-bar="true"
-                className={`mt-3 grid gap-2 rounded-xl border px-3 py-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center ${
+                className={`mt-3 relative grid overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_560px] xl:gap-0 xl:items-stretch ${
                   selectedInitiativeCount > 0
-                    ? 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.04]'
-                    : 'border-white/[0.08] bg-white/[0.02]'
+                    ? 'border-[#BFFF00]/14 bg-[#0A0E15]/72'
+                    : 'border-white/[0.10] bg-[#0A0E15]/66'
                 }`}
               >
-                <div className="min-w-0 flex flex-wrap items-center gap-2">
+                {selectedInitiativeCount > 0 && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, rgba(191,255,0,0.22), rgba(10,212,196,0.16), transparent 72%)',
+                    }}
+                  />
+                )}
+                <div className="min-w-0 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
                     <input
                       type="checkbox"
@@ -1520,6 +1533,7 @@ function MissionControlInner({
                       </button>
                     </div>
                   )}
+                  </div>
                 </div>
                 <AnimatePresence initial={false} mode="popLayout">
                   {!nextUpRailOpen && !nextUpDrawerOpen && (
@@ -1535,7 +1549,7 @@ function MissionControlInner({
                         duration: 0.2,
                         ease: [0.22, 1, 0.36, 1],
                       }}
-                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-white/[0.12] px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:w-[520px] xl:justify-self-end"
+                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-white/[0.12] px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         {nextActionQueue.isLoading ? (
@@ -1647,10 +1661,10 @@ function MissionControlInner({
               layout
               transition={{ type: 'spring', stiffness: 260, damping: 30 }}
               className={`grid gap-4 pb-8 ${
-                nextUpRailOpen ? 'xl:grid-cols-[minmax(0,1fr)_320px]' : 'grid-cols-1'
+                nextUpRailOpen ? 'xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-0' : 'grid-cols-1'
               }`}
             >
-              <motion.div layout className="min-w-0">
+              <motion.div layout className={`min-w-0 ${nextUpRailOpen ? 'xl:pr-4' : ''}`}>
                 {!isLoading && nextActionInitiative && (
                   <motion.div
                     initial={{ opacity: 0, y: 6, scale: 0.995 }}
@@ -1663,7 +1677,7 @@ function MissionControlInner({
                       className="absolute inset-x-0 top-0 h-px"
                       style={{
                         background:
-                          'linear-gradient(90deg, rgba(191,255,0,0.18), rgba(10,212,196,0.16), transparent 72%)',
+                          'linear-gradient(90deg, rgba(191,255,0,0.14), rgba(10,212,196,0.12), transparent 72%)',
                       }}
                     />
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1869,7 +1883,7 @@ function MissionControlInner({
                         initial={{ borderRadius: 12 }}
                         animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
                         transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
-                        className="origin-top-right flex h-[calc(100vh-var(--mc-toolbar-offset)-24px)] min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
+                        className="origin-top-right flex h-[calc(100vh-var(--mc-toolbar-offset)-24px)] min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px] xl:rounded-l-none"
                       >
                         <div className="relative flex-1 min-h-0">
                           <button

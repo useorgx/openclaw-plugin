@@ -45,6 +45,7 @@ import type {
   OrgSnapshot,
   Entity,
   LiveActivityItem,
+  SessionTreeNode,
   SessionTreeResponse,
   HandoffSummary,
   BillingStatus,
@@ -845,6 +846,96 @@ function enrichSessionsWithRuntime(
   });
 
   return { ...input, nodes };
+}
+
+function injectRuntimeInstancesAsSessions(
+  input: SessionTreeResponse,
+  instances: RuntimeInstanceRecord[]
+): SessionTreeResponse {
+  if (!Array.isArray(input.nodes)) return input;
+  if (!Array.isArray(instances) || instances.length === 0) return input;
+
+  const nodes = [...input.nodes];
+  const edges = Array.isArray(input.edges) ? input.edges : [];
+  const groups = [...(input.groups ?? [])];
+
+  const existingRunIds = new Set<string>();
+  const existingNodeIds = new Set<string>();
+  for (const node of nodes) {
+    existingNodeIds.add(node.id);
+    if (node.runId) existingRunIds.add(node.runId);
+  }
+
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+
+  for (const instance of instances) {
+    if (!instance || typeof instance !== "object") continue;
+    const runId = instance.runId?.trim() || instance.correlationId?.trim() || "";
+    if (!runId) continue;
+    if (existingRunIds.has(runId)) continue;
+
+    // Only surface active/stale runtime instances as "sessions" so the Activity UI can show
+    // a seamless "in progress" lane even when this isn't an OpenClaw session tree node.
+    if (instance.state !== "active" && instance.state !== "stale") continue;
+
+    const initiativeId = instance.initiativeId?.trim() || null;
+    const workstreamId = instance.workstreamId?.trim() || null;
+    const groupId = initiativeId ?? "runtime";
+
+    const meta =
+      instance.metadata && typeof instance.metadata === "object"
+        ? (instance.metadata as Record<string, unknown>)
+        : {};
+    const titleHint =
+      pickString(meta, ["workstream_title", "workstreamTitle"]) ??
+      (workstreamId ? `Workstream ${workstreamId.slice(0, 8)}` : null);
+    const initiativeHint =
+      pickString(meta, ["initiative_title", "initiativeTitle"]) ??
+      (initiativeId ? `Initiative ${initiativeId.slice(0, 8)}` : null);
+    const groupLabel =
+      (initiativeHint ?? groupId).trim();
+
+    if (!groupsById.has(groupId)) {
+      const group = { id: groupId, label: groupLabel, status: null };
+      groupsById.set(groupId, group);
+      groups.push(group);
+    }
+
+    const nodeId = `runtime:${instance.id}`;
+    if (existingNodeIds.has(nodeId)) continue;
+    existingNodeIds.add(nodeId);
+    existingRunIds.add(runId);
+
+    const node: SessionTreeNode = {
+      id: nodeId,
+      parentId: null,
+      runId,
+      title: titleHint ?? instance.lastMessage ?? `Runtime ${runId.slice(0, 8)}`,
+      agentId: instance.agentId ?? null,
+      agentName: instance.agentName ?? null,
+      status: "running",
+      progress: instance.progressPct ?? null,
+      initiativeId,
+      workstreamId,
+      groupId,
+      groupLabel,
+      startedAt: instance.createdAt ?? instance.lastEventAt ?? null,
+      updatedAt: instance.updatedAt ?? null,
+      lastEventAt: instance.lastEventAt ?? null,
+      lastEventSummary: instance.lastMessage ?? null,
+      blockers: [],
+      phase: (instance.phase as any) ?? null,
+      state: instance.state ?? null,
+      runtimeClient: normalizeRuntimeSource(instance.sourceClient),
+      runtimeLabel: instance.displayName,
+      runtimeProvider: instance.providerLogo,
+      instanceId: instance.id,
+      lastHeartbeatAt: instance.lastHeartbeatAt ?? null,
+    };
+    nodes.push(node);
+  }
+
+  return { nodes, edges, groups };
 }
 
 function enrichActivityWithRuntime(
@@ -3454,6 +3545,7 @@ export function createHttpHandler(
   };
 
   const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
+  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
   const AUTO_CONTINUE_SLICE_MAX_TASKS = 4;
   const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 10 * 60_000; // 10 minutes per slice hard cap
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
@@ -3674,6 +3766,7 @@ export function createHttpHandler(
     schemaPath: string;
     logPath: string;
     outputPath: string;
+    env?: Record<string, string | undefined>;
   }): { pid: number | null } {
     ensurePrivateDir(input.logPath);
     ensurePrivateDir(input.outputPath);
@@ -3696,7 +3789,7 @@ export function createHttpHandler(
       ],
       {
         cwd: input.cwd,
-        env: process.env,
+        env: { ...process.env, ...(input.env ?? {}) },
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
       }
@@ -4695,6 +4788,18 @@ export function createHttpHandler(
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
     const workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+    const agentDisplayName =
+      `${executionPolicy.domain[0]?.toUpperCase() ?? "A"}${executionPolicy.domain.slice(1)} Agent`;
+    let runtimeHookUrl: string | null = null;
+    let runtimeHookToken: string | null = null;
+    try {
+      const snapshot = readOpenClawSettingsSnapshot();
+      const port = readOpenClawGatewayPort(snapshot.raw);
+      runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
+      runtimeHookToken = resolveRuntimeHookToken();
+    } catch {
+      // best effort
+    }
     const spawned = spawnCodexSliceWorker({
       runId: sliceRunId,
       prompt,
@@ -4702,6 +4807,18 @@ export function createHttpHandler(
       schemaPath,
       logPath,
       outputPath,
+      env: {
+        ORGX_SOURCE_CLIENT: "codex",
+        ORGX_RUN_ID: sliceRunId,
+        ORGX_CORRELATION_ID: sliceRunId,
+        ORGX_INITIATIVE_ID: run.initiativeId,
+        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+        ORGX_TASK_ID: primaryTask.id,
+        ORGX_AGENT_ID: run.agentId || "main",
+        ORGX_AGENT_NAME: agentDisplayName,
+        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
+        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
+      },
     });
 
     const slice: AutoContinueSliceRun = {
@@ -4734,7 +4851,7 @@ export function createHttpHandler(
         initiativeId: run.initiativeId,
         workstreamId: selectedWorkstreamId,
         agentId: slice.agentId,
-        agentName: null,
+        agentName: agentDisplayName,
         phase: "execution",
         message: `Autopilot slice started: ${workstreamTitle ?? selectedWorkstreamId}`,
         metadata: {
@@ -4742,11 +4859,17 @@ export function createHttpHandler(
           domain: executionPolicy.domain,
           required_skills: executionPolicy.requiredSkills,
           task_ids: slice.taskIds,
+          initiative_title: initiativeTitle ?? null,
+          workstream_title: workstreamTitle ?? null,
+          log_path: logPath,
+          output_path: outputPath,
         },
       });
     } catch {
       // best effort
     }
+
+    autoContinueSliceLastHeartbeatMs.set(sliceRunId, Date.now());
 
     await emitActivitySafe({
       initiativeId: run.initiativeId,
@@ -4757,9 +4880,13 @@ export function createHttpHandler(
       message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
       metadata: {
         event: "autopilot_slice_dispatched",
+        agent_id: slice.agentId,
+        agent_name: agentDisplayName,
         domain: executionPolicy.domain,
         required_skills: executionPolicy.requiredSkills,
+        initiative_title: initiativeTitle ?? null,
         workstream_id: selectedWorkstreamId,
+        workstream_title: workstreamTitle ?? null,
         task_ids: slice.taskIds,
         milestone_ids: milestoneIds,
         log_path: logPath,
@@ -8512,6 +8639,7 @@ export function createHttpHandler(
               (instance) => instance.runId === run || instance.correlationId === run
             );
           }
+          sessions = injectRuntimeInstancesAsSessions(sessions, runtimeInstances);
           sessions = enrichSessionsWithRuntime(sessions, runtimeInstances);
           activity = enrichActivityWithRuntime(activity, runtimeInstances);
 
@@ -8542,10 +8670,15 @@ export function createHttpHandler(
             const limit = searchParams.get("limit")
               ? Number(searchParams.get("limit"))
               : undefined;
-            const data = await client.getLiveSessions({
+            let data = await client.getLiveSessions({
               initiative,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
+            const runtimeInstances = (initiative && initiative.trim().length > 0)
+              ? listRuntimeInstances({ limit: 320 }).filter((instance) => instance.initiativeId === initiative)
+              : listRuntimeInstances({ limit: 320 });
+            data = injectRuntimeInstancesAsSessions(data, runtimeInstances);
+            data = enrichSessionsWithRuntime(data, runtimeInstances);
             sendJson(res, 200, data);
           } catch (err: unknown) {
             try {
