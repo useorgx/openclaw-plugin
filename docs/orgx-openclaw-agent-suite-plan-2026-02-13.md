@@ -222,10 +222,33 @@ Plugin responsibilities:
 - Define SkillPack canonical schema + adapters.
 - Define KickoffContext schema and message renderer template.
 
+#### SkillPack Manifest (OpenClaw v1)
+Server endpoint: `GET/POST /api/client/skill-pack?name=orgx-agent-suite` (ETag: checksum).
+
+`skill_packs.manifest` must include an OpenClaw-specific override map:
+
+```json
+{
+  "schema_version": "2026-02-13",
+  "openclaw_skills": {
+    "engineering": "# OrgX Engineering — Skill\n...\n",
+    "product": "# OrgX Product — Skill\n...\n",
+    "design": "# OrgX Design — Skill\n...\n",
+    "marketing": "# OrgX Marketing — Skill\n...\n",
+    "sales": "# OrgX Sales — Skill\n...\n",
+    "operations": "# OrgX Operations — Skill\n...\n",
+    "orchestration": "# OrgX Orchestrator — Skill\n...\n"
+  }
+}
+```
+
+Plugin behavior:
+- If an `openclaw_skills[domain]` override is present, it becomes the managed `SKILL.md` content for that agent workspace.
+- Otherwise, the plugin generates a baseline `SKILL.md` per domain and still records SkillPack provenance (when available).
+
 ### Phase 1: Cloud APIs (Code/orgx/orgx)
-- `GET /api/plugin/openclaw/agent-pack`
-- `GET /api/plugin/openclaw/skill-pack`
-- `GET /api/plugin/openclaw/kickoff-context`
+- `POST /api/client/kickoff-context` (api-key auth, deterministic `context_hash`)
+- `GET/POST /api/client/skill-pack` (api-key auth, ETag/304 via checksum)
 - Add tests, ETag support, and rollout flags.
 
 ### Phase 2: Plugin Installer (This repo)

@@ -143,6 +143,45 @@ export type KickoffContextRequest = KickoffContextScope & {
 export type KickoffContextResponse = { ok: true; data: KickoffContext } | { ok: false; error: string };
 
 // =============================================================================
+// AGENT PACKS (OPENCLAW PROVISIONING CONTRACT)
+// =============================================================================
+
+export type OrgxAgentDomain =
+  | "engineering"
+  | "product"
+  | "design"
+  | "marketing"
+  | "sales"
+  | "operations"
+  | "orchestration";
+
+/**
+ * AgentProfile describes the stable agent identity + workspace configuration
+ * needed to instantiate OrgX agents in OpenClaw.
+ *
+ * Note: this is a provisioning contract (what to install/configure), not an
+ * execution record (runs/sessions).
+ */
+export type OrgxAgentProfile = {
+  id: string;
+  name: string;
+  domain: OrgxAgentDomain;
+  workspace: string;
+  required_skills?: string[] | null;
+  tool_scope?: KickoffContextToolScope | null;
+  persona?: KickoffContext["persona"] | null;
+};
+
+export type OrgxAgentPack = {
+  pack_id: string;
+  pack_version: string;
+  schema_version?: string | null;
+  skill_pack?: { name: string; version: string; checksum: string } | null;
+  agents: OrgxAgentProfile[];
+  managed_files: string[];
+};
+
+// =============================================================================
 // SKILL PACKS (CANONICAL SKILLS FOR DESKTOP CLIENTS)
 // =============================================================================
 
@@ -155,6 +194,16 @@ export type SkillPack = {
   required_scopes?: string[] | null;
   required_tools?: string[] | null;
   updated_at?: string | null;
+};
+
+/**
+ * Canonical manifest shape expected by the OpenClaw plugin.
+ *
+ * Stored in `skill_packs.manifest` on the OrgX server.
+ */
+export type OpenClawSkillPackManifestV1 = {
+  schema_version: string;
+  openclaw_skills: Partial<Record<OrgxAgentDomain, string>>;
 };
 
 export type SkillPackResponse = { ok: true; data: SkillPack } | { ok: false; error: string };
