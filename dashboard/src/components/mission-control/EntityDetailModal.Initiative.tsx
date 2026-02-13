@@ -34,7 +34,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
+  const [showNotes, setShowNotes] = useState(true);
   const [draftTitle, setDraftTitle] = useState(initiative.name);
   const [draftSummary, setDraftSummary] = useState(initiative.description ?? '');
   const [draftPriority, setDraftPriority] = useState(
