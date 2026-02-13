@@ -9,9 +9,9 @@ interface AgentAvatarProps {
 }
 
 const sizeMap = {
-  xs: 'w-6 h-6 text-[9px]',
-  sm: 'w-8 h-8 text-[10px]',
-  md: 'w-10 h-10 text-[12px]',
+  xs: 'w-6 h-6 text-micro',
+  sm: 'w-8 h-8 text-micro',
+  md: 'w-10 h-10 text-body',
 };
 
 const baseUrl = '/orgx/live/';

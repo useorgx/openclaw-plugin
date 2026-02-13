@@ -184,7 +184,7 @@ function isVisibleInitiativeStatus(rawStatus: string | null | undefined): boolea
 
 function OrgXLogo() {
   return (
-    <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.04] p-0.5">
+    <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-strong bg-white/[0.04] p-0.5">
       <img src={orgxLogo} alt="OrgX" className="h-full w-full rounded-md object-contain" />
     </span>
   );
@@ -1232,7 +1232,7 @@ function DashboardShell({
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col lg:h-screen" style={{ backgroundColor: colors.background }}>
-        <div className="border-b border-white/[0.06] px-4 py-2.5 sm:px-6">
+        <div className="border-b border-subtle px-4 py-2.5 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="shimmer-skeleton h-6 w-6 rounded-lg" />
             <div className="shimmer-skeleton h-5 w-28 rounded-md" />
@@ -1264,11 +1264,11 @@ function DashboardShell({
     >
       {(import.meta.env.DEV || (typeof window !== 'undefined' && window.location.port === '5173')) && (
         <div className="absolute left-1/2 top-4 z-30 -translate-x-1/2">
-          <div className="rounded-full border border-white/[0.12] bg-white/[0.06] px-4 py-2 text-[11px] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+          <div className="rounded-full border border-strong bg-white/[0.06] px-4 py-2 text-caption text-primary shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
             Dev preview on 5173. Installed plugin runs on OpenClaw port{' '}
             <a
               href="http://127.0.0.1:18789/orgx/live/"
-              className="text-white underline underline-offset-4 hover:text-white/60"
+              className="text-white underline underline-offset-4 hover:text-secondary"
             >
               18789
             </a>
@@ -1278,12 +1278,12 @@ function DashboardShell({
       )}
 
 
-      <header className="relative z-[180] border-b border-white/[0.06] px-4 py-1.5 sm:px-6">
+      <header className="relative z-[180] border-b border-subtle px-4 py-1.5 sm:px-6">
         <div className="flex items-center justify-between gap-2.5 lg:grid lg:grid-cols-[1fr_auto_1fr]">
           <div className="flex min-w-0 items-center gap-2.5">
             <OrgXLogo />
-            <h1 className="text-[16px] font-semibold tracking-tight text-white sm:text-[17px]">
-              OrgX<span className="ml-1.5 text-white/50">Live</span>
+            <h1 className="text-title font-semibold tracking-tight text-white sm:text-[17px]">
+              OrgX<span className="ml-1.5 text-secondary">Live</span>
             </h1>
             <Badge
               color={CONNECTION_COLOR[data.connection]}
@@ -1332,10 +1332,10 @@ function DashboardShell({
                 type="button"
                 onClick={() => switchDashboardView('activity')}
                 aria-pressed={dashboardView === 'activity'}
-                className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+                className={`rounded-full px-3 py-1 text-body font-medium transition-all ${
                   dashboardView === 'activity'
                     ? 'bg-white/[0.1] text-white'
-                    : 'text-white/55 hover:text-white/85'
+                    : 'text-secondary hover:text-bright'
                 }`}
               >
                 Activity
@@ -1346,10 +1346,10 @@ function DashboardShell({
 	              onMouseEnter={prefetchMissionControl}
 	              onFocus={prefetchMissionControl}
 	              aria-pressed={dashboardView === 'mission-control'}
-	              className={`rounded-full px-3 py-1 text-[12px] font-medium transition-all ${
+	              className={`rounded-full px-3 py-1 text-body font-medium transition-all ${
 	                dashboardView === 'mission-control'
 	                  ? 'bg-white/[0.1] text-white'
-	                  : 'text-white/55 hover:text-white/85'
+	                  : 'text-secondary hover:text-bright'
 	              }`}
 	            >
 	              Mission Control
@@ -1359,12 +1359,12 @@ function DashboardShell({
 
           <div className="relative isolate flex items-center justify-end gap-1.5 sm:gap-2">
             {data.lastActivity && (
-              <span className="hidden text-[12px] text-white/45 xl:inline">
+              <span className="hidden text-body text-secondary xl:inline">
                 Last activity: {data.lastActivity}
               </span>
             )}
             {data.outbox.pendingTotal > 0 && (
-              <span className="hidden text-[12px] text-white/45 xl:inline">
+              <span className="hidden text-body text-secondary xl:inline">
                 Replay: {data.outbox.replayStatus}
               </span>
             )}
@@ -1375,7 +1375,7 @@ function DashboardShell({
                   setDemoMode(false);
                   handleReconnect();
                 }}
-                className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
+                className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-caption font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
                 title="Exit demo mode"
               >
                 Exit demo
@@ -1389,14 +1389,14 @@ function DashboardShell({
               aria-haspopup="dialog"
               aria-expanded={notificationTrayOpen}
               aria-controls="header-notifications-panel"
-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2c0 .53-.21 1.04-.59 1.42L4 17h5" />
                 <path d="M9 17a3 3 0 0 0 6 0" />
               </svg>
               {visibleNotifications.length > 0 && (
-                <span className="absolute -right-1 -top-1 inline-flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                <span className="absolute -right-1 -top-1 inline-flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-micro font-semibold text-white">
                   {visibleNotifications.length}
                 </span>
               )}
@@ -1405,7 +1405,7 @@ function DashboardShell({
               type="button"
               onClick={() => openSettings('orgx')}
               title="Settings"
-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
@@ -1419,7 +1419,7 @@ function DashboardShell({
                 try { window.sessionStorage.setItem(FIRST_RUN_GUIDE_SESSION_KEY, '1'); } catch { /* ignore */ }
               }}
               title="Help"
-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-white/80 transition-colors hover:bg-white/[0.08]"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
@@ -1430,7 +1430,7 @@ function DashboardShell({
             <button
               type="button"
               onClick={refetch}
-              className="group inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-[12px] text-white/80 transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
+              className="group inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-body text-primary transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
               title="Refresh data"
             >
               <svg
@@ -1456,16 +1456,16 @@ function DashboardShell({
                 ref={notificationTrayRef}
                 role="dialog"
                 aria-label="Notifications"
-                className="absolute right-0 top-[calc(100%+8px)] z-[320] w-[min(92vw,380px)] rounded-2xl border border-white/[0.12] bg-[#070a11]/95 p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur"
+                className="absolute right-0 top-[calc(100%+8px)] z-[320] w-[min(92vw,380px)] rounded-2xl border border-strong bg-[#070a11]/95 p-2 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur"
               >
                 <div className="mb-1.5 flex items-center justify-between px-2 py-1">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-white/55">Notifications</p>
+                  <p className="text-body font-semibold uppercase tracking-[0.12em] text-secondary">Notifications</p>
                   <div className="flex items-center gap-2">
                     {visibleNotifications.length > 0 && (
                       <button
                         type="button"
                         onClick={clearNotifications}
-                        className="text-[11px] text-white/45 transition-colors hover:text-white/80"
+                        className="text-caption text-secondary transition-colors hover:text-primary"
                       >
                         Dismiss all
                       </button>
@@ -1473,7 +1473,7 @@ function DashboardShell({
                     <button
                       type="button"
                       onClick={() => setNotificationTrayOpen(false)}
-                      className="rounded-md px-1.5 py-0.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                      className="rounded-md px-1.5 py-0.5 text-caption text-secondary transition-colors hover:bg-white/[0.08] hover:text-primary"
                       aria-label="Close notifications"
                     >
                       Close
@@ -1485,10 +1485,10 @@ function DashboardShell({
                   {compactMetrics.map((metric) => (
                     <span
                       key={metric.id}
-                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px]"
+                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro"
                     >
                       <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
-                      <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
+                      <span className="uppercase tracking-[0.08em] text-secondary">{metric.label}</span>
                       <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {metric.value}
                       </span>
@@ -1497,7 +1497,7 @@ function DashboardShell({
                 </div>
 
                 {visibleNotifications.length === 0 ? (
-                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[12px] text-white/45">
+                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-body text-secondary">
                     Everything looks clear.
                   </div>
                 ) : (
@@ -1514,18 +1514,18 @@ function DashboardShell({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p
-                              className="inline-flex items-center gap-1.5 text-[12px] font-semibold"
+                              className="inline-flex items-center gap-1.5 text-body font-semibold"
                               style={{ color: item.kind === 'error' ? '#fecaca' : '#e2e8f0' }}
                             >
                               <EntityIcon type={item.icon} size={12} className="opacity-90" />
                               <span className="truncate">{item.title}</span>
                             </p>
-                            <p className="mt-0.5 text-[12px] leading-snug text-white/65">{item.message}</p>
+                            <p className="mt-0.5 text-body leading-snug text-secondary">{item.message}</p>
                             {item.onAction && (
                               <button
                                 type="button"
                                 onClick={() => { item.onAction?.(); setNotificationTrayOpen(false); }}
-                                className="mt-1.5 rounded-md border border-white/[0.12] bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-white/75 transition-colors hover:bg-white/[0.1] hover:text-white"
+                                className="mt-1.5 rounded-md border border-strong bg-white/[0.05] px-2.5 py-1 text-caption font-medium text-primary transition-colors hover:bg-white/[0.1] hover:text-white"
                               >
                                 {item.actionLabel ?? 'View'}
                               </button>
@@ -1534,7 +1534,7 @@ function DashboardShell({
                           <button
                             type="button"
                             onClick={() => dismissNotification(item.id)}
-                            className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                            className="shrink-0 rounded-md px-1.5 py-0.5 text-caption text-secondary transition-colors hover:bg-white/[0.08] hover:text-primary"
                             title="Dismiss"
                           >
                             Dismiss
@@ -1559,10 +1559,10 @@ function DashboardShell({
               type="button"
               onClick={() => switchDashboardView('activity')}
               aria-pressed={dashboardView === 'activity'}
-              className={`flex-1 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
+              className={`flex-1 rounded-full px-3 py-1.5 text-body font-medium transition-all ${
                 dashboardView === 'activity'
                   ? 'bg-white/[0.1] text-white'
-                  : 'text-white/55 hover:text-white/85'
+                  : 'text-secondary hover:text-bright'
               }`}
             >
               Activity
@@ -1571,10 +1571,10 @@ function DashboardShell({
               type="button"
               onClick={() => switchDashboardView('mission-control')}
               aria-pressed={dashboardView === 'mission-control'}
-              className={`flex-1 rounded-full px-3 py-1.5 text-[12px] font-medium transition-all ${
+              className={`flex-1 rounded-full px-3 py-1.5 text-body font-medium transition-all ${
                 dashboardView === 'mission-control'
                   ? 'bg-white/[0.1] text-white'
-                  : 'text-white/55 hover:text-white/85'
+                  : 'text-secondary hover:text-bright'
               }`}
             >
               Mission Control
@@ -1583,7 +1583,7 @@ function DashboardShell({
         </div>
 
         {showMissionControlWelcome && (
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#7C7CFF]/30 bg-[#7C7CFF]/10 px-3 py-2 text-[12px] text-[#E6E4FF]">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#7C7CFF]/30 bg-[#7C7CFF]/10 px-3 py-2 text-body text-[#E6E4FF]">
             <span>
               Mission Control now includes a dependency map plus expandable hierarchy rows for initiatives, workstreams, milestones, and tasks.
             </span>
@@ -1593,14 +1593,14 @@ function DashboardShell({
 	                onClick={() => switchDashboardView('mission-control')}
 	                onMouseEnter={prefetchMissionControl}
 	                onFocus={prefetchMissionControl}
-	                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-[11px] text-[#D8FFA1]"
+	                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-caption text-[#D8FFA1]"
 	              >
 	                Open
 	              </button>
               <button
                 type="button"
                 onClick={() => setDismissedMissionControlWelcome(true)}
-                className="text-[11px] text-white/65 underline underline-offset-2"
+                className="text-caption text-secondary underline underline-offset-2"
               >
                 Dismiss
               </button>
@@ -1611,22 +1611,22 @@ function DashboardShell({
 
       {/* Activity-only quick metric actions */}
       {dashboardView === 'activity' && (
-        <div className="flex items-center gap-1.5 overflow-x-auto border-b border-white/[0.06] px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
+        <div className="flex items-center gap-1.5 overflow-x-auto border-b border-subtle px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
           {compactMetrics.map((metric) => (
             <button
               key={metric.id}
               type="button"
               onClick={() => handleCompactMetricClick(metric.id)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
               title={`Bulk actions: ${metric.label.toLowerCase()}`}
             >
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.02]">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-strong bg-white/[0.02]">
                 <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
               </span>
               <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {metric.value}
               </span>
-              <span className="uppercase tracking-[0.08em] text-white/45">{metric.label}</span>
+              <span className="uppercase tracking-[0.08em] text-secondary">{metric.label}</span>
             </button>
           ))}
         </div>
@@ -1636,7 +1636,7 @@ function DashboardShell({
 	        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
 	          <Suspense
 	            fallback={
-	              <div className="flex flex-1 items-center justify-center text-[12px] text-white/50">
+	              <div className="flex flex-1 items-center justify-center text-body text-secondary">
 	                Loading Mission Control…
 	              </div>
 	            }
@@ -1678,11 +1678,11 @@ function DashboardShell({
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span className={`text-[12px] font-medium ${data.decisions.length >= 20 ? 'text-red-200' : 'text-amber-200'}`}>
+            <span className={`text-body font-medium ${data.decisions.length >= 20 ? 'text-red-200' : 'text-amber-200'}`}>
               {data.decisions.length} decision{data.decisions.length === 1 ? '' : 's'} waiting
               {longestWaitMinutes > 0 ? ` · longest: ${longestWaitMinutes}m` : ''}
             </span>
-            <span className={`ml-auto text-[11px] ${data.decisions.length >= 20 ? 'text-red-300/70' : 'text-amber-300/70'}`}>
+            <span className={`ml-auto text-caption ${data.decisions.length >= 20 ? 'text-red-300/70' : 'text-amber-300/70'}`}>
               Click to review →
             </span>
           </button>
@@ -1745,9 +1745,9 @@ function DashboardShell({
                   className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="flex items-center gap-2">
-                    <h2 className="text-[14px] font-semibold text-white">Next Up</h2>
+                    <h2 className="text-heading font-semibold text-white">Next Up</h2>
                   </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-muted">
                     <path d="m6 9 6 6 6-6" />
                   </svg>
                 </button>
@@ -1766,17 +1766,17 @@ function DashboardShell({
                 />
               ) : (
                 <PremiumCard className="flex h-full min-h-[220px] flex-col card-enter">
-                  <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
-                    <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
-                    <p className="text-[12px] text-white/45">
+                  <div className="space-y-2 border-b border-subtle px-4 py-3.5">
+                    <h2 className="text-heading font-semibold text-white">Decisions</h2>
+                    <p className="text-body text-secondary">
                       OrgX is not connected. Pending decision data is hidden in local-only mode.
                     </p>
                   </div>
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-                    <p className="text-[12px] text-white/45">Connect OrgX to review and approve live decisions.</p>
+                    <p className="text-body text-secondary">Connect OrgX to review and approve live decisions.</p>
                     <button
                       onClick={handleReconnect}
-                      className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20"
+                      className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/20"
                     >
                       Connect OrgX
                     </button>
@@ -1790,17 +1790,17 @@ function DashboardShell({
                   className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="flex items-center gap-2">
-                    <h2 className="text-[14px] font-semibold text-white">Decisions</h2>
+                    <h2 className="text-heading font-semibold text-white">Decisions</h2>
                     {decisionsVisible && data.decisions.length > 0 && (
-                      <span className="chip text-[10px]" style={{ borderColor: `${colors.amber}44`, color: colors.amber }}>
+                      <span className="chip text-micro" style={{ borderColor: `${colors.amber}44`, color: colors.amber }}>
                         {data.decisions.length}
                       </span>
                     )}
                     {!decisionsVisible && (
-                      <span className="text-[10px] text-white/30">disconnected</span>
+                      <span className="text-micro text-muted">disconnected</span>
                     )}
                   </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-white/40">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-muted">
                     <path d="m6 9 6 6 6-6" />
                   </svg>
                 </button>
@@ -1833,13 +1833,13 @@ function DashboardShell({
               className="fixed inset-y-0 right-0 z-[210] hidden w-[480px] flex-col lg:flex"
               style={{ backgroundColor: colors.cardBg }}
             >
-              <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-                <h3 className="text-[13px] font-semibold text-white/70">Session Detail</h3>
+              <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
+                <h3 className="text-body font-semibold text-primary">Session Detail</h3>
                 <button
                   type="button"
                   onClick={() => setSessionDrawerOpen(false)}
                   aria-label="Close session inspector"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 6L6 18" /><path d="M6 6l12 12" />
@@ -1849,7 +1849,7 @@ function DashboardShell({
 	              <div className="flex-1 min-h-0 overflow-y-auto">
 	                <Suspense
 	                  fallback={
-	                    <div className="p-4 text-[12px] text-white/50">Loading session detail…</div>
+	                    <div className="p-4 text-body text-secondary">Loading session detail…</div>
 	                  }
 	                >
 	                  <LazySessionInspector
@@ -1887,17 +1887,17 @@ function DashboardShell({
       >
         <div className="flex w-full flex-col">
           <div className="px-5 pt-5 pb-1">
-            <h3 className="text-[15px] font-semibold text-white">
+            <h3 className="text-heading font-semibold text-white">
               {entityModal?.type === 'workstream' ? 'New Workstream' : 'New Initiative'}
             </h3>
-            <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+            <p className="mt-1 text-body leading-relaxed text-secondary">
               {entityModal?.type === 'workstream'
                 ? 'Create a new workstream under the selected initiative.'
                 : 'Create a new initiative to organize your work.'}
             </p>
           </div>
           <div className="px-5 py-4">
-            <label className="mb-1.5 block text-[11px] uppercase tracking-[0.1em] text-white/45">
+            <label className="mb-1.5 block text-caption uppercase tracking-[0.1em] text-secondary">
               Name
             </label>
             <input
@@ -1909,20 +1909,20 @@ function DashboardShell({
               autoFocus
               data-modal-autofocus="true"
               placeholder={entityModal?.type === 'workstream' ? 'e.g. User Onboarding Flow' : 'e.g. Q1 Product Launch'}
-              className="w-full rounded-lg border border-white/[0.12] bg-black/30 px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
+              className="w-full rounded-lg border border-strong bg-black/30 px-3 py-2.5 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
             />
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3">
+          <div className="flex items-center justify-end gap-2 border-t border-subtle px-5 py-3">
             <button
               onClick={closeEntityModal}
-              className="rounded-md px-3 py-1.5 text-[12px] text-white/60 transition-colors hover:text-white"
+              className="rounded-md px-3 py-1.5 text-body text-secondary transition-colors hover:text-white"
             >
               Cancel
             </button>
             <button
               onClick={confirmCreateEntity}
               disabled={entityName.trim().length === 0 || entityCreating}
-              className="rounded-md border border-lime/25 bg-lime/10 px-4 py-1.5 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+              className="rounded-md border border-lime/25 bg-lime/10 px-4 py-1.5 text-body font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
             >
               {entityCreating ? 'Creating…' : 'Create'}
             </button>

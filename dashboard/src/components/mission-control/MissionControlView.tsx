@@ -207,8 +207,8 @@ function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'start
   if (mode === 'running') return 'border-teal-300/24 bg-teal-400/[0.08] text-teal-100/90';
   if (mode === 'blocked') return 'border-red-400/24 bg-red-500/[0.08] text-red-100/90';
   if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.06] text-[#E8FFD0]/95';
-  if (mode === 'completed') return 'border-white/[0.16] bg-white/[0.05] text-white/60';
-  return 'border-white/[0.14] bg-white/[0.04] text-white/68';
+  if (mode === 'completed') return 'border-strong bg-white/[0.05] text-secondary';
+  return 'border-strong bg-white/[0.04] text-white/68';
 }
 
 export function MissionControlView({
@@ -851,7 +851,7 @@ function MissionControlInner({
   const hintBorder =
     hintTone === 'critical'
       ? 'border-red-400/30 bg-red-500/14 text-red-100'
-      : 'border-white/[0.14] bg-white/[0.08] text-white/75';
+      : 'border-strong bg-white/[0.08] text-primary';
   const hintLabel =
     connection === 'disconnected'
       ? 'Offline'
@@ -1210,7 +1210,7 @@ function MissionControlInner({
             <LayoutGroup id="next-up-morph">
             <div
               ref={stickyToolbarRef}
-              className="sticky top-0 z-40 relative -mx-4 border-b border-white/[0.05] bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6"
+              className="sticky top-0 z-40 relative -mx-4 border-b border-subtle bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6"
             >
               <AnimatePresence initial={false}>
                 {showConnectivityHint && hasConnectivityIssue && (
@@ -1229,10 +1229,10 @@ function MissionControlInner({
                             : 'bg-white/70'
                         }`}
                       />
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">
+                      <span className="text-micro font-semibold uppercase tracking-[0.08em]">
                         {hintLabel}
                       </span>
-                      <span className="max-w-[280px] truncate text-[11px] opacity-85" title={hintDetail}>
+                      <span className="max-w-[280px] truncate text-caption opacity-85" title={hintDetail}>
                         {hintDetail}
                       </span>
                       <div className="flex items-center gap-1">
@@ -1240,7 +1240,7 @@ function MissionControlInner({
                           <button
                             type="button"
                             onClick={onRefresh}
-                            className="h-6 rounded-full border border-white/[0.16] bg-white/[0.08] px-2 text-[10px] font-semibold text-current transition-colors hover:bg-white/[0.15]"
+                            className="h-6 rounded-full border border-strong bg-white/[0.08] px-2 text-micro font-semibold text-current transition-colors hover:bg-white/[0.15]"
                           >
                             Refresh
                           </button>
@@ -1249,7 +1249,7 @@ function MissionControlInner({
                           <button
                             type="button"
                             onClick={onOpenSettings}
-                            className="h-6 rounded-full border border-white/[0.16] bg-white/[0.08] px-2 text-[10px] font-semibold text-current transition-colors hover:bg-white/[0.15]"
+                            className="h-6 rounded-full border border-strong bg-white/[0.08] px-2 text-micro font-semibold text-current transition-colors hover:bg-white/[0.15]"
                           >
                             Settings
                           </button>
@@ -1274,16 +1274,16 @@ function MissionControlInner({
                     visibleCount={filteredInitiatives.length}
                   />
                   <div
-                    className="hidden min-w-[220px] max-w-[320px] items-center gap-2 rounded-lg border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 xl:flex"
+                    className="hidden min-w-[220px] max-w-[320px] items-center gap-2 rounded-lg border border-strong bg-white/[0.03] px-2.5 py-1.5 xl:flex"
                     title={nextActionInitiative?.name ?? undefined}
                   >
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/44">
+                    <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/44">
                       Autopilot
                     </span>
                     <div className="min-w-0 flex-1 text-right">
-                      <div className="truncate text-[10px] text-white/72">{autopilotStateLabel}</div>
+                      <div className="truncate text-micro text-white/72">{autopilotStateLabel}</div>
                       {nextActionInitiative && (
-                        <div className="truncate text-[10px] text-white/44">
+                        <div className="truncate text-micro text-white/44">
                           {nextActionInitiative.name}
                         </div>
                       )}
@@ -1333,7 +1333,7 @@ function MissionControlInner({
                       autopilot.isRunning || autopilotNeedsUpgrade ? 'active' : 'idle'
                     }
                     data-tone={autopilotTone}
-                    className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold disabled:opacity-40"
+                    className="control-pill flex items-center gap-1.5 px-3 text-caption font-semibold disabled:opacity-40"
                   >
                     {autopilotNeedsUpgrade ? (
                       <svg
@@ -1408,7 +1408,7 @@ function MissionControlInner({
                           // ignore tracking failures
                         }
                       }}
-                      className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold"
+                      className="control-pill flex items-center gap-1.5 px-3 text-caption font-semibold"
                       data-tone="amber"
                       title="Install OrgX for OpenClaw"
                     >
@@ -1435,7 +1435,7 @@ function MissionControlInner({
                       }}
                       title={allExpanded ? 'Collapse all' : 'Expand all'}
                       aria-busy={isExpandWaveActive && !allExpanded}
-                      className="control-pill flex h-8 w-8 flex-shrink-0 items-center justify-center text-white/55"
+                      className="control-pill flex h-8 w-8 flex-shrink-0 items-center justify-center text-secondary"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         {allExpanded ? (
@@ -1471,7 +1471,7 @@ function MissionControlInner({
                 )}
                 <div className="min-w-0 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">
-                  <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+                  <label className="inline-flex flex-shrink-0 items-center gap-2 text-caption text-primary">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
@@ -1480,7 +1480,7 @@ function MissionControlInner({
                     />
                     Select visible
                   </label>
-                  <span className="flex-shrink-0 text-[11px] text-white/58">
+                  <span className="flex-shrink-0 text-caption text-white/58">
                     {selectedInitiativeCount > 0
                       ? `${selectedInitiativeCount} selected`
                       : `${sortedInitiatives.length} visible`}
@@ -1493,7 +1493,7 @@ function MissionControlInner({
                           void runBulkInitiativeStatusUpdate('active');
                         }}
                         disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                        className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                         data-state="active"
                       >
                         Mark active
@@ -1504,7 +1504,7 @@ function MissionControlInner({
                           void runBulkInitiativeStatusUpdate('paused');
                         }}
                         disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                        className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                       >
                         Pause
                       </button>
@@ -1514,7 +1514,7 @@ function MissionControlInner({
                           void runBulkInitiativeStatusUpdate('blocked');
                         }}
                         disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                        className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                       >
                         Block
                       </button>
@@ -1524,20 +1524,20 @@ function MissionControlInner({
                           void runBulkInitiativeStatusUpdate('completed');
                         }}
                         disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                        className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                       >
                         Complete
                       </button>
                       {confirmBulkInitiativeDelete ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-white/58">Delete selected?</span>
+                          <span className="text-micro text-white/58">Delete selected?</span>
                           <button
                             type="button"
                             onClick={() => {
                               void runBulkInitiativeDelete();
                             }}
                             disabled={isBulkInitiativeMutating}
-                            className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                            className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-caption font-semibold text-red-100 disabled:opacity-45"
                           >
                             Delete
                           </button>
@@ -1545,7 +1545,7 @@ function MissionControlInner({
                             type="button"
                             onClick={() => setConfirmBulkInitiativeDelete(false)}
                             disabled={isBulkInitiativeMutating}
-                            className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+                            className="control-pill h-8 flex-shrink-0 px-2.5 text-caption disabled:opacity-45"
                           >
                             Keep
                           </button>
@@ -1555,7 +1555,7 @@ function MissionControlInner({
                           type="button"
                           onClick={() => setConfirmBulkInitiativeDelete(true)}
                           disabled={isBulkInitiativeMutating}
-                          className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                          className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-caption font-semibold text-red-100/85 disabled:opacity-45"
                         >
                           Delete
                         </button>
@@ -1564,7 +1564,7 @@ function MissionControlInner({
                         type="button"
                         onClick={clearInitiativeSelection}
                         disabled={isBulkInitiativeMutating}
-                        className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                        className="text-caption text-secondary transition-colors hover:text-primary disabled:opacity-45"
                       >
                         Clear
                       </button>
@@ -1586,7 +1586,7 @@ function MissionControlInner({
                         duration: 0.2,
                         ease: [0.22, 1, 0.36, 1],
                       }}
-                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-white/[0.12] px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
+                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         {nextActionQueue.isLoading ? (
@@ -1598,20 +1598,20 @@ function MissionControlInner({
                             size="xs"
                           />
                         ) : (
-                          <div className="h-6 w-6 rounded-full border border-white/[0.16] bg-white/[0.05]" />
+                          <div className="h-6 w-6 rounded-full border border-strong bg-white/[0.05]" />
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
+                            <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/76">
                               Next Up
                             </span>
                             {nextActionQueue.isLoading ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.04] px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] text-white/60">
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-white/[0.04] px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] text-secondary">
                                 <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
                                 Syncing
                               </span>
                             ) : (
-                              <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
+                              <span className={`rounded-full border px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
                                 {nextUpInlineStatusLabel}
                               </span>
                             )}
@@ -1623,10 +1623,10 @@ function MissionControlInner({
                             </div>
                           ) : (
                             <>
-                              <p className="truncate text-[12px] font-semibold leading-snug text-white/90" title={nextUpInlineSummary}>
+                              <p className="truncate text-body font-semibold leading-snug text-bright" title={nextUpInlineSummary}>
                                 {nextUpInlineSummary}
                               </p>
-                              <p className="truncate text-[11px] leading-snug text-white/45" title={nextUpInlineSubline}>
+                              <p className="truncate text-caption leading-snug text-secondary" title={nextUpInlineSubline}>
                                 {nextUpInlineContextLabel}
                                 {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
                               </p>
@@ -1639,7 +1639,7 @@ function MissionControlInner({
                           type="button"
                           onClick={startNextAction}
                           disabled={!nextActionQueueItem || nextActionBusy}
-                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                          className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                           title={
                             nextActionQueueItem
                               ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
@@ -1651,7 +1651,7 @@ function MissionControlInner({
                         <button
                           type="button"
                           onClick={toggleNextUpSurface}
-                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold"
+                          className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold"
                           title="Expand Next Up rail"
                         >
                           Open
@@ -1666,7 +1666,7 @@ function MissionControlInner({
               <div
                 role="status"
                 aria-live="polite"
-                className="mt-2 flex items-start justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/72"
+                className="mt-2 flex items-start justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-caption text-white/72"
               >
                 <div className="flex min-w-0 items-start gap-2">
                   <span
@@ -1682,7 +1682,7 @@ function MissionControlInner({
                 <button
                   type="button"
                   onClick={() => setBulkInitiativeNotice(null)}
-                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80"
+                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
                   aria-label="Dismiss notice"
                   title="Dismiss"
                 >
@@ -1721,15 +1721,15 @@ function MissionControlInner({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-[240px]">
                         <p className="section-kicker">Next action</p>
-                        <p className="mt-1 text-[15px] font-semibold leading-snug tracking-tight text-white/92">
+                        <p className="mt-1 text-heading font-semibold leading-snug tracking-tight text-bright">
                           {nextActionSummary.headline}
                         </p>
-                        <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+                        <p className="mt-1 text-body leading-relaxed text-secondary">
                           {nextActionSummary.detail}
                         </p>
                         {nextActionNotice && (
                           <div
-                            className={`mt-2 inline-flex max-w-[520px] items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] ${
+                            className={`mt-2 inline-flex max-w-[520px] items-center gap-1 rounded-full border px-2.5 py-1 text-micro ${
                               nextActionNotice.tone === 'success'
                                 ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
                                 : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
@@ -1749,7 +1749,7 @@ function MissionControlInner({
                                 : startNextAction
                             }
                             disabled={nextActionBusy}
-                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
+                            className="control-pill h-9 px-4 text-body font-semibold disabled:opacity-45"
                             data-state="active"
                           >
                             {nextActionMode === 'running' ? 'Follow workstream' : 'Play next workstream'}
@@ -1759,7 +1759,7 @@ function MissionControlInner({
                             type="button"
                             onClick={startInitiativeFromNextAction}
                             disabled={nextActionBusy}
-                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
+                            className="control-pill h-9 px-4 text-body font-semibold disabled:opacity-45"
                             data-state="active"
                           >
                             Start initiative
@@ -1768,7 +1768,7 @@ function MissionControlInner({
                           <button
                             type="button"
                             onClick={openNextActionInitiative}
-                            className="control-pill h-9 px-4 text-[12px] font-semibold"
+                            className="control-pill h-9 px-4 text-body font-semibold"
                             data-state={nextActionMode === 'blocked' ? 'active' : 'idle'}
                           >
                             {nextActionFallbackLabel}
@@ -1777,7 +1777,7 @@ function MissionControlInner({
                         <button
                           type="button"
                           onClick={toggleNextUpSurface}
-                          className="control-pill h-9 px-4 text-[12px] font-semibold"
+                          className="control-pill h-9 px-4 text-body font-semibold"
                         >
                           {nextUpRailOpen ? 'Hide Next Up' : 'Open Next Up'}
                         </button>
@@ -1802,8 +1802,8 @@ function MissionControlInner({
                   !hasApiKey ? (
                     <div className="pb-8">
                       <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-6 py-8 text-center">
-                        <div className="text-[14px] font-semibold text-white/85">Connect OrgX to get started</div>
-                        <div className="mt-1 text-[12px] text-white/55">
+                        <div className="text-heading font-semibold text-bright">Connect OrgX to get started</div>
+                        <div className="mt-1 text-body text-secondary">
                           Mission Control shows your initiative hierarchy once a user-scoped API key is configured.
                         </div>
                         {onOpenSettings && (
@@ -1811,7 +1811,7 @@ function MissionControlInner({
                             <button
                               type="button"
                               onClick={onOpenSettings}
-                              className="h-10 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-4 text-[12px] font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/20"
+                              className="h-10 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-4 text-body font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/20"
                             >
                               Open settings
                             </button>
@@ -1826,10 +1826,10 @@ function MissionControlInner({
                   )
                 ) : sortedInitiatives.length === 0 ? (
                   <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center pb-8">
-                    <div className="text-[13px] font-medium text-white/85">
+                    <div className="text-body font-medium text-bright">
                       No initiatives match the current filters
                     </div>
-                    <div className="mt-1 text-[12px] text-white/50">
+                    <div className="mt-1 text-body text-secondary">
                       {hasActiveFilters
                         ? 'Try adjusting status/date filters or clear them.'
                         : 'Try a broader search phrase.'}
@@ -1853,19 +1853,19 @@ function MissionControlInner({
                             aria-expanded={isGroupExpanded}
                             aria-controls={panelId}
                             onClick={() => toggleGroupExpanded(disclosureId)}
-                            className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.075] bg-white/[0.016] px-3 py-2.5 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
+                            className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.075] bg-white/[0.016] px-3 py-2.5 text-left transition-colors hover:border-strong hover:bg-white/[0.04]"
                           >
                             <span
                               aria-hidden
-                              className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.04] text-[11px] text-white/55 transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`}
+                              className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-strong bg-white/[0.04] text-caption text-secondary transition-transform ${isGroupExpanded ? 'rotate-90' : ''}`}
                             >
                               ▶
                             </span>
-                            <span className="text-[12px] font-semibold text-white/80">{group.label}</span>
-                            <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/55">
+                            <span className="text-body font-semibold text-primary">{group.label}</span>
+                            <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
                               {group.count}
                             </span>
-                            <span className="ml-auto text-[10px] uppercase tracking-[0.08em] text-white/45">
+                            <span className="ml-auto text-micro uppercase tracking-[0.08em] text-secondary">
                               {isGroupExpanded ? 'Hide' : 'Show'}
                             </span>
                           </button>
@@ -1927,7 +1927,7 @@ function MissionControlInner({
                           <button
                             type="button"
                             onClick={toggleNextUpSurface}
-                            className="control-pill absolute right-3 top-3 z-20 h-7 px-2 text-[10px] font-semibold"
+                            className="control-pill absolute right-3 top-3 z-20 h-7 px-2 text-micro font-semibold"
                             title="Collapse Next Up rail"
                           >
                             Hide
@@ -1977,7 +1977,7 @@ function MissionControlInner({
                       <button
                         type="button"
                         onClick={() => setNextUpDrawerOpen(false)}
-                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.14] bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
+                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
                         aria-label="Close next up drawer"
                       >
                         ✕

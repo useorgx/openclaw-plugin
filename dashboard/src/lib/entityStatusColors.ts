@@ -1,4 +1,4 @@
-import { colors } from '@/lib/tokens';
+import { colors, normalizeStatus } from '@/lib/tokens';
 import type { Initiative } from '@/types';
 
 // Adapted to target palette: lime #BFFF00, teal #14B8A6, red #FF6B88, amber #F5B700
@@ -21,24 +21,24 @@ const taskStatusClass: Record<string, string> = {
 };
 
 export const getTaskStatusClass = (status: string) =>
-  taskStatusClass[status.toLowerCase()] ?? 'text-white/60 bg-white/5 border-white/10';
+  taskStatusClass[normalizeStatus(status)] ?? 'text-white/60 bg-white/5 border-white/10';
 
 export const getWorkstreamStatusClass = (status: string) => {
-  const lower = status.toLowerCase();
-  if (lower === 'active' || lower === 'in_progress')
+  const s = normalizeStatus(status);
+  if (s === 'active' || s === 'in_progress')
     return 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20';
-  if (lower === 'blocked')
+  if (s === 'blocked')
     return 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20';
-  if (lower === 'completed' || lower === 'done')
+  if (s === 'completed' || s === 'done')
     return 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20';
   return 'text-white/60 bg-white/5 border-white/10';
 };
 
 export const getMilestoneStatusClass = (status: string) => {
-  const lower = status.toLowerCase();
-  if (lower === 'done' || lower === 'completed')
+  const s = normalizeStatus(status);
+  if (s === 'done' || s === 'completed')
     return 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20';
-  if (lower === 'active' || lower === 'in_progress')
+  if (s === 'active' || s === 'in_progress')
     return 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20';
   return 'text-white/60 bg-white/5 border-white/10';
 };
@@ -51,19 +51,21 @@ export const formatEntityStatus = (status: string) =>
     .replace(/\b\w/g, (match) => match.toUpperCase());
 
 export const statusRank = (value: string): number => {
-  const normalized = value.toLowerCase();
-  if (normalized === 'blocked') return 0;
-  if (normalized === 'in_progress' || normalized === 'active') return 1;
-  if (normalized === 'todo' || normalized === 'planned') return 2;
-  if (normalized === 'done' || normalized === 'completed') return 3;
+  const s = normalizeStatus(value);
+  if (s === 'blocked') return 0;
+  if (s === 'in_progress' || s === 'active') return 1;
+  if (s === 'todo' || s === 'planned') return 2;
+  if (s === 'done' || s === 'completed') return 3;
   return 4;
 };
 
 export const statusColor = (status: string): string => {
-  const lower = status.toLowerCase();
-  if (lower === 'blocked') return colors.red;
-  if (lower === 'active' || lower === 'in_progress') return colors.lime;
-  if (lower === 'done' || lower === 'completed') return colors.teal;
-  if (lower === 'paused') return colors.amber;
+  const s = normalizeStatus(status);
+  if (s === 'blocked' || s === 'failed' || s === 'cancelled') return colors.red;
+  if (s === 'active' || s === 'in_progress' || s === 'running') return colors.lime;
+  if (s === 'done' || s === 'completed') return colors.teal;
+  if (s === 'paused') return colors.amber;
+  if (s === 'queued' || s === 'pending' || s === 'working' || s === 'planning') return colors.amber;
+  if (s === 'archived' || s === 'draft') return 'rgba(255,255,255,0.5)';
   return 'rgba(255,255,255,0.35)';
 };

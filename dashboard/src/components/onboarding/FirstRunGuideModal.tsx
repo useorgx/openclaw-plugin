@@ -104,18 +104,18 @@ export function FirstRunGuideModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-2xl">
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
+        <div className="border-b border-subtle px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-[15px] font-semibold text-white">First run checklist</h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+              <h3 className="text-heading font-semibold text-white">First run checklist</h3>
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 A fast path to seeing OrgX value inside OpenClaw.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="chip">
                   {doneCount} / {steps.length} complete
                 </span>
-                <span className="text-[11px] text-white/35">
+                <span className="text-caption text-muted">
                   {progressPct}% done
                 </span>
               </div>
@@ -133,7 +133,7 @@ export function FirstRunGuideModal({
                   setFirstRunGuideDismissed(true);
                   onClose();
                 }}
-                className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08]"
                 title="Don't show automatically again"
               >
                 Don't show again
@@ -142,7 +142,7 @@ export function FirstRunGuideModal({
                 type="button"
                 onClick={onClose}
                 aria-label="Close checklist"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 6L6 18" />
@@ -162,17 +162,17 @@ export function FirstRunGuideModal({
                   className={cn(
                     'flex items-start justify-between gap-3 rounded-xl border p-3',
                     step.done
-                      ? 'border-white/[0.06] bg-white/[0.02]'
+                      ? 'border-subtle bg-white/[0.02]'
                       : 'border-white/[0.10] bg-white/[0.03]'
                   )}
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="pt-1">{stepDot(step.done)}</div>
                     <div className="min-w-0">
-                      <p className={cn('text-[13px] font-semibold', step.done ? 'text-white/80' : 'text-white')}>
+                      <p className={cn('text-body font-semibold', step.done ? 'text-primary' : 'text-white')}>
                         {step.label}
                       </p>
-                      <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{step.detail}</p>
+                      <p className="mt-0.5 text-body leading-relaxed text-secondary">{step.detail}</p>
                     </div>
                   </div>
 
@@ -187,7 +187,7 @@ export function FirstRunGuideModal({
                             ? 'true'
                             : undefined
                       }
-                      className="shrink-0 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
+                      className="shrink-0 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1]"
                     >
                       {step.action.label}
                     </button>
@@ -201,7 +201,7 @@ export function FirstRunGuideModal({
                 type="button"
                 onClick={onOpenSettings}
                 data-modal-autofocus={recommendedAction === 'settings' ? 'true' : undefined}
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
+                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1]"
               >
                 Open settings
               </button>
@@ -209,14 +209,14 @@ export function FirstRunGuideModal({
                 type="button"
                 onClick={onOpenMissionControl}
                 data-modal-autofocus={recommendedAction === 'mission-control' ? 'true' : undefined}
-                className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08]"
               >
                 Open Mission Control
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+                className="rounded-full border border-strong px-3 py-1.5 text-caption text-secondary transition-colors hover:bg-white/[0.05] hover:text-primary"
                 title="Hide for now"
               >
                 Not now
@@ -225,8 +225,8 @@ export function FirstRunGuideModal({
           </div>
         </div>
 
-        <div className="border-t border-white/[0.06] px-5 py-3 sm:px-6">
-          <p className="text-[11px] text-white/40">
+        <div className="border-t border-subtle px-5 py-3 sm:px-6">
+          <p className="text-caption text-muted">
             Tip: auto-continue is available per initiative from Mission Control quick actions.
           </p>
         </div>

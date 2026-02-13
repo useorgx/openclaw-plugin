@@ -2,7 +2,8 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
-import { formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
+import { statusColor } from '@/lib/entityStatusColors';
 import { resolveProvider, type ProviderId } from '@/lib/providers';
 import type {
   ConnectionStatus,
@@ -56,27 +57,6 @@ const DEFAULT_ORGX_AGENTS = [
   { id: 'design', name: 'Design', role: 'Creates interfaces and experiences' },
   { id: 'operations', name: 'Operations', role: 'Manages reliability and processes' },
 ] as const;
-
-const statusColors: Record<string, string> = {
-  running: colors.lime,
-  active: colors.lime,
-  queued: colors.amber,
-  pending: colors.amber,
-  in_progress: colors.amber,
-  working: colors.amber,
-  planning: colors.amber,
-  blocked: colors.red,
-  failed: colors.red,
-  cancelled: colors.red,
-  paused: 'rgba(255,255,255,0.5)',
-  draft: 'rgba(255,255,255,0.5)',
-  completed: colors.teal,
-  archived: 'rgba(255,255,255,0.5)',
-};
-
-function statusColor(status: string): string {
-  return statusColors[status] ?? colors.iris;
-}
 
 type AgentGroup = {
   groupKey: string;
@@ -647,13 +627,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         onSelectSession={onSelectSession}
         onRefresh={() => catalogQuery.refetch()}
       />
-      <div className="border-b border-white/[0.06] px-4 py-3.5">
+      <div className="border-b border-subtle px-4 py-3.5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <h2 className="min-w-0 truncate text-[14px] font-semibold text-white">
+            <h2 className="min-w-0 truncate text-heading font-semibold text-white">
               Agents / Chats
             </h2>
-            <span className="chip flex-shrink-0 text-[11px] tabular-nums">
+            <span className="chip flex-shrink-0 text-caption tabular-nums">
               {visibleSessionCount}/{sessions.nodes.length}
             </span>
           </div>
@@ -662,7 +642,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               type="button"
               onClick={toggleCollapseAll}
               disabled={groupKeysWithSessions.length === 0}
-              className="control-pill hidden flex-shrink-0 px-3 text-[11px] font-semibold sm:inline-flex"
+              className="control-pill hidden flex-shrink-0 px-3 text-caption font-semibold sm:inline-flex"
               title={
                 collapseAllState.allCollapsed ? 'Expand all agent groups' : 'Collapse all agent groups'
               }
@@ -672,14 +652,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             <button
               type="button"
               onClick={() => setLaunchModalOpen(true)}
-              className="control-pill flex-shrink-0 px-3 text-[11px] font-semibold"
+              className="control-pill flex-shrink-0 px-3 text-caption font-semibold"
             >
               Launch
             </button>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-white/45">History</span>
+          <span className="text-caption text-secondary">History</span>
           <div
             className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
             role="group"
@@ -694,10 +674,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   onClick={() => onTimeFilterChange(option.id)}
                   aria-pressed={active}
                   className={cn(
-                    'rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[-0.01em] transition-colors',
+                    'rounded-full px-2.5 py-1 text-micro font-semibold tracking-[-0.01em] transition-colors',
                     active
                       ? 'border border-lime/25 bg-lime/[0.12] text-lime'
-                      : 'border border-transparent text-white/55 hover:bg-white/[0.06] hover:text-white/80'
+                      : 'border border-transparent text-secondary hover:bg-white/[0.06] hover:text-primary'
                   )}
                 >
                   {option.label}
@@ -712,7 +692,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             id="offline-date-filter"
             value={timeFilterId}
             onChange={(event) => onTimeFilterChange(event.target.value as ActivityTimeFilterId)}
-            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[11px] text-white/75 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
+            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
           >
             {ACTIVITY_TIME_FILTERS.map((option) => (
               <option key={option.id} value={option.id}>
@@ -725,7 +705,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {agents.length === 0 && !hasNoSessions && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-6 text-center">
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
             <svg
               width="24"
               height="24"
@@ -735,18 +715,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="text-white/25"
+              className="text-faint"
             >
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p className="text-[12px] text-white/45">
+            <p className="text-body text-secondary">
               No sessions match the selected history filter.
             </p>
           </div>
         )}
 
         {agents.length === 0 && hasNoSessions && !onReconnect && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-6 text-center">
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
             <svg
               width="24"
               height="24"
@@ -756,23 +736,23 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="text-white/25"
+              className="text-faint"
             >
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            <p className="text-[12px] text-white/45">
+            <p className="text-body text-secondary">
               No active chats yet. Start a session to see agents here.
             </p>
           </div>
         )}
 
         {agentFilter && onAgentFilter && (
-          <div className="flex items-center justify-between rounded-lg bg-[#0AD4C4]/[0.08] px-3 py-1.5 text-[11px] text-[#0AD4C4]">
+          <div className="flex items-center justify-between rounded-lg bg-[#0AD4C4]/[0.08] px-3 py-1.5 text-caption text-[#0AD4C4]">
             <span>Filtered: {agentFilter}</span>
             <button
               type="button"
               onClick={() => onAgentFilter(null)}
-              className="text-[10px] underline underline-offset-2"
+              className="text-micro underline underline-offset-2"
             >
               Clear
             </button>
@@ -805,7 +785,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               layout
               transition={{ type: 'spring', stiffness: 260, damping: 30, mass: 0.75 }}
               className={cn(
-                'overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all',
+                'overflow-hidden rounded-xl border border-subtle bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
                 isFiltered && 'border-[#0AD4C4]/30',
                 !hasSessions && !catalogIsLive && !runtimeIsLive && 'opacity-55'
@@ -848,14 +828,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     )}
                   </div>
                   <span className="min-w-0 truncate">
-                    <span className="text-[13px] font-semibold text-white">{displayName}</span>
+                    <span className="text-body font-semibold text-white">{displayName}</span>
                     {getAgentRole(displayName) && (
-                      <span className="ml-1 text-[11px] text-white/40">— {getAgentRole(displayName)}</span>
+                      <span className="ml-1 text-caption text-muted">— {getAgentRole(displayName)}</span>
                     )}
                   </span>
                   {runtime && (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.04] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-white/70"
+                      className="inline-flex items-center gap-1 rounded-full border border-strong bg-white/[0.04] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-primary"
                       title={
                         runtime.currentTask
                           ? `${runtime.displayName}: ${runtime.currentTask}`
@@ -890,7 +870,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           ));
                         })()}
                       </span>
-                      <span className="text-[10px] text-white/55" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {group.nodes.length}
                       </span>
                     </span>
@@ -902,14 +882,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           style={{ backgroundColor: statusColor('running') }}
                         />
                       </span>
-                      <span className="text-[10px] uppercase tracking-[0.08em] text-lime/80">
+                      <span className="text-micro uppercase tracking-[0.08em] text-lime/80">
                         live
                       </span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]" />
-                      <span className="text-[10px] text-white/35" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      <span className="text-micro text-muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         0
                       </span>
                     </span>
@@ -921,7 +901,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   type="button"
                   onClick={() => setDetailAgentKey(agentKey)}
                   aria-label={`View ${displayName} details`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.05] hover:text-primary"
                 >
                   <svg
                     width="13"
@@ -944,7 +924,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     type="button"
                     onClick={() => toggleCollapse(agentKey)}
                     aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.05] hover:text-white/70"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.05] hover:text-primary"
                   >
                     <svg
                       width="12"
@@ -968,7 +948,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    className="overflow-hidden border-t border-white/[0.06]"
+                    className="overflow-hidden border-t border-subtle"
                   >
                     <div className="max-h-[500px] space-y-1.5 overflow-y-auto p-2">
                       {visibleChildren.map((node, index) => {
@@ -996,8 +976,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                             <div className="flex items-center gap-2">
                               <ProviderLogo provider={childProvider.id} size="xs" />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-[12px] text-white/90">{node.title}</p>
-                                <div className="flex items-center gap-1.5 text-[10px] text-white/45">
+                                <p className="truncate text-body text-bright">{node.title}</p>
+                                <div className="flex items-center gap-1.5 text-micro text-secondary">
                                   <span
                                     className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
                                     style={{
@@ -1009,7 +989,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                     {childProvider.label}
                                   </span>
                                   <span className="uppercase tracking-[0.08em]">{node.status}</span>
-                                  <span>
+                                  <span title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
                                     {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                                   </span>
                                 </div>
@@ -1037,7 +1017,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       })}
 
                       {hiddenChildren > 0 && (
-                        <p className="px-1 text-[10px] text-white/40">
+                        <p className="px-1 text-micro text-muted">
                           +{hiddenChildren} older sessions hidden
                         </p>
                       )}
@@ -1050,14 +1030,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         })}
 
         {hiddenGroupCount > 0 && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] text-white/45">
+          <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">
             Showing {MAX_VISIBLE_GROUPS} most recent agent groups ({hiddenGroupCount} older groups omitted).
           </div>
         )}
 
         {onReconnect && connectionStatus !== 'connected' && !hasCatalogAgents && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] text-[11px] text-white/45">
-            <p className="px-3 pt-2 pb-1.5 text-[10px] uppercase tracking-[0.1em] text-white/30">
+          <div className="rounded-xl border border-subtle bg-white/[0.02] text-caption text-secondary">
+            <p className="px-3 pt-2 pb-1.5 text-micro uppercase tracking-[0.1em] text-muted">
               OrgX Agent Roster
             </p>
             <div className="space-y-1 px-2 pb-2">
@@ -1067,17 +1047,17 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 opacity-55"
                 >
                   <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03]">
-                    <span className="text-[9px] font-semibold text-white/50">
+                    <span className="text-micro font-semibold text-secondary">
                       {agent.name.charAt(0)}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-medium text-white/60">{agent.name}</p>
-                    <p className="text-[9px] text-white/35">{agent.role}</p>
+                    <p className="text-caption font-medium text-secondary">{agent.name}</p>
+                    <p className="text-micro text-muted">{agent.role}</p>
                   </div>
                   <button
                     onClick={onReconnect}
-                    className="rounded-md border border-lime/25 bg-lime/10 px-2 py-0.5 text-[9px] font-semibold text-lime transition-colors hover:bg-lime/20"
+                    className="rounded-md border border-lime/25 bg-lime/10 px-2 py-0.5 text-micro font-semibold text-lime transition-colors hover:bg-lime/20"
                   >
                     Connect
                   </button>
@@ -1088,7 +1068,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         )}
 
         {filteredOutSessionsByDate > 0 && (
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] text-[11px] text-white/45">
+          <div className="rounded-xl border border-subtle bg-white/[0.02] text-caption text-secondary">
             <button
               onClick={() => {
                 setShowArchived((prev) => !prev);
@@ -1124,7 +1104,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                   className="overflow-hidden"
                 >
-              <div className="space-y-1.5 border-t border-white/[0.06] p-2">
+              <div className="space-y-1.5 border-t border-subtle p-2">
                 {paginatedArchivedSessions.map(({ node, agentName }) => {
                   const provider = node.runtimeProvider
                     ? { id: runtimeProviderIdFromLogo(node.runtimeProvider) }
@@ -1138,13 +1118,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <ProviderLogo provider={provider.id} size="xs" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-[11px] font-medium text-white/70">{agentName}</p>
-                          <span className="text-[10px] text-white/35">
+                          <p className="truncate text-caption font-medium text-primary">{agentName}</p>
+                          <span className="text-micro text-muted" title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
                             {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                           </span>
                         </div>
-                        <p className="truncate text-[10px] text-white/50">{node.title}</p>
-                        <span className="text-[9px] uppercase tracking-[0.08em] text-white/35">{node.status}</span>
+                        <p className="truncate text-micro text-secondary">{node.title}</p>
+                        <span className="text-micro uppercase tracking-[0.08em] text-muted">{node.status}</span>
                       </div>
                     </button>
                   );
@@ -1153,7 +1133,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 {paginatedArchivedSessions.length < archivedSessionCount && (
                   <button
                     onClick={() => setArchivedPage((prev) => prev + 1)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[10px] text-white/50 transition-colors hover:bg-white/[0.05]"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
                   >
                     Load more ({archivedSessionCount - paginatedArchivedSessions.length} remaining)
                   </button>

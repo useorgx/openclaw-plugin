@@ -18,7 +18,7 @@ export function DecisionModal({
 
   return (
     <Modal open={!!decision} onClose={onClose} maxWidth="max-w-md" fitContent>
-      <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
+      <div className="border-b border-subtle px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <div
             className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-400/10"
@@ -33,7 +33,7 @@ export function DecisionModal({
             <h3 className="text-sm font-medium text-white">
               {decision.title}
             </h3>
-            <span className="text-[11px] text-white/45">
+            <span className="text-caption text-secondary">
               {decision.agent} · Waiting {decision.waitingMinutes}m
             </span>
           </div>
@@ -41,15 +41,15 @@ export function DecisionModal({
       </div>
 
       <div className="max-h-[52vh] overflow-y-auto px-5 py-4 sm:px-6">
-        <p className="text-[13px] leading-relaxed text-white/70">
+        <p className="text-body leading-relaxed text-primary">
           {decision.context}
         </p>
       </div>
 
-      <div className="flex justify-end gap-2.5 border-t border-white/[0.06] px-5 py-3.5 sm:px-6">
+      <div className="flex justify-end gap-2.5 border-t border-subtle px-5 py-3.5 sm:px-6">
         <button
           onClick={onClose}
-          className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-2 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
+          className="rounded-lg border border-strong bg-white/[0.03] px-3.5 py-2 text-body font-medium text-secondary transition-colors hover:bg-white/[0.08] hover:text-white"
         >
           Later
         </button>
@@ -61,10 +61,10 @@ export function DecisionModal({
               onClose();
             }}
             className={cn(
-              'rounded-lg px-3.5 py-2 text-[12px] font-medium transition-colors',
+              'rounded-lg px-3.5 py-2 text-body font-medium transition-colors',
               opt.action === 'approve'
                 ? 'text-black'
-                : 'border border-white/[0.12] bg-white/[0.06] text-white hover:bg-white/[0.1]'
+                : 'border border-strong bg-white/[0.06] text-white hover:bg-white/[0.1]'
             )}
             style={
               opt.action === 'approve'

@@ -43,7 +43,7 @@ export const agentRoles: Record<string, string> = {
 };
 
 export function getAgentColor(name: string): string {
-  return agentColors[name] ?? colors.teal;
+  return agentColors[name] ?? 'rgba(255, 255, 255, 0.4)';
 }
 
 export function getAgentRole(name: string): string | null {
@@ -57,4 +57,8 @@ export function getInitials(name: string): string {
     .join('')
     .toUpperCase()
     .slice(0, 2);
+}
+
+export function normalizeStatus(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }

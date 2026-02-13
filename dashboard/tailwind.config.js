@@ -15,6 +15,26 @@ export default {
           3: '#10141E',
         },
       },
+      textColor: {
+        bright: 'var(--orgx-text-bright)',
+        primary: 'var(--orgx-text-primary)',
+        secondary: 'var(--orgx-text-secondary)',
+        muted: 'var(--orgx-text-muted)',
+        faint: 'var(--orgx-text-faint)',
+      },
+      borderColor: {
+        hairline: 'var(--orgx-border-hairline)',
+        subtle: 'var(--orgx-border-subtle)',
+        DEFAULT: 'var(--orgx-border)',
+        strong: 'var(--orgx-border-strong)',
+      },
+      fontSize: {
+        micro: ['10px', { lineHeight: '14px' }],
+        caption: ['11px', { lineHeight: '16px' }],
+        body: ['13px', { lineHeight: '20px' }],
+        heading: ['15px', { lineHeight: '22px' }],
+        title: ['20px', { lineHeight: '28px' }],
+      },
       fontFamily: {
         sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],

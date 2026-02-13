@@ -40,11 +40,11 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
       transition={{ duration: 0.15 }}
     >
       <div className="flex items-center justify-between gap-2 mb-2">
-        <h4 className="truncate text-[13px] font-medium text-white/90">
+        <h4 className="truncate text-body font-medium text-bright">
           {workstream.name}
         </h4>
         <span
-          className={`text-[10px] px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(workstream.status)}`}
+          className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(workstream.status)}`}
         >
           {formatEntityStatus(workstream.status)}
         </span>
@@ -58,14 +58,14 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
               style={{ width: `${completion}%`, backgroundColor: colors.lime }}
             />
           </div>
-          <span className="mt-0.5 block text-[10px] text-white/30">
+          <span className="mt-0.5 block text-micro text-muted">
             {completion}%
           </span>
         </div>
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3 text-[10px] text-white/35 uppercase tracking-[0.08em]">
+        <div className="flex items-center gap-3 text-micro text-muted uppercase tracking-[0.08em]">
           <span>{tasks.length} tasks</span>
           {activeTasks > 0 && (
             <span style={{ color: `${colors.lime}99` }}>{activeTasks} active</span>

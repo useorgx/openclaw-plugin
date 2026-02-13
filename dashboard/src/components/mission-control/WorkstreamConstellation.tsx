@@ -14,7 +14,7 @@ export function WorkstreamConstellation({
 }: WorkstreamConstellationProps) {
   if (!workstreams.length) {
     return (
-      <div className="px-4 py-2 text-[11px] text-white/30">
+      <div className="px-4 py-2 text-caption text-muted">
         No workstreams defined yet.
       </div>
     );

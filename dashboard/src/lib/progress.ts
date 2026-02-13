@@ -1,6 +1,4 @@
-function normalizeStatus(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
-}
+import { normalizeStatus } from '@/lib/tokens';
 
 const DONE_STATUSES = new Set([
   'done',

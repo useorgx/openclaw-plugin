@@ -144,61 +144,61 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         <div className="space-y-2">
         <div className="flex items-center gap-3">
           <EntityIcon type="initiative" size={16} />
-          <h2 className="text-[16px] font-semibold text-white">
+          <h2 className="text-title font-semibold text-white">
             {initiative.name}
           </h2>
           <span
-            className={`text-[10px] px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
+            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
           >
             {formatEntityStatus(currentStatus)}
           </span>
-          <span className="rounded-full border border-white/[0.14] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/68">
+          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
             {formatPriorityLabel(initiative.priority)}
           </span>
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
             <label className="block">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+              <span className="text-micro uppercase tracking-[0.08em] text-muted">
                 Title
               </span>
               <input
                 type="text"
                 value={draftTitle}
                 onChange={(event) => setDraftTitle(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
               />
             </label>
             <label className="block">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+              <span className="text-micro uppercase tracking-[0.08em] text-muted">
                 Summary
               </span>
               <textarea
                 value={draftSummary}
                 onChange={(event) => setDraftSummary(event.target.value)}
                 rows={3}
-                className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
               />
             </label>
             <label className="block">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+              <span className="text-micro uppercase tracking-[0.08em] text-muted">
                 Target date
               </span>
               <input
                 type="date"
                 value={draftTargetDate}
                 onChange={(event) => setDraftTargetDate(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
               />
             </label>
             <label className="block">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+              <span className="text-micro uppercase tracking-[0.08em] text-muted">
                 Priority
               </span>
               <select
                 value={draftPriority}
                 onChange={(event) => setDraftPriority(normalizeInitiativePriority(event.target.value))}
-                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
               >
                 <option value="critical">Critical (P0)</option>
                 <option value="high">High (P1)</option>
@@ -208,22 +208,22 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             </label>
           </div>
         ) : initiative.description ? (
-          <p className="text-[13px] text-white/50 leading-relaxed">
+          <p className="text-body text-secondary leading-relaxed">
             {initiative.description}
           </p>
         ) : (
-          <p className="text-[12px] text-white/35">No summary yet.</p>
+          <p className="text-body text-muted">No summary yet.</p>
         )}
         {agents.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-white/30 uppercase tracking-wider">
+            <span className="text-micro text-muted uppercase tracking-wider">
               Agents
             </span>
             <InferredAgentAvatars agents={agents} max={6} />
           </div>
         )}
         {notice && (
-          <div className="text-[11px] text-white/55">
+          <div className="text-caption text-secondary">
             {notice}
           </div>
         )}
@@ -273,16 +273,16 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                     className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 transition-colors hover:bg-white/[0.06]"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[12px] text-white/90 break-words">
+                      <span className="text-body text-bright break-words">
                         {ws.name}
                       </span>
                       <span
-                        className={`text-[9px] px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(ws.status)}`}
+                        className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(ws.status)}`}
                       >
                         {formatEntityStatus(ws.status)}
                       </span>
                     </div>
-                    <div className="mt-1.5 flex items-center gap-3 text-[10px] text-white/35 uppercase tracking-[0.08em]">
+                    <div className="mt-1.5 flex items-center gap-3 text-micro text-muted uppercase tracking-[0.08em]">
                       <span>{wsTasks.length} tasks</span>
                       {completion !== null && <span>{completion}%</span>}
                     </div>
@@ -305,15 +305,15 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                   className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-white/90 break-words">
+                      <span className="text-body text-bright break-words">
                         {ms.title}
                       </span>
-                    <span className="text-[10px] text-white/40 uppercase tracking-[0.08em]">
+                    <span className="text-micro text-muted uppercase tracking-[0.08em]">
                       {formatEntityStatus(ms.status)}
                     </span>
                   </div>
                   {ms.dueDate && (
-                    <span className="text-[10px] text-white/30 mt-0.5 block">
+                    <span className="text-micro text-muted mt-0.5 block">
                       Due: {new Date(ms.dueDate).toLocaleDateString()}
                     </span>
                   )}
@@ -323,7 +323,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           )}
 
           {/* Summary */}
-          <div className="text-[10px] uppercase tracking-[0.08em] text-white/30 pt-2 border-t border-white/[0.06]">
+          <div className="text-micro uppercase tracking-[0.08em] text-muted pt-2 border-t border-subtle">
             {details.tasks.length} total tasks &middot; {doneTasks} done
           </div>
 
@@ -331,24 +331,24 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           <div className="mt-4 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
                   Notes
                 </p>
-                <p className="mt-1 text-[11px] text-white/35">
+                <p className="mt-1 text-caption text-muted">
                   Lightweight context for humans and agents on this initiative.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowNotes((prev) => !prev)}
-                className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09]"
+                className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
               >
                 {showNotes ? 'Hide' : 'Show'}
               </button>
             </div>
 
             {showNotes ? (
-              <div className="pt-3 border-t border-white/[0.06]">
+              <div className="pt-3 border-t border-subtle">
                 <EntityCommentsPanel
                   entityType="initiative"
                   entityId={initiative.id}
@@ -363,7 +363,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       </div>
 
       {/* Actions */}
-      <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
+      <div className="border-t border-subtle bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {canPause && (
             <EntityActionButton
@@ -425,7 +425,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           <div className="flex-1" />
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-white/60">Delete initiative?</span>
+              <span className="text-caption text-secondary">Delete initiative?</span>
               <EntityActionButton
                 label="Delete"
                 color={colors.red}
@@ -480,7 +480,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                 onChange={(e) => setWsTitle(e.target.value)}
                 placeholder="Workstream name..."
                 autoFocus
-                className="text-[12px] bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white/80 placeholder-white/30 w-[180px] outline-none focus:border-white/25"
+                className="text-body bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-primary placeholder-white/30 w-[180px] outline-none focus:border-white/25"
               />
               <EntityActionButton
                 type="submit"
@@ -555,11 +555,11 @@ function MetricBox({
       className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
       style={accent ? { borderTopColor: `${accent}50`, borderTopWidth: 2 } : undefined}
     >
-      <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">
+      <div className="text-micro uppercase tracking-[0.08em] text-muted">
         {label}
       </div>
       <div
-        className="text-[15px] font-medium mt-0.5"
+        className="text-heading font-medium mt-0.5"
         style={{ color: accent ?? 'rgba(255,255,255,0.8)' }}
       >
         {value}
@@ -571,10 +571,10 @@ function MetricBox({
 function SectionLabel({ title, count }: { title: string; count: number }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[11px] uppercase tracking-[0.08em] text-white/35">
+      <span className="text-caption uppercase tracking-[0.08em] text-muted">
         {title}
       </span>
-      <span className="text-[10px] text-white/30">{count}</span>
+      <span className="text-micro text-muted">{count}</span>
     </div>
   );
 }

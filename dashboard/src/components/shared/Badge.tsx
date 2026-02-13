@@ -12,7 +12,7 @@ export function Badge({ children, color, pulse, title }: BadgeProps) {
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]"
+      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-micro font-semibold uppercase tracking-[0.14em]"
       title={title}
       style={{
         backgroundColor: `${c}22`,

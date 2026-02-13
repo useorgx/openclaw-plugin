@@ -3,7 +3,7 @@ import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
-import { Markdown } from '@/components/shared/Markdown';
+import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import type { LiveDecision } from '@/types';
 
@@ -117,15 +117,15 @@ export function DecisionDetailModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex h-full min-h-0 w-full flex-col">
-        <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-b border-subtle px-5 py-3 sm:px-6">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <EntityIcon type="decision" size={14} />
-              <h2 className="truncate text-[14px] font-semibold text-white">
+              <h2 className="truncate text-heading font-semibold text-white">
                 {decision.title || 'Decision'}
               </h2>
               <span
-                className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+                className="rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]"
                 style={{
                   borderColor: statusTone.border,
                   backgroundColor: statusTone.bg,
@@ -135,7 +135,7 @@ export function DecisionDetailModal({
                 {status}
               </span>
             </div>
-            <p className="mt-0.5 text-[12px] text-white/45">
+            <p className="mt-0.5 text-body text-secondary">
               {decision.agentName ? `${decision.agentName} · ` : ''}
               waiting {decision.waitingMinutes}m
               {requestedAt ? ` · requested ${formatRelativeTime(requestedAt)}` : ''}
@@ -146,7 +146,7 @@ export function DecisionDetailModal({
             type="button"
             onClick={onClose}
             aria-label="Close decision detail"
-            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <svg
               width="15"
@@ -167,27 +167,27 @@ export function DecisionDetailModal({
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
           {context ? (
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
-              <p className="mb-2 text-[10px] uppercase tracking-[0.12em] text-white/40">
+              <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
                 Context
               </p>
-              <Markdown>{context}</Markdown>
+              <MarkdownText text={context} mode="block" />
             </div>
           ) : (
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[12px] text-white/55">
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-body text-secondary">
               No context provided for this decision.
             </div>
           )}
 
           {options.length > 0 && (
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
-              <p className="mb-2 text-[10px] uppercase tracking-[0.12em] text-white/40">
+              <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
                 Options
               </p>
               <div className="flex flex-wrap gap-2">
                 {options.map((option) => (
                   <span
                     key={`${option.label}:${option.action}`}
-                    className="inline-flex items-center rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1 text-[11px] text-white/70"
+                    className="inline-flex items-center rounded-full border border-strong bg-white/[0.03] px-3 py-1 text-caption text-primary"
                     title={option.action}
                   >
                     {option.label}
@@ -198,7 +198,7 @@ export function DecisionDetailModal({
           )}
 
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
-            <p className="mb-2 text-[10px] uppercase tracking-[0.12em] text-white/40">
+            <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
               Actions
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -207,7 +207,7 @@ export function DecisionDetailModal({
                 onClick={approve}
                 disabled={!onApprove || busy}
                 data-modal-autofocus="true"
-                className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                className="rounded-lg px-3 py-1.5 text-caption font-semibold transition-colors"
                 style={{
                   backgroundColor: !onApprove || busy ? 'rgba(255,255,255,0.08)' : colors.lime,
                   color: !onApprove || busy ? 'rgba(255,255,255,0.45)' : '#000',
@@ -218,12 +218,12 @@ export function DecisionDetailModal({
               <button
                 type="button"
                 onClick={copyDetails}
-                className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+                className="rounded-lg border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-medium text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
               >
                 Copy JSON
               </button>
               {notice && (
-                <span className="text-[11px] text-white/55">{notice}</span>
+                <span className="text-caption text-secondary">{notice}</span>
               )}
             </div>
           </div>
@@ -231,23 +231,23 @@ export function DecisionDetailModal({
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
                   Notes
                 </p>
-                <p className="text-[11px] text-white/35">
+                <p className="text-caption text-muted">
                   Commentary thread for humans and agents on this decision.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowNotes((prev) => !prev)}
-                className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09]"
+                className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
               >
                 {showNotes ? 'Hide' : 'Show'}
               </button>
             </div>
             {showNotes ? (
-              <div className="mt-3 border-t border-white/[0.06] pt-3">
+              <div className="mt-3 border-t border-subtle pt-3">
                 <EntityCommentsPanel entityType="decision" entityId={decision.id} />
               </div>
             ) : null}

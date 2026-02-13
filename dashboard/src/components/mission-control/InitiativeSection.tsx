@@ -306,8 +306,8 @@ interface MetricChipProps {
 function MetricChip({ label, value }: MetricChipProps) {
   return (
     <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
-      <div className="text-[10px] text-white/45">{label}</div>
-      <div className="mt-0.5 text-[12px] font-semibold text-white/85">{value}</div>
+      <div className="text-micro text-secondary">{label}</div>
+      <div className="mt-0.5 text-body font-semibold text-bright">{value}</div>
     </div>
   );
 }
@@ -602,7 +602,7 @@ export function InitiativeSection({
         }}
         className={`group flex min-h-[66px] w-full min-w-0 items-center gap-2.5 overflow-hidden px-3 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:gap-3 sm:px-4 ${
           isExpanded
-            ? 'sticky z-30 border-b border-white/[0.06] bg-[#0C0E14]/95 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-xl'
+            ? 'sticky z-30 border-b border-subtle bg-[#0C0E14]/95 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-xl'
             : ''
         }`}
         style={
@@ -628,7 +628,7 @@ export function InitiativeSection({
             fill="none"
             stroke="currentColor"
             strokeWidth="2.5"
-            className="text-white/40"
+            className="text-muted"
           >
             <path d="m9 18 6-6-6-6" />
           </svg>
@@ -663,7 +663,7 @@ export function InitiativeSection({
               event.stopPropagation();
               openModal({ type: 'initiative', entity: initiative });
             }}
-            className="block w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] font-semibold text-white transition-colors hover:text-white/80 sm:text-[14px]"
+            className="block w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-left text-body font-semibold text-white transition-colors hover:text-primary sm:text-heading"
             title={initiative.name}
           >
             {initiative.name}
@@ -672,7 +672,7 @@ export function InitiativeSection({
 
         <div className="ml-1 flex w-[90px] min-w-[90px] flex-shrink-0 justify-start sm:w-[102px] sm:min-w-[102px]">
           <span
-            className={`w-full truncate text-center text-[10px] px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusToneClass}`}
+            className={`w-full truncate text-center text-micro px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusToneClass}`}
           >
             {initiativeStatusLabel}
           </span>
@@ -694,27 +694,27 @@ export function InitiativeSection({
             </div>
           </div>
           <span
-            className="w-[42px] text-right text-[10px] text-white/40 sm:w-[48px] sm:text-[11px]"
+            className="w-[42px] text-right text-micro text-muted sm:w-[48px] sm:text-caption"
             style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             {progress}%
           </span>
         </div>
 
-        <div className="ml-2 flex w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-white/[0.05] pl-2 sm:w-[116px] sm:min-w-[116px] sm:pl-2.5 md:w-[132px] md:min-w-[132px]">
+        <div className="ml-2 flex w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 sm:w-[116px] sm:min-w-[116px] sm:pl-2.5 md:w-[132px] md:min-w-[132px]">
           {runtimeActiveCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-[10px] font-semibold text-[#D8FFA1]">
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
               {runtimeActiveCount} live
             </span>
           ) : agents.length > 0 ? (
             <InferredAgentAvatars agents={agents} max={3} />
           ) : runtimeTotalCount > 0 ? (
-            <span className="w-full text-right text-[10px] text-white/35">
+            <span className="w-full text-right text-micro text-muted">
               {runtimeTotalCount} idle
             </span>
           ) : (
-            <span className="w-full text-right text-[10px] text-white/28">—</span>
+            <span className="w-full text-right text-micro text-white/28">—</span>
           )}
         </div>
 
@@ -725,7 +725,7 @@ export function InitiativeSection({
               type="button"
               onClick={handleAction('pause')}
               title="Pause"
-              className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-secondary hover:text-white hover:bg-white/[0.08] transition-colors"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
             </button>
@@ -735,7 +735,7 @@ export function InitiativeSection({
               type="button"
               onClick={handleAction('resume')}
               title="Resume"
-              className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-secondary hover:text-white hover:bg-white/[0.08] transition-colors"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
             </button>
@@ -747,7 +747,7 @@ export function InitiativeSection({
               openModal({ type: 'initiative', entity: initiative });
             }}
             title="Details"
-            className="flex items-center justify-center w-6 h-6 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.08] transition-colors"
+            className="flex items-center justify-center w-6 h-6 rounded-lg text-secondary hover:text-white hover:bg-white/[0.08] transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
           </button>
@@ -795,7 +795,7 @@ export function InitiativeSection({
                         onClick={() => setWarningsExpanded((prev) => !prev)}
                         className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
                       >
-                        <span className="text-[11px] text-amber-100/85">
+                        <span className="text-caption text-amber-100/85">
                           {warnings.length} data source{warnings.length > 1 ? 's' : ''} unavailable
                         </span>
                         <svg
@@ -821,7 +821,7 @@ export function InitiativeSection({
                           >
                             <div className="px-3 pb-2 space-y-1">
                               {warnings.map((w, i) => (
-                                <div key={i} className="text-[10px] text-amber-100/72">
+                                <div key={i} className="text-micro text-amber-100/72">
                                   {humanizeWarning(w)}
                                 </div>
                               ))}
@@ -858,14 +858,14 @@ export function InitiativeSection({
                   )}
 
                   {focusedWorkstreamId && (
-                    <div className="subsection-shell flex items-center justify-between rounded-lg px-3 py-2 text-[11px] text-[#D8FFA1]">
+                    <div className="subsection-shell flex items-center justify-between rounded-lg px-3 py-2 text-caption text-[#D8FFA1]">
                       <span>
                         Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
                       </span>
                       <button
                         type="button"
                         onClick={() => setFocusedWorkstreamId(null)}
-                        className="text-[10px] underline underline-offset-2"
+                        className="text-micro underline underline-offset-2"
                       >
                         Clear focus
                       </button>
@@ -940,7 +940,7 @@ export function InitiativeSection({
               <button
                 type="button"
                 onClick={() => toggleExpanded(initiative.id)}
-                className="flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] text-white/35 transition-colors hover:text-white/65"
+                className="flex w-full items-center justify-center gap-1.5 py-1.5 text-micro text-muted transition-colors hover:text-secondary"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="m18 15-6-6-6 6" />

@@ -34,21 +34,21 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
       {target && (
         <div className="flex h-full w-full min-h-0 flex-col">
           {/* Header with breadcrumb + close button */}
-          <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3 sm:px-6">
-            <div className="flex items-center gap-1.5 min-w-0 text-[12px] text-white/50">
+          <div className="flex items-center justify-between gap-3 border-b border-subtle px-5 py-3 sm:px-6">
+            <div className="flex items-center gap-1.5 min-w-0 text-body text-secondary">
               {breadcrumbLabel(target).map((crumb, i, arr) => (
                 <span key={i} className="flex items-center gap-1.5 min-w-0">
                   {i > 0 && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-white/25">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-faint">
                       <path d="m9 18 6-6-6-6" />
                     </svg>
                   )}
-                  <span className={`truncate ${i === arr.length - 1 ? 'text-white/80 font-medium' : ''}`}>
+                  <span className={`truncate ${i === arr.length - 1 ? 'text-primary font-medium' : ''}`}>
                     {crumb}
                   </span>
                 </span>
               ))}
-              <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-white/52">
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
                 <EntityIcon type={target.type} size={11} className="opacity-90" />
                 {target.type}
               </span>
@@ -57,7 +57,7 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
               type="button"
               onClick={onClose}
               aria-label="Close detail"
-              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               <svg
                 width="15"

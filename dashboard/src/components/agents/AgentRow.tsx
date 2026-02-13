@@ -28,17 +28,17 @@ export function AgentRow({ agent, selected, onSelect }: AgentRowProps) {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
-          <span className="text-[12px] font-medium text-white/90">
+          <span className="text-body font-medium text-bright">
             {agent.name}
           </span>
-          <span className="text-[9px] font-mono text-white/30">
+          <span className="text-micro font-mono text-muted">
             {agent.role}
           </span>
         </div>
         {agent.task ? (
-          <p className="text-[10px] text-white/40 truncate">{agent.task}</p>
+          <p className="text-micro text-muted truncate">{agent.task}</p>
         ) : (
-          <p className="text-[10px] text-white/25 italic">Idle</p>
+          <p className="text-micro text-faint italic">Idle</p>
         )}
         {agent.status === 'working' && agent.progress !== null && (
           <div className="mt-1.5 h-0.5 rounded-full overflow-hidden bg-white/[0.06]">

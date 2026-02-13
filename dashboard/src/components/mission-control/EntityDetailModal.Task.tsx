@@ -96,28 +96,28 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-[11px]">
+        <div className="flex items-center gap-1.5 text-caption">
           <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
           <button
             onClick={() => openModal({ type: 'initiative', entity: initiative })}
-            className="break-words text-white/45 transition-colors hover:text-white"
+            className="break-words text-secondary transition-colors hover:text-white"
           >
             {initiative.name}
           </button>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/20">
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
             <path d="m9 18 6-6-6-6" />
           </svg>
           <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-95" />
-          <span className="break-words font-medium text-white/70">{task.title}</span>
+          <span className="break-words font-medium text-primary">{task.title}</span>
         </div>
 
         {/* Header */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
             <EntityIcon type="task" size={16} />
-            <h2 className="break-words text-[16px] font-semibold text-white">{task.title}</h2>
+            <h2 className="break-words text-title font-semibold text-white">{task.title}</h2>
             <span
-              className={`text-[10px] px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(task.status)}`}
+              className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(task.status)}`}
             >
               {formatEntityStatus(task.status)}
             </span>
@@ -126,49 +126,49 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           {editMode ? (
             <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
               <label className="block">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Title</span>
+                <span className="text-micro uppercase tracking-[0.08em] text-muted">Title</span>
                 <input
                   type="text"
                   value={draftTitle}
                   onChange={(event) => setDraftTitle(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                  className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
                 />
               </label>
               <label className="block">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Description</span>
+                <span className="text-micro uppercase tracking-[0.08em] text-muted">Description</span>
                 <textarea
                   value={draftDescription}
                   onChange={(event) => setDraftDescription(event.target.value)}
                   rows={3}
-                  className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                  className="mt-1 w-full resize-y rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
                 />
               </label>
               <div className="grid gap-2 sm:grid-cols-3">
                 <label className="block">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Priority</span>
+                  <span className="text-micro uppercase tracking-[0.08em] text-muted">Priority</span>
                   <input
                     type="text"
                     value={draftPriority}
                     onChange={(event) => setDraftPriority(event.target.value)}
                     placeholder="p1, high, p50"
-                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due date</span>
+                  <span className="text-micro uppercase tracking-[0.08em] text-muted">Due date</span>
                   <input
                     type="date"
                     value={draftDueDate}
                     onChange={(event) => setDraftDueDate(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Status</span>
+                  <span className="text-micro uppercase tracking-[0.08em] text-muted">Status</span>
                   <select
                     value={draftStatus}
                     onChange={(event) => setDraftStatus(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-[12px] text-white/90 outline-none focus:border-white/30"
+                    className="mt-1 w-full rounded-lg border border-white/15 bg-white/[0.06] px-3 py-2 text-body text-bright outline-none focus:border-white/30"
                   >
                     {['not_started', 'planned', 'todo', 'in_progress', 'active', 'blocked', 'done'].map((value) => (
                       <option key={value} value={value}>
@@ -183,15 +183,15 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             <MarkdownText
               text={task.description}
               mode="block"
-              className="text-[13px] text-white/50 leading-relaxed"
+              className="text-body text-secondary leading-relaxed"
             />
           ) : (
-            <p className="text-[12px] text-white/35">No description yet.</p>
+            <p className="text-body text-muted">No description yet.</p>
           )}
 
           {agents.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-white/30 uppercase tracking-wider">Agents</span>
+              <span className="text-micro text-muted uppercase tracking-wider">Agents</span>
               <InferredAgentAvatars agents={agents} max={4} />
             </div>
           )}
@@ -200,27 +200,27 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         {/* Details */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Status</div>
-            <div className="text-[13px] text-white/80 mt-0.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Status</div>
+            <div className="text-body text-primary mt-0.5">
               {formatEntityStatus(task.status)}
             </div>
           </div>
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Priority</div>
-            <div className="text-[13px] text-white/80 mt-0.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Priority</div>
+            <div className="text-body text-primary mt-0.5">
               {task.priority ?? '-'}
             </div>
           </div>
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due Date</div>
-            <div className="text-[13px] text-white/80 mt-0.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
+            <div className="text-body text-primary mt-0.5">
               {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
             </div>
           </div>
         </div>
 
         {notice && (
-          <div className="text-[11px] px-1" style={{ color: `${colors.red}b3` }}>
+          <div className="text-caption px-1" style={{ color: `${colors.red}b3` }}>
             {notice}
           </div>
         )}
@@ -229,23 +229,23 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
                 Notes
               </p>
-              <p className="mt-1 text-[11px] text-white/35">
+              <p className="mt-1 text-caption text-muted">
                 Commentary thread for humans and agents on this task.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowNotes((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09]"
+              className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
             >
               {showNotes ? 'Hide' : 'Show'}
             </button>
           </div>
           {showNotes ? (
-            <div className="pt-3 border-t border-white/[0.06]">
+            <div className="pt-3 border-t border-subtle">
               <EntityCommentsPanel
                 entityType="task"
                 entityId={task.id}
@@ -258,7 +258,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
       </div>
 
       {/* Actions */}
-      <div className="border-t border-white/[0.06] bg-[#070b12]/85 px-6 py-3 backdrop-blur">
+      <div className="border-t border-subtle bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {status === 'todo' && (
             <EntityActionButton label="Start" color={colors.lime} variant="primary" onClick={() => handleAction('start')} disabled={isMutating} />
@@ -313,7 +313,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
 
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <span className="text-[11px]" style={{ color: `${colors.red}b3` }}>Delete?</span>
+              <span className="text-caption" style={{ color: `${colors.red}b3` }}>Delete?</span>
               <EntityActionButton label="Delete" color={colors.red} variant="destructive" onClick={handleDelete} disabled={isMutating} />
               <EntityActionButton
                 label="Keep"

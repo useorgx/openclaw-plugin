@@ -18,7 +18,7 @@ export function EntityActionButton({
   type = 'button',
   ...rest
 }: EntityActionButtonProps) {
-  const sizeClass = size === 'sm' ? 'px-2.5 py-1 text-[10px]' : 'px-3 py-1.5 text-[11px]';
+  const sizeClass = size === 'sm' ? 'px-2.5 py-1 text-micro' : 'px-3 py-1.5 text-caption';
 
   const style =
     variant === 'primary'

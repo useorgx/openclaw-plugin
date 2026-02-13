@@ -343,14 +343,14 @@ export function AgentLaunchModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-2xl">
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
+        <div className="border-b border-subtle px-5 py-4 sm:px-6">
 	          <div className="flex items-start justify-between gap-4">
 	            <div>
-	              <h3 className="text-[14px] font-semibold text-white">Launch OpenClaw Agent</h3>
-	              <p className="mt-1 text-[12px] text-white/55">
+	              <h3 className="text-heading font-semibold text-white">Launch OpenClaw Agent</h3>
+	              <p className="mt-1 text-body text-secondary">
 	                Starts a background agent turn and scopes the resulting sessions/activity to the selected OrgX initiative.
 	              </p>
-	              <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] p-1 text-[10px] uppercase tracking-[0.12em] text-white/55">
+	              <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-strong bg-white/[0.03] p-1 text-micro uppercase tracking-[0.12em] text-secondary">
 	                {(
 	                  [
 	                    [1, 'Agent'],
@@ -375,7 +375,7 @@ export function AgentLaunchModal({
 	            <button
 	              type="button"
 	              onClick={onClose}
-              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.08] hover:text-white"
+              className="rounded-lg border border-strong bg-white/[0.03] px-3 py-1.5 text-body text-secondary hover:bg-white/[0.08] hover:text-white"
             >
               Close
             </button>
@@ -384,13 +384,13 @@ export function AgentLaunchModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {catalogQuery.isLoading && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-[12px] text-white/55">
+            <div className="rounded-xl border border-subtle bg-white/[0.02] p-4 text-body text-secondary">
               Loading agent catalog…
             </div>
           )}
 
 	          {catalogQuery.error && (
-	            <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-[12px] text-rose-100">
+	            <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
 	              {(catalogQuery.error as Error).message}
 	            </div>
 	          )}
@@ -407,11 +407,11 @@ export function AgentLaunchModal({
 	              {step === 1 && (
 	                <div className="space-y-4">
 	                  <div>
-	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Agent</label>
+	                    <label className="text-caption uppercase tracking-[0.1em] text-muted">Agent</label>
 	                    <select
 	                      value={selectedAgentId}
 	                      onChange={(e) => setSelectedAgentId(e.target.value)}
-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
 	                    >
 	                      {catalogAgents.map((agent) => {
 	                        const badge = toStatusBadge(agent.status);
@@ -425,11 +425,11 @@ export function AgentLaunchModal({
 	                  </div>
 
 	                  {selectedAgent && (
-	                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-white/60">
+	                    <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 text-body text-secondary">
 	                      <div className="flex items-center justify-between gap-2">
-	                        <span className="font-medium text-white/80">{selectedAgent.name}</span>
+	                        <span className="font-medium text-primary">{selectedAgent.name}</span>
 	                        <span
-	                          className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+	                          className="rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]"
 	                          style={{
 	                            borderColor: `${toStatusBadge(selectedAgent.status).color}55`,
 	                            color: toStatusBadge(selectedAgent.status).color,
@@ -441,40 +441,40 @@ export function AgentLaunchModal({
 	                      </div>
 	                      <div className="mt-2 space-y-2">
 	                        <p className="truncate">
-	                          <span className="text-white/40">Model:</span> {selectedAgent.model ?? 'unknown'}
+	                          <span className="text-muted">Model:</span> {selectedAgent.model ?? 'unknown'}
 	                        </p>
 	                        <p className="truncate">
-	                          <span className="text-white/40">Workspace:</span> {selectedAgent.workspace ?? 'unknown'}
+	                          <span className="text-muted">Workspace:</span> {selectedAgent.workspace ?? 'unknown'}
 	                        </p>
 	                        {selectedAgent.context?.initiativeId && (
 	                          <p className="truncate">
-	                            <span className="text-white/40">Scoped:</span>{' '}
+	                            <span className="text-muted">Scoped:</span>{' '}
 	                            {selectedAgent.context.initiativeTitle ?? selectedAgent.context.initiativeId}
 	                          </p>
 	                        )}
 
 	                        <div>
-	                          <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Provider</label>
+	                          <label className="text-micro uppercase tracking-[0.12em] text-muted">Provider</label>
 	                          <select
 	                            value={selectedProvider}
 	                            onChange={(e) => setSelectedProvider(e.target.value)}
-	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
 	                          >
 	                            <option value="auto">Auto (keep agent model)</option>
 	                            <option value="anthropic">Anthropic</option>
 	                            <option value="openrouter">OpenRouter</option>
 	                            <option value="openai">OpenAI</option>
 	                          </select>
-	                          <p className="mt-1 text-[10px] text-white/35">
+	                          <p className="mt-1 text-micro text-muted">
 	                            Selecting a provider updates the agent&apos;s default model before launch.
 	                          </p>
 	                        </div>
 
 	                        {selectedAgent.run && (
 	                          <p className="truncate">
-	                            <span className="text-white/40">Tracked run:</span>{' '}
+	                            <span className="text-muted">Tracked run:</span>{' '}
 	                            {selectedAgent.run.runId.slice(0, 8)}…{' '}
-	                            <span className="text-white/35">({selectedAgent.run.status})</span>
+	                            <span className="text-muted">({selectedAgent.run.status})</span>
 	                          </p>
 	                        )}
 
@@ -484,7 +484,7 @@ export function AgentLaunchModal({
 	                              type="button"
 	                              onClick={stopRun}
 	                              disabled={!canControlRun || isLaunching}
-	                              className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
+	                              className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-caption font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
 	                            >
 	                              Stop Run
 	                            </button>
@@ -492,7 +492,7 @@ export function AgentLaunchModal({
 	                              type="button"
 	                              onClick={restartRun}
 	                              disabled={isLaunching}
-	                              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+	                              className="rounded-lg border border-strong bg-white/[0.03] px-3 py-2 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
 	                            >
 	                              Restart
 	                            </button>
@@ -507,11 +507,11 @@ export function AgentLaunchModal({
 	              {step === 2 && (
 	                <div className="space-y-4">
 	                  <div>
-	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Initiative Scope</label>
+	                    <label className="text-caption uppercase tracking-[0.1em] text-muted">Initiative Scope</label>
 	                    <select
 	                      value={selectedInitiativeId}
 	                      onChange={(e) => setSelectedInitiativeId(e.target.value)}
-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
 	                    >
 	                      <option value="">Select an initiative…</option>
 	                      {(initiatives ?? []).map((initiative) => (
@@ -524,13 +524,13 @@ export function AgentLaunchModal({
 
 	                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 	                    <div>
-	                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Workstream (optional)</label>
+	                      <label className="text-micro uppercase tracking-[0.12em] text-muted">Workstream (optional)</label>
 	                      <select
 	                        value={selectedWorkstreamId}
 	                        onChange={(e) => setSelectedWorkstreamId(e.target.value)}
 	                        disabled={!selectedInitiative}
 	                        className={cn(
-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
 	                          !selectedInitiative && 'opacity-50'
 	                        )}
 	                      >
@@ -544,13 +544,13 @@ export function AgentLaunchModal({
 	                    </div>
 
 	                    <div>
-	                      <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">Task (optional)</label>
+	                      <label className="text-micro uppercase tracking-[0.12em] text-muted">Task (optional)</label>
 	                      <select
 	                        value={selectedTaskId}
 	                        onChange={(e) => setSelectedTaskId(e.target.value)}
 	                        disabled={!selectedInitiative}
 	                        className={cn(
-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
 	                          !selectedInitiative && 'opacity-50'
 	                        )}
 	                      >
@@ -562,7 +562,7 @@ export function AgentLaunchModal({
 	                        ))}
 	                      </select>
 	                      {tasks.length > 80 && (
-	                        <p className="mt-1 text-[10px] text-white/35">
+	                        <p className="mt-1 text-micro text-muted">
 	                          Showing first 80 tasks to keep the menu usable.
 	                        </p>
 	                      )}
@@ -574,42 +574,42 @@ export function AgentLaunchModal({
 	              {step === 3 && (
 	                <div className="space-y-4">
 	                  <div>
-	                    <label className="text-[11px] uppercase tracking-[0.1em] text-white/35">Kickoff Message</label>
+	                    <label className="text-caption uppercase tracking-[0.1em] text-muted">Kickoff Message</label>
 	                    <textarea
 	                      value={message}
 	                      onChange={(e) => setMessage(e.target.value)}
 	                      rows={4}
-	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
 	                      placeholder="Optional. If left blank, a default kickoff message is used."
 	                    />
 	                  </div>
 
-	                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-white/60">
-	                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/35">Review</p>
+	                  <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 text-body text-secondary">
+	                    <p className="text-micro uppercase tracking-[0.12em] text-muted">Review</p>
 	                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
 	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Agent</div>
-	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Agent</div>
+	                        <div className="mt-0.5 truncate text-body text-primary">
 	                          {(selectedAgent?.name ?? selectedAgentId.trim()) || '—'}
 	                        </div>
 	                      </div>
 	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Initiative</div>
-	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Initiative</div>
+	                        <div className="mt-0.5 truncate text-body text-primary">
 	                          {(selectedInitiative?.name ?? selectedInitiativeId.trim()) || '—'}
 	                        </div>
 	                      </div>
 	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Workstream</div>
-	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Workstream</div>
+	                        <div className="mt-0.5 truncate text-body text-primary">
 	                          {selectedWorkstreamId.trim()
 	                            ? workstreams.find((w) => w.id === selectedWorkstreamId)?.name ?? selectedWorkstreamId
 	                            : 'Any'}
 	                        </div>
 	                      </div>
 	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-	                        <div className="text-[10px] uppercase tracking-[0.12em] text-white/35">Task</div>
-	                        <div className="mt-0.5 truncate text-[12px] text-white/80">
+	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Task</div>
+	                        <div className="mt-0.5 truncate text-body text-primary">
 	                          {selectedTaskId.trim()
 	                            ? tasks.find((t) => t.id === selectedTaskId)?.title ?? selectedTaskId
 	                            : 'Any'}
@@ -623,7 +623,7 @@ export function AgentLaunchModal({
 	          </AnimatePresence>
 
 	          {launchError && (
-	            <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-[12px] text-rose-100">
+	            <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-body text-rose-100">
 	              <div className="flex flex-col gap-2">
 	                <div>{launchError}</div>
                 {upgradeActions && (
@@ -631,14 +631,14 @@ export function AgentLaunchModal({
                     <button
                       type="button"
                       onClick={() => void openCheckout().catch((err) => setLaunchError(err instanceof Error ? err.message : 'Checkout failed'))}
-                      className="rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
+                      className="rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-caption font-semibold text-amber-100 transition-colors hover:bg-amber-200/15"
                     >
                       Upgrade
                     </button>
                     <button
                       type="button"
                       onClick={() => void openBillingPortal().catch((err) => setLaunchError(err instanceof Error ? err.message : 'Portal failed'))}
-                      className="rounded-full border border-white/[0.14] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                      className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08]"
                     >
                       Billing portal
                     </button>
@@ -647,7 +647,7 @@ export function AgentLaunchModal({
                         href={upgradeActions.pricing}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-white/60 underline decoration-white/20 hover:text-white/80"
+                        className="text-caption text-secondary underline decoration-white/20 hover:text-primary"
                       >
                         View pricing
                       </a>
@@ -659,8 +659,8 @@ export function AgentLaunchModal({
           )}
         </div>
 
-	        <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-5 py-3.5 sm:px-6">
-	          <div className="text-[11px] text-white/45">
+	        <div className="flex items-center justify-between gap-3 border-t border-subtle px-5 py-3.5 sm:px-6">
+	          <div className="text-caption text-secondary">
 	            {step === 1
 	              ? 'Pick an agent to configure.'
 	              : step === 2
@@ -675,7 +675,7 @@ export function AgentLaunchModal({
 	                type="button"
 	                onClick={() => setStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3) : prev))}
 	                disabled={isLaunching}
-	                className="rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+	                className="rounded-xl border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
 	              >
 	                Back
 	              </button>
@@ -686,10 +686,10 @@ export function AgentLaunchModal({
 	                onClick={() => setStep((prev) => (prev < 3 ? ((prev + 1) as 1 | 2 | 3) : prev))}
 	                disabled={!canContinueStep || isLaunching}
 	                className={cn(
-	                  'rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors',
+	                  'rounded-xl px-4 py-2 text-body font-semibold transition-colors',
 	                  canContinueStep && !isLaunching
 	                    ? 'text-black'
-	                    : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.05] text-white/40'
+	                    : 'cursor-not-allowed border border-strong bg-white/[0.05] text-muted'
 	                )}
 	                style={canContinueStep && !isLaunching ? { backgroundColor: colors.lime } : undefined}
 	              >
@@ -701,10 +701,10 @@ export function AgentLaunchModal({
 	                onClick={launch}
 	                disabled={!canLaunch || isLaunching}
 	                className={cn(
-	                  'rounded-xl px-4 py-2 text-[12px] font-semibold transition-colors',
+	                  'rounded-xl px-4 py-2 text-body font-semibold transition-colors',
 	                  canLaunch && !isLaunching
 	                    ? 'text-black'
-	                    : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.05] text-white/40'
+	                    : 'cursor-not-allowed border border-strong bg-white/[0.05] text-muted'
 	                )}
 	                style={canLaunch && !isLaunching ? { backgroundColor: colors.lime } : undefined}
 	              >

@@ -19,9 +19,9 @@ export function TaskChip({ task, initiative }: TaskChipProps) {
         className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
         style={{ backgroundColor: statusColor(task.status) }}
       />
-      <span className="text-[11px] text-white/80 truncate">{task.title}</span>
+      <span className="text-caption text-primary truncate">{task.title}</span>
       {task.priority && (
-        <span className="text-[9px] text-white/30 uppercase flex-shrink-0">
+        <span className="text-micro text-muted uppercase flex-shrink-0">
           {task.priority}
         </span>
       )}

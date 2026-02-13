@@ -75,7 +75,7 @@ export function TaskSwimLanes({ tasks, initiative }: TaskSwimLanesProps) {
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: group.color }}
           />
-          <span className="text-[10px] text-white/40 uppercase tracking-wider">
+          <span className="text-micro text-muted uppercase tracking-wider">
             {group.label} ({group.tasks.length})
           </span>
           <div className="flex items-center gap-1 ml-1">
@@ -83,7 +83,7 @@ export function TaskSwimLanes({ tasks, initiative }: TaskSwimLanesProps) {
               <TaskChip key={task.id} task={task} initiative={initiative} />
             ))}
             {group.tasks.length > 6 && (
-              <span className="text-[10px] text-white/30 ml-0.5">
+              <span className="text-micro text-muted ml-0.5">
                 +{group.tasks.length - 6}
               </span>
             )}

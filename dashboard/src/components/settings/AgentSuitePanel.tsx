@@ -14,11 +14,11 @@ function Tag({ tone, children }: { tone: TagTone; children: ReactNode }) {
   const className = useMemo(() => {
     if (tone === 'good') return 'border-lime/25 bg-lime/[0.10] text-lime';
     if (tone === 'warn') return 'border-amber-300/25 bg-amber-400/10 text-amber-100/90';
-    return 'border-white/[0.10] bg-white/[0.02] text-white/70';
+    return 'border-white/[0.10] bg-white/[0.02] text-primary';
   }, [tone]);
 
   return (
-    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold', className)}>
+    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-caption font-semibold', className)}>
       {children}
     </span>
   );
@@ -90,8 +90,8 @@ export function AgentSuitePanel({
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-[15px] font-semibold text-white">OrgX agent suite</h3>
-          <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+          <h3 className="text-heading font-semibold text-white">OrgX agent suite</h3>
+          <p className="mt-1 text-body leading-relaxed text-secondary">
             Installs the OrgX domain agents into OpenClaw (workspaces + guardrails + managed/local overlay).
           </p>
         </div>
@@ -100,7 +100,7 @@ export function AgentSuitePanel({
           <button
             type="button"
             onClick={() => { void suite.refetchStatus(); }}
-            className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06]"
           >
             Refresh
           </button>
@@ -111,7 +111,7 @@ export function AgentSuitePanel({
               void suite.install({ dryRun: true });
             }}
             disabled={suite.isInstalling}
-            className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
             title="Computes the plan without writing any files"
           >
             Dry run
@@ -120,7 +120,7 @@ export function AgentSuitePanel({
             type="button"
             onClick={() => { void suite.install({ dryRun: false, forceSkillPack: true }); }}
             disabled={suite.isInstalling}
-            className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
             title="Forces a check for the latest OrgX skill pack and applies it (managed/local overlay preserves local edits)"
           >
             Refresh skills
@@ -129,7 +129,7 @@ export function AgentSuitePanel({
             type="button"
             onClick={() => { void suite.install({ dryRun: false }); }}
             disabled={suite.isInstalling}
-            className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-[12px] font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
             title="Adds missing agents to openclaw.json and scaffolds managed workspace files"
           >
             {suite.isInstalling ? 'Installing...' : 'Install / Update'}
@@ -155,10 +155,10 @@ export function AgentSuitePanel({
 
       {lastInstall && (
         <div className="mt-3 rounded-xl border border-lime/20 bg-lime/[0.06] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-[0.1em] text-[#D8FFA1]">
+          <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">
             {isDryRun ? 'Dry run' : 'Applied'}
           </p>
-          <p className="mt-1 text-[12px] leading-relaxed text-white/65">
+          <p className="mt-1 text-body leading-relaxed text-secondary">
             Operation <code className="rounded bg-black/40 px-1">{lastInstall.operationId}</code>{' '}
             {isDryRun
               ? 'computed the plan without writing any files.'
@@ -170,11 +170,11 @@ export function AgentSuitePanel({
       {plan && (
         <div className="mt-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[12px] font-semibold text-white/80">Suite details</p>
+            <p className="text-body font-semibold text-primary">Suite details</p>
             <button
               type="button"
               onClick={() => setShowDetails((v) => !v)}
-              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
             >
               {showDetails ? 'Hide' : 'Show'}
             </button>
@@ -183,22 +183,22 @@ export function AgentSuitePanel({
           {showDetails && (
             <div className="mt-3 grid gap-3">
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
-                <div className="grid gap-1 text-[12px] text-white/60">
+                <div className="grid gap-1 text-body text-secondary">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>OpenClaw config</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">{plan.openclawConfigPath}</code>
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.openclawConfigPath}</code>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Suite workspace root</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">{plan.suiteWorkspaceRoot}</code>
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.suiteWorkspaceRoot}</code>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Pack</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">{plan.packId}@{plan.packVersion}</code>
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.packId}@{plan.packVersion}</code>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Skill pack</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">
                       {plan.skillPack
                         ? `${plan.skillPack.name}@${plan.skillPack.version} (${plan.skillPack.source})`
                         : 'builtin'}
@@ -207,7 +207,7 @@ export function AgentSuitePanel({
                   {plan.skillPackRemote && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>Skill pack remote</span>
-                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">
                         {plan.skillPackRemote.name}@{plan.skillPackRemote.version}
                       </code>
                     </div>
@@ -215,7 +215,7 @@ export function AgentSuitePanel({
                   {plan.skillPackPolicy && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>Skill pack policy</span>
-                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">
                         {plan.skillPackPolicy.frozen ? 'frozen' : 'live'}
                         {plan.skillPackPolicy.pinnedChecksum ? `, pinned:${plan.skillPackPolicy.pinnedChecksum.slice(0, 8)}…` : ''}
                       </code>
@@ -228,7 +228,7 @@ export function AgentSuitePanel({
                         onClick={() => {
                           void updateSkillPackPolicy({ frozen: !plan.skillPackPolicy?.frozen });
                         }}
-                        className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+                        className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
                       >
                         {plan.skillPackPolicy.frozen ? 'Unfreeze skills' : 'Freeze skills'}
                       </button>
@@ -241,11 +241,11 @@ export function AgentSuitePanel({
                             void updateSkillPackPolicy({ pinToCurrent: true });
                           }
                         }}
-                        className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+                        className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
                       >
                         {plan.skillPackPolicy.pinnedChecksum ? 'Unpin' : 'Pin current'}
                       </button>
-                      <p className="text-[11px] text-white/40">
+                      <p className="text-caption text-muted">
                         Freeze prevents background checks; pin prevents applying a new checksum.
                       </p>
                     </div>
@@ -254,16 +254,16 @@ export function AgentSuitePanel({
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
-                <p className="text-[12px] font-semibold text-white/80">Agents</p>
+                <p className="text-body font-semibold text-primary">Agents</p>
                 <div className="mt-2 grid gap-2">
                   {plan.agents.map((agent) => (
                     <div
                       key={agent.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-subtle bg-white/[0.02] px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-[12px] font-semibold text-white/85">{agent.name}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-white/45">
+                        <p className="truncate text-body font-semibold text-bright">{agent.name}</p>
+                        <p className="mt-0.5 truncate text-caption text-secondary">
                           <code className="rounded bg-black/40 px-1">{agent.id}</code>
                           <span className="px-1">·</span>
                           <span>{agent.domain}</span>
@@ -283,25 +283,25 @@ export function AgentSuitePanel({
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
-                <p className="text-[12px] font-semibold text-white/80">Planned file writes</p>
-                <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+                <p className="text-body font-semibold text-primary">Planned file writes</p>
+                <p className="mt-1 text-body leading-relaxed text-secondary">
                   Managed files are written to <code className="rounded bg-black/40 px-1">.orgx/managed</code>. Local overrides
                   are read from <code className="rounded bg-black/40 px-1">.orgx/local</code> and appended into the composite
                   files in the agent workspace root.
                 </p>
-                <div className="mt-2 grid gap-1 text-[11px] text-white/50">
+                <div className="mt-2 grid gap-1 text-caption text-secondary">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Writes</span>
-                    <span className="text-white/70">{pluralize(plan.workspaceFiles.length, 'file')}</span>
+                    <span className="text-primary">{pluralize(plan.workspaceFiles.length, 'file')}</span>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Creates/updates</span>
-                    <span className="text-white/70">{changedFiles}</span>
+                    <span className="text-primary">{changedFiles}</span>
                   </div>
                   {(createdFiles > 0 || updatedFiles > 0) && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>Breakdown</span>
-                      <span className="text-white/70">
+                      <span className="text-primary">
                         {createdFiles > 0 ? `${createdFiles} create` : '0 create'},{' '}
                         {updatedFiles > 0 ? `${updatedFiles} update` : '0 update'}
                       </span>
@@ -311,12 +311,12 @@ export function AgentSuitePanel({
 
                 {missingAgents > 0 && (
                   <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-                    <p className="text-[11px] font-semibold text-white/70">OpenClaw agents to add</p>
+                    <p className="text-caption font-semibold text-primary">OpenClaw agents to add</p>
                     <div className="mt-1 flex flex-wrap gap-2">
                       {plan.openclawConfigAddedAgents.map((id) => (
                         <code
                           key={id}
-                          className="rounded-full border border-white/[0.12] bg-black/40 px-2 py-0.5 text-[11px] text-white/70"
+                          className="rounded-full border border-strong bg-black/40 px-2 py-0.5 text-caption text-primary"
                         >
                           {id}
                         </code>
@@ -327,18 +327,18 @@ export function AgentSuitePanel({
 
                 {changedFileItems.length > 0 && (
                   <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-                    <p className="text-[11px] font-semibold text-white/70">Files that will change</p>
+                    <p className="text-caption font-semibold text-primary">Files that will change</p>
                     <div className="mt-2 grid gap-1.5">
                       {changedFileItems.slice(0, 24).map((entry) => (
-                        <div key={`${entry.agentId}:${entry.file}`} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                          <code className="rounded bg-black/40 px-1.5 py-0.5 text-white/70">
+                        <div key={`${entry.agentId}:${entry.file}`} className="flex flex-wrap items-center justify-between gap-2 text-caption">
+                          <code className="rounded bg-black/40 px-1.5 py-0.5 text-primary">
                             {entry.agentId}/{entry.file}
                           </code>
-                          <span className="text-white/55">{entry.action}</span>
+                          <span className="text-secondary">{entry.action}</span>
                         </div>
                       ))}
                       {changedFileItems.length > 24 && (
-                        <p className="text-[11px] text-white/40">
+                        <p className="text-caption text-muted">
                           Showing 24 of {changedFileItems.length}. Install/Update to apply all.
                         </p>
                       )}

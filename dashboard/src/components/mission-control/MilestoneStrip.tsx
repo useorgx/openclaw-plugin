@@ -14,7 +14,7 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
 
   return (
     <div className="flex items-center gap-1 px-1">
-      <span className="text-[10px] text-white/30 uppercase tracking-wider mr-1 flex-shrink-0">
+      <span className="text-micro text-muted uppercase tracking-wider mr-1 flex-shrink-0">
         Milestones
       </span>
       <div className="flex items-center gap-0.5">
@@ -59,7 +59,7 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
         })}
       </div>
       {milestones.length > 0 && (
-        <span className="text-[10px] text-white/25 ml-1">
+        <span className="text-micro text-faint ml-1">
           {milestones.filter(
             (m) =>
               m.status.toLowerCase() === 'done' ||

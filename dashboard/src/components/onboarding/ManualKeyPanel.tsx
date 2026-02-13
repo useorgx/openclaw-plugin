@@ -61,24 +61,24 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       <div className="px-6 pt-6 sm:px-8 sm:pt-8">
         <motion.div variants={rise} className="flex items-center gap-2.5">
           <img src={orgxLogo} alt="OrgX" className="h-7 w-7 rounded-lg object-contain" />
-          <span className="text-[13px] font-semibold text-white/70">OrgX</span>
+          <span className="text-body font-semibold text-primary">OrgX</span>
         </motion.div>
 
         <motion.h3 variants={rise} className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-white">
           Manual API key
         </motion.h3>
-        <motion.p variants={rise} className="mt-1.5 text-[14px] leading-relaxed text-white/45">
-          Paste a key from your <span className="text-white/60">useorgx.com</span> dashboard. Browser pairing is recommended.
+        <motion.p variants={rise} className="mt-1.5 text-heading leading-relaxed text-secondary">
+          Paste a key from your <span className="text-secondary">useorgx.com</span> dashboard. Browser pairing is recommended.
         </motion.p>
-        <motion.p variants={rise} className="mt-1 text-[12px] text-white/35">
-          Paste full key or only the part after <span className="font-mono text-white/50">oxk_</span>.
+        <motion.p variants={rise} className="mt-1 text-body text-muted">
+          Paste full key or only the part after <span className="font-mono text-secondary">oxk_</span>.
         </motion.p>
         <motion.div variants={rise} className="mt-3">
           <a
             href={settingsUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.03] px-3 py-1.5 text-[12px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white/80"
+            className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.03] px-3 py-1.5 text-body font-semibold text-secondary transition hover:bg-white/[0.06] hover:text-primary"
             title="Open OrgX settings to generate an API key"
           >
             Generate an API key
@@ -109,11 +109,11 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       {/* ── Form ────────────────────────────────────────────────── */}
       <motion.div variants={rise} className="mt-6 space-y-4 px-6 sm:px-8">
         <label className="block">
-          <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.14em] text-white/40">
+          <span className="mb-1.5 block text-caption font-medium uppercase tracking-[0.14em] text-muted">
             API key
           </span>
           <div className={`flex items-stretch overflow-hidden rounded-xl border transition-colors focus-within:border-[#BFFF00]/40 ${hasError ? 'border-red-500/30' : 'border-white/[0.08]'}`}>
-            <span className="flex items-center border-r border-white/[0.06] bg-white/[0.03] px-3 font-mono text-[13px] text-white/25 select-none">
+            <span className="flex items-center border-r border-subtle bg-white/[0.03] px-3 font-mono text-body text-faint select-none">
               oxk_
             </span>
             <input
@@ -123,22 +123,22 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
                 if (error) setError(null);
               }}
               placeholder="paste your key"
-              className="w-full bg-transparent px-3 py-2.5 font-mono text-[13px] text-white outline-none placeholder:text-white/15"
+              className="w-full bg-transparent px-3 py-2.5 font-mono text-body text-white outline-none placeholder:text-faint"
             />
           </div>
           {hasError && (
             <motion.p
               initial={{ opacity: 0, y: -3 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-1.5 text-[12px] text-red-400/70"
+              className="mt-1.5 text-body text-red-400/70"
             >
               {error}
             </motion.p>
           )}
         </label>
 
-        <p className="text-[12px] text-white/35">
-          User-scoped keys (<span className="font-mono text-white/50">oxk_...</span>)
+        <p className="text-body text-muted">
+          User-scoped keys (<span className="font-mono text-secondary">oxk_...</span>)
           do not require a separate user ID header.
         </p>
       </motion.div>
@@ -149,7 +149,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
           type="button"
           onClick={() => { void submit(); }}
           disabled={isSubmitting}
-          className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-[13px] font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? (
             <>
@@ -166,15 +166,15 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
         <button
           type="button"
           onClick={onBack}
-          className="rounded-full border border-white/[0.1] px-4 py-2 text-[13px] text-white/60 transition hover:border-white/[0.18] hover:text-white/85"
+          className="rounded-full border border-white/[0.1] px-4 py-2 text-body text-secondary transition hover:border-white/[0.18] hover:text-bright"
         >
           Back to pairing
         </button>
       </motion.div>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <div className="mt-6 border-t border-white/[0.05] px-6 py-4 sm:px-8">
-        <p className="text-[12px] text-white/25">
+      <div className="mt-6 border-t border-subtle px-6 py-4 sm:px-8">
+        <p className="text-body text-faint">
           Keys are stored locally and never leave your device.
         </p>
       </div>

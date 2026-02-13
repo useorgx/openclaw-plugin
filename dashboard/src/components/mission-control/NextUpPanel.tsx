@@ -142,7 +142,7 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
 function queueTone(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
   if (queueState === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
-  if (queueState === 'idle') return 'border-white/[0.16] bg-white/[0.05] text-white/65';
+  if (queueState === 'idle') return 'border-strong bg-white/[0.05] text-secondary';
   return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
 }
 
@@ -164,7 +164,7 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   const cards = compact ? 3 : 6;
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center gap-2 px-1 pt-1 text-[10px] uppercase tracking-[0.12em] text-white/40">
+      <div className="flex items-center gap-2 px-1 pt-1 text-micro uppercase tracking-[0.12em] text-muted">
         <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
         <span>Calibrating queue</span>
       </div>
@@ -325,16 +325,16 @@ export function NextUpPanel({
         disableEnterAnimation ? '' : 'card-enter'
       } ${className ?? ''}`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 className="truncate text-[14px] font-semibold text-white">{title}</h2>
+          <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
           {isLoading ? (
             <Skeleton className="h-5 w-10 rounded-full" />
           ) : (
-            <span className="chip text-[10px]">{total}</span>
+            <span className="chip text-micro">{total}</span>
           )}
           {isFetching && !isLoading && (
-            <span className="text-[10px] text-white/38">refreshing…</span>
+            <span className="text-micro text-muted">refreshing…</span>
           )}
         </div>
       </div>
@@ -349,27 +349,27 @@ export function NextUpPanel({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.99 }}
                 transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-[11px] text-amber-100"
+                className="rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-caption text-amber-100"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full border border-amber-200/25 bg-amber-200/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-100/90">
+                      <span className="rounded-full border border-amber-200/25 bg-amber-200/10 px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-amber-100/90">
                         Upgrade required
                       </span>
-                      <span className="truncate text-[10px] text-white/55">
+                      <span className="truncate text-micro text-secondary">
                         {formatPlanLabel(upgradeGate.currentPlan)} →{' '}
                         {formatPlanLabel(upgradeGate.requiredPlan)}
                       </span>
                     </div>
                     <div
-                      className="mt-1 line-clamp-2 text-[11px] leading-snug text-amber-50/90"
+                      className="mt-1 line-clamp-2 text-caption leading-snug text-amber-50/90"
                       title={upgradeGate.message}
                     >
                       {upgradeGate.message}
                     </div>
                     {notice ? (
-                      <div className="mt-1 text-[10px] text-rose-50/85">
+                      <div className="mt-1 text-micro text-rose-50/85">
                         {notice}
                       </div>
                     ) : null}
@@ -386,7 +386,7 @@ export function NextUpPanel({
                             setNotice(err instanceof Error ? err.message : 'Checkout failed')
                           )
                         }
-                        className="h-7 rounded-full border border-amber-200/25 bg-amber-200/15 px-3 text-[10px] font-semibold text-amber-50 transition-colors hover:bg-amber-200/20"
+                        className="h-7 rounded-full border border-amber-200/25 bg-amber-200/15 px-3 text-micro font-semibold text-amber-50 transition-colors hover:bg-amber-200/20"
                       >
                         Upgrade
                       </button>
@@ -397,7 +397,7 @@ export function NextUpPanel({
                             setNotice(err instanceof Error ? err.message : 'Portal failed')
                           )
                         }
-                        className="h-7 rounded-full border border-white/[0.14] bg-white/[0.04] px-3 text-[10px] font-semibold text-white/75 transition-colors hover:bg-white/[0.08]"
+                        className="h-7 rounded-full border border-strong bg-white/[0.04] px-3 text-micro font-semibold text-primary transition-colors hover:bg-white/[0.08]"
                       >
                         Billing
                       </button>
@@ -405,7 +405,7 @@ export function NextUpPanel({
                         <button
                           type="button"
                           onClick={onOpenSettings}
-                          className="h-7 rounded-full border border-white/[0.14] bg-white/[0.04] px-2.5 text-[10px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+                          className="h-7 rounded-full border border-strong bg-white/[0.04] px-2.5 text-micro font-semibold text-primary transition-colors hover:bg-white/[0.08]"
                         >
                           Settings
                         </button>
@@ -416,7 +416,7 @@ export function NextUpPanel({
                         href={upgradeGate.actions.pricing}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[10px] text-white/55 underline decoration-white/20 hover:text-white/80"
+                        className="text-micro text-secondary underline decoration-white/20 hover:text-primary"
                       >
                         View pricing
                       </a>
@@ -431,7 +431,7 @@ export function NextUpPanel({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.18 }}
-                className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-[11px] text-red-100"
+                className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-caption text-red-100"
               >
                 {error}
               </motion.div>
@@ -442,7 +442,7 @@ export function NextUpPanel({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.18 }}
-                className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-[11px] text-white/75"
+                className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-caption text-primary"
               >
                 {notice}
               </motion.div>
@@ -457,7 +457,7 @@ export function NextUpPanel({
         ) : null}
 
         {!isLoading && visibleItems.length === 0 && !error && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-[12px] text-white/50">
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-body text-secondary">
             No queued workstreams right now.
           </div>
         )}
@@ -505,46 +505,46 @@ export function NextUpPanel({
                             onClick={() =>
                               onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
                             }
-                            className="block w-full truncate text-left text-[10px] uppercase tracking-[0.08em] text-white/42 transition-colors hover:text-white/72"
+                            className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
                             title={item.initiativeTitle}
                           >
                             {item.initiativeTitle}
                           </button>
                         </div>
-                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-[13px] font-semibold text-white">
+                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-body font-semibold text-white">
                           <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
                           <span className="truncate">{item.workstreamTitle}</span>
                         </p>
                       </div>
                     </div>
-                    <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${queueTone(item.queueState)}`}>
+                    <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
                       {queueLabel(item.queueState)}
                     </span>
                   </div>
 
-                  <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-[11px] text-white/68">
+                  <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
                     {item.nextTaskTitle ? (
                       <div className="space-y-1">
-                        <div className="flex min-w-0 items-center gap-1 text-[9px] uppercase tracking-[0.08em] text-white/44">
+                        <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
                           <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
                           <span>Next</span>
                           {dueText ? (
-                            <span className="truncate text-[9px] normal-case tracking-normal text-white/38">
+                            <span className="truncate text-micro normal-case tracking-normal text-muted">
                               · {dueText}
                             </span>
                           ) : null}
                         </div>
-                        <p className="line-clamp-2 break-words text-[11px] leading-snug text-white/84">
+                        <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
                           {item.nextTaskTitle}
                         </p>
                       </div>
                     ) : (
-                      <span className="text-white/45">No task currently queued.</span>
+                      <span className="text-secondary">No task currently queued.</span>
                     )}
                   </div>
 
-                  <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/48">
-                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[9px] uppercase tracking-[0.08em] text-white/52">
+                  <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
+                    <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
                       Runner
                     </span>
                     <span className="truncate text-white/68">
@@ -554,7 +554,7 @@ export function NextUpPanel({
                   </div>
 
                   {item.blockReason && (
-                    <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-[10px] text-red-100/85">
+                    <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">
                       Blocked: {item.blockReason}
                     </div>
                   )}
@@ -563,7 +563,7 @@ export function NextUpPanel({
                     <button
                       type="button"
                       onClick={() => onFollowWorkstream?.(item)}
-                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold"
+                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold"
                       title="Follow this workstream in Activity"
                     >
                       <span className="inline-flex items-center gap-1.5">
@@ -586,7 +586,7 @@ export function NextUpPanel({
                           `Dispatched ${item.workstreamTitle}.`
                         )
                       }
-                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold disabled:opacity-40"
+                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40"
                       title="Dispatch this workstream now (single run)"
                     >
                       <span className="inline-flex items-center gap-1.5">
@@ -613,7 +613,7 @@ export function NextUpPanel({
                             : `Auto-continue started for ${item.workstreamTitle}.`
                         )
                       }
-                      className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold disabled:opacity-40 sm:col-span-1"
+                      className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40 sm:col-span-1"
                       data-state={isAutoRunning ? 'active' : 'idle'}
                       data-tone="teal"
                       title={
@@ -683,7 +683,7 @@ export function NextUpPanel({
       </div>
 
       {degraded.length > 0 && (
-        <div className="border-t border-white/[0.06] px-3 py-2 text-[10px] text-white/42">
+        <div className="border-t border-subtle px-3 py-2 text-micro text-muted">
           Limited signal: {degraded[0]}
         </div>
       )}
@@ -774,10 +774,10 @@ function NextUpReorderRow({
             onPointerDown={(event) => controls.start(event)}
             aria-label="Drag to reorder"
             title={isDragging ? 'Reordering' : 'Drag to reorder'}
-            className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[10px] font-semibold transition-colors ${
+            className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-micro font-semibold transition-colors ${
               isDragging
                 ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2] cursor-grabbing'
-                : 'border-white/[0.12] bg-white/[0.04] text-white/60 cursor-grab hover:bg-white/[0.08] hover:text-white/85'
+                : 'border-strong bg-white/[0.04] text-secondary cursor-grab hover:bg-white/[0.08] hover:text-bright'
             }`}
           >
             {isDragging ? (
@@ -807,13 +807,13 @@ function NextUpReorderRow({
                 <button
                   type="button"
                   onClick={() => onOpenInitiative?.(item.initiativeId, item.initiativeTitle)}
-                  className="block w-full truncate text-left text-[10px] uppercase tracking-[0.08em] text-white/42 transition-colors hover:text-white/72"
+                  className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
                   title={item.initiativeTitle}
                 >
                   {item.initiativeTitle}
                 </button>
               </div>
-              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-[13px] font-semibold text-white">
+              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-body font-semibold text-white">
                 <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
                 <span className="truncate">{item.workstreamTitle}</span>
               </p>
@@ -832,10 +832,10 @@ function NextUpReorderRow({
                 );
               }}
               title={isPinned ? 'Unpin from queue ordering' : 'Pin to queue ordering'}
-              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[10px] font-semibold transition-colors ${
+              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-micro font-semibold transition-colors ${
                 isPinned
                   ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12 text-[#E1FFB2]'
-                  : 'border-white/[0.14] bg-white/[0.04] text-white/65 hover:bg-white/[0.08]'
+                  : 'border-strong bg-white/[0.04] text-secondary hover:bg-white/[0.08]'
               }`}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -844,35 +844,35 @@ function NextUpReorderRow({
               </svg>
               <span>{isPinned ? 'Pinned' : 'Pin'}</span>
             </button>
-            <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${queueTone(item.queueState)}`}>
+            <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
               {queueLabel(item.queueState)}
             </span>
           </div>
         </div>
 
-        <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-[11px] text-white/68">
+        <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
           {item.nextTaskTitle ? (
             <div className="space-y-1">
-              <div className="flex min-w-0 items-center gap-1 text-[9px] uppercase tracking-[0.08em] text-white/44">
+              <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
                 <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
                 <span>Next</span>
                 {dueText ? (
-                  <span className="truncate text-[9px] normal-case tracking-normal text-white/38">
+                  <span className="truncate text-micro normal-case tracking-normal text-muted">
                     · {dueText}
                   </span>
                 ) : null}
               </div>
-              <p className="line-clamp-2 break-words text-[11px] leading-snug text-white/84">
+              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
                 {item.nextTaskTitle}
               </p>
             </div>
           ) : (
-            <span className="text-white/45">No task currently queued.</span>
+            <span className="text-secondary">No task currently queued.</span>
           )}
         </div>
 
-        <div className="mt-1.5 flex items-center gap-2 text-[10px] text-white/48">
-          <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[9px] uppercase tracking-[0.08em] text-white/52">
+        <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
+          <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
             Runner
           </span>
           <span className="truncate text-white/68">
@@ -882,7 +882,7 @@ function NextUpReorderRow({
         </div>
 
         {item.blockReason && (
-          <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-[10px] text-red-100/85">
+          <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">
             Blocked: {item.blockReason}
           </div>
         )}
@@ -891,7 +891,7 @@ function NextUpReorderRow({
           <button
             type="button"
             onClick={() => onFollowWorkstream?.(item)}
-            className="control-pill flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold"
+            className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold"
             title="Follow this workstream in Activity"
           >
             <span className="inline-flex items-center gap-1.5">
@@ -914,7 +914,7 @@ function NextUpReorderRow({
                 `Dispatched ${item.workstreamTitle}.`
               )
             }
-            className="control-pill flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold disabled:opacity-40"
+            className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40"
             title="Dispatch this workstream now (single run)"
           >
             <span className="inline-flex items-center gap-1.5">
@@ -941,7 +941,7 @@ function NextUpReorderRow({
                   : `Auto-continue started for ${item.workstreamTitle}.`
               )
             }
-            className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-[10px] font-semibold disabled:opacity-40 sm:col-span-1"
+            className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40 sm:col-span-1"
             data-state={isAutoRunning ? 'active' : 'idle'}
             data-tone="teal"
             title={
