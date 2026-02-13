@@ -149,7 +149,12 @@ export function HierarchyTreeTable({
   const selectAllRef = useRef<HTMLInputElement | null>(null);
   const hierarchyFilterRef = useRef<HTMLDivElement | null>(null);
   const stickyAnchorRef = useRef<HTMLDivElement | null>(null);
+  const controlsStickyRef = useRef<HTMLDivElement | null>(null);
+  const selectionStickyRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderProbeRef = useRef<HTMLTableCellElement | null>(null);
+  const lastControlsHeightRef = useRef(0);
+  const [controlsHeightPx, setControlsHeightPx] = useState(0);
+  const [selectionHeightPx, setSelectionHeightPx] = useState(0);
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const allNodeHints = useMemo(
@@ -605,6 +610,50 @@ export function HierarchyTreeTable({
   };
 
   const stickyTop = 'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px) + var(--mc-collapsible-header-offset, 40px))';
+  const selectionStickyTop = suppressStickyControls
+    ? stickyTop
+    : `calc(${stickyTop} + ${controlsHeightPx}px)`;
+  const tableHeaderStickyTop = suppressStickyControls
+    ? `calc(${stickyTop} + ${selectionHeightPx}px)`
+    : `calc(${stickyTop} + ${controlsHeightPx}px + ${selectionHeightPx}px)`;
+
+  useEffect(() => {
+    const selection = selectionStickyRef.current;
+    if (!selection) return;
+    const update = () => {
+      const next = Math.max(0, Math.round(selection.getBoundingClientRect().height));
+      setSelectionHeightPx(next);
+    };
+
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => update());
+    ro.observe(selection);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (suppressStickyControls) {
+      setControlsHeightPx(0);
+      return;
+    }
+    const controls = controlsStickyRef.current;
+    if (!controls) {
+      setControlsHeightPx(0);
+      return;
+    }
+    const update = () => {
+      const next = Math.max(0, Math.round(controls.getBoundingClientRect().height));
+      setControlsHeightPx(next);
+      if (next > 0) lastControlsHeightRef.current = next;
+    };
+
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => update());
+    ro.observe(controls);
+    return () => ro.disconnect();
+  }, [suppressStickyControls]);
 
   useEffect(() => {
     const anchor = stickyAnchorRef.current;
@@ -622,7 +671,9 @@ export function HierarchyTreeTable({
       const topPx = Number.parseFloat(getComputedStyle(anchor).top || '0');
       const hostTopPx = scrollHost?.getBoundingClientRect().top ?? 0;
       const headerTopPx = headerCell.getBoundingClientRect().top;
-      const threshold = hostTopPx + topPx;
+      const controlsHeightForThreshold =
+        suppressStickyControls ? lastControlsHeightRef.current : controlsHeightPx;
+      const threshold = hostTopPx + topPx + controlsHeightForThreshold;
       // Add hysteresis so the controls bar doesn't jitter at the handoff point.
       // Collapse once the header is effectively "stuck", and only re-open once the header
       // has moved noticeably below the sticky line.
@@ -647,14 +698,14 @@ export function HierarchyTreeTable({
       eventTarget.removeEventListener('scroll', queueUpdate);
       window.removeEventListener('resize', queueUpdate);
     };
-  }, []);
+  }, [controlsHeightPx, suppressStickyControls]);
 
   return (
     <section className="space-y-2.5">
       <div ref={stickyAnchorRef} className="sticky h-0 z-20" style={{ top: stickyTop }} aria-hidden="true" />
 
       {!suppressStickyControls && (
-        <div className="sticky z-20 mb-1.5" style={{ top: stickyTop }}>
+        <div ref={controlsStickyRef} className="sticky z-20 mb-1.5" style={{ top: stickyTop }}>
           <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="w-full xl:max-w-[380px]">
               <SearchInput
@@ -807,117 +858,119 @@ export function HierarchyTreeTable({
               </button>
             </div>
           </div>
+        </div>
+      )}
 
-          <div
-            className={`rounded-xl border px-3 ${
-              selectedRowCount > 0
-                ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
-                : 'border-white/[0.08] bg-white/[0.02]'
-            }`}
-          >
-            <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
-              <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAllVisibleRows}
-                  className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
-                />
-                Select all visible
-              </label>
-              <span className="flex-shrink-0 text-[11px] text-white/58">
-                {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
-              </span>
-              {selectedRowCount > 0 && (
-                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void runBulkStatusUpdate('planned');
-                    }}
-                    disabled={isBulkMutating}
-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                  >
-                    Plan
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void runBulkStatusUpdate('in_progress');
-                    }}
-                    disabled={isBulkMutating}
-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                    data-state="active"
-                  >
-                    Start
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void runBulkStatusUpdate('blocked');
-                    }}
-                    disabled={isBulkMutating}
-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                  >
-                    Block
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void runBulkStatusUpdate('done');
-                    }}
-                    disabled={isBulkMutating}
-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                  >
-                    Complete
-                  </button>
-                  {confirmBulkDelete ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-white/58">Delete selected?</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void runBulkDelete();
-                        }}
-                        disabled={isBulkMutating}
-                        className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmBulkDelete(false)}
-                        disabled={isBulkMutating}
-                        className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
-                      >
-                        Keep
-                      </button>
-                    </div>
-                  ) : (
+      <div ref={selectionStickyRef} className="sticky z-20 mb-1.5" style={{ top: selectionStickyTop }}>
+        <div
+          className={`rounded-xl border px-3 ${
+            selectedRowCount > 0
+              ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+              : 'border-white/[0.08] bg-white/[0.02]'
+          }`}
+        >
+          <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
+            <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleSelectAllVisibleRows}
+                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+              />
+              Select all visible
+            </label>
+            <span className="flex-shrink-0 text-[11px] text-white/58">
+              {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
+            </span>
+            {selectedRowCount > 0 && (
+              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBulkStatusUpdate('planned');
+                  }}
+                  disabled={isBulkMutating}
+                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                >
+                  Plan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBulkStatusUpdate('in_progress');
+                  }}
+                  disabled={isBulkMutating}
+                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                  data-state="active"
+                >
+                  Start
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBulkStatusUpdate('blocked');
+                  }}
+                  disabled={isBulkMutating}
+                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                >
+                  Block
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runBulkStatusUpdate('done');
+                  }}
+                  disabled={isBulkMutating}
+                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                >
+                  Complete
+                </button>
+                {confirmBulkDelete ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-white/58">Delete selected?</span>
                     <button
                       type="button"
-                      onClick={() => setConfirmBulkDelete(true)}
+                      onClick={() => {
+                        void runBulkDelete();
+                      }}
                       disabled={isBulkMutating}
-                      className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                      className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
                     >
                       Delete
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => setConfirmBulkDelete(false)}
+                      disabled={isBulkMutating}
+                      className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+                    >
+                      Keep
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={clearSelectedRows}
+                    onClick={() => setConfirmBulkDelete(true)}
                     disabled={isBulkMutating}
-                    className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                    className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
                   >
-                    Clear
+                    Delete
                   </button>
-                </div>
-              )}
-            </div>
+                )}
+                <button
+                  type="button"
+                  onClick={clearSelectedRows}
+                  disabled={isBulkMutating}
+                  className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {bulkNotice && (
         <div
@@ -944,65 +997,65 @@ export function HierarchyTreeTable({
               <th
                 ref={stickyHeaderProbeRef}
                 className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 <span className="sr-only">Select rows</span>
               </th>
               <th
                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('title')}
               >
                 Item <SortChevron field="title" />
               </th>
               <th
                 className="w-[188px] px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 Assigned
               </th>
               <th
                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('status')}
               >
                 Status <SortChevron field="status" />
               </th>
               <th
                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 Progress
               </th>
               <th
                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('priority')}
               >
                 Priority <SortChevron field="priority" />
               </th>
               <th
                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('eta')}
               >
                 ETA <SortChevron field="eta" />
               </th>
               <th
                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 Duration (h)
               </th>
               <th
                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 Budget ($)
               </th>
               <th
                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
-                style={{ top: stickyTop }}
+                style={{ top: tableHeaderStickyTop }}
               >
                 Dependencies
               </th>

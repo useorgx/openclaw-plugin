@@ -2,6 +2,7 @@ import { Modal } from '@/components/shared/Modal';
 import { cn } from '@/lib/utils';
 import type { OnboardingState } from '@/types';
 import { OrgxConnectionPanel } from '@/components/settings/OrgxConnectionPanel';
+import { AgentSuitePanel } from '@/components/settings/AgentSuitePanel';
 import { ByokSettingsPanel } from '@/components/settings/ByokSettingsPanel';
 import { LegalLinks } from '@/components/shared/LegalLinks';
 
@@ -100,17 +101,20 @@ export function SettingsModal({
 
         <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {activeTab === 'orgx' ? (
-            <OrgxConnectionPanel
-              state={onboarding.state}
-              isStarting={onboarding.isStarting}
-              isSubmittingManual={onboarding.isSubmittingManual}
-              onRefresh={onboarding.refreshStatus}
-              onStartPairing={onboarding.startPairing}
-              onSubmitManualKey={onboarding.submitManualKey}
-              onBackToPairing={onboarding.backToPairing}
-              onUseManualKey={onboarding.setManualMode}
-              onDisconnect={onboarding.disconnect}
-            />
+            <div className="grid gap-4">
+              <OrgxConnectionPanel
+                state={onboarding.state}
+                isStarting={onboarding.isStarting}
+                isSubmittingManual={onboarding.isSubmittingManual}
+                onRefresh={onboarding.refreshStatus}
+                onStartPairing={onboarding.startPairing}
+                onSubmitManualKey={onboarding.submitManualKey}
+                onBackToPairing={onboarding.backToPairing}
+                onUseManualKey={onboarding.setManualMode}
+                onDisconnect={onboarding.disconnect}
+              />
+              <AgentSuitePanel authToken={authToken} embedMode={embedMode} enabled={open} />
+            </div>
           ) : (
             <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />
           )}

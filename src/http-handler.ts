@@ -10,6 +10,8 @@
  *   /orgx/api/initiatives → initiative data
  *   /orgx/api/health     → plugin diagnostics + outbox/sync status
  *   /orgx/api/onboarding → onboarding / config state
+ *   /orgx/api/agent-suite/status → suite provisioning plan (OpenClaw-local)
+ *   /orgx/api/agent-suite/install → install/update suite (OpenClaw-local)
  *   /orgx/api/delegation/preflight → delegation preflight
  *   /orgx/api/runs/:id/checkpoints → list/create checkpoints
  *   /orgx/api/runs/:id/checkpoints/:checkpointId/restore → restore checkpoint
@@ -87,6 +89,11 @@ import {
   listActivityPage,
 } from "./activity-store.js";
 import { readByokKeys, writeByokKeys } from "./byok-store.js";
+import {
+  applyOrgxAgentSuitePlan,
+  computeOrgxAgentSuitePlan,
+  generateAgentSuiteOperationId,
+} from "./agent-suite.js";
 import {
   computeMilestoneRollup,
   computeWorkstreamRollup,
@@ -2849,7 +2856,7 @@ async function resolveAutoAssignments(input: {
 // =============================================================================
 
 export function createHttpHandler(
-  config: OrgXConfig,
+  config: OrgXConfig & { dashboardEnabled?: boolean; pluginVersion?: string },
   client: OrgXClient,
   getSnapshot: () => OrgSnapshot | null,
   onboarding: OnboardingController,
@@ -4693,11 +4700,19 @@ export function createHttpHandler(
               : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
           metadata: {
             event: "autopilot_slice_result",
+            agent_id: slice.agentId,
+            agent_name: slice.agentName,
+            domain: slice.domain,
+            required_skills: slice.requiredSkills,
             workstream_id: slice.workstreamId,
             task_ids: slice.taskIds,
             milestone_ids: slice.milestoneIds,
             parsed_status: parsedStatus,
             has_output: Boolean(parsed),
+            artifacts: artifacts.length,
+            decisions: decisions.length,
+            status_updates_applied: statusUpdateResult.applied,
+            status_updates_buffered: statusUpdateResult.buffered,
             output_path: slice.outputPath,
             log_path: slice.logPath,
             error: slice.lastError,
@@ -5830,6 +5845,7 @@ export function createHttpHandler(
       const isAgentStopRoute = route === "agents/stop";
       const isAgentRestartRoute = route === "agents/restart";
       const isByokSettingsRoute = route === "settings/byok";
+      const isAgentSuiteInstallRoute = route === "agent-suite/install";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -7145,7 +7161,6 @@ export function createHttpHandler(
           const normalizedPayload: Record<string, unknown> = {
             body,
             comment_type: commentType,
-            commentType,
             severity,
             tags,
             parent_comment_id: null,
@@ -7155,20 +7170,29 @@ export function createHttpHandler(
             const data = await client.rawRequest("POST", path, normalizedPayload);
             sendJson(res, 200, data);
           } catch (err: unknown) {
-            const comment = appendEntityComment({
-              entityType,
-              entityId,
-              body,
-              commentType,
-              severity,
-              tags,
-            });
-            sendJson(res, 200, {
-              status: "success",
-              comment,
-              localFallback: true,
-              warning: safeErrorMessage(err),
-            });
+            const warning = safeErrorMessage(err);
+            try {
+              const comment = appendEntityComment({
+                entityType,
+                entityId,
+                body,
+                commentType,
+                severity,
+                tags,
+              });
+              sendJson(res, 200, {
+                status: "success",
+                comment,
+                localFallback: true,
+                warning,
+              });
+            } catch (localErr: unknown) {
+              sendJson(res, 500, {
+                ok: false,
+                error: warning || "Unable to save comment",
+                localError: safeErrorMessage(localErr),
+              });
+            }
           }
         } catch (err: unknown) {
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
@@ -7294,6 +7318,7 @@ export function createHttpHandler(
         !(isOnboardingManualKeyRoute && method === "POST") &&
         !(isOnboardingDisconnectRoute && method === "POST") &&
         !(isByokSettingsRoute && method === "POST") &&
+        !(isAgentSuiteInstallRoute && method === "POST") &&
         !(isLiveActivityHeadlineRoute && method === "POST") &&
         !(route === "hooks/runtime" && method === "POST") &&
         !(route === "hooks/runtime/setup" && method === "POST")
@@ -7308,6 +7333,57 @@ export function createHttpHandler(
       }
 
       switch (route) {
+        case "agent-suite/status": {
+          try {
+            const plan = computeOrgxAgentSuitePlan({
+              packVersion: config.pluginVersion || "0.0.0",
+            });
+            sendJson(res, 200, {
+              ok: true,
+              data: plan,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
+        case "agent-suite/install": {
+          if (method !== "POST") {
+            sendJson(res, 405, {
+              ok: false,
+              error: "Use POST /orgx/api/agent-suite/install",
+            });
+            return true;
+          }
+          try {
+            const payload = await parseJsonRequest(req);
+            const dryRun = Boolean(
+              (payload as any)?.dryRun ?? (payload as any)?.dry_run
+            );
+            const plan = computeOrgxAgentSuitePlan({
+              packVersion: config.pluginVersion || "0.0.0",
+            });
+            const result = applyOrgxAgentSuitePlan({ plan, dryRun });
+            sendJson(res, 200, {
+              ok: true,
+              operationId: generateAgentSuiteOperationId(),
+              dryRun,
+              applied: result.applied,
+              data: result.plan,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, {
+              ok: false,
+              error: safeErrorMessage(err),
+            });
+          }
+          return true;
+        }
+
         case "status": {
           // Proxy-style: try live fetch, fall back to cache
           let snapshot = getSnapshot();

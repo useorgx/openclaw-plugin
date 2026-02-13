@@ -220,6 +220,7 @@ export interface LiveData {
   decisions: LiveDecision[];
   outbox: OutboxStatus;
   runtimeInstances?: RuntimeInstance[];
+  agentSuite?: AgentSuitePlan;
 }
 
 export interface OutboxStatus {
@@ -255,6 +256,48 @@ export interface LiveSnapshotResponse {
   outbox?: OutboxStatus;
   generatedAt: string;
   degraded?: string[];
+}
+
+// -----------------------------------------------------------------------------
+// Agent Suite Provisioning (OpenClaw-local)
+// -----------------------------------------------------------------------------
+
+export type AgentSuiteDomain =
+  | 'engineering'
+  | 'product'
+  | 'design'
+  | 'marketing'
+  | 'sales'
+  | 'operations'
+  | 'orchestration';
+
+export interface AgentSuiteAgent {
+  id: string;
+  name: string;
+  domain: AgentSuiteDomain;
+  workspace: string;
+  configuredInOpenclaw: boolean;
+  workspaceExists: boolean;
+}
+
+export interface AgentSuiteWorkspaceFile {
+  agentId: string;
+  file: string;
+  managedPath: string;
+  localPath: string;
+  compositePath: string;
+  action: 'create' | 'update' | 'noop';
+}
+
+export interface AgentSuitePlan {
+  packId: string;
+  packVersion: string;
+  openclawConfigPath: string;
+  suiteWorkspaceRoot: string;
+  agents: AgentSuiteAgent[];
+  openclawConfigWouldUpdate: boolean;
+  openclawConfigAddedAgents: string[];
+  workspaceFiles: AgentSuiteWorkspaceFile[];
 }
 
 // -----------------------------------------------------------------------------
