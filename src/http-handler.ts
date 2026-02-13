@@ -8517,17 +8517,56 @@ export function createHttpHandler(
               since,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
+            let activities = Array.isArray(data.activities) ? data.activities : [];
+            let total =
+              typeof (data as any)?.total === "number" && Number.isFinite((data as any).total)
+                ? Number((data as any).total)
+                : activities.length;
+
+            // Include locally buffered outbox events so "Replay: error" still shows progress.
             try {
-              const items = Array.isArray(data.activities) ? data.activities : [];
-              if (items.length > 0) {
-                appendActivityItems(
-                  applyAgentContextsToActivity(items, readAgentContexts().agents)
-                );
+              const buffered = await outboxAdapter.readAllItems();
+              if (buffered.length > 0) {
+                let merged = [...activities, ...buffered];
+
+                if (run && run.trim().length > 0) {
+                  merged = merged.filter((item) => item.runId === run);
+                }
+                if (since && since.trim().length > 0) {
+                  const sinceEpoch = Date.parse(since);
+                  if (Number.isFinite(sinceEpoch)) {
+                    merged = merged.filter((item) => Date.parse(item.timestamp) >= sinceEpoch);
+                  }
+                }
+
+                merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+                const deduped: LiveActivityItem[] = [];
+                const seen = new Set<string>();
+                for (const item of merged) {
+                  if (seen.has(item.id)) continue;
+                  seen.add(item.id);
+                  deduped.push(item);
+                }
+
+                total = deduped.length;
+                if (Number.isFinite(limit)) {
+                  const cap = Math.max(1, Math.floor(Number(limit)));
+                  activities = deduped.slice(0, cap);
+                } else {
+                  activities = deduped;
+                }
               }
             } catch {
               // best effort
             }
-            sendJson(res, 200, data);
+
+            try {
+              const withContexts = applyAgentContextsToActivity(activities, readAgentContexts().agents);
+              if (withContexts.length > 0) appendActivityItems(withContexts);
+              sendJson(res, 200, { ...(data as any), activities: withContexts, total });
+            } catch {
+              sendJson(res, 200, { ...(data as any), activities, total });
+            }
           } catch (err: unknown) {
             try {
               const run = searchParams.get("run");
@@ -8564,14 +8603,30 @@ export function createHttpHandler(
                 local.activities,
                 readAgentContexts().agents
               );
+              let merged = activitiesWithContexts;
               try {
-                appendActivityItems(activitiesWithContexts);
+                const buffered = await outboxAdapter.readAllItems();
+                if (buffered.length > 0) {
+                  const byId = new Map<string, LiveActivityItem>();
+                  for (const item of [...merged, ...buffered]) {
+                    if (!item || typeof item.id !== "string") continue;
+                    byId.set(item.id, item);
+                  }
+                  merged = Array.from(byId.values()).sort(
+                    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
+                  );
+                }
+              } catch {
+                // best effort
+              }
+              try {
+                appendActivityItems(merged);
               } catch {
                 // best effort
               }
               sendJson(res, 200, {
-                activities: activitiesWithContexts.slice(0, limit),
-                total: local.total,
+                activities: merged.slice(0, limit),
+                total: merged.length,
               });
             } catch (localErr: unknown) {
               sendJson(res, 500, {
