@@ -2016,18 +2016,45 @@ export default function register(api: PluginAPI): void {
         });
         return;
       }
-      await client.createEntity("artifact", {
-        title: name,
-        artifact_type: pickStringField(payload, "artifact_type") ?? "other",
-        summary:
-          pickStringField(payload, "summary") ??
-          pickStringField(payload, "description") ??
-          undefined,
-        artifact_url:
-          pickStringField(payload, "artifact_url") ??
-          pickStringField(payload, "url"),
-        status: "active",
-      });
+      const summary =
+        pickStringField(payload, "summary") ??
+        pickStringField(payload, "description") ??
+        undefined;
+      const artifactUrl =
+        pickStringField(payload, "artifact_url") ??
+        pickStringField(payload, "artifactUrl") ??
+        pickStringField(payload, "url") ??
+        undefined;
+      const artifactType = pickStringField(payload, "artifact_type") ?? "other";
+
+      // Server-side artifact schemas vary across OrgX deployments. Prefer the
+      // rich payload, but gracefully fall back to a minimal entity when the
+      // server rejects specific artifact fields/enums.
+      try {
+        await client.createEntity("artifact", {
+          title: name,
+          artifact_type: artifactType,
+          summary,
+          artifact_url: artifactUrl,
+          status: "active",
+        });
+      } catch (err: unknown) {
+        try {
+          await client.createEntity("artifact", {
+            title: name,
+            artifact_type: "other",
+            summary,
+            artifact_url: artifactUrl,
+            status: "active",
+          });
+        } catch {
+          await client.createEntity("artifact", {
+            title: name,
+            summary: summary ?? artifactUrl ?? undefined,
+            status: "active",
+          });
+        }
+      }
       return;
     }
   }
@@ -3898,13 +3925,32 @@ export default function register(api: PluginAPI): void {
           };
 
         try {
-          const entity = await client.createEntity("artifact", {
-            title: params.name,
-            artifact_type: params.artifact_type,
-            summary: params.description,
-            artifact_url: params.url,
-            status: "active",
-          });
+          let entity: unknown = null;
+          try {
+            entity = await client.createEntity("artifact", {
+              title: params.name,
+              artifact_type: params.artifact_type,
+              summary: params.description,
+              artifact_url: params.url,
+              status: "active",
+            });
+          } catch {
+            try {
+              entity = await client.createEntity("artifact", {
+                title: params.name,
+                artifact_type: "other",
+                summary: params.description,
+                artifact_url: params.url,
+                status: "active",
+              });
+            } catch {
+              entity = await client.createEntity("artifact", {
+                title: params.name,
+                summary: params.description ?? params.url,
+                status: "active",
+              });
+            }
+          }
           return json(
             `Artifact registered: ${params.name} [${params.artifact_type}]`,
             entity
