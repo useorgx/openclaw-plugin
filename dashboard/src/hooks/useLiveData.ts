@@ -470,7 +470,15 @@ function mergeActivity(
       existing.timestamp !== item.timestamp ||
       existing.type !== item.type ||
       existing.title !== item.title ||
-      existing.description !== item.description
+      existing.description !== item.description ||
+      existing.summary !== item.summary ||
+      existing.kind !== item.kind ||
+      existing.agentId !== item.agentId ||
+      existing.agentName !== item.agentName ||
+      existing.runId !== item.runId ||
+      existing.initiativeId !== item.initiativeId ||
+      existing.decisionRequired !== item.decisionRequired ||
+      JSON.stringify(existing.metadata ?? null) !== JSON.stringify(item.metadata ?? null)
     ) {
       byId.set(item.id, item);
       changed = true;

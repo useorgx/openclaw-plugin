@@ -74,6 +74,10 @@ import {
   listEntityComments,
   mergeEntityComments,
 } from "./entity-comment-store.js";
+import {
+  appendActivityItems,
+  listActivityPage,
+} from "./activity-store.js";
 import { readByokKeys, writeByokKeys } from "./byok-store.js";
 import {
   computeMilestoneRollup,
@@ -107,6 +111,9 @@ function isUnauthorizedOrgxError(err: unknown): boolean {
   const message = safeErrorMessage(err).toLowerCase();
   return message.includes("401") || message.includes("unauthorized");
 }
+
+const ACTIVITY_WARM_THROTTLE_MS = 30_000;
+const activityWarmByKey = new Map<string, number>();
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
@@ -8207,6 +8214,12 @@ export function createHttpHandler(
           sessions = enrichSessionsWithRuntime(sessions, runtimeInstances);
           activity = enrichActivityWithRuntime(activity, runtimeInstances);
 
+          try {
+            appendActivityItems(activity);
+          } catch {
+            // best effort
+          }
+
           sendJson(res, 200, {
             sessions,
             activity,
@@ -8275,6 +8288,61 @@ export function createHttpHandler(
           return true;
         }
 
+        case "live/activity/page": {
+          const run = searchParams.get("run");
+          const since = searchParams.get("since");
+          const until = searchParams.get("until");
+          const cursor = searchParams.get("cursor");
+          const limitRaw = searchParams.get("limit")
+            ? Number(searchParams.get("limit"))
+            : undefined;
+          const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.floor(Number(limitRaw))) : 200;
+
+          let page = listActivityPage({
+            limit,
+            runId: run,
+            since,
+            until,
+            cursor,
+          });
+
+          // If the local store is empty or we haven't warmed enough history yet, opportunistically
+          // warm from the remote API (which only supports since+limit) and re-page.
+          const warmKey = `${run ?? ""}::${since ?? ""}::${until ?? ""}`;
+          const lastWarmAt = activityWarmByKey.get(warmKey) ?? 0;
+          const shouldWarm =
+            Date.now() - lastWarmAt > ACTIVITY_WARM_THROTTLE_MS &&
+            // Warm on first page or when the cursor indicates we want older history.
+            (cursor === null || cursor === "" || page.activities.length < limit);
+
+          if (shouldWarm) {
+            activityWarmByKey.set(warmKey, Date.now());
+            try {
+              const warmLimit = Math.max(800, Math.min(6_000, limit * 10));
+              const data = await client.getLiveActivity({
+                run,
+                since,
+                limit: warmLimit,
+              });
+              const remote = Array.isArray(data.activities) ? data.activities : [];
+              const withContexts = applyAgentContextsToActivity(remote, readAgentContexts().agents);
+              appendActivityItems(withContexts);
+              page = listActivityPage({
+                limit,
+                runId: run,
+                since,
+                until,
+                cursor,
+              });
+            } catch {
+              // best effort
+            }
+          }
+
+          sendJson(res, 200, page);
+          return true;
+        }
+
         case "live/activity": {
           try {
             const run = searchParams.get("run");
@@ -8287,6 +8355,16 @@ export function createHttpHandler(
               since,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
+            try {
+              const items = Array.isArray(data.activities) ? data.activities : [];
+              if (items.length > 0) {
+                appendActivityItems(
+                  applyAgentContextsToActivity(items, readAgentContexts().agents)
+                );
+              }
+            } catch {
+              // best effort
+            }
             sendJson(res, 200, data);
           } catch (err: unknown) {
             try {
@@ -8324,6 +8402,11 @@ export function createHttpHandler(
                 local.activities,
                 readAgentContexts().agents
               );
+              try {
+                appendActivityItems(activitiesWithContexts);
+              } catch {
+                // best effort
+              }
               sendJson(res, 200, {
                 activities: activitiesWithContexts.slice(0, limit),
                 total: local.total,
@@ -8604,6 +8687,65 @@ export function createHttpHandler(
 	          let idleTimer: ReturnType<typeof setTimeout> | null = null;
 	          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	          let heartbeatBackpressure = false;
+            const sseDecoder = new TextDecoder("utf-8");
+            let sseBuffer = "";
+
+            const consumeSseText = (chunk: string) => {
+              if (!chunk) return;
+              // Normalize CRLF to LF so boundary detection works regardless of upstream formatting.
+              sseBuffer += chunk.replace(/\r\n/g, "\n");
+
+              while (true) {
+                const boundary = sseBuffer.indexOf("\n\n");
+                if (boundary === -1) return;
+                const rawEvent = sseBuffer.slice(0, boundary);
+                sseBuffer = sseBuffer.slice(boundary + 2);
+
+                const lines = rawEvent.split("\n").map((l) => l.replace(/\r$/, ""));
+                let eventName: string | null = null;
+                const dataLines: string[] = [];
+
+                for (const line of lines) {
+                  if (!line) continue;
+                  if (line.startsWith(":")) continue;
+                  if (line.startsWith("event:")) {
+                    eventName = line.slice("event:".length).trim() || null;
+                    continue;
+                  }
+                  if (line.startsWith("data:")) {
+                    dataLines.push(line.slice("data:".length).trimStart());
+                    continue;
+                  }
+                }
+
+                if (!eventName || dataLines.length === 0) continue;
+
+                const dataText = dataLines.join("\n").trim();
+                if (!dataText) continue;
+
+                try {
+                  if (eventName === "activity.appended") {
+                    const parsed = JSON.parse(dataText) as LiveActivityItem[];
+                    const list = Array.isArray(parsed) ? parsed : [];
+                    if (list.length > 0) {
+                      appendActivityItems(
+                        applyAgentContextsToActivity(list, readAgentContexts().agents)
+                      );
+                    }
+                  } else if (eventName === "snapshot") {
+                    const parsed = JSON.parse(dataText) as { activity?: LiveActivityItem[] };
+                    const list = Array.isArray(parsed?.activity) ? parsed.activity : [];
+                    if (list.length > 0) {
+                      appendActivityItems(
+                        applyAgentContextsToActivity(list, readAgentContexts().agents)
+                      );
+                    }
+                  }
+                } catch {
+                  // ignore malformed payloads
+                }
+              }
+            };
 
 	          const clearIdleTimer = () => {
 	            if (idleTimer) {
@@ -8734,6 +8876,11 @@ export function createHttpHandler(
                   if (!value || value.byteLength === 0) continue;
 
                   resetIdleTimer();
+                  try {
+                    consumeSseText(sseDecoder.decode(value, { stream: true }));
+                  } catch {
+                    // best effort
+                  }
                   const accepted = write(Buffer.from(value));
                   if (accepted === false) {
                     await waitForDrain();
