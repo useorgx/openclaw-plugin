@@ -17,6 +17,7 @@ import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
+import posthog from 'posthog-js';
 import { MissionControlProvider, useMissionControl } from './MissionControlContext';
 import type { GroupByOption } from './MissionControlContext';
 import { InitiativeOrbit } from './InitiativeOrbit';
@@ -337,10 +338,10 @@ function MissionControlInner({
 
   useEffect(() => {
     if (!bulkInitiativeNotice) return;
-    if (bulkInitiativeNotice.tone !== 'success') return;
-    const timeout = window.setTimeout(() => setBulkInitiativeNotice(null), 6500);
+    const durationMs = bulkInitiativeNotice.tone === 'success' ? 6500 : 9000;
+    const timeout = window.setTimeout(() => setBulkInitiativeNotice(null), durationMs);
     return () => window.clearTimeout(timeout);
-  }, [bulkInitiativeNotice]);
+  }, [bulkInitiativeNotice?.message, bulkInitiativeNotice?.tone]);
 
   const filteredInitiatives = useMemo(() => {
     const now = new Date();
@@ -796,6 +797,14 @@ function MissionControlInner({
           : 'Idle';
   const autopilotNeedsUpgrade = Boolean(autopilotUpgradeGate) && !autopilot.isRunning;
   const autopilotTone = autopilotNeedsUpgrade ? 'amber' : 'teal';
+  const installOrgxHref = useMemo(() => {
+    const url = new URL('https://www.useorgx.com/integrations/openclaw');
+    url.searchParams.set('utm_source', embedMode ? 'live_share' : 'orgx_openclaw_plugin');
+    url.searchParams.set('utm_medium', 'mission_control');
+    url.searchParams.set('utm_campaign', 'live_link_dashboard');
+    url.searchParams.set('utm_content', 'install_cta');
+    return url.toString();
+  }, [embedMode]);
 
   useEffect(() => {
     setAutopilotUpgradeGate(null);
@@ -1383,6 +1392,34 @@ function MissionControlInner({
                       <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
                     )}
                   </button>
+                  {embedMode && (
+                    <a
+                      href={installOrgxHref}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      onClick={() => {
+                        try {
+                          posthog.capture('live_install_cta_click', {
+                            surface: 'mission_control',
+                            embedMode: true,
+                            initiativeId: nextActionInitiative?.id ?? null,
+                          });
+                        } catch {
+                          // ignore tracking failures
+                        }
+                      }}
+                      className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold"
+                      data-tone="amber"
+                      title="Install OrgX for OpenClaw"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 3v12" />
+                        <path d="M8 11l4 4 4-4" />
+                        <path d="M5 21h14" />
+                      </svg>
+                      <span>Install OrgX</span>
+                    </a>
+                  )}
                   {sortedInitiatives.length > 0 && (
                     <button
                       type="button"
@@ -1627,11 +1664,9 @@ function MissionControlInner({
             )}
             {bulkInitiativeNotice && (
               <div
-                className={`mt-2 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-[11px] ${
-                  bulkInitiativeNotice.tone === 'success'
-                    ? 'border-emerald-400/18 bg-white/[0.02] text-white/75'
-                    : 'border-amber-400/18 bg-white/[0.02] text-white/75'
-                }`}
+                role="status"
+                aria-live="polite"
+                className="mt-2 flex items-start justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-white/72"
               >
                 <div className="flex min-w-0 items-start gap-2">
                   <span
@@ -1647,11 +1682,14 @@ function MissionControlInner({
                 <button
                   type="button"
                   onClick={() => setBulkInitiativeNotice(null)}
-                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.10] bg-white/[0.02] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/80"
                   aria-label="Dismiss notice"
                   title="Dismiss"
                 >
-                  ✕
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
                 </button>
               </div>
             )}
