@@ -1,0 +1,82 @@
+[
+  {
+    "keyword": "agent orchestration",
+    "search_volume": 1611,
+    "cpc": 0.21,
+    "competition": 0.62,
+    "competition_level": "LOW",
+    "keyword_difficulty": 4,
+    "core_keyword": null,
+    "score": 356.031
+  },
+  {
+    "keyword": "ai workflow automation tools",
+    "search_volume": 1017,
+    "cpc": 2.96,
+    "competition": 0.76,
+    "competition_level": "LOW",
+    "keyword_difficulty": 21,
+    "core_keyword": null,
+    "score": 114.64363636363636
+  },
+  {
+    "keyword": "ai workflow automation for saas",
+    "search_volume": 1260,
+    "cpc": 4.12,
+    "competition": 0.52,
+    "competition_level": "LOW",
+    "keyword_difficulty": 34,
+    "core_keyword": null,
+    "score": 108
+  },
+  {
+    "keyword": "agent orchestration for saas",
+    "search_volume": 1084,
+    "cpc": 0.71,
+    "competition": 0.66,
+    "competition_level": "LOW",
+    "keyword_difficulty": 15,
+    "core_keyword": null,
+    "score": 91.80125
+  },
+  {
+    "keyword": "ai workflow automation",
+    "search_volume": 1467,
+    "cpc": 3.38,
+    "competition": 0.12,
+    "competition_level": "LOW",
+    "keyword_difficulty": 44,
+    "core_keyword": null,
+    "score": 87.694
+  },
+  {
+    "keyword": "agent orchestration tools",
+    "search_volume": 1246,
+    "cpc": 1.8,
+    "competition": 0.39,
+    "competition_level": "LOW",
+    "keyword_difficulty": 77,
+    "core_keyword": null,
+    "score": 30.351282051282052
+  },
+  {
+    "keyword": "ai workflow automation software",
+    "search_volume": 321,
+    "cpc": 2.61,
+    "competition": 0.94,
+    "competition_level": "LOW",
+    "keyword_difficulty": 32,
+    "core_keyword": null,
+    "score": 22.421363636363633
+  },
+  {
+    "keyword": "agent orchestration software",
+    "search_volume": 397,
+    "cpc": 1.15,
+    "competition": 0.5,
+    "competition_level": "LOW",
+    "keyword_difficulty": 33,
+    "core_keyword": null,
+    "score": 18.39044117647059
+  }
+]

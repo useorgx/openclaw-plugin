@@ -1,0 +1,29 @@
+{
+  "outDir": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/seo/2026-02-10-191153Z",
+  "runId": "2026-02-10-191153Z",
+  "universe": {
+    "count": 8
+  },
+  "metrics": {
+    "count": 8
+  },
+  "calendar": {
+    "clusters": 3,
+    "rows": 3
+  },
+  "serp": {
+    "keywords": 8,
+    "items": 16
+  },
+  "linkgap": {
+    "ok": true
+  },
+  "audit": {
+    "ok": true,
+    "urls": 3
+  },
+  "pages": {
+    "written": 12,
+    "dir": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/seo/2026-02-10-191153Z/pages"
+  }
+}

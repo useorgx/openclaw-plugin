@@ -1,0 +1,36 @@
+{
+  "target": {
+    "domain": "example.com",
+    "brandName": "Example SaaS",
+    "productOneLiner": "Example: AI workflows for busy teams"
+  },
+  "seedKeywords": [
+    "agent orchestration",
+    "ai workflow automation"
+  ],
+  "verticals": [
+    { "name": "Agencies", "slug": "agencies" },
+    { "name": "Ecommerce", "slug": "ecommerce" },
+    { "name": "SaaS", "slug": "saas" }
+  ],
+  "competitors": [
+    { "name": "Competitor A", "domain": "competitor-a.com" },
+    { "name": "Competitor B", "domain": "competitor-b.com" },
+    { "name": "Competitor C", "domain": "competitor-c.com" }
+  ],
+  "keywordsEverywhere": {
+    "relatedLimit": 200,
+    "pasfLimit": 200
+  },
+  "dataforseo": {
+    "locationCode": 2840,
+    "languageCode": "en",
+    "serpDepth": 10
+  },
+  "pipeline": {
+    "maxUniverseKeywords": 5000,
+    "maxSerpKeywords": 300,
+    "minSearchVolume": 10
+  }
+}
+
