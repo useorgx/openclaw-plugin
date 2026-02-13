@@ -198,6 +198,7 @@ async function handleRpcMessage(input: {
       protocolVersion,
       capabilities: {
         tools: {},
+        prompts: {},
       },
       serverInfo: {
         name: input.serverName,

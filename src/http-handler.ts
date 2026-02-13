@@ -4703,50 +4703,6 @@ export function createHttpHandler(
     return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
   }
 
-  async function resolveAutoContinueUpgradeGate(
-    agentId: string
-  ): Promise<{
-    error: string;
-    code: "upgrade_required";
-    currentPlan: string;
-    requiredPlan: "starter";
-    actions: { checkout: string; portal: string; pricing: string };
-  } | null> {
-    let requiresPremiumAutoContinue = false;
-    try {
-      const agents = await listAgents();
-      const agentEntry =
-        agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
-        null;
-      const agentModel =
-        agentEntry && typeof agentEntry.model === "string"
-          ? agentEntry.model
-          : null;
-      requiresPremiumAutoContinue = modelImpliesByok(agentModel);
-    } catch {
-      // ignore
-    }
-
-    if (!requiresPremiumAutoContinue) return null;
-
-    const billingStatus = await fetchBillingStatusSafe(client);
-    if (!billingStatus || billingStatus.plan !== "free") return null;
-
-    const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
-    return {
-      code: "upgrade_required",
-      error:
-        "Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.",
-      currentPlan: billingStatus.plan,
-      requiredPlan: "starter",
-      actions: {
-        checkout: "/orgx/api/billing/checkout",
-        portal: "/orgx/api/billing/portal",
-        pricing: pricingUrl,
-      },
-    };
-  }
-
   async function startAutoContinueRun(input: {
     initiativeId: string;
     agentId: string;
@@ -6156,14 +6112,7 @@ export function createHttpHandler(
             return true;
           }
 
-          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
-          if (upgradeGate) {
-            sendJson(res, 402, {
-              ok: false,
-              ...upgradeGate,
-            });
-            return true;
-          }
+          // Autopilot v2 runs slices via local codex dispatch, so BYOK plan gating does not apply here.
 
           const tokenBudget =
             pickNumber(payload, [
@@ -6415,14 +6364,7 @@ export function createHttpHandler(
             return true;
           }
 
-          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
-          if (upgradeGate) {
-            sendJson(res, 402, {
-              ok: false,
-              ...upgradeGate,
-            });
-            return true;
-          }
+          // Autopilot v2 runs slices via local codex dispatch, so BYOK plan gating does not apply here.
 
           const tokenBudget =
             pickNumber(payload, [

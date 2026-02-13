@@ -48,7 +48,11 @@ import type { OutboxEvent } from "./outbox.js";
 import { readAgentRuns, markAgentRunStopped } from "./agent-run-store.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
-import { createMcpHttpHandler, type RegisteredTool } from "./mcp-http-handler.js";
+import {
+  createMcpHttpHandler,
+  type RegisteredPrompt,
+  type RegisteredTool,
+} from "./mcp-http-handler.js";
 import { autoConfigureDetectedMcpClients } from "./mcp-client-setup.js";
 import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 import { posthogCapture } from "./telemetry/posthog.js";
@@ -3865,8 +3869,31 @@ export default function register(api: PluginAPI): void {
         buildHealthReport({ probeRemote: input.probeRemote === true }),
     }
   );
+
+  const mcpPromptRegistry = new Map<string, RegisteredPrompt>();
+  mcpPromptRegistry.set("ship", {
+    name: "ship",
+    description: "Commit local changes, open a PR, and merge it (GitHub CLI required).",
+    arguments: [],
+    messages: [
+      {
+        role: "user",
+        content: [
+          "Ship the current work:",
+          "- Inspect `git status -sb` and `git diff --stat` and summarize what will be shipped.",
+          "- Run `npm run typecheck`, `npm run test:hooks`, and `npm run build` (fix failures).",
+          "- Create a feature branch if on `main`.",
+          "- Commit with a clear message (do not include secrets).",
+          "- Push branch, open a PR (use `gh pr create`), then merge it (use `gh pr merge --merge --auto`).",
+          "- If `gh` is not authenticated, stop and tell me what to run.",
+        ].join("\n"),
+      },
+    ],
+  });
+
   const mcpHttpHandler = createMcpHttpHandler({
     tools: mcpToolRegistry,
+    prompts: mcpPromptRegistry,
     logger: api.log ?? {},
     serverName: "@useorgx/openclaw-plugin",
     serverVersion: config.pluginVersion,
