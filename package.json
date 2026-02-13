@@ -35,6 +35,8 @@
     "typecheck": "tsc --noEmit",
     "test:hooks": "npm run build:core && node --test --test-concurrency=1 tests/*.test.mjs tests/**/*.test.mjs",
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
+    "agents:refresh": "node ./scripts/daily-agents-refresh.mjs",
+    "agents:install": "node ./scripts/install-daily-agents-refresh.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
