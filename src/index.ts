@@ -2016,13 +2016,6 @@ export default function register(api: PluginAPI): void {
         });
         return;
       }
-      const initiativeIdCandidate =
-        pickStringField(payload, "initiative_id") ??
-        pickStringField(payload, "initiativeId") ??
-        null;
-      const initiativeId = isUuid(initiativeIdCandidate ?? undefined)
-        ? initiativeIdCandidate
-        : inferReportingInitiativeId(payload) ?? null;
       await client.createEntity("artifact", {
         title: name,
         artifact_type: pickStringField(payload, "artifact_type") ?? "other",
@@ -2030,7 +2023,6 @@ export default function register(api: PluginAPI): void {
           pickStringField(payload, "summary") ??
           pickStringField(payload, "description") ??
           undefined,
-        initiative_id: initiativeId ?? undefined,
         artifact_url:
           pickStringField(payload, "artifact_url") ??
           pickStringField(payload, "url"),
@@ -3854,10 +3846,6 @@ export default function register(api: PluginAPI): void {
       parameters: {
         type: "object",
         properties: {
-          initiative_id: {
-            type: "string",
-            description: "Optional initiative UUID to attach this artifact to",
-          },
           name: {
             type: "string",
             description: "Human-readable artifact name (e.g., 'PR #107: Fix build size')",
@@ -3882,7 +3870,6 @@ export default function register(api: PluginAPI): void {
       async execute(
         _callId: string,
         params: {
-          initiative_id?: string;
           name: string;
           artifact_type: string;
           description?: string;
@@ -3891,9 +3878,6 @@ export default function register(api: PluginAPI): void {
       ) {
         const now = new Date().toISOString();
         const id = `artifact:${randomUUID().slice(0, 8)}`;
-        const initiativeId = isUuid(params.initiative_id)
-          ? params.initiative_id
-          : inferReportingInitiativeId(params as unknown as Record<string, unknown>) ?? null;
 
           const activityItem: LiveActivityItem = {
             id,
@@ -3903,7 +3887,7 @@ export default function register(api: PluginAPI): void {
             agentId: null,
             agentName: null,
             runId: null,
-            initiativeId,
+            initiativeId: null,
             timestamp: now,
             summary: params.url ?? null,
             metadata: withProvenanceMetadata({
@@ -3918,7 +3902,6 @@ export default function register(api: PluginAPI): void {
             title: params.name,
             artifact_type: params.artifact_type,
             summary: params.description,
-            initiative_id: initiativeId ?? undefined,
             artifact_url: params.url,
             status: "active",
           });
@@ -3931,10 +3914,7 @@ export default function register(api: PluginAPI): void {
             id,
             type: "artifact",
             timestamp: now,
-            payload: {
-              ...params,
-              initiative_id: initiativeId,
-            } as Record<string, unknown>,
+            payload: params as Record<string, unknown>,
             activityItem,
           });
           return text(
