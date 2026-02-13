@@ -1,0 +1,475 @@
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { writeFileAtomicSync } from "./fs-utils.js";
+import { getOpenClawDir } from "./paths.js";
+
+type OpenClawAgentEntry = {
+  id?: string;
+  name?: string;
+  default?: boolean;
+  workspace?: string;
+};
+
+type OpenClawConfig = {
+  agents?: {
+    list?: OpenClawAgentEntry[];
+  };
+  [key: string]: unknown;
+};
+
+export type OrgxSuiteDomain =
+  | "engineering"
+  | "product"
+  | "design"
+  | "marketing"
+  | "sales"
+  | "operations"
+  | "orchestration";
+
+export type OrgxSuiteAgentSpec = {
+  id: string;
+  name: string;
+  domain: OrgxSuiteDomain;
+};
+
+export const ORGX_AGENT_SUITE_PACK_ID = "orgx-agent-suite";
+
+export const ORGX_AGENT_SUITE_AGENTS: OrgxSuiteAgentSpec[] = [
+  { id: "orgx-engineering", name: "OrgX Engineering", domain: "engineering" },
+  { id: "orgx-product", name: "OrgX Product", domain: "product" },
+  { id: "orgx-design", name: "OrgX Design", domain: "design" },
+  { id: "orgx-marketing", name: "OrgX Marketing", domain: "marketing" },
+  { id: "orgx-sales", name: "OrgX Sales", domain: "sales" },
+  { id: "orgx-operations", name: "OrgX Operations", domain: "operations" },
+  { id: "orgx-orchestrator", name: "OrgX Orchestrator", domain: "orchestration" },
+];
+
+const SUITE_WORKSPACE_DIRNAME = "agents";
+const SUITE_MANAGED_DIR = join(".orgx", "managed");
+const SUITE_LOCAL_DIR = join(".orgx", "local");
+
+const SUITE_FILES = [
+  "AGENTS.md",
+  "TOOLS.md",
+  "IDENTITY.md",
+  "SOUL.md",
+  "USER.md",
+  "HEARTBEAT.md",
+] as const;
+
+export type OrgxAgentSuiteStatus = {
+  packId: string;
+  packVersion: string;
+  openclawConfigPath: string;
+  suiteWorkspaceRoot: string;
+  agents: Array<{
+    id: string;
+    name: string;
+    domain: OrgxSuiteDomain;
+    workspace: string;
+    configuredInOpenclaw: boolean;
+    workspaceExists: boolean;
+  }>;
+};
+
+export type OrgxAgentSuitePlan = OrgxAgentSuiteStatus & {
+  openclawConfigWouldUpdate: boolean;
+  openclawConfigAddedAgents: string[];
+  workspaceFiles: Array<{
+    agentId: string;
+    file: typeof SUITE_FILES[number];
+    managedPath: string;
+    localPath: string;
+    compositePath: string;
+    action: "create" | "update" | "noop";
+  }>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function parseJsonSafe<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function isSafeAgentId(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^[a-z0-9][a-z0-9_-]*$/.test(trimmed);
+}
+
+function openclawConfigPath(openclawDir: string): string {
+  return join(openclawDir, "openclaw.json");
+}
+
+function readOpenclawConfig(openclawDir: string): {
+  path: string;
+  parsed: OpenClawConfig | null;
+  fileMode: number;
+} {
+  const path = openclawConfigPath(openclawDir);
+  try {
+    const mode = statSync(path).mode & 0o777;
+    const raw = readFileSync(path, "utf8");
+    const parsed = parseJsonSafe<OpenClawConfig>(raw);
+    return { path, parsed: parsed && typeof parsed === "object" ? parsed : null, fileMode: mode || 0o600 };
+  } catch {
+    return { path, parsed: null, fileMode: 0o600 };
+  }
+}
+
+function resolveSuiteWorkspaceRoot(openclaw: OpenClawConfig | null): string {
+  const list = Array.isArray(openclaw?.agents?.list) ? openclaw?.agents?.list : [];
+  const orgx = list.find((entry) => String(entry?.id ?? "").trim() === "orgx") ?? null;
+  const configured =
+    orgx && typeof orgx.workspace === "string" && orgx.workspace.trim().length > 0
+      ? orgx.workspace.trim()
+      : "";
+  const base = configured || join(homedir(), "clawd", "workspaces", "orgx");
+  return join(base, SUITE_WORKSPACE_DIRNAME);
+}
+
+function ensureDir(path: string, mode: number): void {
+  mkdirSync(path, { recursive: true, mode });
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function managedHeader(input: {
+  packId: string;
+  packVersion: string;
+  file: string;
+  managedSha: string;
+}): string {
+  const { packId, packVersion, file, managedSha } = input;
+  return [
+    `# === ORGX MANAGED (pack: ${packId}@${packVersion}, file: ${file}, sha256: ${managedSha}) ===`,
+    "",
+  ].join("\n");
+}
+
+function localHeader(): string {
+  return [
+    "",
+    "# === ORGX LOCAL OVERRIDES (appended verbatim; never overwritten) ===",
+    "",
+  ].join("\n");
+}
+
+function buildCompositeFile(input: { managed: string; localOverride: string | null }): string {
+  if (!input.localOverride) return input.managed;
+  return `${input.managed}${localHeader()}${input.localOverride.trimEnd()}\n`;
+}
+
+function loadTextFile(path: string): string | null {
+  try {
+    if (!existsSync(path)) return null;
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
+function buildManagedFileContent(input: {
+  agent: OrgxSuiteAgentSpec;
+  file: typeof SUITE_FILES[number];
+  packId: string;
+  packVersion: string;
+}): string {
+  const baseBody = (() => {
+    if (input.file === "IDENTITY.md") {
+      return [
+        `# ${input.agent.name}`,
+        "",
+        `Domain: ${input.agent.domain}`,
+        "",
+        "Operating mode:",
+        "- Use OrgX as source of truth for tasks/decisions/artifacts.",
+        "- Verify before claiming done.",
+        "- Keep scope tight; do not over-engineer.",
+        "",
+      ].join("\n");
+    }
+
+    if (input.file === "TOOLS.md") {
+      return [
+        "# Tools",
+        "",
+        "Primary tool surface (OrgX MCP tools exposed by this plugin):",
+        "- orgx_status",
+        "- orgx_sync",
+        "- orgx_emit_activity",
+        "- orgx_apply_changeset",
+        "- orgx_register_artifact",
+        "- orgx_request_decision",
+        "- orgx_spawn_check",
+        "",
+        "Rules:",
+        "- Return structured JSON for tool outputs when applicable.",
+        "- Do not print secrets (API keys, tokens, cookies). Mask as `oxk_...abcd`.",
+        "- If a tool fails, capture the exact error and fix root cause.",
+        "",
+      ].join("\n");
+    }
+
+    if (input.file === "AGENTS.md") {
+      return [
+        "# Agent Guardrails",
+        "",
+        "These rules exist to prevent repeat failures: wrong repo/branch, unverified “done”, tool substitution, and shipping without evidence.",
+        "",
+        "## Read Before You Write",
+        "- Read relevant source files before implementing.",
+        "- Read primary docs/specs before coding against an integration.",
+        "",
+        "## Verification Standards",
+        "- Run typecheck and the most relevant tests before claiming a fix is verified.",
+        "- UI changes: verify desktop + mobile (375px) and key states (loading/error/empty).",
+        "",
+        "## Repo Hygiene",
+        "- Confirm `pwd` and `git status -sb` before edits.",
+        "- Prefer feature branches for non-trivial changes.",
+        "",
+      ].join("\n");
+    }
+
+    if (input.file === "HEARTBEAT.md") {
+      return [
+        "# Heartbeat",
+        "",
+        "Cadence:",
+        "- Emit OrgX activity at natural checkpoints (intent/execution/review/completed).",
+        "- When blocked, request a decision with options and stop continuing blindly.",
+        "",
+      ].join("\n");
+    }
+
+    if (input.file === "USER.md") {
+      return [
+        "# User Preferences",
+        "",
+        "Default assumptions:",
+        "- Prefer concise, actionable updates.",
+        "- Ask only when necessary; otherwise proceed and show proof.",
+        "",
+      ].join("\n");
+    }
+
+    if (input.file === "SOUL.md") {
+      return [
+        "# Soul",
+        "",
+        "OrgX agents are spirits/light entities: responsible + fun, never juvenile.",
+        "Avoid cartoonish mascots. Keep tone professional, direct, and pragmatic.",
+        "",
+      ].join("\n");
+    }
+
+    return `# ${input.agent.name}\n`;
+  })();
+
+  const normalized = normalizeNewlines(baseBody).trimEnd() + "\n";
+  const bodySha = sha256(normalized);
+  return `${managedHeader({
+    packId: input.packId,
+    packVersion: input.packVersion,
+    file: input.file,
+    managedSha: bodySha,
+  })}${normalized}`;
+}
+
+function upsertSuiteAgentsIntoConfig(input: {
+  openclaw: OpenClawConfig | null;
+  suiteWorkspaceRoot: string;
+}): { updated: boolean; next: OpenClawConfig; addedAgentIds: string[] } {
+  const openclaw: OpenClawConfig = input.openclaw && typeof input.openclaw === "object" ? input.openclaw : {};
+
+  const agentsObj = isRecord(openclaw.agents) ? (openclaw.agents as Record<string, unknown>) : {};
+  const currentListRaw = Array.isArray(agentsObj.list) ? agentsObj.list : [];
+  const currentList: OpenClawAgentEntry[] = currentListRaw
+    .map((entry) => (entry && typeof entry === "object" ? (entry as OpenClawAgentEntry) : null))
+    .filter((entry): entry is OpenClawAgentEntry => Boolean(entry));
+
+  const byId = new Map<string, OpenClawAgentEntry>();
+  for (const entry of currentList) {
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    if (!id) continue;
+    byId.set(id, entry);
+  }
+
+  const nextList: OpenClawAgentEntry[] = [...currentList];
+  const added: string[] = [];
+
+  for (const agent of ORGX_AGENT_SUITE_AGENTS) {
+    if (!isSafeAgentId(agent.id)) continue;
+    if (byId.has(agent.id)) continue;
+
+    const workspace = join(input.suiteWorkspaceRoot, agent.id);
+    nextList.push({
+      id: agent.id,
+      name: agent.name,
+      workspace,
+    });
+    added.push(agent.id);
+  }
+
+  if (added.length === 0) {
+    return { updated: false, next: openclaw, addedAgentIds: [] };
+  }
+
+  const nextAgents = { ...(agentsObj as any), list: nextList };
+  const next = { ...openclaw, agents: nextAgents };
+  return { updated: true, next, addedAgentIds: added };
+}
+
+export function computeOrgxAgentSuitePlan(input: {
+  packVersion: string;
+  openclawDir?: string;
+}): OrgxAgentSuitePlan {
+  const packVersion = input.packVersion.trim() || "0.0.0";
+  const openclawDir = input.openclawDir ?? getOpenClawDir();
+  const { path: cfgPath, parsed } = readOpenclawConfig(openclawDir);
+
+  const suiteWorkspaceRoot = resolveSuiteWorkspaceRoot(parsed);
+  const upsert = upsertSuiteAgentsIntoConfig({ openclaw: parsed, suiteWorkspaceRoot });
+
+  const agents = ORGX_AGENT_SUITE_AGENTS.map((agent) => {
+    const workspace = join(suiteWorkspaceRoot, agent.id);
+    const list = Array.isArray(parsed?.agents?.list) ? parsed?.agents?.list : [];
+    const configured = list.some((entry) => String(entry?.id ?? "").trim() === agent.id);
+    return {
+      ...agent,
+      workspace,
+      configuredInOpenclaw: configured || upsert.addedAgentIds.includes(agent.id),
+      workspaceExists: existsSync(workspace),
+    };
+  });
+
+  const workspaceFiles: OrgxAgentSuitePlan["workspaceFiles"] = [];
+  for (const agent of agents) {
+    for (const file of SUITE_FILES) {
+      const managedPath = join(agent.workspace, SUITE_MANAGED_DIR, file);
+      const localPath = join(agent.workspace, SUITE_LOCAL_DIR, file);
+      const compositePath = join(agent.workspace, file);
+
+      const managedContent = buildManagedFileContent({
+        agent,
+        file,
+        packId: ORGX_AGENT_SUITE_PACK_ID,
+        packVersion,
+      });
+      const localOverride = loadTextFile(localPath);
+      const compositeContent = buildCompositeFile({ managed: managedContent, localOverride });
+
+      const existingComposite = loadTextFile(compositePath);
+      const action =
+        !existsSync(compositePath)
+          ? "create"
+          : normalizeNewlines(existingComposite ?? "") !== normalizeNewlines(compositeContent)
+            ? "update"
+            : "noop";
+
+      workspaceFiles.push({
+        agentId: agent.id,
+        file,
+        managedPath,
+        localPath,
+        compositePath,
+        action,
+      });
+    }
+  }
+
+  return {
+    packId: ORGX_AGENT_SUITE_PACK_ID,
+    packVersion,
+    openclawConfigPath: cfgPath,
+    suiteWorkspaceRoot,
+    agents,
+    openclawConfigWouldUpdate: upsert.updated,
+    openclawConfigAddedAgents: upsert.addedAgentIds,
+    workspaceFiles,
+  };
+}
+
+export function applyOrgxAgentSuitePlan(input: {
+  plan: OrgxAgentSuitePlan;
+  dryRun?: boolean;
+  openclawDir?: string;
+}): { ok: true; applied: boolean; plan: OrgxAgentSuitePlan } {
+  const dryRun = input.dryRun ?? false;
+  if (dryRun) return { ok: true, applied: false, plan: input.plan };
+
+  const openclawDir = input.openclawDir ?? getOpenClawDir();
+  const read = readOpenclawConfig(openclawDir);
+  const suiteWorkspaceRoot = input.plan.suiteWorkspaceRoot;
+
+  const upsert = upsertSuiteAgentsIntoConfig({
+    openclaw: read.parsed,
+    suiteWorkspaceRoot,
+  });
+
+  if (upsert.updated) {
+    // Preserve the original file mode when possible.
+    writeFileAtomicSync(
+      read.path,
+      `${JSON.stringify(upsert.next, null, 2)}\n`,
+      { mode: read.fileMode || 0o600, encoding: "utf8" }
+    );
+  }
+
+  // Workspaces + files
+  for (const agent of input.plan.agents) {
+    ensureDir(agent.workspace, 0o700);
+    ensureDir(join(agent.workspace, SUITE_MANAGED_DIR), 0o700);
+    ensureDir(join(agent.workspace, SUITE_LOCAL_DIR), 0o700);
+
+    for (const file of SUITE_FILES) {
+      const managedPath = join(agent.workspace, SUITE_MANAGED_DIR, file);
+      const localPath = join(agent.workspace, SUITE_LOCAL_DIR, file);
+      const compositePath = join(agent.workspace, file);
+
+      const managed = buildManagedFileContent({
+        agent,
+        file,
+        packId: ORGX_AGENT_SUITE_PACK_ID,
+        packVersion: input.plan.packVersion,
+      });
+      const localOverride = loadTextFile(localPath);
+      const composite = buildCompositeFile({ managed, localOverride });
+
+      // Managed file always updated to match current pack content.
+      ensureDir(dirname(managedPath), 0o700);
+      writeFileAtomicSync(managedPath, managed, { mode: 0o600, encoding: "utf8" });
+
+      // Composite file updated iff needed.
+      const existing = loadTextFile(compositePath);
+      if (!existing || normalizeNewlines(existing) !== normalizeNewlines(composite)) {
+        writeFileAtomicSync(compositePath, composite, { mode: 0o600, encoding: "utf8" });
+      }
+
+      // Ensure local override file exists only if user created it; do not create it.
+      void localPath;
+    }
+  }
+
+  return { ok: true, applied: true, plan: input.plan };
+}
+
+export function generateAgentSuiteOperationId(): string {
+  return `suite:${Date.now()}:${randomUUID().slice(0, 8)}`;
+}
