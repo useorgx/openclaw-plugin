@@ -142,6 +142,23 @@ export type KickoffContextRequest = KickoffContextScope & {
 
 export type KickoffContextResponse = { ok: true; data: KickoffContext } | { ok: false; error: string };
 
+// =============================================================================
+// SKILL PACKS (CANONICAL SKILLS FOR DESKTOP CLIENTS)
+// =============================================================================
+
+export type SkillPack = {
+  name: string;
+  version: string;
+  checksum: string;
+  status?: "draft" | "pending_review" | "approved" | "rejected" | string;
+  manifest: Record<string, unknown>;
+  required_scopes?: string[] | null;
+  required_tools?: string[] | null;
+  updated_at?: string | null;
+};
+
+export type SkillPackResponse = { ok: true; data: SkillPack } | { ok: false; error: string };
+
 export interface Initiative {
   id: string;
   title: string;
