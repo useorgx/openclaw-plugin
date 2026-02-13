@@ -11,6 +11,7 @@ import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
+import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 
 interface MilestoneDetailProps {
   milestone: InitiativeMilestone;
@@ -24,6 +25,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const [addingTask, setAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(milestone.title);
   const [draftDescription, setDraftDescription] = useState(milestone.description ?? '');
   const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(milestone.dueDate));
@@ -230,6 +232,37 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           ))}
         </div>
       )}
+
+      {/* Notes */}
+      <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+              Notes
+            </p>
+            <p className="mt-1 text-[11px] text-white/35">
+              Commentary thread for humans and agents on this milestone.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowNotes((prev) => !prev)}
+            className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09]"
+          >
+            {showNotes ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {showNotes ? (
+          <div className="pt-3 border-t border-white/[0.06]">
+            <EntityCommentsPanel
+              entityType="milestone"
+              entityId={milestone.id}
+              authToken={authToken}
+              embedMode={embedMode}
+            />
+          </div>
+        ) : null}
+      </div>
 
       </div>
 

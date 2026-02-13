@@ -37,6 +37,8 @@
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
+    "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
+    "demo:record": "node ./scripts/record-demo.mjs",
     "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
