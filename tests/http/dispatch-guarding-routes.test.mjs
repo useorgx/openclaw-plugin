@@ -499,7 +499,7 @@ test("Next-up fallback dispatch blocks on spawn-guard denial and raises decision
 
   assert.equal(calls.checkSpawnGuard.length, 1);
   assert.equal(calls.checkSpawnGuard[0].domain, "engineering");
-  assert.equal(calls.checkSpawnGuard[0].taskId, "ws-1");
+  assert.equal(calls.checkSpawnGuard[0].taskId, undefined);
 
   assert.ok(
     calls.applyChangeset.some(

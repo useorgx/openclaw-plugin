@@ -1020,12 +1020,18 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
         if (degradedReasons.length > 0) {
           setError(`Partial live data: ${degradedReasons.join('; ')}`);
+          // "degraded" means partial data, not necessarily a broken connection.
+          // Treat successful snapshot fetches as "connected" to avoid a UI that
+          // appears stuck in "Reconnecting" during transient subsystem failures
+          // (e.g., decisions endpoint down).
           setData((prev) =>
-            prev.connection === 'reconnecting'
+            prev.connection === 'connected'
               ? prev
-              : { ...prev, connection: 'reconnecting' }
+              : { ...prev, connection: 'connected' }
           );
-          setPollingEnabled(true);
+          // Keep SSE as the primary transport; don't force polling just because
+          // some optional sub-queries degraded.
+          setPollingEnabled(false);
         } else {
           setError(null);
           setData((prev) =>
