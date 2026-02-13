@@ -74,8 +74,8 @@ import {
 } from "./local-openclaw.js";
 import { appendToOutbox } from "./outbox.js";
 import { defaultOutboxAdapter, type OutboxAdapter } from "./adapters/outbox.js";
-import { readAgentContexts, upsertAgentContext } from "./agent-context-store.js";
-import type { AgentLaunchContext } from "./agent-context-store.js";
+import { readAgentContexts, upsertAgentContext, upsertRunContext } from "./agent-context-store.js";
+import type { AgentLaunchContext, RunLaunchContext } from "./agent-context-store.js";
 import {
   getAgentRun,
   markAgentRunStopped,
@@ -791,7 +791,7 @@ function getScopedAgentIds(contexts: Record<string, AgentLaunchContext>): Set<st
 
 function applyAgentContextsToSessionTree(
   input: SessionTreeResponse,
-  contexts: Record<string, AgentLaunchContext>
+  contexts: { agents: Record<string, AgentLaunchContext>; runs: Record<string, RunLaunchContext> }
 ): SessionTreeResponse {
   if (!input || !Array.isArray(input.nodes)) return input;
 
@@ -805,10 +805,40 @@ function applyAgentContextsToSessionTree(
     });
   }
 
-  const nodes = input.nodes.map((node) => {
+	  const nodes = input.nodes.map((node) => {
+	    const existingInitiativeId = (node.initiativeId ?? "").trim();
+	    if (existingInitiativeId) return node;
+
+	    const runCtx = node.runId ? contexts.runs[node.runId] : null;
+	    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
+	      const initiativeId = runCtx.initiativeId.trim();
+	      const groupId = initiativeId;
+	      const ctxTitle = (runCtx.initiativeTitle ?? "").trim();
+      const groupLabel = ctxTitle || node.groupLabel || initiativeId;
+
+      const existing = groupsById.get(groupId);
+      if (!existing) {
+        groupsById.set(groupId, {
+          id: groupId,
+          label: groupLabel,
+          status: node.status ?? null,
+        });
+      } else if (ctxTitle && (existing.label === groupId || existing.label.startsWith("Agent "))) {
+        groupsById.set(groupId, { ...existing, label: groupLabel });
+      }
+
+      return {
+        ...node,
+        initiativeId,
+        workstreamId: runCtx.workstreamId ?? node.workstreamId ?? null,
+        groupId,
+        groupLabel,
+      };
+    }
+
     const agentId = node.agentId?.trim() ?? "";
     if (!agentId) return node;
-    const ctx = contexts[agentId];
+    const ctx = contexts.agents[agentId];
     const initiativeId = ctx?.initiativeId?.trim() ?? "";
     if (!initiativeId) return node;
 
@@ -856,13 +886,37 @@ function applyAgentContextsToSessionTree(
 
 function applyAgentContextsToActivity(
   input: LiveActivityItem[],
-  contexts: Record<string, AgentLaunchContext>
+  contexts: { agents: Record<string, AgentLaunchContext>; runs: Record<string, RunLaunchContext> }
 ): LiveActivityItem[] {
-  if (!Array.isArray(input)) return [];
-  return input.map((item) => {
+	  if (!Array.isArray(input)) return [];
+	  return input.map((item) => {
+	    const existingInitiativeId = (item.initiativeId ?? "").trim();
+	    if (existingInitiativeId) return item;
+
+	    const runCtx = item.runId ? contexts.runs[item.runId] : null;
+	    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
+	      const initiativeId = runCtx.initiativeId.trim();
+	      const metadata =
+        item.metadata && typeof item.metadata === "object"
+          ? { ...(item.metadata as Record<string, unknown>) }
+          : {};
+      metadata.orgx_context = {
+        initiativeId,
+        workstreamId: runCtx.workstreamId ?? null,
+        taskId: runCtx.taskId ?? null,
+        updatedAt: runCtx.updatedAt,
+      };
+
+      return {
+        ...item,
+        initiativeId,
+        metadata,
+      };
+    }
+
     const agentId = item.agentId?.trim() ?? "";
     if (!agentId) return item;
-    const ctx = contexts[agentId];
+    const ctx = contexts.agents[agentId];
     const initiativeId = ctx?.initiativeId?.trim() ?? "";
     if (!initiativeId) return item;
 
@@ -3523,7 +3577,9 @@ export function createHttpHandler(
 
     const spawnGuardResult = await checkSpawnGuardSafe({
       domain: input.executionPolicy.domain,
-      taskId: taskId || workstreamId || null,
+      // Spawn guard is task-scoped. Passing a workstream ID causes noisy 404s
+      // ("Task ... not found") and makes the UI feel perpetually degraded.
+      taskId: taskId || null,
       initiativeId: input.initiativeId,
       correlationId: input.correlationId,
       targetLabel,
@@ -4677,6 +4733,14 @@ export function createHttpHandler(
       workstreamId: input.workstreamId,
       taskId: null,
     });
+    upsertRunContext({
+      runId: sessionId,
+      agentId: input.agentId,
+      initiativeId: input.initiativeId,
+      initiativeTitle: input.initiativeTitle,
+      workstreamId: input.workstreamId,
+      taskId: null,
+    });
 
     const spawned = spawnAgentTurn({
       agentId: input.agentId,
@@ -5575,26 +5639,22 @@ export function createHttpHandler(
         degraded.push(`live sessions fallback unavailable (${safeErrorMessage(err)})`);
       }
 
+      const contextStore = readAgentContexts();
+      const contextBundle = {
+        agents: contextStore.agents,
+        runs: contextStore.runs ?? {},
+      };
+
       if (!sessionTree) {
         try {
-          const localTree = toLocalSessionTree(
-            await loadLocalOpenClawSnapshot(400),
-            400
-          );
-          sessionTree = applyAgentContextsToSessionTree(
-            localTree,
-            readAgentContexts().agents
-          );
+          sessionTree = toLocalSessionTree(await loadLocalOpenClawSnapshot(400), 400);
         } catch (err: unknown) {
           degraded.push(`local sessions fallback unavailable (${safeErrorMessage(err)})`);
           return [];
         }
       }
 
-      sessionTree = applyAgentContextsToSessionTree(
-        sessionTree,
-        readAgentContexts().agents
-      );
+      sessionTree = applyAgentContextsToSessionTree(sessionTree, contextBundle);
 
       const grouped = new Map<
         string,
@@ -6531,6 +6591,14 @@ export function createHttpHandler(
           }
 
           upsertAgentContext({
+            agentId,
+            initiativeId,
+            initiativeTitle,
+            workstreamId,
+            taskId,
+          });
+          upsertRunContext({
+            runId: sessionId,
             agentId,
             initiativeId,
             initiativeTitle,
@@ -9116,7 +9184,9 @@ export function createHttpHandler(
           const includeIdle =
             includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
           const degraded: string[] = [];
-          const agentContexts = readAgentContexts().agents;
+          const contextStore = readAgentContexts();
+          const agentContexts = contextStore.agents;
+          const runContexts = contextStore.runs ?? {};
           const scopedAgentIds = getScopedAgentIds(agentContexts);
 
           let outboxStatus: Record<string, unknown> | null = null;
@@ -9207,7 +9277,10 @@ export function createHttpHandler(
                 sessionsLimit
               );
 
-              local = applyAgentContextsToSessionTree(local, agentContexts);
+              local = applyAgentContextsToSessionTree(local, {
+                agents: agentContexts,
+                runs: runContexts,
+              });
 
               if (initiative && initiative.trim().length > 0) {
                 const filteredNodes = local.nodes.filter(
@@ -9260,7 +9333,10 @@ export function createHttpHandler(
                 }
               }
 
-              filtered = applyAgentContextsToActivity(filtered, agentContexts);
+              filtered = applyAgentContextsToActivity(filtered, {
+                agents: agentContexts,
+                runs: runContexts,
+              });
               activity = filtered.slice(0, activityLimit);
             } catch (localErr: unknown) {
               degraded.push(`activity local fallback failed (${safeErrorMessage(localErr)})`);
@@ -9336,7 +9412,7 @@ export function createHttpHandler(
               // Sessions
               let localSessions = applyAgentContextsToSessionTree(
                 toLocalSessionTree(scopedSnapshot, sessionsLimit),
-                agentContexts
+                { agents: agentContexts, runs: runContexts }
               );
               if (initiative && initiative.trim().length > 0) {
                 const filteredNodes = localSessions.nodes.filter(
@@ -9360,10 +9436,10 @@ export function createHttpHandler(
                 scopedSnapshot,
                 Math.max(activityLimit, 240)
               );
-              let localItems = applyAgentContextsToActivity(
-                localActivity.activities,
-                agentContexts
-              );
+              let localItems = applyAgentContextsToActivity(localActivity.activities, {
+                agents: agentContexts,
+                runs: runContexts,
+              });
               if (run && run.trim().length > 0) {
                 localItems = localItems.filter((item) => item.runId === run);
               }
@@ -9466,7 +9542,13 @@ export function createHttpHandler(
                 limit
               );
 
-              local = applyAgentContextsToSessionTree(local, readAgentContexts().agents);
+              {
+                const ctx = readAgentContexts();
+                local = applyAgentContextsToSessionTree(local, {
+                  agents: ctx.agents,
+                  runs: ctx.runs ?? {},
+                });
+              }
 
               if (initiative && initiative.trim().length > 0) {
                 const filteredNodes = local.nodes.filter(
@@ -9532,8 +9614,14 @@ export function createHttpHandler(
                 limit: warmLimit,
               });
               const remote = Array.isArray(data.activities) ? data.activities : [];
-              const withContexts = applyAgentContextsToActivity(remote, readAgentContexts().agents);
-              appendActivityItems(withContexts);
+              {
+                const ctx = readAgentContexts();
+                const withContexts = applyAgentContextsToActivity(remote, {
+                  agents: ctx.agents,
+                  runs: ctx.runs ?? {},
+                });
+                appendActivityItems(withContexts);
+              }
               page = listActivityPage({
                 limit,
                 runId: run,
@@ -9606,7 +9694,11 @@ export function createHttpHandler(
             }
 
             try {
-              const withContexts = applyAgentContextsToActivity(activities, readAgentContexts().agents);
+              const ctx = readAgentContexts();
+              const withContexts = applyAgentContextsToActivity(activities, {
+                agents: ctx.agents,
+                runs: ctx.runs ?? {},
+              });
               if (withContexts.length > 0) appendActivityItems(withContexts);
               sendJson(res, 200, { ...(data as any), activities: withContexts, total });
             } catch {
@@ -9644,10 +9736,11 @@ export function createHttpHandler(
                 }
               }
 
-              const activitiesWithContexts = applyAgentContextsToActivity(
-                local.activities,
-                readAgentContexts().agents
-              );
+              const ctx = readAgentContexts();
+              const activitiesWithContexts = applyAgentContextsToActivity(local.activities, {
+                agents: ctx.agents,
+                runs: ctx.runs ?? {},
+              });
               let merged = activitiesWithContexts;
               try {
                 const buffered = await outboxAdapter.readAllItems();
@@ -9990,16 +10083,24 @@ export function createHttpHandler(
                     const parsed = JSON.parse(dataText) as LiveActivityItem[];
                     const list = Array.isArray(parsed) ? parsed : [];
                     if (list.length > 0) {
+                      const ctx = readAgentContexts();
                       appendActivityItems(
-                        applyAgentContextsToActivity(list, readAgentContexts().agents)
+                        applyAgentContextsToActivity(list, {
+                          agents: ctx.agents,
+                          runs: ctx.runs ?? {},
+                        })
                       );
                     }
                   } else if (eventName === "snapshot") {
                     const parsed = JSON.parse(dataText) as { activity?: LiveActivityItem[] };
                     const list = Array.isArray(parsed?.activity) ? parsed.activity : [];
                     if (list.length > 0) {
+                      const ctx = readAgentContexts();
                       appendActivityItems(
-                        applyAgentContextsToActivity(list, readAgentContexts().agents)
+                        applyAgentContextsToActivity(list, {
+                          agents: ctx.agents,
+                          runs: ctx.runs ?? {},
+                        })
                       );
                     }
                   }
