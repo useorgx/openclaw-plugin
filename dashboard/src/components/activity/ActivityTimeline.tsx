@@ -9,7 +9,7 @@ import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } 
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
-import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
@@ -257,21 +257,6 @@ function bucketColor(bucket: ActivityBucket): string {
   return colors.teal;
 }
 
-function iconTypeForActivity(item: LiveActivityItem): EntityIconType {
-  if (item.type === 'milestone_completed') return 'milestone';
-  if (item.type === 'decision_requested' || item.type === 'decision_resolved') return 'decision';
-  if (
-    item.type === 'handoff_requested' ||
-    item.type === 'handoff_claimed' ||
-    item.type === 'handoff_fulfilled' ||
-    item.type === 'delegation'
-  ) {
-    return 'workstream';
-  }
-  if (item.type === 'artifact_created') return 'task';
-  if (item.initiativeId) return 'initiative';
-  return 'notification';
-}
 
 type ActivitySeverity = 'critical' | 'positive' | 'warning' | 'neutral';
 
@@ -533,11 +518,11 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload 
 
 function renderArtifactValue(value: unknown): ReactNode {
   if (typeof value === 'string') {
-    return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-white/82" />;
+    return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-primary" />;
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {
-    return <p className="text-body text-white/82">{String(value)}</p>;
+    return <p className="text-body text-primary">{String(value)}</p>;
   }
 
   if (Array.isArray(value)) {
@@ -559,7 +544,7 @@ function renderArtifactValue(value: unknown): ReactNode {
         {entries.map(([key, entry]) => (
           <div key={key} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
             <dt className="text-micro uppercase tracking-[0.1em] text-secondary">{humanizeText(key)}</dt>
-            <dd className="mt-1 text-body text-white/82">
+            <dd className="mt-1 text-body text-primary">
               {typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
                 ? String(entry)
                 : Array.isArray(entry)
@@ -586,6 +571,42 @@ function humanizeActivityBody(text: string | null | undefined): string | null {
     return modelOnly;
   }
   return humanizeText(trimmed);
+}
+
+const SYSTEM_NOISE_PATTERNS = [
+  /^User:\s*System:/i,
+  /Exec failed/i,
+  /SIGKILL/i,
+  /SIGTERM/i,
+  /stack trace/i,
+  /Traceback \(most recent/i,
+  /^\s*\{[\s"]/,
+  /Error: /,
+  /execution policy/i,
+  /outbox replay/i,
+  /changeset replayed/i,
+];
+
+function isSystemNoise(title: string): boolean {
+  return SYSTEM_NOISE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: boolean } {
+  const raw = item.title ?? '';
+  if (!isSystemNoise(raw)) {
+    return { title: humanizeText(raw) || humanizeText(labelForType(item.type)), isSystem: false };
+  }
+
+  if (/Exec failed|SIGKILL|SIGTERM|Error: /i.test(raw)) {
+    return { title: 'Execution failed', isSystem: true };
+  }
+  if (/outbox replay|changeset replayed/i.test(raw)) {
+    return { title: 'Changes synced', isSystem: true };
+  }
+  if (/execution policy/i.test(raw)) {
+    return { title: 'System directive', isSystem: true };
+  }
+  return { title: 'System event', isSystem: true };
 }
 
 function getLocalTurnReference(item: LiveActivityItem | null): {
@@ -683,6 +704,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [detailMenuOpen, setDetailMenuOpen] = useState(false);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
   const [artifactViewMode, setArtifactViewMode] = useState<'structured' | 'json'>('structured');
   const [detailSummaryOverride, setDetailSummaryOverride] = useState<string | null>(null);
@@ -1057,6 +1079,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   useEffect(() => {
     setArtifactViewMode('structured');
+    setDetailMenuOpen(false);
   }, [activeItemId]);
 
   useEffect(() => {
@@ -1219,7 +1242,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const runLabel = runId ? runLabelById.get(runId) ?? humanizeText(runId) : 'Workspace';
     const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
 
-    const displayTitle = humanizeText(item.title ?? '');
+    const { title: displayTitle, isSystem: isSystemEvent } = cleanSystemTitle(item);
     const displaySummary = humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
@@ -1228,7 +1251,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const workstreamName = workstreamId
       ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
       : null;
-    const kindColor = bucketColor(bucket);
     const kindLabel = bucketLabel(bucket);
     const primaryTag = severity === 'critical'
       ? 'Error'
@@ -1264,11 +1286,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="line-clamp-2 break-words text-body font-semibold leading-snug text-bright">
-                {displayTitle || humanizeText(item.title || labelForType(item.type))}
+              <p className={`line-clamp-2 break-words text-body font-semibold leading-snug ${isSystemEvent ? 'text-muted' : 'text-bright'}`}>
+                {displayTitle}
               </p>
               <p className="mt-0.5 text-caption text-secondary">
-                {item.agentName ?? 'OrgX'}
+                {isSystemEvent ? 'System' : (item.agentName ?? 'OrgX')}
                 {sessionStatus ? ` · ${humanizeText(sessionStatus)}` : ''}
               </p>
             </div>
@@ -1281,7 +1303,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
 
           {(displaySummary || displayDesc) && (
-            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-white/62">
+            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-secondary">
               <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
             </div>
           )}
@@ -1298,35 +1320,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
               {primaryTag}
             </span>
-            <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-secondary">
-              {runLabel}
-            </span>
-            <span
-              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-white/62"
-              style={{ borderColor: `${kindColor}44`, color: kindColor }}
-            >
-              <EntityIcon type={iconTypeForActivity(item)} size={10} className="opacity-90" />
-              {humanizeText(labelForType(item.type))}
-            </span>
-            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
-            {initiativeName && (
+            {initiativeName ? (
               <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
                 title={initiativeName}
               >
                 <EntityIcon type="initiative" size={10} className="opacity-85" />
                 <span className="truncate">{initiativeName}</span>
               </span>
-            )}
-            {workstreamName && (
+            ) : workstreamName ? (
               <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
                 title={workstreamName}
               >
                 <EntityIcon type="workstream" size={10} className="opacity-90" />
                 <span className="truncate">{workstreamName}</span>
               </span>
-            )}
+            ) : null}
+            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
           </div>
         </div>
       </div>
@@ -1548,7 +1559,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search activity..."
-              className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-white/82 placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
+              className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
               aria-label="Search activity"
             />
           </div>
@@ -1729,98 +1740,103 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
             <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
 
-	            <div className="relative z-10 flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
-	              <div className="min-w-0">
-	                <p className="text-caption uppercase tracking-[0.12em] text-muted">Activity Detail</p>
-	                <div className="mt-1 flex items-center gap-2">
-	                  <span
-	                    className="h-2.5 w-2.5 rounded-full"
-                    style={{
-                      backgroundColor: bucketColor(activeDecorated.bucket),
-                      boxShadow: `0 0 16px ${bucketColor(activeDecorated.bucket)}77`,
+            <div className="relative z-10 flex items-center justify-between border-b border-subtle px-5 py-3 sm:px-6">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                  style={{
+                    backgroundColor: bucketColor(activeDecorated.bucket),
+                    boxShadow: `0 0 12px ${bucketColor(activeDecorated.bucket)}55`,
+                  }}
+                />
+                <span className="text-caption text-secondary">
+                  {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
+                </span>
+                {copyNotice && (
+                  <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.12em] text-secondary">
+                    {copyNotice}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {activeDecorated.runId && onFocusRunId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onFocusRunId(activeDecorated.runId!);
+                      closeDetail();
                     }}
-	                  />
-	                  <span className="text-body text-primary">
-	                    {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
-	                  </span>
-	                  {copyNotice && (
-	                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.12em] text-secondary">
-	                      {copyNotice}
-	                    </span>
-	                  )}
-	                </div>
-	              </div>
-
-	              <div className="flex flex-wrap items-center justify-end gap-2">
-	                {activeDecorated.runId && onFocusRunId && (
-	                  <button
-		                    type="button"
-		                    onClick={() => {
-		                      onFocusRunId(activeDecorated.runId!);
-		                      closeDetail();
-		                    }}
-	                    className="rounded-full border border-lime/25 bg-lime/10 px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/20"
-	                  >
-	                    Focus session
-	                  </button>
-	                )}
-	                {activeDecorated.runId && (
-	                  <button
-	                    type="button"
-	                    onClick={() => void copyText('Run id', activeDecorated.runId ?? '')}
-	                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                    aria-label="Copy run id"
-	                  >
-	                    Copy run
-	                  </button>
-	                )}
-	                {resolveAgentIdentity(activeDecorated.item).agentId && (
-	                  <button
-	                    type="button"
-	                    onClick={() =>
-	                      void copyText(
-	                        'Agent id',
-	                        resolveAgentIdentity(activeDecorated.item).agentId ?? ''
-	                      )
-	                    }
-	                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                    aria-label="Copy agent id"
-	                  >
-	                    Copy agent
-	                  </button>
-	                )}
-	                <button
-	                  type="button"
-	                  onClick={() => void copyText('Event id', activeDecorated.item.id)}
-	                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                  aria-label="Copy event id"
-	                >
-	                  Copy event
-	                </button>
-
-	                <button
-	                  type="button"
-	                  onClick={() => navigateDetail(-1)}
-	                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                  aria-label="Previous activity item"
-	                >
-	                  ← Prev
-	                </button>
+                    className="rounded-full border border-lime/25 bg-lime/10 px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/20"
+                  >
+                    Focus session
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => navigateDetail(1)}
-                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                  aria-label="Next activity item"
+                  onClick={() => navigateDetail(-1)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-primary transition hover:bg-white/[0.1]"
+                  aria-label="Previous activity item"
                 >
-                  Next →
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
                 <button
                   type="button"
+                  onClick={() => navigateDetail(1)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-primary transition hover:bg-white/[0.1]"
+                  aria-label="Next activity item"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setDetailMenuOpen((prev) => !prev)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-secondary transition hover:bg-white/[0.1] hover:text-primary"
+                    aria-label="More actions"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
+                  </button>
+                  {detailMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setDetailMenuOpen(false)} />
+                      <div className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-lg border border-strong bg-[#0d0f16] py-1 shadow-xl">
+                        {activeDecorated.runId && (
+                          <button
+                            type="button"
+                            onClick={() => { void copyText('Run id', activeDecorated.runId ?? ''); setDetailMenuOpen(false); }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                          >
+                            Copy run ID
+                          </button>
+                        )}
+                        {resolveAgentIdentity(activeDecorated.item).agentId && (
+                          <button
+                            type="button"
+                            onClick={() => { void copyText('Agent id', resolveAgentIdentity(activeDecorated.item).agentId ?? ''); setDetailMenuOpen(false); }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                          >
+                            Copy agent ID
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => { void copyText('Event id', activeDecorated.item.id); setDetailMenuOpen(false); }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                        >
+                          Copy event ID
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
                   onClick={closeDetail}
-                  className="rounded-full border border-strong bg-white/[0.04] px-2 py-1 text-caption text-secondary transition hover:bg-white/[0.1] hover:text-bright"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-secondary transition hover:bg-white/[0.1] hover:text-primary"
                   aria-label="Close activity detail"
                 >
-                  Esc
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
@@ -2082,7 +2098,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         <MarkdownText
                           mode="block"
                           text={activeSummaryText}
-                          className="mt-1.5 text-heading leading-relaxed text-white/82"
+                          className="mt-1.5 text-heading leading-relaxed text-primary"
                         />
                       </div>
                     )}
