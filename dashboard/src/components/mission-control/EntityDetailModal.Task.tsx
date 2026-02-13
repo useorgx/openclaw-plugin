@@ -23,7 +23,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(true);
+  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDescription, setDraftDescription] = useState(task.description ?? '');
   const [draftPriority, setDraftPriority] = useState(task.priority ?? '');

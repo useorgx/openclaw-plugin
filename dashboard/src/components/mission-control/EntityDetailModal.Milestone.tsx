@@ -25,7 +25,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const [addingTask, setAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(true);
+  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(milestone.title);
   const [draftDescription, setDraftDescription] = useState(milestone.description ?? '');
   const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(milestone.dueDate));

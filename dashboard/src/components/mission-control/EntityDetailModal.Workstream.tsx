@@ -30,7 +30,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(true);
+  const [showNotes, setShowNotes] = useState(false);
   const [draftName, setDraftName] = useState(workstream.name);
   const [draftSummary, setDraftSummary] = useState(workstream.summary ?? '');
   const [draftStatus, setDraftStatus] = useState(workstream.status);
