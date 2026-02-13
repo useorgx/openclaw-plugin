@@ -38,11 +38,11 @@ export function SettingsModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
-        <div className="w-full border-b border-white/[0.06] px-5 py-4 sm:px-6">
+        <div className="w-full border-b border-subtle px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-[15px] font-semibold text-white">Settings</h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+              <h3 className="text-heading font-semibold text-white">Settings</h3>
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 OrgX connection and provider keys for agent launches.
               </p>
             </div>
@@ -50,7 +50,7 @@ export function SettingsModal({
               type="button"
               onClick={onClose}
               aria-label="Close settings"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               <svg
                 width="15"
@@ -86,10 +86,10 @@ export function SettingsModal({
                   aria-selected={selected}
                   onClick={() => onChangeTab(tab.id)}
                   className={cn(
-                    'rounded-full px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                    'rounded-full px-3 py-1.5 text-caption font-semibold transition-colors',
                     selected
                       ? 'border border-lime/25 bg-lime/[0.14] text-lime shadow-[0_0_16px_rgba(191,255,0,0.08)]'
-                      : 'border border-transparent text-white/60 hover:bg-white/[0.06] hover:text-white'
+                      : 'border border-transparent text-secondary hover:bg-white/[0.06] hover:text-white'
                   )}
                 >
                   {tab.label}
@@ -119,7 +119,7 @@ export function SettingsModal({
             <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />
           )}
         </div>
-        <div className="w-full border-t border-white/[0.06] px-5 py-2.5 sm:px-6">
+        <div className="w-full border-t border-subtle px-5 py-2.5 sm:px-6">
           <LegalLinks compact />
         </div>
       </div>

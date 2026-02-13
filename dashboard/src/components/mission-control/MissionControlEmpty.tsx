@@ -28,10 +28,10 @@ export function MissionControlEmpty() {
             </svg>
           </div>
           <div className="space-y-1.5">
-            <h3 className="text-[14px] font-semibold text-white">
+            <h3 className="text-heading font-semibold text-white">
               No initiatives yet
             </h3>
-            <p className="text-[12px] text-white/50 leading-relaxed">
+            <p className="text-body text-secondary leading-relaxed">
               Create initiatives in OrgX to see them here. Mission Control shows
               your full initiative hierarchy with workstreams, milestones, and tasks.
             </p>

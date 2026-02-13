@@ -3,7 +3,8 @@ import { Modal } from '@/components/shared/Modal';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
-import { formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
+import { statusColor } from '@/lib/entityStatusColors';
 import type { OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
 import type { LiveActivityItem, SessionTreeNode } from '@/types';
 
@@ -20,21 +21,6 @@ interface AgentDetailModalProps {
 
 const MAX_SESSIONS = 10;
 const MAX_ACTIVITY = 20;
-
-const statusColors: Record<string, string> = {
-  running: colors.lime,
-  queued: colors.amber,
-  pending: colors.amber,
-  blocked: colors.red,
-  failed: colors.red,
-  cancelled: colors.red,
-  completed: colors.teal,
-  archived: 'rgba(255,255,255,0.5)',
-};
-
-function statusColor(status: string): string {
-  return statusColors[status] ?? colors.iris;
-}
 
 function toStatusBadge(status: string | null) {
   const normalized = (status ?? '').toLowerCase();
@@ -156,8 +142,8 @@ export function AgentDetailModal({
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex h-full min-h-0 w-full flex-col">
         {/* Header with breadcrumb */}
-        <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3 sm:px-6">
-          <div className="flex items-center gap-1.5 min-w-0 text-[12px] text-white/50">
+        <div className="flex items-center justify-between gap-3 border-b border-subtle px-5 py-3 sm:px-6">
+          <div className="flex items-center gap-1.5 min-w-0 text-body text-secondary">
             <span>Agents</span>
             <svg
               width="10"
@@ -166,12 +152,12 @@ export function AgentDetailModal({
               fill="none"
               stroke="currentColor"
               strokeWidth="2.5"
-              className="flex-shrink-0 text-white/25"
+              className="flex-shrink-0 text-faint"
             >
               <path d="m9 18 6-6-6-6" />
             </svg>
-            <span className="truncate text-white/80 font-medium">{agentName}</span>
-            <span className="ml-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-white/40">
+            <span className="truncate text-primary font-medium">{agentName}</span>
+            <span className="ml-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-muted">
               agent
             </span>
           </div>
@@ -179,7 +165,7 @@ export function AgentDetailModal({
             type="button"
             onClick={onClose}
             aria-label="Close detail"
-            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18" />
@@ -195,9 +181,9 @@ export function AgentDetailModal({
             <AgentAvatar name={agentName} size="md" hint={agentName} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-[15px] font-semibold text-white truncate">{agentName}</h3>
+                <h3 className="text-heading font-semibold text-white truncate">{agentName}</h3>
                 <span
-                  className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]"
+                  className="rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]"
                   style={{
                     borderColor: `${badge.color}55`,
                     color: badge.color,
@@ -208,18 +194,18 @@ export function AgentDetailModal({
                 </span>
               </div>
               {role && (
-                <p className="text-[12px] text-white/45 mt-0.5">{role}</p>
+                <p className="text-body text-secondary mt-0.5">{role}</p>
               )}
               {catalogAgent && (
-                <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-white/40">
+                <div className="flex flex-wrap items-center gap-3 mt-1 text-caption text-muted">
                   {catalogAgent.model && (
                     <span>
-                      <span className="text-white/30">Model:</span> {catalogAgent.model}
+                      <span className="text-muted">Model:</span> {catalogAgent.model}
                     </span>
                   )}
                   {catalogAgent.workspace && (
                     <span>
-                      <span className="text-white/30">Workspace:</span> {catalogAgent.workspace}
+                      <span className="text-muted">Workspace:</span> {catalogAgent.workspace}
                     </span>
                   )}
                 </div>
@@ -237,11 +223,11 @@ export function AgentDetailModal({
             ] as const).map((metric) => (
               <div
                 key={metric.label}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5"
+                className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2.5"
               >
-                <p className="text-[10px] uppercase tracking-[0.1em] text-white/35">{metric.label}</p>
+                <p className="text-micro uppercase tracking-[0.1em] text-muted">{metric.label}</p>
                 <p
-                  className="mt-0.5 text-[18px] font-semibold"
+                  className="mt-0.5 text-title font-semibold"
                   style={{
                     color: metric.value > 0 ? metric.color : 'rgba(255,255,255,0.3)',
                     fontVariantNumeric: 'tabular-nums',
@@ -255,11 +241,11 @@ export function AgentDetailModal({
 
           {/* Session List */}
           <div>
-            <p className="text-[10px] uppercase tracking-[0.1em] text-white/35 mb-2">
+            <p className="text-micro uppercase tracking-[0.1em] text-muted mb-2">
               Sessions ({sessions.length})
             </p>
             {sessions.length === 0 ? (
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-4 text-center text-[12px] text-white/35">
+              <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-4 text-center text-body text-muted">
                 No sessions recorded for this agent.
               </div>
             ) : (
@@ -271,19 +257,19 @@ export function AgentDetailModal({
                       onSelectSession(node.id);
                       onClose();
                     }}
-                    className="w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                    className="w-full rounded-lg border border-subtle bg-white/[0.02] px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
                   >
                     <div className="flex items-center gap-2">
                       <span
                         className="h-2 w-2 flex-shrink-0 rounded-full"
                         style={{ backgroundColor: statusColor(node.status) }}
                       />
-                      <p className="min-w-0 flex-1 truncate text-[12px] text-white/80">{node.title}</p>
-                      <span className="text-[10px] text-white/35" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      <p className="min-w-0 flex-1 truncate text-body text-primary">{node.title}</p>
+                      <span className="text-micro text-muted" style={{ fontVariantNumeric: 'tabular-nums' }} title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
                         {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                       </span>
                     </div>
-                    <div className="mt-1 flex items-center gap-2 text-[10px] text-white/40">
+                    <div className="mt-1 flex items-center gap-2 text-micro text-muted">
                       <span className="uppercase tracking-[0.08em]">{node.status}</span>
                       {node.progress !== null && (
                         <span>{Math.round(node.progress)}%</span>
@@ -296,7 +282,7 @@ export function AgentDetailModal({
                   <button
                     type="button"
                     onClick={() => setShowAllSessions((prev) => !prev)}
-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[10px] text-white/50 transition-colors hover:bg-white/[0.05]"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
                   >
                     {showAllSessions
                       ? 'Show fewer'
@@ -310,25 +296,25 @@ export function AgentDetailModal({
           {/* Recent Activity */}
           {recentActivity.length > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-white/35 mb-2">
+              <p className="text-micro uppercase tracking-[0.1em] text-muted mb-2">
                 Recent Activity ({recentActivity.length})
               </p>
               <div className="space-y-1">
                 {recentActivity.map((item, idx) => (
                   <div
                     key={item.id ?? idx}
-                    className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-[11px]"
+                    className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-caption"
                   >
                     <span
                       className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full"
                       style={{ backgroundColor: activityTypeColor(item.type) }}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-white/70">
+                      <p className="truncate text-primary">
                         {item.title ?? item.summary ?? item.description ?? 'Activity'}
                       </p>
                     </div>
-                    <span className="flex-shrink-0 text-[10px] text-white/30" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    <span className="flex-shrink-0 text-micro text-muted" style={{ fontVariantNumeric: 'tabular-nums' }} title={formatAbsoluteTime(item.timestamp)}>
                       {formatRelativeTime(item.timestamp)}
                     </span>
                   </div>
@@ -340,19 +326,19 @@ export function AgentDetailModal({
           {/* Agent Controls */}
           {catalogAgent?.run && (
             <div>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-white/35 mb-2">Controls</p>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                <p className="text-[11px] text-white/50 mb-2">
-                  <span className="text-white/30">Tracked run:</span>{' '}
+              <p className="text-micro uppercase tracking-[0.1em] text-muted mb-2">Controls</p>
+              <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+                <p className="text-caption text-secondary mb-2">
+                  <span className="text-muted">Tracked run:</span>{' '}
                   {catalogAgent.run.runId.slice(0, 8)}…{' '}
-                  <span className="text-white/35">({catalogAgent.run.status})</span>
+                  <span className="text-muted">({catalogAgent.run.status})</span>
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={stopRun}
                     disabled={!canControlRun || actionLoading}
-                    className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
+                    className="rounded-lg border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-caption font-semibold text-rose-100 transition-colors hover:bg-rose-400/20 disabled:opacity-45"
                   >
                     {actionLoading ? 'Stopping…' : 'Stop Run'}
                   </button>
@@ -360,13 +346,13 @@ export function AgentDetailModal({
                     type="button"
                     onClick={restartRun}
                     disabled={actionLoading}
-                    className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                    className="rounded-lg border border-strong bg-white/[0.03] px-3 py-2 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
                   >
                     {actionLoading ? 'Restarting…' : 'Restart'}
                   </button>
                 </div>
                 {actionError && (
-                  <p className="mt-2 text-[11px] text-rose-200">{actionError}</p>
+                  <p className="mt-2 text-caption text-rose-200">{actionError}</p>
                 )}
               </div>
             </div>
@@ -375,11 +361,11 @@ export function AgentDetailModal({
           {/* Agent Settings */}
           {catalogAgent && (
             <div>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-white/35 mb-2">Settings</p>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="text-white/40">Provider</span>
-                  <span className="text-white/70">
+              <p className="text-micro uppercase tracking-[0.1em] text-muted mb-2">Settings</p>
+              <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 space-y-2">
+                <div className="flex items-center justify-between text-body">
+                  <span className="text-muted">Provider</span>
+                  <span className="text-primary">
                     {catalogAgent.model?.includes('openrouter')
                       ? 'OpenRouter'
                       : catalogAgent.model?.includes('anthropic')
@@ -389,24 +375,24 @@ export function AgentDetailModal({
                           : 'Auto'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="text-white/40">Model</span>
-                  <span className={cn('truncate max-w-[200px] text-right', catalogAgent.model ? 'text-white/70' : 'text-white/30')}>
+                <div className="flex items-center justify-between text-body">
+                  <span className="text-muted">Model</span>
+                  <span className={cn('truncate max-w-[200px] text-right', catalogAgent.model ? 'text-primary' : 'text-muted')}>
                     {catalogAgent.model ?? 'Not configured'}
                   </span>
                 </div>
                 {catalogAgent.workspace && (
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-white/40">Workspace</span>
-                    <span className="truncate max-w-[200px] text-right text-white/70">
+                  <div className="flex items-center justify-between text-body">
+                    <span className="text-muted">Workspace</span>
+                    <span className="truncate max-w-[200px] text-right text-primary">
                       {catalogAgent.workspace}
                     </span>
                   </div>
                 )}
                 {catalogAgent.context?.initiativeTitle && (
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-white/40">Initiative</span>
-                    <span className="truncate max-w-[200px] text-right text-white/70">
+                  <div className="flex items-center justify-between text-body">
+                    <span className="text-muted">Initiative</span>
+                    <span className="truncate max-w-[200px] text-right text-primary">
                       {catalogAgent.context.initiativeTitle}
                     </span>
                   </div>

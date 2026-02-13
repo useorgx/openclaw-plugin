@@ -44,12 +44,12 @@ export function ArtifactPreview({ artifact, onClose }: ArtifactPreviewProps) {
 
   return (
     <Modal open={!!artifact} onClose={onClose}>
-      <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+      <div className="flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <ArtifactIcon type={artifact.type} />
           <div>
             <h3 className="text-sm font-medium text-white">{artifact.label}</h3>
-            <span className="text-[10px] uppercase tracking-wider text-white/45">
+            <span className="text-micro uppercase tracking-wider text-secondary">
               {typeLabels[artifact.type] ?? 'Artifact'}
               {artifact.agent && ` · ${artifact.agent}`}
               {artifact.time && ` · ${artifact.time}`}
@@ -62,7 +62,7 @@ export function ArtifactPreview({ artifact, onClose }: ArtifactPreviewProps) {
               href={artifact.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="rounded-lg p-2 text-secondary transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 3h6v6" /><path d="M10 14 21 3" />
@@ -72,7 +72,7 @@ export function ArtifactPreview({ artifact, onClose }: ArtifactPreviewProps) {
           )}
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/[0.06] text-white/50 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-white/[0.06] text-secondary hover:text-white transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18" /><path d="m6 6 12 12" />
@@ -82,11 +82,11 @@ export function ArtifactPreview({ artifact, onClose }: ArtifactPreviewProps) {
       </div>
       <div className="max-h-[58vh] overflow-y-auto px-5 py-4 sm:px-6">
         {artifact.content ? (
-          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-white/80">
+          <pre className="whitespace-pre-wrap font-sans text-body leading-relaxed text-primary">
             {artifact.content}
           </pre>
         ) : (
-          <div className="py-12 text-center text-white/40">
+          <div className="py-12 text-center text-muted">
             <svg className="mx-auto mb-3 opacity-50" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
               <path d="M14 2v4a2 2 0 0 0 2 2h4" />

@@ -174,7 +174,7 @@ export function OnboardingGate({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
             transition={{ delay: 0.15, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.025] px-4 py-3"
+            className="mt-4 flex items-center justify-between rounded-xl border border-subtle bg-white/[0.025] px-4 py-3"
           >
             <div className="flex items-center gap-2.5">
               <span className="relative flex h-2 w-2">
@@ -183,7 +183,7 @@ export function OnboardingGate({
                 )}
                 <span className={`relative inline-flex h-2 w-2 rounded-full ${dotStyle[dot]}`} />
               </span>
-              <span className="text-[13px] text-white/60">{statusLabel(state.status)}</span>
+              <span className="text-body text-secondary">{statusLabel(state.status)}</span>
               {state.workspaceName && (
                 <span className="chip">{state.workspaceName}</span>
               )}
@@ -194,7 +194,7 @@ export function OnboardingGate({
 
             <div className="flex items-center gap-2">
               {state.expiresAt && (
-                <span className="text-[11px] text-white/30">
+                <span className="text-caption text-muted">
                   {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
@@ -203,7 +203,7 @@ export function OnboardingGate({
                   href={state.connectUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/[0.05] px-3 py-1 text-[11px] font-medium text-[#D8FFA1] transition hover:bg-[#BFFF00]/[0.1]"
+                  className="rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/[0.05] px-3 py-1 text-caption font-medium text-[#D8FFA1] transition hover:bg-[#BFFF00]/[0.1]"
                 >
                   Approve in browser
                 </a>
@@ -211,7 +211,7 @@ export function OnboardingGate({
               <button
                 type="button"
                 onClick={() => { void onRefresh(); }}
-                className="rounded-full border border-white/[0.08] px-2.5 py-1 text-[11px] text-white/40 transition hover:bg-white/[0.04] hover:text-white/60"
+                className="rounded-full border border-white/[0.08] px-2.5 py-1 text-caption text-muted transition hover:bg-white/[0.04] hover:text-secondary"
               >
                 Refresh
               </button>
@@ -226,23 +226,23 @@ export function OnboardingGate({
             transition={{ delay: 0.2, duration: 0.3 }}
             className="mt-3 rounded-xl border border-[#7C7CFF]/25 bg-[#7C7CFF]/10 px-4 py-3"
           >
-            <p className="text-[11px] uppercase tracking-[0.08em] text-[#CFCBFF]">
+            <p className="text-caption uppercase tracking-[0.08em] text-[#CFCBFF]">
               Mission Control Tip
             </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-[#E6E4FF]">
+            <p className="mt-1 text-body leading-relaxed text-[#E6E4FF]">
               Open Mission Control to see initiative → workstream → milestone → task flow with dependencies and recent todos in one expandable view.
             </p>
             <div className="mt-2 flex items-center gap-2">
               <a
                 href="/orgx/live?view=mission-control"
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1 text-[11px] font-medium text-[#D8FFA1]"
+                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1 text-caption font-medium text-[#D8FFA1]"
               >
                 Open Mission Control
               </a>
               <button
                 type="button"
                 onClick={() => setDismissedMissionControlHint(true)}
-                className="text-[11px] text-white/60 underline underline-offset-2"
+                className="text-caption text-secondary underline underline-offset-2"
               >
                 Dismiss
               </button>

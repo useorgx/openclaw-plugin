@@ -87,7 +87,7 @@ export function CollapsibleSection({
         className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors ${
           sticky
             ? `sticky ${stickyOffsetClass} z-20 border-white/[0.08] bg-[#090B11]/92 shadow-[0_8px_18px_rgba(0,0,0,0.24)] backdrop-blur-xl`
-            : 'border-transparent hover:border-white/[0.06] hover:bg-white/[0.03]'
+            : 'border-transparent hover:border-subtle hover:bg-white/[0.03]'
         }`}
         style={
           sticky && stickyTop
@@ -102,11 +102,11 @@ export function CollapsibleSection({
           fill="none"
           stroke="currentColor"
           strokeWidth="2.5"
-          className={`text-white/30 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-muted transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
-        <span className="text-[11px] font-semibold tracking-[0.02em] text-white/68">
+        <span className="text-caption font-semibold tracking-[0.02em] text-white/68">
           {title}
         </span>
       </button>

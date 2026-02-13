@@ -24,13 +24,13 @@ export function AgentPanel({
   if (agents.length === 0) {
     return (
       <PremiumCard className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 py-3 border-b border-white/[0.04]">
-          <span className="text-[13px] font-medium text-white">Agents</span>
+        <div className="px-4 py-3 border-b border-hairline">
+          <span className="text-body font-medium text-white">Agents</span>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="text-center">
             <svg
-              className="mx-auto mb-2 text-white/20"
+              className="mx-auto mb-2 text-faint"
               width="20"
               height="20"
               viewBox="0 0 24 24"
@@ -40,7 +40,7 @@ export function AgentPanel({
             >
               <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
             </svg>
-            <p className="text-[11px] text-white/40">No agents assigned</p>
+            <p className="text-caption text-muted">No agents assigned</p>
           </div>
         </div>
       </PremiumCard>
@@ -49,11 +49,11 @@ export function AgentPanel({
 
   return (
     <PremiumCard className="flex-1 flex flex-col min-h-0">
-      <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/[0.04]">
-        <span className="text-[13px] font-medium text-white">Agents</span>
+      <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between border-b border-hairline">
+        <span className="text-body font-medium text-white">Agents</span>
         <div className="flex items-center gap-1.5">
           <StatusIndicator status="working" size="sm" />
-          <span className="text-[10px] text-white/40">
+          <span className="text-micro text-muted">
             {grouped.working.length + grouped.waiting.length}
           </span>
         </div>
@@ -62,7 +62,7 @@ export function AgentPanel({
       <div className="flex-1 overflow-y-auto p-2">
         {grouped.working.length > 0 && (
           <div className="mb-2">
-            <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/30">
+            <div className="px-2 py-1 text-micro font-semibold uppercase tracking-[0.12em] text-muted">
               Working
             </div>
             {grouped.working.map((agent) => (
@@ -80,7 +80,7 @@ export function AgentPanel({
 
         {grouped.waiting.length > 0 && (
           <div className="mb-2">
-            <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/30">
+            <div className="px-2 py-1 text-micro font-semibold uppercase tracking-[0.12em] text-muted">
               Waiting
             </div>
             {grouped.waiting.map((agent) => (
@@ -98,7 +98,7 @@ export function AgentPanel({
 
         {grouped.idle.length > 0 && (
           <div>
-            <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/20">
+            <div className="px-2 py-1 text-micro font-semibold uppercase tracking-[0.12em] text-faint">
               Idle
             </div>
             {grouped.idle.map((agent) => (

@@ -199,21 +199,21 @@ export function MissionControlFilters({
           });
         }}
         data-state={open || totalActiveCount > 0 ? 'active' : 'idle'}
-        className="control-pill flex items-center gap-1.5 px-3 text-[11px] font-semibold"
+        className="control-pill flex items-center gap-1.5 px-3 text-caption font-semibold"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
         </svg>
         <span>Filters</span>
         {totalActiveCount > 0 && (
-          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-[10px] leading-4">
+          <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-micro leading-4">
             {totalActiveCount}
           </span>
         )}
       </button>
 
       {visibleCount < initiatives.length && (
-        <span className="text-[10px] text-white/35 whitespace-nowrap">
+        <span className="text-micro text-muted whitespace-nowrap">
           {visibleCount}/{initiatives.length}
         </span>
       )}
@@ -227,7 +227,7 @@ export function MissionControlFilters({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -4 }}
             transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
-            className="text-[10px] text-white/40 transition-colors whitespace-nowrap hover:text-white/70"
+            className="text-micro text-muted transition-colors whitespace-nowrap hover:text-primary"
           >
             Clear
           </motion.button>
@@ -245,15 +245,15 @@ export function MissionControlFilters({
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="space-y-0.5">
-                <div className="text-[11px] font-semibold tracking-[0.01em] text-white/85">Filters</div>
-                <div className="text-[10px] text-white/45">Scope the Mission Control list view</div>
+                <div className="text-caption font-semibold tracking-[0.01em] text-bright">Filters</div>
+                <div className="text-micro text-secondary">Scope the Mission Control list view</div>
               </div>
               {hasFilterCriteria ? (
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/70">
+                <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-primary">
                   {totalActiveCount} active
                 </span>
               ) : hasNonDefaultViewOptions ? (
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60">
+                <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
                   view modified
                 </span>
               ) : null}
@@ -263,11 +263,11 @@ export function MissionControlFilters({
               <div className="section-kicker mb-2">Layout</div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Group</span>
+                  <span className="text-micro uppercase tracking-[0.08em] text-muted">Group</span>
                   <select
                     value={groupBy}
                     onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
                   >
                     {GROUP_BY_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -278,11 +278,11 @@ export function MissionControlFilters({
                 </label>
 
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/35">Sort</span>
+                  <span className="text-micro uppercase tracking-[0.08em] text-muted">Sort</span>
                   <select
                     value={sortBy}
                     onChange={(event) => setSortBy(event.target.value as SortByOption)}
-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-[11px] text-white/80 focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
                   >
                     {SORT_BY_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -301,7 +301,7 @@ export function MissionControlFilters({
                   <button
                     type="button"
                     onClick={() => setShowAllStatuses((prev) => !prev)}
-                    className="text-[10px] text-white/42 transition-colors hover:text-white/72"
+                    className="text-micro text-muted transition-colors hover:text-white/72"
                   >
                     {showAllStatuses ? 'Hide empty' : `Show empty (${hiddenStatusCount})`}
                   </button>
@@ -313,10 +313,10 @@ export function MissionControlFilters({
                   return (
                     <label
                       key={option.key}
-                      className={`flex cursor-pointer items-center justify-between rounded-md border px-2.5 py-1.5 text-[11px] transition-colors ${
+                      className={`flex cursor-pointer items-center justify-between rounded-md border px-2.5 py-1.5 text-caption transition-colors ${
                         checked
-                          ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-white/88'
-                          : 'border-white/[0.08] bg-white/[0.02] text-white/78 hover:border-white/[0.15]'
+                          ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-bright'
+                          : 'border-white/[0.08] bg-white/[0.02] text-primary hover:border-white/[0.15]'
                       }`}
                     >
                       <span className="flex items-center gap-2">
@@ -328,7 +328,7 @@ export function MissionControlFilters({
                         />
                         <span>{statusLabel(option.key)}</span>
                       </span>
-                      <span className="text-[10px] text-white/48">{option.count}</span>
+                      <span className="text-micro text-secondary">{option.count}</span>
                     </label>
                   );
                 })}
@@ -337,14 +337,14 @@ export function MissionControlFilters({
                 <button
                   type="button"
                   onClick={() => setStatusFilters([])}
-                  className={`text-[10px] uppercase tracking-[0.08em] ${
-                    selectedStatusCount > 0 ? 'text-white/70 hover:text-white' : 'text-white/35'
+                  className={`text-micro uppercase tracking-[0.08em] ${
+                    selectedStatusCount > 0 ? 'text-primary hover:text-white' : 'text-muted'
                   }`}
                   disabled={selectedStatusCount === 0}
                 >
                   Clear status
                 </button>
-                <div className="text-[10px] text-white/45">{selectedStatusCount} selected</div>
+                <div className="text-micro text-secondary">{selectedStatusCount} selected</div>
               </div>
             </div>
 
@@ -352,7 +352,7 @@ export function MissionControlFilters({
               <div className="section-kicker mb-2">Date</div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/45">
+                  <span className="text-micro uppercase tracking-[0.08em] text-secondary">
                     Field
                   </span>
                   <select
@@ -360,7 +360,7 @@ export function MissionControlFilters({
                     onChange={(event) =>
                       setDateField(event.target.value as MissionControlDateField)
                     }
-                    className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
                   >
                     {DATE_FIELD_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -371,7 +371,7 @@ export function MissionControlFilters({
                 </label>
 
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-white/45">
+                  <span className="text-micro uppercase tracking-[0.08em] text-secondary">
                     Condition
                   </span>
                   <select
@@ -379,7 +379,7 @@ export function MissionControlFilters({
                     onChange={(event) =>
                       setDatePreset(event.target.value as MissionControlDatePreset)
                     }
-                    className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
                   >
                     {datePresetOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -393,25 +393,25 @@ export function MissionControlFilters({
               {datePreset === 'custom_range' && (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <label className="flex flex-col gap-1">
-                    <span className="text-[10px] uppercase tracking-[0.08em] text-white/45">
+                    <span className="text-micro uppercase tracking-[0.08em] text-secondary">
                       Start
                     </span>
                     <input
                       type="date"
                       value={dateStart}
                       onChange={(event) => setDateStart(event.target.value)}
-                      className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
                     />
                   </label>
                   <label className="flex flex-col gap-1">
-                    <span className="text-[10px] uppercase tracking-[0.08em] text-white/45">
+                    <span className="text-micro uppercase tracking-[0.08em] text-secondary">
                       End
                     </span>
                     <input
                       type="date"
                       value={dateEnd}
                       onChange={(event) => setDateEnd(event.target.value)}
-                      className="h-9 rounded-lg border border-white/[0.12] bg-black/30 px-2 text-[11px] text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
                     />
                   </label>
                 </div>
@@ -429,7 +429,7 @@ export function MissionControlFilters({
                         setGroupBy('status');
                         setSortBy('default');
                       }}
-                      className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
+                      className="text-micro uppercase tracking-[0.09em] text-secondary transition-colors hover:text-bright"
                     >
                       Reset layout
                     </button>
@@ -438,7 +438,7 @@ export function MissionControlFilters({
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="text-[10px] uppercase tracking-[0.09em] text-white/55 transition-colors hover:text-white/85"
+                      className="text-micro uppercase tracking-[0.09em] text-secondary transition-colors hover:text-bright"
                     >
                       Clear filters
                     </button>

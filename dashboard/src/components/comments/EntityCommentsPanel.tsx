@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildOrgxHeaders } from '@/lib/http';
+import { formatAbsoluteTime } from '@/lib/time';
 
 type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision';
 
@@ -147,17 +148,17 @@ export function EntityCommentsPanel(props: {
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={onTextareaKeyDown}
           placeholder="Leave a note for humans or agents..."
-          className="min-h-[96px] w-full resize-y rounded-xl border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-[12px] text-white/90 outline-none placeholder:text-white/25 focus:border-white/20 focus:bg-white/[0.05] transition-colors"
+          className="min-h-[96px] w-full resize-y rounded-xl border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-body text-bright outline-none placeholder:text-faint focus:border-white/20 focus:bg-white/[0.05] transition-colors"
         />
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-white/40">
+          <p className="text-caption text-muted">
             Visible to agents and collaborators. Tip: Cmd/Ctrl+Enter to post.
           </p>
           <button
             type="button"
             onClick={onSubmit}
             disabled={saving || body.trim().length === 0}
-            className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3.5 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09] disabled:opacity-50 disabled:hover:bg-white/[0.05]"
+            className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3.5 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09] disabled:opacity-50 disabled:hover:bg-white/[0.05]"
           >
             {saving ? 'Saving…' : 'Post note'}
           </button>
@@ -165,15 +166,15 @@ export function EntityCommentsPanel(props: {
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2 text-[12px] text-red-200">
+        <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2 text-body text-red-200">
           {error}
         </div>
       ) : null}
 
       {loading ? (
-        <div className="mt-3 text-[12px] text-white/40">Loading notes…</div>
+        <div className="mt-3 text-body text-muted">Loading notes…</div>
       ) : comments.length === 0 ? (
-        <div className="mt-3 text-[12px] text-white/40">No notes yet.</div>
+        <div className="mt-3 text-body text-muted">No notes yet.</div>
       ) : (
         <div className="mt-3 space-y-3">
           {comments.map((comment) => {
@@ -193,28 +194,28 @@ export function EntityCommentsPanel(props: {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] font-semibold text-white/90">
+                    <span className="text-body font-semibold text-bright">
                       {authorLabel}
                     </span>
-                    <span className="rounded-full border border-white/[0.14] bg-white/[0.06] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/60">
+                    <span className="rounded-full border border-strong bg-white/[0.06] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
                       {comment.author_type}
                     </span>
-                    <span className="rounded-full border border-white/[0.14] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/55">
+                    <span className="rounded-full border border-strong px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
                       {typeLabel}
                     </span>
                     {severity !== 'info' ? (
-                      <span className="rounded-full border border-white/[0.14] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/55">
+                      <span className="rounded-full border border-strong px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
                         {severity}
                       </span>
                     ) : null}
                   </div>
                   {createdAtLabel ? (
-                    <span className="text-[11px] text-white/40">
+                    <span className="text-caption text-muted" title={formatAbsoluteTime(comment.created_at)}>
                       {createdAtLabel}
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-white/75">
+                <p className="mt-2 whitespace-pre-wrap text-body leading-relaxed text-primary">
                   {comment.body}
                 </p>
               </div>

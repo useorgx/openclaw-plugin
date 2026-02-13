@@ -59,7 +59,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
       style={{ bottom: 'max(10px, env(safe-area-inset-bottom))' }}
       aria-label="Mobile sections"
     >
-      <div className="pointer-events-auto relative flex items-stretch gap-1 rounded-[24px] border border-white/[0.12] bg-[#090d16]/90 p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.52)] backdrop-blur-xl">
+      <div className="pointer-events-auto relative flex items-stretch gap-1 rounded-[24px] border border-strong bg-[#090d16]/90 p-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.52)] backdrop-blur-xl">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -70,7 +70,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
               aria-current={isActive ? 'page' : undefined}
               className={cn(
                 'relative flex min-w-[76px] flex-1 flex-col items-center gap-1 overflow-hidden rounded-[18px] px-2 pb-1.5 pt-2.5 transition-colors',
-                isActive ? 'text-lime' : 'text-white/45 hover:text-white/72'
+                isActive ? 'text-lime' : 'text-secondary hover:text-white/72'
               )}
             >
               {isActive && (
@@ -108,7 +108,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
                   </span>
                 )}
               </span>
-              <span className={cn('relative z-[1] text-[10px] font-medium', isActive ? 'text-[#D8FFA1]' : 'text-white/55')}>
+              <span className={cn('relative z-[1] text-micro font-medium', isActive ? 'text-[#D8FFA1]' : 'text-secondary')}>
                 {tab.label}
               </span>
             </button>

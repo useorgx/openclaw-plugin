@@ -94,8 +94,8 @@ export function OrgxConnectionPanel({
   return (
     <div className="flex min-h-0 flex-col">
       <div className="mb-4">
-        <h3 className="text-[15px] font-semibold text-white">OrgX connection</h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+        <h3 className="text-heading font-semibold text-white">OrgX connection</h3>
+        <p className="mt-1 text-body leading-relaxed text-secondary">
           {connectionSummary}
         </p>
 
@@ -107,7 +107,7 @@ export function OrgxConnectionPanel({
               )}
               <span className={`relative inline-flex h-2 w-2 rounded-full ${dotStyle[dot]}`} />
             </span>
-            <span className="text-white/80">{statusLabel(state.status)}</span>
+            <span className="text-primary">{statusLabel(state.status)}</span>
           </span>
           {state.workspaceName && <span className="chip">{state.workspaceName}</span>}
           {state.keySource && state.keySource !== 'none' && (
@@ -120,7 +120,7 @@ export function OrgxConnectionPanel({
       </div>
 
       {hasError && (
-        <div className="mb-4 rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-[12px] text-rose-100">
+        <div className="mb-4 rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
           {state.lastError}
         </div>
       )}
@@ -139,14 +139,14 @@ export function OrgxConnectionPanel({
               onClick={() => { void onStartPairing(); }}
               disabled={isStarting}
               data-modal-autofocus="true"
-              className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-[12px] font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isStarting ? 'Connecting...' : 'Connect in browser'}
             </button>
             <button
               type="button"
               onClick={onUseManualKey}
-              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06]"
             >
               Use API key
             </button>
@@ -154,7 +154,7 @@ export function OrgxConnectionPanel({
               <button
                 type="button"
                 onClick={() => { void onDisconnect(); }}
-                className="rounded-full border border-rose-300/25 bg-rose-400/10 px-4 py-2 text-[12px] font-semibold text-rose-100/90 transition-colors hover:bg-rose-400/15"
+                className="rounded-full border border-rose-300/25 bg-rose-400/10 px-4 py-2 text-body font-semibold text-rose-100/90 transition-colors hover:bg-rose-400/15"
               >
                 Disconnect
               </button>
@@ -163,7 +163,7 @@ export function OrgxConnectionPanel({
               type="button"
               onClick={() => { void onRefresh(); }}
               className={cn(
-                'rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]',
+                'rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06]',
                 isStarting && 'opacity-60'
               )}
             >
@@ -173,7 +173,7 @@ export function OrgxConnectionPanel({
               href={settingsUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06]"
               title="Generate/revoke API keys at useorgx.com"
             >
               Open API keys
@@ -182,10 +182,10 @@ export function OrgxConnectionPanel({
 
           {state.connectUrl && (showPairingState || state.status === 'starting') && (
             <div className="mt-4 rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.1em] text-[#D8FFA1]">
+              <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">
                 Pairing pending
               </p>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/65">
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 Approve the connection in your browser to finish pairing.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -193,12 +193,12 @@ export function OrgxConnectionPanel({
                   href={state.connectUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
+                  className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1]"
                 >
                   Approve in browser
                 </a>
                 {state.expiresAt && (
-                  <span className="text-[11px] text-white/40">
+                  <span className="text-caption text-muted">
                     Expires {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 )}
@@ -208,9 +208,9 @@ export function OrgxConnectionPanel({
         </div>
       )}
 
-      <div className="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-        <p className="text-[12px] font-semibold text-white/80">Key guidance</p>
-        <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+      <div className="mt-4 rounded-2xl border border-subtle bg-white/[0.02] p-4">
+        <p className="text-body font-semibold text-primary">Key guidance</p>
+        <p className="mt-1 text-body leading-relaxed text-secondary">
           Use a user-scoped key (<code className="rounded bg-black/40 px-1">oxk_...</code>) whenever possible.
           User keys do not require a separate userId header.
         </p>

@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { colors } from '@/lib/tokens';
-import { formatRelativeTime } from '@/lib/time';
+import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
 import { humanizeModel, humanizeText } from '@/lib/humanize';
 import type { LiveActivityItem, SessionTreeNode } from '@/types';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
@@ -95,10 +95,10 @@ export const ThreadView = memo(function ThreadView({
   return (
     <div className="flex h-full flex-col">
       {/* Thread header */}
-      <div className="border-b border-white/[0.06] px-4 py-3">
+      <div className="border-b border-subtle px-4 py-3">
         <button
           onClick={onBack}
-          className="mb-2 flex items-center gap-1.5 text-[11px] text-white/50 transition-colors hover:text-white/80"
+          className="mb-2 flex items-center gap-1.5 text-caption text-secondary transition-colors hover:text-primary"
         >
           <svg
             width="12"
@@ -123,12 +123,12 @@ export const ThreadView = memo(function ThreadView({
               boxShadow: `0 0 12px ${colors.lime}55`,
             }}
           />
-          <h3 className="text-[14px] font-semibold text-white">
+          <h3 className="text-heading font-semibold text-white">
             {humanizeText(sessionTitle)}
           </h3>
         </div>
 
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-white/45">
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-micro text-secondary">
           {agentName && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] px-1 py-0.5">
               <AgentAvatar name={agentName} hint={session?.id ?? session?.runId ?? null} size="xs" />
@@ -138,32 +138,32 @@ export const ThreadView = memo(function ThreadView({
           <span>{sorted.length} turn{sorted.length !== 1 ? 's' : ''}</span>
           {duration && <span>{duration}</span>}
           {cost && (
-            <span className="text-white/35">{cost}</span>
+            <span className="text-muted">{cost}</span>
           )}
           {provenance?.domain && (
-            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
               {humanizeText(provenance.domain)}
             </span>
           )}
           {(provenance?.provider || provenance?.model) && (
-            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
               {provenance.provider ? `${humanizeText(provenance.provider)} · ` : ''}
               {provenance.model ? humanizeModel(provenance.model) : '—'}
             </span>
           )}
           {provenance?.modelTier && (
-            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
               tier: {humanizeText(provenance.modelTier)}
             </span>
           )}
           {provenance?.kickoffContextHash && (
-            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 font-mono text-white/55">
+            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 font-mono text-secondary">
               kickoff {provenance.kickoffContextHash.slice(0, 8)}…
             </span>
           )}
           {session?.status && (
             <span
-              className="rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wider"
+              className="rounded-full px-1.5 py-0.5 text-micro uppercase tracking-wider"
               style={{
                 backgroundColor:
                   session.status === 'running'
@@ -230,21 +230,21 @@ export const ThreadView = memo(function ThreadView({
                     {/* Content */}
                     <div className="min-w-0 flex-1">
                       <p
-                        className={`text-[12px] leading-snug ${
+                        className={`text-body leading-snug ${
                           isError
                             ? 'text-red-400'
                             : isDecision
                               ? 'text-amber-300'
                               : isArtifact
                                 ? 'text-cyan-300'
-                                : 'text-white/85'
+                                : 'text-bright'
                         }`}
                       >
                         {title}
                       </p>
 
                       {item.summary && item.summary !== title && (
-                        <p className="mt-0.5 text-[11px] leading-relaxed text-white/40">
+                        <p className="mt-0.5 text-caption leading-relaxed text-muted">
                           {humanizeText(item.summary)}
                         </p>
                       )}
@@ -252,11 +252,11 @@ export const ThreadView = memo(function ThreadView({
 
                     {/* Right side: time + model */}
                     <div className="flex flex-shrink-0 flex-col items-end gap-0.5 pt-0.5">
-                      <span className="text-[10px] text-white/35">
+                      <span className="text-micro text-muted" title={formatAbsoluteTime(item.timestamp)}>
                         {formatTime(item.timestamp)}
                       </span>
                       {model && (
-                        <span className="text-[9px] text-white/25">
+                        <span className="text-micro text-faint">
                           {model}
                         </span>
                       )}
@@ -270,18 +270,18 @@ export const ThreadView = memo(function ThreadView({
 
         {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <p className="text-[12px] text-white/40">No activity in this session yet.</p>
+            <p className="text-body text-muted">No activity in this session yet.</p>
           </div>
         )}
 
         {/* Session summary footer */}
         {sorted.length > 0 && (
-          <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] text-white/35">
+          <div className="mt-4 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2 text-micro text-muted">
             {sorted.length} turn{sorted.length !== 1 ? 's' : ''}
             {duration ? ` over ${duration}` : ''}
             {cost ? ` \u00B7 ${cost}` : ''}
             {' \u00B7 '}
-            {formatRelativeTime(sorted[sorted.length - 1].timestamp)}
+            <span title={formatAbsoluteTime(sorted[sorted.length - 1].timestamp)}>{formatRelativeTime(sorted[sorted.length - 1].timestamp)}</span>
           </div>
         )}
       </div>

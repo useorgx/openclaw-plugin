@@ -37,14 +37,14 @@ export function BulkDecisionsModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex h-full w-full flex-col">
-        <div className="border-b border-white/[0.06] px-5 pt-5 pb-4">
+        <div className="border-b border-subtle px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="inline-flex items-center gap-2 text-[15px] font-semibold text-white">
+              <h3 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
                 <EntityIcon type="decision" size={14} />
                 <span className="truncate">Decisions</span>
                 <span
-                  className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                  className="rounded-full border px-2 py-0.5 text-caption font-semibold"
                   style={{
                     borderColor: `${urgencyColor}30`,
                     backgroundColor: `${urgencyColor}14`,
@@ -54,11 +54,11 @@ export function BulkDecisionsModal({
                   {decisions.length}
                 </span>
               </h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 Bulk review and resolve pending decisions.
               </p>
               {decisions.length > 0 && (
-                <p className="mt-2 text-[11px] text-white/55">
+                <p className="mt-2 text-caption text-secondary">
                   Longest waiting: <span className="font-semibold text-white">{longestWaitMinutes}m</span>
                 </p>
               )}
@@ -66,7 +66,7 @@ export function BulkDecisionsModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
+              className="rounded-md border border-strong bg-white/[0.03] px-2.5 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08]"
               aria-label="Close decisions modal"
             >
               Close

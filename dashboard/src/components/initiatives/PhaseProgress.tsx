@@ -29,7 +29,7 @@ export function PhaseProgress({ phases, currentPhase, health }: PhaseProgressPro
 
   return (
     <div className="space-y-2.5">
-      <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.1em] text-white/38">
+      <div className="flex items-center justify-between text-micro uppercase tracking-[0.1em] text-muted">
         <span>Momentum</span>
         <span>{Math.round(health ?? progress)}%</span>
       </div>
@@ -59,11 +59,11 @@ export function PhaseProgress({ phases, currentPhase, health }: PhaseProgressPro
             >
               <div
                 className={cn(
-                  'flex h-4 w-4 items-center justify-center rounded-full border text-[9px] font-semibold',
+                  'flex h-4 w-4 items-center justify-center rounded-full border text-micro font-semibold',
                   isCompleted && 'border-lime/80 bg-lime text-black',
                   isCurrent && 'border-lime/60 bg-lime/30 text-lime',
                   isWarning && 'border-amber-300/70 bg-amber-300 text-black',
-                  !isCompleted && !isCurrent && !isWarning && 'border-white/20 bg-black/60 text-white/45'
+                  !isCompleted && !isCurrent && !isWarning && 'border-white/20 bg-black/60 text-secondary'
                 )}
               >
                 {isCompleted ? '✓' : isWarning ? '!' : ''}
@@ -83,8 +83,8 @@ export function PhaseProgress({ phases, currentPhase, health }: PhaseProgressPro
             className={cn(
               'truncate text-[8px] uppercase tracking-[0.12em]',
               phase.status === 'completed' || phase.status === 'current'
-                ? 'text-white/60'
-                : 'text-white/30'
+                ? 'text-secondary'
+                : 'text-muted'
             )}
           >
             {phase.name}

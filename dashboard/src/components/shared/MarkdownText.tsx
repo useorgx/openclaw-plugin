@@ -58,7 +58,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       nodes.push(
         <code
           key={key}
-          className="rounded bg-white/[0.08] px-1 py-0.5 font-mono text-[0.93em] text-white/95"
+          className="rounded bg-white/[0.08] px-1 py-0.5 font-mono text-[0.93em] text-bright"
         >
           {inlineCode}
         </code>
@@ -71,7 +71,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       );
     } else if (emA || emB) {
       nodes.push(
-        <em key={key} className="italic text-white/90">
+        <em key={key} className="italic text-bright">
           {emA ?? emB}
         </em>
       );
@@ -161,7 +161,7 @@ function renderBlocks(text: string): ReactNode[] {
                 {header.map((cell, cellIndex) => (
                   <th
                     key={`tbl-h-${cellIndex}`}
-                    className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70"
+                    className="px-3 py-2 text-caption font-semibold uppercase tracking-[0.08em] text-primary"
                     style={{ textAlign: align[cellIndex] ?? 'left' }}
                   >
                     {renderInline(cell, `tbl-h-${index}-${cellIndex}`)}
@@ -173,12 +173,12 @@ function renderBlocks(text: string): ReactNode[] {
               {rows.map((row, rowIndex) => (
                 <tr
                   key={`tbl-r-${rowIndex}`}
-                  className={rowIndex < rows.length - 1 ? 'border-b border-white/[0.06]' : undefined}
+                  className={rowIndex < rows.length - 1 ? 'border-b border-subtle' : undefined}
                 >
                   {header.map((_, cellIndex) => (
                     <td
                       key={`tbl-r-${rowIndex}-c-${cellIndex}`}
-                      className="px-3 py-2 text-[13px] leading-relaxed text-white/80 align-top"
+                      className="px-3 py-2 text-body leading-relaxed text-primary align-top"
                       style={{ textAlign: align[cellIndex] ?? 'left' }}
                     >
                       {renderInline(row[cellIndex] ?? '', `tbl-r-${index}-${rowIndex}-${cellIndex}`)}
@@ -205,8 +205,8 @@ function renderBlocks(text: string): ReactNode[] {
 
       blocks.push(
         <div key={`code-${index}`} className="rounded-xl border border-white/[0.1] bg-black/40 p-3">
-          {lang && <p className="mb-1 text-[10px] uppercase tracking-[0.12em] text-white/35">{lang}</p>}
-          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/78">
+          {lang && <p className="mb-1 text-micro uppercase tracking-[0.12em] text-muted">{lang}</p>}
+          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-primary">
             <code>{codeLines.join('\n')}</code>
           </pre>
         </div>
@@ -219,7 +219,7 @@ function renderBlocks(text: string): ReactNode[] {
       const level = headingMatch[1].length;
       const headingText = headingMatch[2];
       const sizeClass =
-        level === 1 ? 'text-[16px] font-semibold' : level === 2 ? 'text-[14px] font-semibold' : 'text-[13px] font-medium';
+        level === 1 ? 'text-title font-semibold' : level === 2 ? 'text-heading font-semibold' : 'text-body font-medium';
       blocks.push(
         <p key={`h-${index}`} className={cn('tracking-[-0.01em] text-white', sizeClass)}>
           {renderInline(headingText, `h-${index}`)}
@@ -242,7 +242,7 @@ function renderBlocks(text: string): ReactNode[] {
       blocks.push(
         <ul key={`ul-${index}`} className="space-y-1.5 pl-4">
           {items.map((item, itemIndex) => (
-            <li key={`ul-${index}-${itemIndex}`} className="list-disc text-[13px] leading-relaxed text-white/78">
+            <li key={`ul-${index}-${itemIndex}`} className="list-disc text-body leading-relaxed text-primary">
               {renderInline(item, `ul-${index}-${itemIndex}`)}
             </li>
           ))}
@@ -264,7 +264,7 @@ function renderBlocks(text: string): ReactNode[] {
       blocks.push(
         <ol key={`ol-${index}`} className="space-y-1.5 pl-4">
           {items.map((item, itemIndex) => (
-            <li key={`ol-${index}-${itemIndex}`} className="list-decimal text-[13px] leading-relaxed text-white/78">
+            <li key={`ol-${index}-${itemIndex}`} className="list-decimal text-body leading-relaxed text-primary">
               {renderInline(item, `ol-${index}-${itemIndex}`)}
             </li>
           ))}
@@ -287,7 +287,7 @@ function renderBlocks(text: string): ReactNode[] {
     }
 
     blocks.push(
-      <p key={`p-${index}`} className="text-[13px] leading-relaxed text-white/78">
+      <p key={`p-${index}`} className="text-body leading-relaxed text-primary">
         {renderInlineMultiline(paragraphLines.join('\n'), `p-${index}`)}
       </p>
     );

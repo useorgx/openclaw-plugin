@@ -145,7 +145,7 @@ const featureAccentByType: Record<EntityIconType, string> = {
   initiative: 'text-[#A8A0FF]',
   workstream: 'text-[#BFFF00]',
   milestone: 'text-[#43E7D8]',
-  task: 'text-white/80',
+  task: 'text-primary',
   session: 'text-[#43E7D8]',
   active: 'text-[#BFFF00]',
   blocked: 'text-[#FF6B88]',
@@ -237,7 +237,7 @@ export function ExplainerPanel({
       <div className="px-6 pt-4 sm:px-8 sm:pt-5">
         <motion.div variants={rise} className="flex items-center gap-2.5">
           <img src={orgxLogo} alt="OrgX" className="h-7 w-7 rounded-lg object-contain" />
-          <span className="text-[13px] font-semibold text-white/70">OrgX</span>
+          <span className="text-body font-semibold text-primary">OrgX</span>
         </motion.div>
 
         <motion.h2
@@ -247,7 +247,7 @@ export function ExplainerPanel({
           <EntityIcon type="workstream" size={19} className="opacity-95" />
           Connect your workspace
         </motion.h2>
-        <motion.p variants={rise} className="mt-2 max-w-2xl text-[14px] leading-relaxed text-white/50">
+        <motion.p variants={rise} className="mt-2 max-w-2xl text-heading leading-relaxed text-secondary">
           Orchestrate agents, approve decisions, and track progress from a single live dashboard.
         </motion.p>
       </div>
@@ -262,9 +262,9 @@ export function ExplainerPanel({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <EntityIcon type="workstream" size={14} className="text-[#BFFF00]" />
-                <p className="text-[10px] uppercase tracking-[0.1em] text-white/45">Guided Tour</p>
+                <p className="text-micro uppercase tracking-[0.1em] text-secondary">Guided Tour</p>
               </div>
-              <span className="chip text-[10px]">
+              <span className="chip text-micro">
                 {activeSlideIndex + 1}/{tutorialSlides.length}
               </span>
             </div>
@@ -278,13 +278,13 @@ export function ExplainerPanel({
                 transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                 className="mt-2.5 min-h-[214px] space-y-2.5"
               >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.09em] text-white/40">
+                <p className="text-micro font-semibold uppercase tracking-[0.09em] text-muted">
                   {activeSlide.kicker}
                 </p>
-                <h3 className="text-[16px] font-semibold leading-snug text-white/94">
+                <h3 className="text-title font-semibold leading-snug text-white/94">
                   {activeSlide.title}
                 </h3>
-                <p className="text-[12px] leading-relaxed text-white/55">
+                <p className="text-body leading-relaxed text-secondary">
                   {activeSlide.description}
                 </p>
 
@@ -296,14 +296,14 @@ export function ExplainerPanel({
                     >
                       <div className="flex items-center gap-1.5">
                         <EntityIcon type={item.type} size={12} className="flex-shrink-0 opacity-92" />
-                        <p className="text-[11px] font-semibold text-white/88">{item.label}</p>
+                        <p className="text-caption font-semibold text-bright">{item.label}</p>
                       </div>
-                      <p className="mt-0.5 text-[10px] leading-relaxed text-white/50">{item.detail}</p>
+                      <p className="mt-0.5 text-micro leading-relaxed text-secondary">{item.detail}</p>
                     </div>
                   ))}
                 </div>
 
-                <p className="text-[10px] leading-relaxed text-white/42">{activeSlide.footnote}</p>
+                <p className="text-micro leading-relaxed text-muted">{activeSlide.footnote}</p>
               </motion.div>
             </AnimatePresence>
 
@@ -328,14 +328,14 @@ export function ExplainerPanel({
                 <button
                   type="button"
                   onClick={() => setActiveSlideIndex((previous) => slideIndexWrap(previous - 1))}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                  className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.08] hover:text-white"
                 >
                   Prev
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveSlideIndex((previous) => slideIndexWrap(previous + 1))}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                  className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.08] hover:text-white"
                 >
                   Next
                 </button>
@@ -347,13 +347,13 @@ export function ExplainerPanel({
             {featureCards.map((feature) => (
               <div
                 key={feature.label}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5"
+                className="rounded-xl border border-subtle bg-white/[0.025] px-3 py-2.5"
               >
                 <div className={`mb-1.5 ${featureAccentByType[feature.iconType]}`}>
                   <EntityIcon type={feature.iconType} size={15} />
                 </div>
-                <p className="text-[11px] font-semibold text-white">{feature.label}</p>
-                <p className="mt-0.5 text-[10px] leading-snug text-white/44">{feature.desc}</p>
+                <p className="text-caption font-semibold text-white">{feature.label}</p>
+                <p className="mt-0.5 text-micro leading-snug text-white/44">{feature.desc}</p>
               </div>
             ))}
           </div>
@@ -363,7 +363,7 @@ export function ExplainerPanel({
               type="button"
               onClick={onConnect}
               disabled={isStarting}
-              className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-[13px] font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isStarting ? (
                 <>
@@ -380,7 +380,7 @@ export function ExplainerPanel({
             <button
               type="button"
               onClick={onUseManualKey}
-              className="rounded-full border border-white/[0.1] px-4 py-2 text-[13px] text-white/60 transition hover:border-white/[0.18] hover:text-white/85"
+              className="rounded-full border border-white/[0.1] px-4 py-2 text-body text-secondary transition hover:border-white/[0.18] hover:text-bright"
             >
               Use API key
             </button>
@@ -391,9 +391,9 @@ export function ExplainerPanel({
           <div className="rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-3.5 py-3">
             <div className="flex items-center gap-1.5">
               <EntityIcon type="workstream" size={12} className="text-[#7EEDE1]" />
-              <p className="text-[11px] uppercase tracking-[0.08em] text-[#7EEDE1]">OpenClaw Integration</p>
+              <p className="text-caption uppercase tracking-[0.08em] text-[#7EEDE1]">OpenClaw Integration</p>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-[#CFF8F3]">
+            <p className="mt-1 text-caption leading-relaxed text-[#CFF8F3]">
               OrgX syncs with OpenClaw so initiatives, workstreams, milestones, and tasks stay aligned with live execution.
             </p>
           </div>
@@ -401,10 +401,10 @@ export function ExplainerPanel({
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3">
             <div className="flex items-center gap-1.5">
               <EntityIcon type="task" size={12} className="opacity-90" />
-              <p className="text-[11px] uppercase tracking-[0.08em] text-white/38">Quick Setup</p>
+              <p className="text-caption uppercase tracking-[0.08em] text-muted">Quick Setup</p>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <code className="rounded-md border border-white/[0.08] bg-black/30 px-2 py-1 font-mono text-[11px] text-white/75">
+              <code className="rounded-md border border-white/[0.08] bg-black/30 px-2 py-1 font-mono text-caption text-primary">
                 {SETUP_COMMAND}
               </code>
               <button
@@ -412,28 +412,28 @@ export function ExplainerPanel({
                 onClick={() => {
                   void copySetupCommand();
                 }}
-                className="rounded-full border border-white/[0.12] px-3 py-1 text-[11px] text-white/65 transition hover:border-white/[0.2] hover:text-white/90"
+                className="rounded-full border border-strong px-3 py-1 text-caption text-secondary transition hover:border-white/[0.2] hover:text-bright"
               >
                 {copyState === 'ok' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy command'}
               </button>
             </div>
             {showKeySource && (
-              <p className="mt-2 text-[11px] text-white/45">
+              <p className="mt-2 text-caption text-secondary">
                 API key source detected: {keySourceLabel(state.keySource)}
               </p>
             )}
           </div>
 
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3">
-            <p className="text-[11px] uppercase tracking-[0.08em] text-white/38">What Unlocks After Connect</p>
+            <p className="text-caption uppercase tracking-[0.08em] text-muted">What Unlocks After Connect</p>
             <div className="mt-2 space-y-1.5">
               {onboardingBenefits.map((benefit) => (
                 <div key={benefit.label} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
                   <div className="flex items-center gap-1.5">
                     <EntityIcon type={benefit.type} size={12} className="flex-shrink-0 opacity-90" />
-                    <p className="text-[11px] font-semibold text-white/88">{benefit.label}</p>
+                    <p className="text-caption font-semibold text-bright">{benefit.label}</p>
                   </div>
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-white/48">{benefit.detail}</p>
+                  <p className="mt-0.5 text-micro leading-relaxed text-secondary">{benefit.detail}</p>
                 </div>
               ))}
             </div>
@@ -450,13 +450,13 @@ export function ExplainerPanel({
               </svg>
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] text-red-300/80">{state.lastError}</p>
+              <p className="text-body text-red-300/80">{state.lastError}</p>
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={() => void copyDebugDetails()}
-                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-medium text-primary transition hover:bg-white/[0.08] hover:text-white"
                 title="Copy debug details for support"
               >
                 {debugCopyState === 'ok'
@@ -468,7 +468,7 @@ export function ExplainerPanel({
               <button
                 type="button"
                 onClick={onUseManualKey}
-                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-medium text-primary transition hover:bg-white/[0.08] hover:text-white"
               >
                 Use API key
               </button>
@@ -476,25 +476,25 @@ export function ExplainerPanel({
                 type="button"
                 onClick={onConnect}
                 disabled={isStarting}
-                className="rounded-full border border-red-500/20 bg-red-500/[0.06] px-3 py-1 text-[11px] font-semibold text-red-200/85 transition hover:bg-red-500/[0.09] hover:text-red-100 disabled:opacity-50"
+                className="rounded-full border border-red-500/20 bg-red-500/[0.06] px-3 py-1 text-caption font-semibold text-red-200/85 transition hover:bg-red-500/[0.09] hover:text-red-100 disabled:opacity-50"
               >
                 Retry
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-2">
+          <div className="flex items-center gap-2 rounded-xl border border-subtle bg-white/[0.02] px-3.5 py-2">
             <span className="relative flex h-1.5 w-1.5">
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white/40" />
             </span>
-            <span className="text-[12px] text-white/40">Ready to connect</span>
+            <span className="text-body text-muted">Ready to connect</span>
           </div>
         )}
       </motion.div>
 
       <motion.div
         variants={rise}
-        className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.05] px-6 py-2 sm:px-8"
+        className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-subtle px-6 py-2 sm:px-8"
       >
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -507,7 +507,7 @@ export function ExplainerPanel({
               }
               onContinueWithoutOrgX();
             }}
-            className="text-left text-[11px] text-white/35 transition hover:text-white/60"
+            className="text-left text-caption text-muted transition hover:text-secondary"
           >
             Explore demo dashboard
           </button>
@@ -521,7 +521,7 @@ export function ExplainerPanel({
               }
               onContinueWithoutOrgX();
             }}
-            className="text-left text-[11px] text-white/25 transition hover:text-white/55"
+            className="text-left text-caption text-faint transition hover:text-secondary"
           >
             Continue offline
           </button>
@@ -530,7 +530,7 @@ export function ExplainerPanel({
           href={state.docsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="group inline-flex items-center gap-1 text-[11px] text-white/35 transition hover:text-white/60"
+          className="group inline-flex items-center gap-1 text-caption text-muted transition hover:text-secondary"
         >
           Setup guide
           <svg

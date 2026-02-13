@@ -30,13 +30,13 @@ export function DecisionBanner({ decisions, onDecide }: DecisionBannerProps) {
           <span className="text-xs font-medium text-white">
             {decision.title}
           </span>
-          <span className="text-[10px] text-white/40 ml-2">
+          <span className="text-micro text-muted ml-2">
             {decision.agent} · {decision.waitingMinutes}m
           </span>
         </div>
         {remaining > 0 && (
           <span
-            className="px-1.5 py-0.5 rounded text-[9px] font-bold"
+            className="px-1.5 py-0.5 rounded text-micro font-bold"
             style={{ color: accentColor, backgroundColor: `${accentColor}15` }}
           >
             +{remaining}
@@ -45,7 +45,7 @@ export function DecisionBanner({ decisions, onDecide }: DecisionBannerProps) {
       </div>
       <button
         onClick={() => onDecide(decision)}
-        className="px-3 py-1 rounded-lg text-[10px] font-bold"
+        className="px-3 py-1 rounded-lg text-micro font-bold"
         style={{ backgroundColor: accentColor, color: '#000' }}
       >
         REVIEW

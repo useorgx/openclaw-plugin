@@ -115,24 +115,24 @@ export function BulkHandoffsModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
       <div className="flex h-full w-full flex-col">
-        <div className="border-b border-white/[0.06] px-5 pt-5 pb-4">
+        <div className="border-b border-subtle px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="inline-flex items-center gap-2 text-[15px] font-semibold text-white">
+              <h3 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
                 <EntityIcon type="handoff" size={14} />
                 <span className="truncate">Handoffs</span>
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-white/75">
+                <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-caption font-semibold text-primary">
                   {handoffs.length}
                 </span>
               </h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 Review and export current handoffs. Select items for a tighter export.
               </p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
+              className="rounded-md border border-strong bg-white/[0.03] px-2.5 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08]"
               aria-label="Close handoffs modal"
             >
               Close
@@ -150,7 +150,7 @@ export function BulkHandoffsModal({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search title, summary, status…"
                 data-modal-autofocus="true"
-                className="w-full rounded-lg border border-white/[0.12] bg-black/25 px-3 py-2 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/35"
+                className="w-full rounded-lg border border-strong bg-black/25 px-3 py-2 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/35"
               />
             </div>
 
@@ -158,14 +158,14 @@ export function BulkHandoffsModal({
               type="button"
               onClick={toggleAll}
               disabled={filtered.length === 0}
-              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-lg border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               {allSelected ? 'Clear all' : `Select all (${filtered.length})`}
             </button>
           </div>
 
           {copied && (
-            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[12px] text-white/60">
+            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-body text-secondary">
               {copied}
             </div>
           )}
@@ -173,7 +173,7 @@ export function BulkHandoffsModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {filtered.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-[12px] text-white/45">
+            <div className="rounded-xl border border-subtle bg-white/[0.02] p-4 text-body text-secondary">
               No handoffs match this view.
             </div>
           ) : (
@@ -200,21 +200,21 @@ export function BulkHandoffsModal({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-[13px] font-medium text-white">
+                            <p className="truncate text-body font-medium text-white">
                               {handoff.title}
                             </p>
                             {handoff.summary && (
-                              <p className="mt-1 line-clamp-2 text-[11px] text-white/60">
+                              <p className="mt-1 line-clamp-2 text-caption text-secondary">
                                 {handoff.summary}
                               </p>
                             )}
-                            <p className="mt-1 text-[10px] text-white/45">
+                            <p className="mt-1 text-micro text-secondary">
                               Updated {formatRelativeTime(handoff.updatedAt)}
                             </p>
                           </div>
 
                           <span
-                            className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                            className="shrink-0 rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em]"
                             style={{
                               borderColor: `${accent}30`,
                               backgroundColor: `${accent}14`,
@@ -233,8 +233,8 @@ export function BulkHandoffsModal({
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-white/[0.06] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-[11px] text-white/45">
+        <div className="flex flex-col gap-2 border-t border-subtle px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-caption text-secondary">
             {selectedCount > 0 ? `${selectedCount} selected` : 'No selection (exporting will include all filtered handoffs)'}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -242,7 +242,7 @@ export function BulkHandoffsModal({
               type="button"
               onClick={copyMarkdown}
               disabled={filtered.length === 0}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               Copy markdown
             </button>
@@ -250,7 +250,7 @@ export function BulkHandoffsModal({
               type="button"
               onClick={copyJson}
               disabled={filtered.length === 0}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               Copy JSON
             </button>

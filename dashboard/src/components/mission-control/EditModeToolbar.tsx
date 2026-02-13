@@ -9,10 +9,10 @@ export function EditModeToolbar({ editMode, onToggleEditMode }: EditModeToolbarP
       <button
         type="button"
         onClick={onToggleEditMode}
-        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
+        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-caption transition-colors ${
           editMode
             ? 'bg-[#BFFF00]/12 text-[#D8FFA1]'
-            : 'text-white/40 hover:text-white/65 hover:bg-white/[0.04]'
+            : 'text-muted hover:text-secondary hover:bg-white/[0.04]'
         }`}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

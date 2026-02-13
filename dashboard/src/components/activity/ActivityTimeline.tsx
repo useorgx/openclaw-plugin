@@ -533,11 +533,11 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload 
 
 function renderArtifactValue(value: unknown): ReactNode {
   if (typeof value === 'string') {
-    return <MarkdownText mode="block" text={value} className="text-[13px] leading-relaxed text-white/82" />;
+    return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-white/82" />;
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {
-    return <p className="text-[13px] text-white/82">{String(value)}</p>;
+    return <p className="text-body text-white/82">{String(value)}</p>;
   }
 
   if (Array.isArray(value)) {
@@ -558,8 +558,8 @@ function renderArtifactValue(value: unknown): ReactNode {
       <dl className="space-y-1.5">
         {entries.map(([key, entry]) => (
           <div key={key} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
-            <dt className="text-[10px] uppercase tracking-[0.1em] text-white/45">{humanizeText(key)}</dt>
-            <dd className="mt-1 text-[13px] text-white/82">
+            <dt className="text-micro uppercase tracking-[0.1em] text-secondary">{humanizeText(key)}</dt>
+            <dd className="mt-1 text-body text-white/82">
               {typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
                 ? String(entry)
                 : Array.isArray(entry)
@@ -574,7 +574,7 @@ function renderArtifactValue(value: unknown): ReactNode {
     );
   }
 
-  return <p className="text-[13px] text-white/55">No artifact payload.</p>;
+  return <p className="text-body text-secondary">No artifact payload.</p>;
 }
 
 function humanizeActivityBody(text: string | null | undefined): string | null {
@@ -1243,7 +1243,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
 
     const commonClassName =
-      "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+      "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
 
     const content = (
       <div className="flex items-start gap-3">
@@ -1264,29 +1264,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           />
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-white/92">
+              <p className="line-clamp-2 break-words text-body font-semibold leading-snug text-bright">
                 {displayTitle || humanizeText(item.title || labelForType(item.type))}
               </p>
-              <p className="mt-0.5 text-[11px] text-white/48">
+              <p className="mt-0.5 text-caption text-secondary">
                 {item.agentName ?? 'OrgX'}
                 {sessionStatus ? ` · ${humanizeText(sessionStatus)}` : ''}
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
-              <span className="text-[10px] uppercase tracking-[0.09em] text-white/42">
+              <span className="text-micro uppercase tracking-[0.09em] text-muted">
                 {kindLabel}
               </span>
-              <span className="text-[11px] text-white/55">{timeLabel}</span>
+              <span className="text-caption text-secondary">{timeLabel}</span>
             </div>
           </div>
 
           {(displaySummary || displayDesc) && (
-            <div className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-white/62">
+            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-white/62">
               <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
             </div>
           )}
 
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro">
             <span
               className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 uppercase tracking-[0.08em]"
               style={{
@@ -1298,7 +1298,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
               {primaryTag}
             </span>
-            <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-white/60">
+            <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-secondary">
               {runLabel}
             </span>
             <span
@@ -1308,10 +1308,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <EntityIcon type={iconTypeForActivity(item)} size={10} className="opacity-90" />
               {humanizeText(labelForType(item.type))}
             </span>
-            <span className="text-white/55">{formatRelativeTime(item.timestamp)}</span>
+            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
             {initiativeName && (
               <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/54"
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
                 title={initiativeName}
               >
                 <EntityIcon type="initiative" size={10} className="opacity-85" />
@@ -1320,7 +1320,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             )}
             {workstreamName && (
               <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/54"
+                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
                 title={workstreamName}
               >
                 <EntityIcon type="workstream" size={10} className="opacity-90" />
@@ -1388,8 +1388,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ) : (
       <>
       {runningSessions.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] px-4 py-2 scrollbar-none">
-          <span className="flex-shrink-0 text-[10px] uppercase tracking-[0.08em] text-white/35">In Progress</span>
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-subtle px-4 py-2 scrollbar-none">
+          <span className="flex-shrink-0 text-micro uppercase tracking-[0.08em] text-muted">In Progress</span>
           {runningSessions.map((session) => (
             <button
               key={session.id}
@@ -1398,26 +1398,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 transition-colors hover:bg-white/[0.06]"
             >
               <AgentAvatar name={session.agentName ?? 'OrgX'} size="xs" hint={session.agentName} />
-              <span className="max-w-[140px] truncate text-[11px] text-white/70">{session.title}</span>
+              <span className="max-w-[140px] truncate text-caption text-primary">{session.title}</span>
             </button>
           ))}
         </div>
       )}
-      <div className="border-b border-white/[0.06] px-4 py-3.5">
+      <div className="border-b border-subtle px-4 py-3.5">
         <div className="toolbar-shell flex flex-col gap-2.5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-[14px] font-semibold text-white">Activity</h2>
-              <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75 tabular-nums">
+              <h2 className="text-heading font-semibold text-white">Activity</h2>
+              <span className="rounded-full border border-strong bg-white/[0.05] px-2 py-0.5 text-micro text-primary tabular-nums">
                 {filteredTotal}
               </span>
               {hiddenCount > 0 && (
-                <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55 tabular-nums">
+                <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums">
                   +{hiddenCount} hidden
                 </span>
               )}
               {timeWindow.id !== 'all' && (
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
+                <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-micro text-secondary">
                   {timeWindow.label}
                 </span>
               )}
@@ -1433,7 +1433,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <button
                 type="button"
                 onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-                className="control-pill px-3 text-[11px] font-medium"
+                className="control-pill px-3 text-caption font-medium"
                 aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
               >
                 {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
@@ -1442,7 +1442,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 type="button"
                 onClick={() => setCollapsed((prev) => !prev)}
                 data-state={collapsed ? 'active' : 'idle'}
-                className="control-pill px-3 text-[11px] font-medium"
+                className="control-pill px-3 text-caption font-medium"
                 aria-pressed={collapsed}
               >
                 {collapsed ? 'Expand' : 'Compact'}
@@ -1466,7 +1466,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   <span className="min-w-0 truncate">
                     Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
                   </span>
-                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
                     ×
                   </span>
                 </button>
@@ -1478,13 +1478,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
                   aria-label="Clear workstream filter"
                 >
-                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro">
                     ↳
                   </span>
                   <span className="min-w-0 truncate">
                     Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
                   </span>
-                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
                     ×
                   </span>
                 </button>
@@ -1498,7 +1498,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 >
                   <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
                   <span className="min-w-0 truncate">Agent: {agentFilter}</span>
-                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
                     ×
                   </span>
                 </button>
@@ -1520,11 +1520,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   else if (bucket.id === 'decisions') setActiveFilter('decisions');
                   else setActiveFilter('all');
                 }}
-                  className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[10px] transition-colors hover:bg-white/[0.08]"
+                  className="inline-flex items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
                 >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: bucket.color }} />
                 <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{bucket.count}</span>
-                <span className="text-white/45">{bucket.label}</span>
+                <span className="text-secondary">{bucket.label}</span>
               </button>
             ))}
           </div>
@@ -1539,7 +1539,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-white/35"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
             >
               <circle cx="11" cy="11" r="7" />
               <path d="m20 20-3.5-3.5" />
@@ -1548,13 +1548,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search activity..."
-              className="w-full rounded-lg border border-white/[0.12] bg-black/25 py-2 pl-9 pr-2 text-[12px] text-white/82 placeholder:text-white/35 transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
+              className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-white/82 placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
               aria-label="Search activity"
             />
           </div>
 
           <div
-            className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-black/20 p-0.5"
+            className="inline-flex items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
             role="group"
             aria-label="Activity filters"
           >
@@ -1567,10 +1567,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   onClick={() => setActiveFilter(filterId)}
                   aria-pressed={active}
                   className={cn(
-                    'rounded-full px-3 py-1.5 text-[10px] font-semibold transition-colors',
+                    'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
                     active
                       ? 'border border-lime/25 bg-lime/[0.13] text-lime'
-                      : 'border border-transparent text-white/60 hover:bg-white/[0.08] hover:text-white/85'
+                      : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
                   )}
                 >
                   {filterLabels[filterId]}
@@ -1583,7 +1583,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {filtered.length === 0 && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-6 text-center">
+          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
             <svg
               width="24"
               height="24"
@@ -1593,11 +1593,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="text-white/25"
+              className="text-faint"
             >
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
             </svg>
-            <p className="text-[12px] text-white/45">
+            <p className="text-body text-secondary">
               {hasSessionFilter
                 ? `No ${filterLabels[activeFilter].toLowerCase()} for the selected session.`
                 : selectedWorkstreamId
@@ -1607,7 +1607,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             {(hasSessionFilter || selectedWorkstreamId) && (
               <button
                 onClick={hasSessionFilter ? onClearSelection : onClearWorkstreamFilter}
-                className="rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
+                className="rounded-md border border-strong bg-white/[0.04] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08]"
               >
                 {hasSessionFilter ? 'Show all sessions' : 'Show all workstreams'}
               </button>
@@ -1621,7 +1621,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               const visibleClusters = collapsed ? group.clusters.slice(0, 4) : group.clusters;
 	              return (
 	                <section key={group.key}>
-	                  <h3 className="mb-2.5 border-b border-white/[0.06] pb-1.5 text-[11px] uppercase tracking-[0.12em] text-white/35">
+	                  <h3 className="mb-2.5 border-b border-subtle pb-1.5 text-caption uppercase tracking-[0.12em] text-muted">
 	                    {group.label}
 	                  </h3>
 	                  {enableItemMotion ? (
@@ -1638,17 +1638,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              <button
 	                                type="button"
 	                                onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
-	                                className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+	                                className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
 	                              >
 	                                <span className="font-semibold">×{cluster.count}</span>
-	                                <span className="text-white/35">·</span>
+	                                <span className="text-muted">·</span>
 	                                <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
 	                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
 	                                  <path d="m6 9 6 6 6-6" />
 	                                </svg>
 	                              </button>
 	                              {isExpanded && (
-	                                <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
+	                                <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
 	                                  {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
 	                                </div>
 	                              )}
@@ -1670,17 +1670,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                            <button
 	                              type="button"
 	                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
-	                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+	                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
 	                            >
 	                              <span className="font-semibold">×{cluster.count}</span>
-	                              <span className="text-white/35">·</span>
+	                              <span className="text-muted">·</span>
 	                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
 	                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
 	                                <path d="m6 9 6 6 6-6" />
 	                              </svg>
 	                            </button>
 	                            {isExpanded && (
-	                              <div className="ml-8 mt-1 space-y-1.5 border-l border-white/[0.06] pl-3">
+	                              <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
 	                                {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
 	                              </div>
 	                            )}
@@ -1690,7 +1690,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                    </div>
 	                  )}
 	                  {collapsed && group.clusters.length > visibleClusters.length && (
-	                    <p className="mt-1.5 text-[11px] text-white/35">
+	                    <p className="mt-1.5 text-caption text-muted">
 	                      +{group.clusters.length - visibleClusters.length} more
 	                    </p>
 	                  )}
@@ -1699,7 +1699,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             })}
 
             {hiddenCount > 0 && (
-              <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] text-white/45">
+              <p className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">
                 Showing {filtered.length}/{filteredTotal} matched events (load more to see older).
               </p>
             )}
@@ -1712,7 +1712,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   type="button"
                   onClick={() => onLoadMore?.()}
                   disabled={!hasMore || isLoadingMore}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                  className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
                 >
                   {isLoadingMore ? 'Loading older…' : 'Load older'}
                 </button>
@@ -1729,9 +1729,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
             <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
 
-	            <div className="relative z-10 flex items-center justify-between border-b border-white/[0.06] px-5 py-4 sm:px-6">
+	            <div className="relative z-10 flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
 	              <div className="min-w-0">
-	                <p className="text-[11px] uppercase tracking-[0.12em] text-white/40">Activity Detail</p>
+	                <p className="text-caption uppercase tracking-[0.12em] text-muted">Activity Detail</p>
 	                <div className="mt-1 flex items-center gap-2">
 	                  <span
 	                    className="h-2.5 w-2.5 rounded-full"
@@ -1740,11 +1740,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       boxShadow: `0 0 16px ${bucketColor(activeDecorated.bucket)}77`,
                     }}
 	                  />
-	                  <span className="text-[12px] text-white/70">
+	                  <span className="text-body text-primary">
 	                    {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
 	                  </span>
 	                  {copyNotice && (
-	                    <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/60">
+	                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.12em] text-secondary">
 	                      {copyNotice}
 	                    </span>
 	                  )}
@@ -1759,7 +1759,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 		                      onFocusRunId(activeDecorated.runId!);
 		                      closeDetail();
 		                    }}
-	                    className="rounded-full border border-lime/25 bg-lime/10 px-3 py-1 text-[11px] font-semibold text-lime transition hover:bg-lime/20"
+	                    className="rounded-full border border-lime/25 bg-lime/10 px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/20"
 	                  >
 	                    Focus session
 	                  </button>
@@ -1768,7 +1768,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                  <button
 	                    type="button"
 	                    onClick={() => void copyText('Run id', activeDecorated.runId ?? '')}
-	                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
 	                    aria-label="Copy run id"
 	                  >
 	                    Copy run
@@ -1783,7 +1783,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                        resolveAgentIdentity(activeDecorated.item).agentId ?? ''
 	                      )
 	                    }
-	                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
 	                    aria-label="Copy agent id"
 	                  >
 	                    Copy agent
@@ -1792,7 +1792,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                <button
 	                  type="button"
 	                  onClick={() => void copyText('Event id', activeDecorated.item.id)}
-	                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
 	                  aria-label="Copy event id"
 	                >
 	                  Copy event
@@ -1801,7 +1801,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                <button
 	                  type="button"
 	                  onClick={() => navigateDetail(-1)}
-	                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+	                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
 	                  aria-label="Previous activity item"
 	                >
 	                  ← Prev
@@ -1809,7 +1809,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 <button
                   type="button"
                   onClick={() => navigateDetail(1)}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                   aria-label="Next activity item"
                 >
                   Next →
@@ -1817,7 +1817,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 <button
                   type="button"
                   onClick={closeDetail}
-                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[11px] text-white/60 transition hover:bg-white/[0.1] hover:text-white/90"
+                  className="rounded-full border border-strong bg-white/[0.04] px-2 py-1 text-caption text-secondary transition hover:bg-white/[0.1] hover:text-bright"
                   aria-label="Close activity detail"
                 >
                   Esc
@@ -1838,20 +1838,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 >
                   <div className="space-y-4 pb-1">
                     <div>
-                      <h3 className="text-[20px] font-semibold tracking-[-0.02em] text-white whitespace-pre-wrap break-words">
+                      <h3 className="text-title font-semibold tracking-[-0.02em] text-white whitespace-pre-wrap break-words">
                         {detailHeadlineOverride ||
                           summarizeDetailHeadline(activeDecorated.item, detailSummaryOverride) ||
                           humanizeText(activeDecorated.item.title || labelForType(activeDecorated.item.type))}
                       </h3>
-                      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-white/45">
+                      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-body text-secondary">
                         {new Date(activeDecorated.item.timestamp).toLocaleString()} · {formatRelativeTime(activeDecorated.item.timestamp)}
                         {detailHeadlineSource === 'llm' && (
-                          <span className="text-white/35">· AI title</span>
+                          <span className="text-muted">· AI title</span>
                         )}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                    <div className="flex flex-wrap gap-1.5 text-caption">
                       <span
                         className="rounded-full border px-2 py-0.5 uppercase tracking-[0.1em]"
                         style={{
@@ -1861,11 +1861,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       >
                         {bucketLabel(activeDecorated.bucket)}
                       </span>
-                      <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                      <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
                         {labelForType(activeDecorated.item.type)}
                       </span>
                       {resolveAgentIdentity(activeDecorated.item).agentName && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/65">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-strong px-1.5 py-0.5 text-secondary">
                           <AgentAvatar
                             name={resolveAgentIdentity(activeDecorated.item).agentName ?? 'Agent'}
                             hint={`${resolveAgentIdentity(activeDecorated.item).agentId ?? ''} ${activeDecorated.item.title ?? ''}`}
@@ -1875,7 +1875,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </span>
                       )}
                       {activeDecorated.runId && (
-                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                        <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
                           {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
                         </span>
                       )}
@@ -1883,62 +1883,62 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeAutopilotSlice && (
                       <div className="rounded-xl border border-lime/20 bg-lime/10 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.11em] text-lime/80">
+                        <p className="text-caption uppercase tracking-[0.11em] text-lime/80">
                           Autopilot Slice
                         </p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Dispatcher</div>
-                            <div className="mt-1 text-[13px] text-white/80">OpenClaw</div>
+                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Dispatcher</div>
+                            <div className="mt-1 text-body text-primary">OpenClaw</div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Executor</div>
-                            <div className="mt-1 text-[13px] text-white/80">
+                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Executor</div>
+                            <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.agentName ?? 'Codex'}
                               {activeAutopilotSlice.agentId ? ` · ${activeAutopilotSlice.agentId}` : ''}
                             </div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Workstream</div>
-                            <div className="mt-1 text-[13px] text-white/80">
+                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Workstream</div>
+                            <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.workstreamTitle ?? activeAutopilotSlice.workstreamId ?? '—'}
                             </div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Policy</div>
-                            <div className="mt-1 text-[13px] text-white/80">
+                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Policy</div>
+                            <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.domain ?? '—'}
                               {activeAutopilotSlice.requiredSkills.length > 0 ? ` · ${activeAutopilotSlice.requiredSkills.join(', ')}` : ''}
                             </div>
                           </div>
                         </div>
 
-                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-white/60">
-                          <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                        <div className="mt-2 flex flex-wrap gap-2 text-caption text-secondary">
+                          <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                             {activeAutopilotSlice.event}
                           </span>
                           {activeAutopilotSlice.parsedStatus && (
-                            <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                               status: {activeAutopilotSlice.parsedStatus}
                             </span>
                           )}
                           {typeof activeAutopilotSlice.hasOutput === 'boolean' && (
-                            <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                               output: {activeAutopilotSlice.hasOutput ? 'yes' : 'no'}
                             </span>
                           )}
                           {typeof activeAutopilotSlice.artifacts === 'number' && (
-                            <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                               artifacts: {activeAutopilotSlice.artifacts}
                             </span>
                           )}
                           {typeof activeAutopilotSlice.decisions === 'number' && (
-                            <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                               decisions: {activeAutopilotSlice.decisions}
                             </span>
                           )}
                           {typeof activeAutopilotSlice.statusUpdatesApplied === 'number' && (
-                            <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5">
+                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
                               status updates: {activeAutopilotSlice.statusUpdatesApplied}
                             </span>
                           )}
@@ -1955,7 +1955,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               <button
                                 type="button"
                                 onClick={() => void copyText('Log path', activeAutopilotSlice.logPath ?? '')}
-                                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                               >
                                 Copy log path
                               </button>
@@ -1964,7 +1964,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               <button
                                 type="button"
                                 onClick={() => void copyText('Output path', activeAutopilotSlice.outputPath ?? '')}
-                                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                               >
                                 Copy output path
                               </button>
@@ -1973,7 +1973,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         )}
 
                         {activeAutopilotSlice.error && (
-                          <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100/80">
+                          <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-body text-red-100/80">
                             {activeAutopilotSlice.error}
                           </div>
                         )}
@@ -1982,20 +1982,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeProvenance && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">
+                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">
                           Provenance
                         </p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {activeProvenance.domain && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Domain</div>
-                              <div className="mt-1 text-[13px] text-white/80">{humanizeText(activeProvenance.domain)}</div>
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Domain</div>
+                              <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.domain)}</div>
                             </div>
                           )}
                           {(activeProvenance.provider || activeProvenance.model) && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Model</div>
-                              <div className="mt-1 text-[13px] text-white/80">
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model</div>
+                              <div className="mt-1 text-body text-primary">
                                 {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
                                 {activeProvenance.model ? humanizeModel(activeProvenance.model) : '—'}
                               </div>
@@ -2003,20 +2003,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           )}
                           {activeProvenance.modelTier && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Model tier</div>
-                              <div className="mt-1 text-[13px] text-white/80">{humanizeText(activeProvenance.modelTier)}</div>
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model tier</div>
+                              <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.modelTier)}</div>
                             </div>
                           )}
                           {activeProvenance.pluginVersion && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Plugin</div>
-                              <div className="mt-1 text-[13px] text-white/80">v{activeProvenance.pluginVersion}</div>
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Plugin</div>
+                              <div className="mt-1 text-body text-primary">v{activeProvenance.pluginVersion}</div>
                             </div>
                           )}
                           {activeProvenance.skillPack && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Skill pack</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-white/80">
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Skill pack</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-body text-primary">
                                 <span>
                                   {activeProvenance.skillPack.name ?? '—'}
                                   {activeProvenance.skillPack.version ? `@${activeProvenance.skillPack.version}` : ''}
@@ -2026,7 +2026,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   <button
                                     type="button"
                                     onClick={() => void copyText('Skill pack checksum', activeProvenance.skillPack?.checksum ?? '')}
-                                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                                   >
                                     sha {activeProvenance.skillPack.checksum.slice(0, 12)}…
                                   </button>
@@ -2037,29 +2037,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           {activeProvenance.kickoffContextHash && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
                               <div className="flex items-center justify-between gap-2">
-                                <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Kickoff context</div>
+                                <div className="text-micro uppercase tracking-[0.1em] text-secondary">Kickoff context</div>
                                 <button
                                   type="button"
                                   onClick={() => void copyText('Kickoff context hash', activeProvenance.kickoffContextHash ?? '')}
-                                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                                 >
                                   Copy hash
                                 </button>
                               </div>
-                              <div className="mt-1 text-[13px] text-white/80">
+                              <div className="mt-1 text-body text-primary">
                                 {activeProvenance.kickoffContextSource ? `${activeProvenance.kickoffContextSource} · ` : ''}
-                                <span className="font-mono text-[12px] text-white/70">{activeProvenance.kickoffContextHash}</span>
+                                <span className="font-mono text-body text-primary">{activeProvenance.kickoffContextHash}</span>
                               </div>
                             </div>
                           )}
                           {activeProvenance.requiredSkills.length > 0 && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Required skills</div>
+                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Required skills</div>
                               <div className="mt-1 flex flex-wrap gap-1.5">
                                 {activeProvenance.requiredSkills.map((skill) => (
                                   <span
                                     key={skill}
-                                    className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/65"
+                                    className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-caption text-secondary"
                                   >
                                     {skill}
                                   </span>
@@ -2073,27 +2073,27 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeSummaryText && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Summary</p>
+                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">Summary</p>
                         {detailSummarySource === 'missing' && (
-                          <p className="mt-1 text-[11px] text-amber-200/75">
+                          <p className="mt-1 text-caption text-amber-200/75">
                             Full local turn transcript was unavailable; showing the event summary payload.
                           </p>
                         )}
                         <MarkdownText
                           mode="block"
                           text={activeSummaryText}
-                          className="mt-1.5 text-[14px] leading-relaxed text-white/82"
+                          className="mt-1.5 text-heading leading-relaxed text-white/82"
                         />
                       </div>
                     )}
 
                     {humanizeActivityBody(activeDecorated.item.description) && (
                       <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Details</p>
+                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">Details</p>
                         <MarkdownText
                           mode="block"
                           text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
-                          className="mt-1.5 text-[13px] leading-relaxed text-white/75"
+                          className="mt-1.5 text-body leading-relaxed text-primary"
                         />
                       </div>
                     )}
@@ -2101,10 +2101,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {activeArtifact && (
                       <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.11em] text-cyan-100/85">
+                          <p className="text-caption uppercase tracking-[0.11em] text-cyan-100/85">
                             Artifact Output
                           </p>
-                          <div className="inline-flex rounded-full border border-white/[0.12] bg-black/30 p-0.5 text-[11px]">
+                          <div className="inline-flex rounded-full border border-strong bg-black/30 p-0.5 text-caption">
                             <button
                               type="button"
                               onClick={() => setArtifactViewMode('structured')}
@@ -2112,7 +2112,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               className={`rounded-full px-2.5 py-0.5 transition-colors ${
                                 artifactViewMode === 'structured'
                                   ? 'bg-white/[0.12] text-white'
-                                  : 'text-white/55 hover:text-white/80'
+                                  : 'text-secondary hover:text-primary'
                               }`}
                             >
                               Structured
@@ -2124,19 +2124,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               className={`rounded-full px-2.5 py-0.5 transition-colors ${
                                 artifactViewMode === 'json'
                                   ? 'bg-white/[0.12] text-white'
-                                  : 'text-white/55 hover:text-white/80'
+                                  : 'text-secondary hover:text-primary'
                               }`}
                             >
                               JSON
                             </button>
                           </div>
                         </div>
-                        <p className="mt-1 text-[10px] text-cyan-100/55">Source: {activeArtifact.source}</p>
+                        <p className="mt-1 text-micro text-cyan-100/55">Source: {activeArtifact.source}</p>
                         <div className="mt-2">
                           {artifactViewMode === 'structured' ? (
                             renderArtifactValue(activeArtifact.value)
                           ) : (
-                            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/70">
+                            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-primary">
                               {JSON.stringify(activeArtifact.value, null, 2)}
                             </pre>
                           )}
@@ -2146,10 +2146,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeMetadataJson && (
                       <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
-                        <summary className="cursor-pointer select-none text-[11px] uppercase tracking-[0.11em] text-white/45">
+                        <summary className="cursor-pointer select-none text-caption uppercase tracking-[0.11em] text-secondary">
                           Raw metadata
                         </summary>
-                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/65">
+                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-secondary">
                           {activeMetadataJson}
                         </pre>
                       </details>
@@ -2159,7 +2159,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </AnimatePresence>
             </div>
 
-            <div className="border-t border-white/[0.06] px-5 py-2.5 text-[11px] text-white/40 sm:px-6">
+            <div className="border-t border-subtle px-5 py-2.5 text-caption text-muted sm:px-6">
               Keyboard: ← previous · → next · Esc close
             </div>
           </div>

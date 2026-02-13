@@ -41,10 +41,10 @@ export function RecentTodosRail({
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-[0.08em] text-white/42">
+        <span className="text-micro uppercase tracking-[0.08em] text-muted">
           Queue overview
         </span>
-        <span className="rounded-full border border-white/15 bg-black/20 px-2 py-0.5 text-[10px] text-white/65">
+        <span className="rounded-full border border-white/15 bg-black/20 px-2 py-0.5 text-micro text-secondary">
           {recentNodes.length} in queue
         </span>
       </div>
@@ -60,17 +60,17 @@ export function RecentTodosRail({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-white/50">
+            <div className="inline-flex items-center gap-1.5 text-micro uppercase tracking-[0.1em] text-secondary">
               <LevelIcon type={primary.type} />
               <span>Priority task</span>
             </div>
-            <p className="mt-1 line-clamp-2 text-[13px] font-semibold leading-snug text-white">
+            <p className="mt-1 line-clamp-2 text-body font-semibold leading-snug text-white">
               {primary.title}
             </p>
-            <p className="mt-1 text-[11px] text-white/60">{dueLabel(primary.dueDate)}</p>
+            <p className="mt-1 text-caption text-secondary">{dueLabel(primary.dueDate)}</p>
           </div>
           <span
-            className="inline-flex flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+            className="inline-flex flex-shrink-0 rounded-full border px-2 py-0.5 text-micro font-semibold"
             style={{
               borderColor: `${colors.amber}44`,
               backgroundColor: `${colors.amber}22`,
@@ -92,21 +92,21 @@ export function RecentTodosRail({
               className={`flex min-h-[62px] min-w-0 items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
                 selectedNodeId === node.id
                   ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12'
-                  : 'border-white/[0.14] bg-black/20 hover:bg-white/[0.08]'
+                  : 'border-strong bg-black/20 hover:bg-white/[0.08]'
               }`}
             >
               <div className="min-w-0 flex-1">
-                <div className="inline-flex items-center gap-1.5 text-[9px] uppercase tracking-[0.08em] text-white/45">
+                <div className="inline-flex items-center gap-1.5 text-micro uppercase tracking-[0.08em] text-secondary">
                   <LevelIcon type={node.type} />
                   <span>Queued</span>
                 </div>
-                <p className="mt-1 line-clamp-1 break-words text-[11px] leading-snug text-white/85" title={node.title}>
+                <p className="mt-1 line-clamp-1 break-words text-caption leading-snug text-bright" title={node.title}>
                   {node.title}
                 </p>
-                <p className="mt-1 text-[10px] text-white/50">{dueLabel(node.dueDate)}</p>
+                <p className="mt-1 text-micro text-secondary">{dueLabel(node.dueDate)}</p>
               </div>
               <span
-                className="inline-flex flex-shrink-0 rounded-full px-1.5 py-0.5 text-[9px]"
+                className="inline-flex flex-shrink-0 rounded-full px-1.5 py-0.5 text-micro"
                 style={{
                   backgroundColor: `${colors.amber}22`,
                   color: `${colors.amber}`,

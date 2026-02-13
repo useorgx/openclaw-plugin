@@ -605,7 +605,7 @@ export function HierarchyTreeTable({
   };
 
   const SortChevron = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <span className="text-white/20 ml-0.5">↕</span>;
+    if (sortField !== field) return <span className="text-faint ml-0.5">↕</span>;
     return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
@@ -720,10 +720,10 @@ export function HierarchyTreeTable({
                   type="button"
                   onClick={onToggleEditMode}
                   data-state={editMode ? 'active' : 'idle'}
-                  className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold ${
+                  className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold ${
                     editMode
                       ? 'text-[#D8FFA1]'
-                      : 'text-white/65 hover:text-white/85'
+                      : 'text-secondary hover:text-bright'
                   }`}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -737,14 +737,14 @@ export function HierarchyTreeTable({
                   type="button"
                   onClick={() => setShowAdvancedStatusFilters((prev) => !prev)}
                   data-state={showAdvancedStatusFilters || hierarchyFilterCount > 0 ? 'active' : 'idle'}
-                  className="control-pill flex items-center gap-1.5 px-3.5 text-[11px] font-semibold"
+                  className="control-pill flex items-center gap-1.5 px-3.5 text-caption font-semibold"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
                   </svg>
                   <span>Filters</span>
                   {hierarchyFilterCount > 0 && (
-                    <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-[10px] leading-4">
+                    <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-micro leading-4">
                       {hierarchyFilterCount}
                     </span>
                   )}
@@ -759,7 +759,7 @@ export function HierarchyTreeTable({
                       className="surface-tier-2 absolute left-0 top-10 z-30 w-[360px] max-w-[86vw] rounded-xl p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
                     >
                       <div className="mb-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/38">
+                        <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
                           Scope
                         </div>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -775,14 +775,14 @@ export function HierarchyTreeTable({
                                 key={scope.id}
                                 type="button"
                                 onClick={() => setStatusScope(scope.id)}
-                                className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold transition-colors ${
+                                className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors ${
                                   active
                                     ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
-                                    : 'border-white/[0.12] bg-white/[0.03] text-white/60 hover:bg-white/[0.07] hover:text-white/82'
+                                    : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-white/82'
                                 }`}
                               >
                                 <span>{scope.label}</span>
-                                <span className="text-[9px] text-current/80">{scope.count}</span>
+                                <span className="text-micro text-current/80">{scope.count}</span>
                               </button>
                             );
                           })}
@@ -790,7 +790,7 @@ export function HierarchyTreeTable({
                       </div>
 
                       <div className="mb-2 border-t border-white/[0.08] pt-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/38">
+                        <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
                           Status
                         </div>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -802,14 +802,14 @@ export function HierarchyTreeTable({
                                 key={status}
                                 type="button"
                                 onClick={() => toggleStatusFilter(status)}
-                                className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[10px] transition-colors ${
+                                className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro transition-colors ${
                                   isActive
                                     ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
-                                    : 'border-white/[0.12] bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-white/85'
+                                    : 'border-strong bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-bright'
                                 }`}
                               >
                                 <span>{formatEntityStatus(status)}</span>
-                                <span className="text-[9px] text-current/75">{count}</span>
+                                <span className="text-micro text-current/75">{count}</span>
                               </button>
                             );
                           })}
@@ -823,7 +823,7 @@ export function HierarchyTreeTable({
                             setStatusScope('all');
                             setActiveStatusFilters(new Set());
                           }}
-                          className="text-[10px] text-white/45 transition-colors hover:text-white/75"
+                          className="text-micro text-secondary transition-colors hover:text-primary"
                         >
                           Reset filters
                         </button>
@@ -842,7 +842,7 @@ export function HierarchyTreeTable({
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -4 }}
                     transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                    className="control-pill inline-flex h-8 items-center px-2.5 text-[11px] font-medium text-white/70 hover:text-white/88"
+                    className="control-pill inline-flex h-8 items-center px-2.5 text-caption font-medium text-primary hover:text-bright"
                   >
                     Clear
                   </motion.button>
@@ -852,7 +852,7 @@ export function HierarchyTreeTable({
                 type="button"
                 onClick={toggleSelectAllVisibleRows}
                 data-state={allVisibleSelected ? 'active' : 'idle'}
-                className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold"
+                className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold"
               >
                 {allVisibleSelected ? 'Clear visible' : 'Select visible'}
               </button>
@@ -870,7 +870,7 @@ export function HierarchyTreeTable({
           }`}
         >
           <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
-            <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+            <label className="inline-flex flex-shrink-0 items-center gap-2 text-caption text-primary">
               <input
                 ref={selectAllRef}
                 type="checkbox"
@@ -880,7 +880,7 @@ export function HierarchyTreeTable({
               />
               Select all visible
             </label>
-            <span className="flex-shrink-0 text-[11px] text-white/58">
+            <span className="flex-shrink-0 text-caption text-white/58">
               {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
             </span>
             {selectedRowCount > 0 && (
@@ -891,7 +891,7 @@ export function HierarchyTreeTable({
                     void runBulkStatusUpdate('planned');
                   }}
                   disabled={isBulkMutating}
-                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                  className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                 >
                   Plan
                 </button>
@@ -901,7 +901,7 @@ export function HierarchyTreeTable({
                     void runBulkStatusUpdate('in_progress');
                   }}
                   disabled={isBulkMutating}
-                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                  className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                   data-state="active"
                 >
                   Start
@@ -912,7 +912,7 @@ export function HierarchyTreeTable({
                     void runBulkStatusUpdate('blocked');
                   }}
                   disabled={isBulkMutating}
-                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                  className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                 >
                   Block
                 </button>
@@ -922,20 +922,20 @@ export function HierarchyTreeTable({
                     void runBulkStatusUpdate('done');
                   }}
                   disabled={isBulkMutating}
-                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                  className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                 >
                   Complete
                 </button>
                 {confirmBulkDelete ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-white/58">Delete selected?</span>
+                    <span className="text-micro text-white/58">Delete selected?</span>
                     <button
                       type="button"
                       onClick={() => {
                         void runBulkDelete();
                       }}
                       disabled={isBulkMutating}
-                      className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                      className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-caption font-semibold text-red-100 disabled:opacity-45"
                     >
                       Delete
                     </button>
@@ -943,7 +943,7 @@ export function HierarchyTreeTable({
                       type="button"
                       onClick={() => setConfirmBulkDelete(false)}
                       disabled={isBulkMutating}
-                      className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+                      className="control-pill h-8 flex-shrink-0 px-2.5 text-caption disabled:opacity-45"
                     >
                       Keep
                     </button>
@@ -953,7 +953,7 @@ export function HierarchyTreeTable({
                     type="button"
                     onClick={() => setConfirmBulkDelete(true)}
                     disabled={isBulkMutating}
-                    className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                    className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-caption font-semibold text-red-100/85 disabled:opacity-45"
                   >
                     Delete
                   </button>
@@ -962,7 +962,7 @@ export function HierarchyTreeTable({
                   type="button"
                   onClick={clearSelectedRows}
                   disabled={isBulkMutating}
-                  className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+                  className="text-caption text-secondary transition-colors hover:text-primary disabled:opacity-45"
                 >
                   Clear
                 </button>
@@ -974,7 +974,7 @@ export function HierarchyTreeTable({
 
       {bulkNotice && (
         <div
-          className={`rounded-lg border px-3 py-2 text-[11px] ${
+          className={`rounded-lg border px-3 py-2 text-caption ${
             bulkNotice.tone === 'success'
               ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
               : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
@@ -985,7 +985,7 @@ export function HierarchyTreeTable({
       )}
 
       {editMode && (
-        <div className="mb-2 text-[10px] text-white/45">
+        <div className="mb-2 text-micro text-secondary">
           Edit mode: select a row to edit its fields inline.
         </div>
       )}
@@ -993,68 +993,68 @@ export function HierarchyTreeTable({
       <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/42">
+            <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
               <th
                 ref={stickyHeaderProbeRef}
-                className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 <span className="sr-only">Select rows</span>
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('title')}
               >
                 Item <SortChevron field="title" />
               </th>
               <th
-                className="w-[188px] px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="w-[188px] px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 Assigned
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('status')}
               >
                 Status <SortChevron field="status" />
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 Progress
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('priority')}
               >
                 Priority <SortChevron field="priority" />
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
                 onClick={() => toggleSort('eta')}
               >
                 ETA <SortChevron field="eta" />
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 Duration (h)
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 Budget ($)
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
                 Dependencies
@@ -1088,7 +1088,7 @@ export function HierarchyTreeTable({
                       ? 'border-[#BFFF00]/[0.22] bg-[#BFFF00]/[0.08]'
                       : highlighted
                         ? 'border-[#14B8A6]/[0.2] bg-[#14B8A6]/[0.08]'
-                        : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.14] hover:bg-white/[0.05]'
+                        : 'border-subtle bg-white/[0.02] hover:border-strong hover:bg-white/[0.05]'
                   }`}
                 >
                   <td className="rounded-l-lg px-2 py-1.5">
@@ -1122,7 +1122,7 @@ export function HierarchyTreeTable({
                             });
                           }}
                           aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
-                          className="rounded text-white/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                         >
                           {expandedRows.has(node.id) ? '▾' : '▸'}
                         </button>
@@ -1137,7 +1137,7 @@ export function HierarchyTreeTable({
                           onOpenNode(node);
                         }}
                         aria-label={`Open ${node.type} details: ${node.title}`}
-                        className="max-w-[320px] truncate rounded text-[12px] text-white/88 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                        className="max-w-[320px] truncate rounded text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                       >
                         {node.title}
                       </button>
@@ -1156,7 +1156,7 @@ export function HierarchyTreeTable({
                                     void onUpdateNode(node, { status: 'in_progress' });
                                   }}
                                   aria-label={`Start task: ${node.title}`}
-                                  className="flex items-center justify-center w-5 h-5 rounded text-white/40 transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                                  className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                                 >
                                   <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                                 </button>
@@ -1169,7 +1169,7 @@ export function HierarchyTreeTable({
                                     void onUpdateNode(node, { status: 'done' });
                                   }}
                                   aria-label={`Mark task done: ${node.title}`}
-                                  className="flex items-center justify-center w-5 h-5 rounded text-white/40 transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                                  className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                                 >
                                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
                                 </button>
@@ -1185,7 +1185,7 @@ export function HierarchyTreeTable({
                               void addToNextUp(node);
                             }}
                             aria-label={`Add to Next Up: ${node.type} ${node.title}`}
-                            className="flex items-center justify-center w-5 h-5 rounded text-white/40 transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                            className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
                               <path d="M12 5v14" />
@@ -1198,7 +1198,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Assigned (moved to position 2) */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75 whitespace-nowrap">
+                  <td className="px-2 py-1.5 text-caption text-primary whitespace-nowrap">
                     {editableRow ? (
                       <input
                         type="text"
@@ -1216,7 +1216,7 @@ export function HierarchyTreeTable({
                             assignment_source: 'manual',
                           });
                         }}
-                        className="w-[190px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="w-[190px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
                       <div className="flex items-center gap-2">
@@ -1238,7 +1238,7 @@ export function HierarchyTreeTable({
                               ))}
                             </div>
                             <span
-                              className="max-w-[110px] truncate text-[10px] text-white/62"
+                              className="max-w-[110px] truncate text-micro text-white/62"
                               title={assignedNames}
                             >
                               {node.assignedAgents[0]?.name}
@@ -1248,14 +1248,14 @@ export function HierarchyTreeTable({
                             </span>
                           </>
                         ) : (
-                          <span className="text-white/35">Unassigned</span>
+                          <span className="text-muted">Unassigned</span>
                         )}
                       </div>
                     )}
                   </td>
 
                   {/* Status */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {editableRow ? (
                       <select
                         defaultValue={normalizeStatusKey(node.status)}
@@ -1263,7 +1263,7 @@ export function HierarchyTreeTable({
                         onChange={(event) => {
                           void onUpdateNode(node, { status: event.target.value });
                         }}
-                        className="rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       >
                         {STATUS_OPTIONS.map((status) => (
                           <option key={status} value={status}>
@@ -1279,7 +1279,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Progress */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
                       <div className="flex items-center gap-2">
                         <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
@@ -1291,17 +1291,17 @@ export function HierarchyTreeTable({
                             }}
                           />
                         </div>
-                        <span className="text-[10px] text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {completion}%
                         </span>
                       </div>
                     ) : (
-                      <span className="text-white/35">—</span>
+                      <span className="text-muted">—</span>
                     )}
                   </td>
 
                   {/* Priority */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {editableRow ? (
                       <input
                         type="number"
@@ -1315,7 +1315,7 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { priority_num: next });
                           }
                         }}
-                        className="w-[72px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
                       <span>P{node.priorityNum}</span>
@@ -1323,7 +1323,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* ETA */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {editableRow ? (
                       <input
                         type="datetime-local"
@@ -1333,7 +1333,7 @@ export function HierarchyTreeTable({
                           const value = event.currentTarget.value;
                           void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
                         }}
-                        className="w-[176px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="w-[176px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
                       <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
@@ -1341,7 +1341,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Duration */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {editableRow && node.type !== 'task' ? (
                       <input
                         type="number"
@@ -1355,7 +1355,7 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { expected_duration_hours: value });
                           }
                         }}
-                        className="w-[82px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="w-[82px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
                       <span>{node.expectedDurationHours}</span>
@@ -1363,7 +1363,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Budget */}
-                  <td className="px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="px-2 py-1.5 text-caption text-primary">
                     {editableRow && node.type !== 'task' ? (
                       <input
                         type="number"
@@ -1377,7 +1377,7 @@ export function HierarchyTreeTable({
                             void onUpdateNode(node, { expected_budget_usd: value });
                           }
                         }}
-                        className="w-[92px] rounded border border-white/[0.16] bg-white/[0.06] px-2 py-1 text-[10px] text-white/82"
+                        className="w-[92px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
                       <span>
@@ -1388,7 +1388,7 @@ export function HierarchyTreeTable({
                   </td>
 
                   {/* Dependencies */}
-                  <td className="rounded-r-lg px-2 py-1.5 text-[11px] text-white/75">
+                  <td className="rounded-r-lg px-2 py-1.5 text-caption text-primary">
                     {editableRow ? (
                       <div onClick={(event) => event.stopPropagation()}>
                         <DependencyEditorPopover
@@ -1416,17 +1416,17 @@ export function HierarchyTreeTable({
 
       {rows.length === 0 && (
         <div className="flex flex-col items-center py-10">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white/20">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-faint">
             <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
             <rect x="9" y="3" width="6" height="4" rx="1" />
             <path d="M9 14h6M9 18h4" />
           </svg>
-          <div className="mt-3 text-[13px] font-medium text-white/50">
+          <div className="mt-3 text-body font-medium text-secondary">
             {searchQuery || activeStatusFilters.size > 0 || statusScope !== 'all'
               ? 'No items match the current filters'
               : 'No work items yet'}
           </div>
-          <div className="mt-1 text-[11px] text-white/30">
+          <div className="mt-1 text-caption text-muted">
             {searchQuery || activeStatusFilters.size > 0 || statusScope !== 'all'
               ? 'Try adjusting your search or filter criteria.'
               : 'Workstreams, milestones, and tasks will appear here.'}

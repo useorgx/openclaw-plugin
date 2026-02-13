@@ -33,7 +33,7 @@ export function InferredAgentAvatars({ agents, max = 4 }: InferredAgentAvatarsPr
         </div>
       ))}
       {overflow > 0 && (
-        <span className="ml-1 flex-shrink-0 text-[9px] text-white/40">+{overflow}</span>
+        <span className="ml-1 flex-shrink-0 text-micro text-muted">+{overflow}</span>
       )}
     </div>
   );

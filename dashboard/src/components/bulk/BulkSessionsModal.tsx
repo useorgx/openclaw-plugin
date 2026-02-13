@@ -291,33 +291,33 @@ export function BulkSessionsModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
       <div className="flex h-full w-full flex-col">
-        <div className="border-b border-white/[0.06] px-5 pt-5 pb-4">
+        <div className="border-b border-subtle px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="inline-flex items-center gap-2 text-[15px] font-semibold text-white">
+              <h3 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
                 <EntityIcon type="session" size={14} />
                 <span className="truncate">{title}</span>
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-[11px] font-semibold text-white/75">
+                <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-caption font-semibold text-primary">
                   {counts.total}
                 </span>
               </h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+              <p className="mt-1 text-body leading-relaxed text-secondary">
                 {subtitle}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/60">
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colors.teal }} />
                   Total <span className="font-semibold text-white">{counts.total}</span>
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/60">
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.active > 0 ? colors.lime : colors.textMuted }} />
                   Active <span className="font-semibold text-white">{counts.active}</span>
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/60">
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.blocked > 0 ? colors.red : colors.textMuted }} />
                   Blocked <span className="font-semibold text-white">{counts.blocked}</span>
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/60">
+                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.failed > 0 ? colors.red : colors.textMuted }} />
                   Failed <span className="font-semibold text-white">{counts.failed}</span>
                 </span>
@@ -327,7 +327,7 @@ export function BulkSessionsModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
+              className="rounded-md border border-strong bg-white/[0.03] px-2.5 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08]"
               aria-label="Close bulk modal"
             >
               Close
@@ -345,7 +345,7 @@ export function BulkSessionsModal({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search title, agent, run id…"
                 data-modal-autofocus="true"
-                className="w-full rounded-lg border border-white/[0.12] bg-black/25 px-3 py-2 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/35"
+                className="w-full rounded-lg border border-strong bg-black/25 px-3 py-2 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/35"
               />
             </div>
 
@@ -353,24 +353,24 @@ export function BulkSessionsModal({
               type="button"
               onClick={toggleAll}
               disabled={filtered.length === 0 || Boolean(busy)}
-              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-lg border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               {allSelected ? 'Clear all' : `Select all (${filtered.length})`}
             </button>
           </div>
 
           {notice && (
-            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[12px] text-white/60">
+            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-body text-secondary">
               {notice}
             </div>
           )}
 
           {confirmCancel && (
             <div className="mt-3 rounded-xl border border-red-400/25 bg-red-500/[0.06] px-3 py-2.5">
-              <p className="text-[12px] font-semibold text-red-200">
+              <p className="text-body font-semibold text-red-200">
                 Cancel {selectedCount} session{selectedCount === 1 ? '' : 's'}?
               </p>
-              <p className="mt-1 text-[11px] text-red-200/70">
+              <p className="mt-1 text-caption text-red-200/70">
                 This is destructive. Type <span className="font-semibold">CANCEL</span> to confirm.
               </p>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -378,13 +378,13 @@ export function BulkSessionsModal({
                   value={confirmCancel.text}
                   onChange={(e) => setConfirmCancel({ text: e.target.value })}
                   placeholder="CANCEL"
-                  className="flex-1 rounded-lg border border-red-300/25 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-300/40"
+                  className="flex-1 rounded-lg border border-red-300/25 bg-black/30 px-3 py-2 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-red-300/40"
                 />
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setConfirmCancel(null)}
-                    className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-2 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08]"
+                    className="rounded-lg border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08]"
                   >
                     Back
                   </button>
@@ -392,7 +392,7 @@ export function BulkSessionsModal({
                     type="button"
                     onClick={confirmCancelAction}
                     disabled={confirmCancel.text.trim().toUpperCase() !== 'CANCEL'}
-                    className="rounded-lg border border-red-300/25 bg-red-500/15 px-3 py-2 text-[11px] font-semibold text-red-200 transition-colors hover:bg-red-500/20 disabled:opacity-45"
+                    className="rounded-lg border border-red-300/25 bg-red-500/15 px-3 py-2 text-caption font-semibold text-red-200 transition-colors hover:bg-red-500/20 disabled:opacity-45"
                   >
                     Confirm cancel
                   </button>
@@ -404,7 +404,7 @@ export function BulkSessionsModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {filtered.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-[12px] text-white/45">
+            <div className="rounded-xl border border-subtle bg-white/[0.02] p-4 text-body text-secondary">
               No sessions match this view.
             </div>
           ) : (
@@ -447,26 +447,26 @@ export function BulkSessionsModal({
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="truncate text-[13px] font-medium text-white">
+                            <p className="truncate text-body font-medium text-white">
                               {session.title}
                             </p>
-                            <p className="mt-0.5 text-[11px] text-white/45">
+                            <p className="mt-0.5 text-caption text-secondary">
                               {subtitleParts.join(' · ')}
                             </p>
                             {session.lastEventSummary && (
-                              <p className="mt-1 line-clamp-2 text-[11px] text-white/60">
+                              <p className="mt-1 line-clamp-2 text-caption text-secondary">
                                 {session.lastEventSummary}
                               </p>
                             )}
                             {blockers.length > 0 && (
-                              <p className="mt-1 text-[10px] text-red-200/80">
+                              <p className="mt-1 text-micro text-red-200/80">
                                 {blockers.length} blocker{blockers.length === 1 ? '' : 's'} · {blockers[0]}
                               </p>
                             )}
                           </div>
 
                           <span
-                            className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                            className="shrink-0 rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em]"
                             style={{
                               borderColor: `${pillColor}30`,
                               backgroundColor: `${pillColor}14`,
@@ -485,8 +485,8 @@ export function BulkSessionsModal({
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-white/[0.06] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-[11px] text-white/45">
+        <div className="flex flex-col gap-2 border-t border-subtle px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-caption text-secondary">
             {busy ? (
               <span>
                 {busy.action} {busy.processed}/{busy.total}
@@ -499,7 +499,7 @@ export function BulkSessionsModal({
                 type="button"
                 onClick={copyBlockers}
                 disabled={selectedCount === 0 || Boolean(busy)}
-                className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/65 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                className="rounded-md border border-strong bg-white/[0.03] px-2.5 py-1.5 text-caption text-secondary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
               >
                 Copy blockers
               </button>
@@ -516,7 +516,7 @@ export function BulkSessionsModal({
                 }
               }}
               disabled={selectedCount !== 1 || Boolean(busy)}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               Open inspector
             </button>
@@ -525,7 +525,7 @@ export function BulkSessionsModal({
               type="button"
               onClick={() => void performBulkAction('resume')}
               disabled={selectedCount === 0 || Boolean(busy)}
-              className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+              className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
             >
               Resume selected
             </button>
@@ -534,7 +534,7 @@ export function BulkSessionsModal({
               type="button"
               onClick={() => void performBulkAction('pause')}
               disabled={selectedCount === 0 || Boolean(busy)}
-              className="rounded-md border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
             >
               Pause selected
             </button>
@@ -543,7 +543,7 @@ export function BulkSessionsModal({
               type="button"
               onClick={() => void performBulkAction('cancel')}
               disabled={selectedCount === 0 || Boolean(busy)}
-              className="rounded-md border border-red-300/25 bg-red-500/10 px-3 py-1.5 text-[11px] font-semibold text-red-200 transition-colors hover:bg-red-500/15 disabled:opacity-45"
+              className="rounded-md border border-red-300/25 bg-red-500/10 px-3 py-1.5 text-caption font-semibold text-red-200 transition-colors hover:bg-red-500/15 disabled:opacity-45"
             >
               Cancel selected
             </button>
