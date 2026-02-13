@@ -1,0 +1,1391 @@
+diff --git a/dashboard/src/components/activity/ActivityTimeline.tsx b/dashboard/src/components/activity/ActivityTimeline.tsx
+index ae8834f..6756382 100644
+--- a/dashboard/src/components/activity/ActivityTimeline.tsx
++++ b/dashboard/src/components/activity/ActivityTimeline.tsx
+@@ -1177,101 +1177,107 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+         </div>
+       )}
+       <div className="border-b border-white/[0.06] px-4 py-3.5">
+-        <div className="toolbar-shell flex flex-wrap items-center justify-between gap-3">
+-          <div className="flex min-w-0 items-center gap-2">
+-            <h2 className="text-[14px] font-semibold text-white">Activity</h2>
+-            <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75">
+-              {filteredTotal}
+-            </span>
+-            {hiddenCount > 0 && (
+-              <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
+-                +{hiddenCount} hidden
+-              </span>
+-            )}
+-            {timeWindow.id !== 'all' && (
+-              <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
+-                {timeWindow.label}
++        <div className="toolbar-shell space-y-2">
++          <div className="flex items-center justify-between gap-3">
++            <div className="flex min-w-0 items-center gap-2">
++              <h2 className="text-[14px] font-semibold text-white">Activity</h2>
++              <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75 tabular-nums">
++                {filteredTotal}
+               </span>
+-            )}
+-            <span
+-              className={cn('h-1.5 w-1.5 rounded-full', isLive && 'pulse-soft')}
+-              style={{ backgroundColor: colors.lime }}
+-              aria-label="Live"
+-              title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
+-            />
+-
+-            {hasSessionFilter && (
+-              <button
+-                onClick={onClearSelection}
+-                className="chip inline-flex min-w-0 items-center gap-2"
+-                aria-label="Clear session filter"
+-              >
+-                <AgentAvatar
+-                  name={filteredSession?.agentName ?? 'OrgX'}
+-                  hint={selectedSessionLabel ?? null}
+-                  size="xs"
+-                />
+-                <span className="min-w-0 truncate">
+-                  Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
++              {hiddenCount > 0 && (
++                <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55 tabular-nums">
++                  +{hiddenCount} hidden
+                 </span>
+-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+-                  ×
++              )}
++              {timeWindow.id !== 'all' && (
++                <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
++                  {timeWindow.label}
+                 </span>
+-              </button>
+-            )}
+-            {selectedWorkstreamId && (
++              )}
++              <span
++                className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
++                style={{ backgroundColor: colors.lime }}
++                aria-label="Live"
++                title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
++              />
++            </div>
++
++            <div className="flex flex-shrink-0 items-center gap-2">
+               <button
+-                onClick={onClearWorkstreamFilter}
+-                className="chip inline-flex min-w-0 items-center gap-2"
+-                style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
+-                aria-label="Clear workstream filter"
++                type="button"
++                onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
++                className="control-pill flex-shrink-0 px-3 text-[11px] font-medium"
++                aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
+               >
+-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
+-                  ↳
+-                </span>
+-                <span className="min-w-0 truncate">
+-                  Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
+-                </span>
+-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+-                  ×
+-                </span>
++                {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
+               </button>
+-            )}
+-            {agentFilter && (
+               <button
+-                onClick={onClearAgentFilter}
+-                className="chip inline-flex min-w-0 items-center gap-2"
+-                style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
+-                aria-label="Clear agent filter"
++                type="button"
++                onClick={() => setCollapsed((prev) => !prev)}
++                data-state={collapsed ? 'active' : 'idle'}
++                className="control-pill flex-shrink-0 px-3 text-[11px] font-medium"
++                aria-pressed={collapsed}
+               >
+-                <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+-                <span className="min-w-0 truncate">Agent: {agentFilter}</span>
+-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+-                  ×
+-                </span>
++                {collapsed ? 'Expand' : 'Compact'}
+               </button>
+-            )}
++            </div>
+           </div>
+ 
+-          <div className="flex items-center gap-2">
+-            <button
+-              type="button"
+-              onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
+-              className="control-pill px-3 text-[11px] font-medium"
+-              aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
+-            >
+-              {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
+-            </button>
+-            <button
+-              type="button"
+-              onClick={() => setCollapsed((prev) => !prev)}
+-              data-state={collapsed ? 'active' : 'idle'}
+-              className="control-pill px-3 text-[11px] font-medium"
+-              aria-pressed={collapsed}
+-            >
+-              {collapsed ? 'Expand' : 'Compact'}
+-            </button>
+-          </div>
++          {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
++            <div className="flex flex-wrap items-center gap-2">
++              {hasSessionFilter && (
++                <button
++                  onClick={onClearSelection}
++                  className="chip inline-flex min-w-0 items-center gap-2"
++                  aria-label="Clear session filter"
++                >
++                  <AgentAvatar
++                    name={filteredSession?.agentName ?? 'OrgX'}
++                    hint={selectedSessionLabel ?? null}
++                    size="xs"
++                  />
++                  <span className="min-w-0 truncate">
++                    Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
++                  </span>
++                  <span className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
++                    ×
++                  </span>
++                </button>
++              )}
++              {selectedWorkstreamId && (
++                <button
++                  onClick={onClearWorkstreamFilter}
++                  className="chip inline-flex min-w-0 items-center gap-2"
++                  style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
++                  aria-label="Clear workstream filter"
++                >
++                  <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
++                    ↳
++                  </span>
++                  <span className="min-w-0 truncate">
++                    Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
++                  </span>
++                  <span className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
++                    ×
++                  </span>
++                </button>
++              )}
++              {agentFilter && (
++                <button
++                  onClick={onClearAgentFilter}
++                  className="chip inline-flex min-w-0 items-center gap-2"
++                  style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
++                  aria-label="Clear agent filter"
++                >
++                  <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
++                  <span className="min-w-0 truncate">Agent: {agentFilter}</span>
++                  <span className="ml-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
++                    ×
++                  </span>
++                </button>
++              )}
++            </div>
++          )}
+         </div>
+ 
+         {typeSummary.length > 0 && (
+diff --git a/dashboard/src/components/decisions/DecisionQueue.tsx b/dashboard/src/components/decisions/DecisionQueue.tsx
+index 33a92de..b9f2b54 100644
+--- a/dashboard/src/components/decisions/DecisionQueue.tsx
++++ b/dashboard/src/components/decisions/DecisionQueue.tsx
+@@ -230,13 +230,13 @@ export const DecisionQueue = memo(function DecisionQueue({
+         onApprove={handleApproveFromDetail}
+       />
+       <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
+-        <div className="flex items-center justify-between gap-2">
+-          <div>
++        <div className="flex items-start justify-between gap-3">
++          <div className="min-w-0">
+             <h2 className="inline-flex items-center gap-2 text-[14px] font-semibold text-white">
+               <EntityIcon type="decision" size={14} />
+               Decisions
+             </h2>
+-            <p className="text-[12px] text-white/45">
++            <p className="mt-0.5 text-[12px] text-white/45">
+               Select multiple items to bulk review and approve
+             </p>
+           </div>
+@@ -244,14 +244,20 @@ export const DecisionQueue = memo(function DecisionQueue({
+           <button
+             onClick={handleApproveAll}
+             disabled={sorted.length === 0 || isApprovingAll}
+-            className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors"
+-            style={{
+-              backgroundColor:
+-                sorted.length === 0 || isApprovingAll ? 'rgba(255,255,255,0.08)' : colors.lime,
+-              color: sorted.length === 0 || isApprovingAll ? 'rgba(255,255,255,0.45)' : '#000',
+-            }}
++            data-state={sorted.length > 0 && !isApprovingAll ? 'active' : 'idle'}
++            className="control-pill flex-shrink-0 px-3 text-[11px] font-semibold"
+           >
+-            {isApprovingAll ? 'Approving…' : `Approve all (${sorted.length})`}
++            {isApprovingAll ? (
++              'Approving…'
++            ) : (
++              <>
++                <span className="hidden sm:inline">Approve all</span>
++                <span className="sm:hidden">Approve</span>
++                <span className="ml-0.5 inline-flex items-center justify-center rounded-full border border-black/10 bg-black/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-black/80">
++                  {sorted.length}
++                </span>
++              </>
++            )}
+           </button>
+         </div>
+ 
+@@ -259,16 +265,27 @@ export const DecisionQueue = memo(function DecisionQueue({
+           <button
+             onClick={toggleSelectAll}
+             disabled={sorted.length === 0 || isApprovingAll}
+-            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.07] disabled:opacity-45"
++            className="control-pill px-3 text-[11px] font-semibold text-white/70 hover:text-white/88 disabled:opacity-45"
+           >
+             {allVisibleSelected ? 'Clear all' : 'Select all'}
+           </button>
+           <button
+             onClick={handleApproveSelected}
+             disabled={selectedCount === 0 || isApprovingAll}
+-            className="rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
++            data-state={selectedCount > 0 && !isApprovingAll ? 'active' : 'idle'}
++            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
+           >
+-            {isApprovingAll ? 'Approving…' : `Approve selected (${selectedCount})`}
++            {isApprovingAll ? (
++              'Approving…'
++            ) : (
++              <>
++                <span className="hidden sm:inline">Approve selected</span>
++                <span className="sm:hidden">Approve</span>
++                <span className="ml-0.5 inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white/80">
++                  {selectedCount}
++                </span>
++              </>
++            )}
+           </button>
+           <span className="text-[11px] text-white/45">
+             {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}
+diff --git a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+index acbacf2..4c6242e 100644
+--- a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
++++ b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+@@ -10,6 +10,7 @@ import { SearchInput } from '@/components/shared/SearchInput';
+ import { AgentAvatar } from '@/components/agents/AgentAvatar';
+ import type { useEntityMutations } from '@/hooks/useEntityMutations';
+ import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
++import { useRangeSelection } from '@/hooks/useRangeSelection';
+ import { useMissionControl } from './MissionControlContext';
+ 
+ type EntityMutations = ReturnType<typeof useEntityMutations>;
+@@ -358,6 +359,7 @@ export function HierarchyTreeTable({
+   ]);
+ 
+   const visibleRowIds = useMemo(() => rows.map(({ node }) => node.id), [rows]);
++  const { handleSelect: handleRangeSelect } = useRangeSelection(visibleRowIds);
+   const visibleRowIdSet = useMemo(() => new Set(visibleRowIds), [visibleRowIds]);
+   const selectedRows = useMemo(
+     () => rows.filter(({ node }) => selectedRowIds.has(node.id)),
+@@ -511,15 +513,10 @@ export function HierarchyTreeTable({
+     setActiveStatusFilters(new Set());
+   };
+ 
+-  const toggleRowSelected = (nodeId: string, checked: boolean) => {
++  const toggleRowSelected = (nodeId: string, checked: boolean, shiftKey: boolean) => {
+     setBulkNotice(null);
+     setConfirmBulkDelete(false);
+-    setSelectedRowIds((previous) => {
+-      const next = new Set(previous);
+-      if (checked) next.add(nodeId);
+-      else next.delete(nodeId);
+-      return next;
+-    });
++    handleRangeSelect(nodeId, checked, shiftKey, setSelectedRowIds);
+   };
+ 
+   const toggleSelectAllVisibleRows = () => {
+@@ -1047,7 +1044,8 @@ export function HierarchyTreeTable({
+                       checked={isSelectedForBulk}
+                       onChange={(event) => {
+                         event.stopPropagation();
+-                        toggleRowSelected(node.id, event.currentTarget.checked);
++                        const shiftKey = (event.nativeEvent as MouseEvent).shiftKey ?? false;
++                        toggleRowSelected(node.id, event.currentTarget.checked, shiftKey);
+                       }}
+                       onClick={(event) => event.stopPropagation()}
+                       aria-label={`Select ${node.type}: ${node.title}`}
+diff --git a/dashboard/src/components/mission-control/InitiativeOrbit.tsx b/dashboard/src/components/mission-control/InitiativeOrbit.tsx
+index ff547f0..e26e215 100644
+--- a/dashboard/src/components/mission-control/InitiativeOrbit.tsx
++++ b/dashboard/src/components/mission-control/InitiativeOrbit.tsx
+@@ -5,7 +5,7 @@ import { InitiativeSection } from './InitiativeSection';
+ interface InitiativeOrbitProps {
+   initiatives: Initiative[];
+   selectedInitiativeIds?: Set<string>;
+-  onToggleInitiativeSelection?: (initiativeId: string, selected: boolean) => void;
++  onToggleInitiativeSelection?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
+   runtimeActivityByInitiativeId?: ReadonlyMap<
+     string,
+     { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
+diff --git a/dashboard/src/components/mission-control/InitiativeSection.tsx b/dashboard/src/components/mission-control/InitiativeSection.tsx
+index 403bd5e..c827b68 100644
+--- a/dashboard/src/components/mission-control/InitiativeSection.tsx
++++ b/dashboard/src/components/mission-control/InitiativeSection.tsx
+@@ -27,7 +27,7 @@ import { CollapsibleSection } from './CollapsibleSection';
+ interface InitiativeSectionProps {
+   initiative: Initiative;
+   selected?: boolean;
+-  onSelectionChange?: (initiativeId: string, selected: boolean) => void;
++  onSelectionChange?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
+   runtimeActivity?: {
+     activeCount: number;
+     totalCount: number;
+@@ -639,7 +639,10 @@ export function InitiativeSection({
+             <input
+               type="checkbox"
+               checked={selected}
+-              onChange={(event) => onSelectionChange(initiative.id, event.currentTarget.checked)}
++              onChange={(event) => {
++                const shiftKey = (event.nativeEvent as MouseEvent).shiftKey ?? false;
++                onSelectionChange(initiative.id, event.currentTarget.checked, shiftKey);
++              }}
+               onClick={(event) => event.stopPropagation()}
+               aria-label={`Select initiative ${initiative.name}`}
+               className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+diff --git a/dashboard/src/components/mission-control/MissionControlView.tsx b/dashboard/src/components/mission-control/MissionControlView.tsx
+index 389bb49..ff5f0a3 100644
+--- a/dashboard/src/components/mission-control/MissionControlView.tsx
++++ b/dashboard/src/components/mission-control/MissionControlView.tsx
+@@ -12,6 +12,7 @@ import type {
+ import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
+ import { useAutoContinue } from '@/hooks/useAutoContinue';
+ import { useNextUpQueue } from '@/hooks/useNextUpQueue';
++import { useRangeSelection } from '@/hooks/useRangeSelection';
+ import { openUpgradeCheckout } from '@/lib/billing';
+ import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
+ import { SearchInput } from '@/components/shared/SearchInput';
+@@ -334,6 +335,17 @@ function MissionControlInner({
+     message: string;
+   } | null>(null);
+ 
++  useEffect(() => {
++    if (!bulkInitiativeNotice) return;
++    if (bulkInitiativeNotice.tone !== 'success') return;
++    const timeout = window.setTimeout(() => {
++      setBulkInitiativeNotice((current) =>
++        current && current.tone === 'success' ? null : current
++      );
++    }, 6500);
++    return () => window.clearTimeout(timeout);
++  }, [bulkInitiativeNotice]);
++
+   const filteredInitiatives = useMemo(() => {
+     const now = new Date();
+     const todayStart = startOfLocalDay(now);
+@@ -519,6 +531,22 @@ function MissionControlInner({
+     [groupBy, groups],
+   );
+ 
++  const flatVisibleInitiativeIds = useMemo(() => {
++    if (!groups) return sortedInitiatives.map((i) => i.id);
++    const ids: string[] = [];
++    for (const group of groups) {
++      const disclosureId = groupDisclosureId(groupBy, group.key);
++      if (expandedGroupIds.has(disclosureId)) {
++        for (const initiative of group.initiatives) {
++          ids.push(initiative.id);
++        }
++      }
++    }
++    return ids;
++  }, [groups, sortedInitiatives, groupBy, expandedGroupIds]);
++
++  const { handleSelect: handleInitiativeRangeSelect } = useRangeSelection(flatVisibleInitiativeIds);
++
+   const toggleGroupExpanded = useCallback((id: string) => {
+     setExpandedGroupIds((previous) => {
+       const next = new Set(previous);
+@@ -611,20 +639,12 @@ function MissionControlInner({
+   const autopilotInitiativeId = nextActionInitiative?.id ?? null;
+ 
+   const setInitiativeSelected = useCallback(
+-    (initiativeId: string, selected: boolean) => {
++    (initiativeId: string, selected: boolean, shiftKey: boolean) => {
+       setBulkInitiativeNotice(null);
+       setConfirmBulkInitiativeDelete(false);
+-      setSelectedInitiativeIds((previous) => {
+-        const next = new Set(previous);
+-        if (selected) {
+-          next.add(initiativeId);
+-        } else {
+-          next.delete(initiativeId);
+-        }
+-        return next;
+-      });
++      handleInitiativeRangeSelect(initiativeId, selected, shiftKey, setSelectedInitiativeIds);
+     },
+-    []
++    [handleInitiativeRangeSelect]
+   );
+ 
+   const toggleSelectAllVisibleInitiatives = useCallback(() => {
+@@ -1398,210 +1418,236 @@ function MissionControlInner({
+             {sortedInitiatives.length > 0 && (
+               <div
+                 data-mc-selection-bar="true"
+-                className={`mt-3 flex min-h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 py-1 whitespace-nowrap ${
++                className={`mt-3 grid gap-2 rounded-xl border px-3 py-2 ${
+                   selectedInitiativeCount > 0
+-                    ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
++                    ? 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.05]'
+                     : 'border-white/[0.08] bg-white/[0.02]'
+                 }`}
+               >
+-                <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+-                  <input
+-                    type="checkbox"
+-                    checked={allVisibleSelected}
+-                    onChange={toggleSelectAllVisibleInitiatives}
+-                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+-                  />
+-                  Select visible
+-                </label>
+-                <span className="flex-shrink-0 text-[11px] text-white/58">
+-                  {selectedInitiativeCount > 0
+-                    ? `${selectedInitiativeCount} selected`
+-                    : `${sortedInitiatives.length} visible`}
+-                </span>
+-                {selectedInitiativeCount > 0 && (
+-                  <div className="flex flex-shrink-0 items-center gap-2">
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        void runBulkInitiativeStatusUpdate('active');
+-                      }}
+-                      disabled={isBulkInitiativeMutating}
+-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                      data-state="active"
+-                    >
+-                      Mark active
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        void runBulkInitiativeStatusUpdate('paused');
+-                      }}
+-                      disabled={isBulkInitiativeMutating}
+-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                    >
+-                      Pause
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        void runBulkInitiativeStatusUpdate('blocked');
+-                      }}
+-                      disabled={isBulkInitiativeMutating}
+-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                    >
+-                      Block
+-                    </button>
+-                    <button
+-                      type="button"
+-                      onClick={() => {
+-                        void runBulkInitiativeStatusUpdate('completed');
+-                      }}
+-                      disabled={isBulkInitiativeMutating}
+-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                    >
+-                      Complete
+-                    </button>
+-                    {confirmBulkInitiativeDelete ? (
+-                      <div className="flex items-center gap-2">
+-                        <span className="text-[10px] text-white/58">Delete selected?</span>
++                <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
++                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
++                    <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
++                      <input
++                        type="checkbox"
++                        checked={allVisibleSelected}
++                        onChange={toggleSelectAllVisibleInitiatives}
++                        className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
++                      />
++                      Select visible
++                    </label>
++                    <span className="flex-shrink-0 text-[11px] text-white/58">
++                      {selectedInitiativeCount > 0
++                        ? `${selectedInitiativeCount} selected`
++                        : `${sortedInitiatives.length} visible`}
++                    </span>
++                    {selectedInitiativeCount > 0 && (
++                      <div className="flex flex-wrap items-center gap-2">
+                         <button
+                           type="button"
+                           onClick={() => {
+-                            void runBulkInitiativeDelete();
++                            void runBulkInitiativeStatusUpdate('active');
+                           }}
+                           disabled={isBulkInitiativeMutating}
+-                          className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
++                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                          data-state="active"
+                         >
+-                          Delete
++                          Mark active
+                         </button>
+                         <button
+                           type="button"
+-                          onClick={() => setConfirmBulkInitiativeDelete(false)}
++                          onClick={() => {
++                            void runBulkInitiativeStatusUpdate('paused');
++                          }}
+                           disabled={isBulkInitiativeMutating}
+-                          className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
++                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                         >
+-                          Keep
++                          Pause
+                         </button>
+-                      </div>
+-                    ) : (
+-                      <button
+-                        type="button"
+-                        onClick={() => setConfirmBulkInitiativeDelete(true)}
+-                        disabled={isBulkInitiativeMutating}
+-                        className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+-                      >
+-                        Delete
+-                      </button>
+-                    )}
+-                    <button
+-                      type="button"
+-                      onClick={clearInitiativeSelection}
+-                      disabled={isBulkInitiativeMutating}
+-                      className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
+-                    >
+-                      Clear
+-                    </button>
+-                  </div>
+-                )}
+-                <AnimatePresence initial={false} mode="popLayout">
+-                  {!nextUpRailOpen && !nextUpDrawerOpen && (
+-                    <motion.div
+-                      key="next-up-inline-card"
+-                      layout="position"
+-                      layoutId={nextUpRailLayoutId}
+-                      initial={{ opacity: 0, y: 4 }}
+-                      animate={{ opacity: 1, y: 0, ...nextUpInlineShellTone }}
+-                      exit={{ opacity: 0, y: -4 }}
+-                      transition={{
+-                        layout: nextUpMorphTransition,
+-                        duration: 0.2,
+-                        ease: [0.22, 1, 0.36, 1],
+-                      }}
+-                      className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
+-                    >
+-                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+-                        {nextActionQueue.isLoading ? (
+-                          <Skeleton className="h-6 w-6 rounded-full" />
+-                        ) : nextActionQueueItem ? (
+-                          <AgentAvatar
+-                            name={nextActionQueueItem.runnerAgentName}
+-                            hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
+-                            size="xs"
+-                          />
+-                        ) : (
+-                          <div className="h-6 w-6 rounded-full border border-white/[0.16] bg-white/[0.05]" />
+-                        )}
+-                        <div className="min-w-0 flex-1">
+-                          <div className="flex items-center gap-1.5">
+-                            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/76">
+-                              Next Up
+-                            </span>
+-                            {nextActionQueue.isLoading ? (
+-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] bg-white/[0.04] px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] text-white/60">
+-                                <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
+-                                Syncing
+-                              </span>
+-                            ) : (
+-                              <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
+-                                {nextUpInlineStatusLabel}
+-                              </span>
+-                            )}
+-                          </div>
+-                          {nextActionQueue.isLoading ? (
+-                            <div className="mt-1.5 space-y-1">
+-                              <Skeleton className="h-3 w-56 rounded" />
+-                              <Skeleton className="h-3 w-44 rounded" />
+-                            </div>
+-                          ) : (
+-                            <>
+-                              <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
+-                                {nextUpInlineSummary}
+-                              </p>
+-                              <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
+-                                {nextUpInlineContextLabel}
+-                                {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
+-                              </p>
+-                            </>
+-                          )}
+-                        </div>
+-                      </div>
+-                      <div className="ml-auto flex items-center gap-1.5">
+                         <button
+                           type="button"
+-                          onClick={startNextAction}
+-                          disabled={!nextActionQueueItem || nextActionBusy}
+-                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
+-                          title={
+-                            nextActionQueueItem
+-                              ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
+-                              : 'No queued workstream to dispatch'
+-                          }
++                          onClick={() => {
++                            void runBulkInitiativeStatusUpdate('blocked');
++                          }}
++                          disabled={isBulkInitiativeMutating}
++                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                         >
+-                          ▶ Play
++                          Block
+                         </button>
+                         <button
+                           type="button"
+-                          onClick={toggleNextUpSurface}
+-                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
+-                          title="Expand Next Up rail"
++                          onClick={() => {
++                            void runBulkInitiativeStatusUpdate('completed');
++                          }}
++                          disabled={isBulkInitiativeMutating}
++                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                         >
+-                          Open
++                          Complete
++                        </button>
++                        {confirmBulkInitiativeDelete ? (
++                          <div className="flex items-center gap-2">
++                            <span className="text-[10px] text-white/58">
++                              Delete selected?
++                            </span>
++                            <button
++                              type="button"
++                              onClick={() => {
++                                void runBulkInitiativeDelete();
++                              }}
++                              disabled={isBulkInitiativeMutating}
++                              className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
++                            >
++                              Delete
++                            </button>
++                            <button
++                              type="button"
++                              onClick={() => setConfirmBulkInitiativeDelete(false)}
++                              disabled={isBulkInitiativeMutating}
++                              className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
++                            >
++                              Keep
++                            </button>
++                          </div>
++                        ) : (
++                          <button
++                            type="button"
++                            onClick={() => setConfirmBulkInitiativeDelete(true)}
++                            disabled={isBulkInitiativeMutating}
++                            className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
++                          >
++                            Delete
++                          </button>
++                        )}
++                        <button
++                          type="button"
++                          onClick={clearInitiativeSelection}
++                          disabled={isBulkInitiativeMutating}
++                          className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
++                        >
++                          Clear
+                         </button>
+                       </div>
+-                    </motion.div>
+-                  )}
+-                </AnimatePresence>
++                    )}
++                  </div>
++
++                  <AnimatePresence initial={false} mode="popLayout">
++                    {!nextUpRailOpen && !nextUpDrawerOpen && (
++                      <motion.div
++                        key="next-up-inline-card"
++                        layout="position"
++                        layoutId={nextUpRailLayoutId}
++                        initial={{ opacity: 0, y: 4 }}
++                        animate={{ opacity: 1, y: 0, ...nextUpInlineShellTone }}
++                        exit={{ opacity: 0, y: -4 }}
++                        transition={{
++                          layout: nextUpMorphTransition,
++                          duration: 0.2,
++                          ease: [0.22, 1, 0.36, 1],
++                        }}
++                        className="flex min-w-[300px] max-w-[520px] items-center gap-3 overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.02] px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur-[10px] xl:justify-self-end"
++                      >
++                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
++                          {nextActionQueue.isLoading ? (
++                            <Skeleton className="h-7 w-7 rounded-full" />
++                          ) : nextActionQueueItem ? (
++                            <AgentAvatar
++                              name={nextActionQueueItem.runnerAgentName}
++                              hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
++                              size="xs"
++                            />
++                          ) : (
++                            <div className="h-7 w-7 rounded-full border border-white/[0.14] bg-white/[0.03]" />
++                          )}
++                          <div className="min-w-0 flex-1">
++                            <div className="flex items-center gap-1.5">
++                              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
++                                Next Up
++                              </span>
++                              {nextActionQueue.isLoading ? (
++                                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.03] px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] text-white/55">
++                                  <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/60 status-breathe" />
++                                  Syncing
++                                </span>
++                              ) : (
++                                <span className={`rounded-full border px-1.5 py-[1px] text-[9px] uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
++                                  {nextUpInlineStatusLabel}
++                                </span>
++                              )}
++                            </div>
++                            {nextActionQueue.isLoading ? (
++                              <div className="mt-1.5 space-y-1">
++                                <Skeleton className="h-3 w-48 rounded" />
++                                <Skeleton className="h-3 w-36 rounded" />
++                              </div>
++                            ) : (
++                              <>
++                                <p className="truncate text-[12px] font-semibold leading-snug text-white/88" title={nextUpInlineSummary}>
++                                  {nextUpInlineSummary}
++                                </p>
++                                <p className="truncate text-[11px] leading-snug text-white/45" title={nextUpInlineSubline}>
++                                  {nextUpInlineContextLabel}
++                                  {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
++                                </p>
++                              </>
++                            )}
++                          </div>
++                        </div>
++                        <div className="ml-auto flex items-center gap-2">
++                          <button
++                            type="button"
++                            onClick={startNextAction}
++                            disabled={!nextActionQueueItem || nextActionBusy}
++                            className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                            title={
++                              nextActionQueueItem
++                                ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
++                                : 'No queued workstream to dispatch'
++                            }
++                          >
++                            Play
++                          </button>
++                          <button
++                            type="button"
++                            onClick={toggleNextUpSurface}
++                            className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold"
++                            title="Expand Next Up rail"
++                          >
++                            Open
++                          </button>
++                        </div>
++                      </motion.div>
++                    )}
++                  </AnimatePresence>
++                </div>
+               </div>
+             )}
+             {bulkInitiativeNotice && (
+               <div
+-                className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${
++                className={`mt-2 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-[11px] ${
+                   bulkInitiativeNotice.tone === 'success'
+-                    ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
+-                    : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
++                    ? 'border-emerald-400/18 bg-white/[0.02] text-white/75'
++                    : 'border-amber-400/18 bg-white/[0.02] text-white/75'
+                 }`}
+               >
+-                {bulkInitiativeNotice.message}
++                <div className="flex min-w-0 items-start gap-2">
++                  <span
++                    aria-hidden
++                    className={`mt-[3px] h-1.5 w-1.5 flex-shrink-0 rounded-full ${
++                      bulkInitiativeNotice.tone === 'success'
++                        ? 'bg-emerald-300/90'
++                        : 'bg-amber-300/90'
++                    }`}
++                  />
++                  <span className="min-w-0 leading-snug">{bulkInitiativeNotice.message}</span>
++                </div>
++                <button
++                  type="button"
++                  onClick={() => setBulkInitiativeNotice(null)}
++                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.10] bg-white/[0.02] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
++                  aria-label="Dismiss notice"
++                  title="Dismiss"
++                >
++                  ✕
++                </button>
+               </div>
+             )}
+ 
+@@ -1619,15 +1665,23 @@ function MissionControlInner({
+                     initial={{ opacity: 0, y: 6, scale: 0.995 }}
+                     animate={{ opacity: 1, y: 0, scale: 1 }}
+                     transition={{ type: 'spring', stiffness: 280, damping: 30 }}
+-                    className="surface-hero mb-3.5 rounded-2xl p-3.5"
++                    className="surface-tier-2 relative mb-3.5 overflow-hidden rounded-2xl p-4"
+                   >
++                    <div
++                      aria-hidden
++                      className="absolute inset-x-0 top-0 h-px"
++                      style={{
++                        background:
++                          'linear-gradient(90deg, rgba(191,255,0,0.18), rgba(10,212,196,0.16), transparent 72%)',
++                      }}
++                    />
+                     <div className="flex flex-wrap items-start justify-between gap-3">
+                       <div className="min-w-[240px]">
+                         <p className="section-kicker">Next action</p>
+-                        <p className="mt-1 text-[14px] font-semibold text-white">
++                        <p className="mt-1 text-[15px] font-semibold leading-snug tracking-tight text-white/92">
+                           {nextActionSummary.headline}
+                         </p>
+-                        <p className="mt-1 text-[12px] text-white/65">
++                        <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+                           {nextActionSummary.detail}
+                         </p>
+                         {nextActionNotice && (
+@@ -1642,7 +1696,7 @@ function MissionControlInner({
+                           </div>
+                         )}
+                       </div>
+-                      <div className="flex flex-wrap items-center gap-2">
++                      <div className="flex flex-wrap items-center gap-2.5">
+                         {(nextActionMode === 'queued' || nextActionMode === 'running') && nextActionQueueItem ? (
+                           <button
+                             type="button"
+@@ -1652,7 +1706,7 @@ function MissionControlInner({
+                                 : startNextAction
+                             }
+                             disabled={nextActionBusy}
+-                            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
++                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
+                             data-state="active"
+                           >
+                             {nextActionMode === 'running' ? 'Follow workstream' : 'Play next workstream'}
+@@ -1662,7 +1716,7 @@ function MissionControlInner({
+                             type="button"
+                             onClick={startInitiativeFromNextAction}
+                             disabled={nextActionBusy}
+-                            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
++                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
+                             data-state="active"
+                           >
+                             Start initiative
+@@ -1671,7 +1725,7 @@ function MissionControlInner({
+                           <button
+                             type="button"
+                             onClick={openNextActionInitiative}
+-                            className="control-pill px-3 text-[11px] font-semibold"
++                            className="control-pill h-9 px-4 text-[12px] font-semibold"
+                             data-state={nextActionMode === 'blocked' ? 'active' : 'idle'}
+                           >
+                             {nextActionFallbackLabel}
+@@ -1680,7 +1734,7 @@ function MissionControlInner({
+                         <button
+                           type="button"
+                           onClick={toggleNextUpSurface}
+-                          className="control-pill px-3 text-[11px] font-semibold"
++                          className="control-pill h-9 px-4 text-[12px] font-semibold"
+                         >
+                           {nextUpRailOpen ? 'Hide Next Up' : 'Open Next Up'}
+                         </button>
+diff --git a/dashboard/src/hooks/useRangeSelection.ts b/dashboard/src/hooks/useRangeSelection.ts
+new file mode 100644
+index 0000000..9320da5
+--- /dev/null
++++ b/dashboard/src/hooks/useRangeSelection.ts
+@@ -0,0 +1,62 @@
++import { useRef, useCallback } from 'react';
++
++type SetSelectedFn = (updater: (previous: Set<string>) => Set<string>) => void;
++
++/**
++ * Shared hook for shift+click range selection across ordered lists.
++ *
++ * Tracks the last-clicked ID and, on shift+click, selects all IDs between
++ * the last-clicked and the current click target (inclusive).
++ */
++export function useRangeSelection(orderedIds: string[]) {
++  const lastClickedId = useRef<string | null>(null);
++
++  const handleSelect = useCallback(
++    (
++      id: string,
++      checked: boolean,
++      shiftKey: boolean,
++      setSelected: SetSelectedFn,
++    ) => {
++      if (shiftKey && lastClickedId.current !== null) {
++        const lastIndex = orderedIds.indexOf(lastClickedId.current);
++        const currentIndex = orderedIds.indexOf(id);
++
++        if (lastIndex !== -1 && currentIndex !== -1) {
++          const start = Math.min(lastIndex, currentIndex);
++          const end = Math.max(lastIndex, currentIndex);
++          const rangeIds = orderedIds.slice(start, end + 1);
++
++          setSelected((previous) => {
++            const next = new Set(previous);
++            for (const rangeId of rangeIds) {
++              if (checked) {
++                next.add(rangeId);
++              } else {
++                next.delete(rangeId);
++              }
++            }
++            return next;
++          });
++          // Don't update lastClickedId on shift+click
++          return;
++        }
++      }
++
++      // Single toggle (no shift or fallback)
++      setSelected((previous) => {
++        const next = new Set(previous);
++        if (checked) {
++          next.add(id);
++        } else {
++          next.delete(id);
++        }
++        return next;
++      });
++      lastClickedId.current = id;
++    },
++    [orderedIds],
++  );
++
++  return { lastClickedId, handleSelect };
++}
+diff --git a/dashboard/src/index.css b/dashboard/src/index.css
+index 5ca985e..159df0d 100644
+--- a/dashboard/src/index.css
++++ b/dashboard/src/index.css
+@@ -144,22 +144,28 @@
+   }
+ 
+   .surface-hero {
+-    border: 1px solid rgba(191, 255, 0, 0.22);
++    border: 1px solid rgba(191, 255, 0, 0.14);
+     background:
+-      linear-gradient(140deg, rgba(191, 255, 0, 0.08), rgba(10, 212, 196, 0.06) 46%, rgba(255, 255, 255, 0.025)),
++      linear-gradient(140deg, rgba(191, 255, 0, 0.055), rgba(10, 212, 196, 0.045) 46%, rgba(255, 255, 255, 0.02)),
+       var(--orgx-surface-hero);
+     box-shadow:
+       inset 0 1px 0 rgba(255, 255, 255, 0.05),
+       0 18px 40px rgba(0, 0, 0, 0.4),
+-      0 0 0 1px rgba(191, 255, 0, 0.08);
++      0 0 0 1px rgba(191, 255, 0, 0.045);
+   }
+ 
+   .control-pill {
+     height: 34px;
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    gap: 6px;
++    white-space: nowrap;
+     border-radius: 10px;
+-    border: 1px solid rgba(255, 255, 255, 0.12);
+-    background: rgba(255, 255, 255, 0.04);
++    border: 1px solid rgba(255, 255, 255, 0.11);
++    background: rgba(255, 255, 255, 0.03);
+     color: rgba(242, 247, 255, 0.68);
++    line-height: 1;
+     transition:
+       background-color 160ms var(--orgx-ease-standard),
+       border-color 160ms var(--orgx-ease-standard),
+@@ -170,7 +176,7 @@
+ 
+   .control-pill:hover {
+     border-color: rgba(255, 255, 255, 0.2);
+-    background: rgba(255, 255, 255, 0.07);
++    background: rgba(255, 255, 255, 0.055);
+     color: rgba(242, 247, 255, 0.88);
+     box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+   }
+@@ -180,15 +186,15 @@
+   }
+ 
+   .control-pill[data-state='active'] {
+-    border-color: rgba(191, 255, 0, 0.3);
+-    background: rgba(191, 255, 0, 0.11);
+-    color: #d8ffa1;
++    border-color: rgba(191, 255, 0, 0.22);
++    background: rgba(191, 255, 0, 0.08);
++    color: rgba(216, 255, 161, 0.92);
+   }
+ 
+   .control-pill[data-tone='teal'][data-state='active'] {
+-    border-color: rgba(10, 212, 196, 0.36);
+-    background: rgba(10, 212, 196, 0.12);
+-    color: #8ff7ec;
++    border-color: rgba(10, 212, 196, 0.28);
++    background: rgba(10, 212, 196, 0.09);
++    color: rgba(143, 247, 236, 0.9);
+   }
+ 
+   .control-pill[data-tone='amber'] {
+diff --git a/src/http-handler.ts b/src/http-handler.ts
+index f2aef1f..0395273 100644
+--- a/src/http-handler.ts
++++ b/src/http-handler.ts
+@@ -16,7 +16,13 @@
+  *   /orgx/api/runs/:id/actions/:action → run control action
+  */
+ 
+-import { readFileSync, existsSync, mkdirSync } from "node:fs";
++import {
++  readFileSync,
++  existsSync,
++  mkdirSync,
++  chmodSync,
++  createWriteStream,
++} from "node:fs";
+ import { homedir } from "node:os";
+ import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -3379,6 +3385,61 @@ export function createHttpHandler(
+     string,
+     { status: string; updatedAt: string }
+   >();
++  // Auto-continue v2: dispatch workstream slices (sets of work) and register verifiable outcomes as artifacts.
++  type AutoContinueSliceEngine = "codex" | "claude-code";
++  type AutoContinueSliceStatus = "running" | "completed" | "blocked" | "error";
++
++  type AutoContinueSliceArtifact = {
++    name: string;
++    artifact_type: "pr" | "commit" | "document" | "config" | "report" | "design" | "other";
++    description?: string | null;
++    url?: string | null;
++    verification_steps?: string[] | null;
++    milestone_id?: string | null;
++    task_ids?: string[] | null;
++  };
++
++  type AutoContinueSliceDecision = {
++    question: string;
++    urgency?: "low" | "medium" | "high" | "urgent";
++    options?: string[] | null;
++    blocking?: boolean | null;
++    summary?: string | null;
++  };
++
++  type AutoContinueSliceResult = {
++    status: "completed" | "blocked" | "needs_decision" | "error";
++    summary: string;
++    workstream_id: string;
++    workstream_title?: string | null;
++    slice_id?: string | null;
++    artifacts?: AutoContinueSliceArtifact[] | null;
++    decisions_needed?: AutoContinueSliceDecision[] | null;
++    next_actions?: string[] | null;
++  };
++
++  type AutoContinueSliceRun = {
++    runId: string;
++    initiativeId: string;
++    initiativeTitle: string | null;
++    workstreamId: string;
++    workstreamTitle: string | null;
++    agentId: string;
++    engine: AutoContinueSliceEngine;
++    pid: number | null;
++    status: AutoContinueSliceStatus;
++    startedAt: string;
++    finishedAt: string | null;
++    updatedAt: string;
++    tokenEstimate: number | null;
++    outputPath: string;
++    logPath: string;
++    taskIds: string[];
++    milestoneIds: string[];
++    lastError: string | null;
++  };
++
++  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
+   let autoContinueTickInFlight = false;
+   const AUTO_CONTINUE_TICK_MS = 2_500;
+ 
+@@ -3612,6 +3673,252 @@ export function createHttpHandler(
+     }
+   }
+ 
++  const AUTO_CONTINUE_SLICE_MAX_TASKS = 4;
++  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 60 * 60_000; // 60 minutes per slice hard cap
++  const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
++
++  function ensurePrivateDir(pathname: string): void {
++    const dir = dirname(pathname);
++    mkdirSync(dir, { recursive: true, mode: 0o700 });
++    try {
++      chmodSync(dir, 0o700);
++    } catch {
++      // best effort
++    }
++  }
++
++  function autopilotSliceSchema(): Record<string, unknown> {
++    return {
++      type: "object",
++      additionalProperties: false,
++      required: ["status", "summary", "workstream_id"],
++      properties: {
++        status: {
++          type: "string",
++          enum: ["completed", "blocked", "needs_decision", "error"],
++        },
++        summary: { type: "string", minLength: 1 },
++        workstream_id: { type: "string", minLength: 1 },
++        workstream_title: { type: ["string", "null"] },
++        slice_id: { type: ["string", "null"] },
++        artifacts: {
++          type: ["array", "null"],
++          items: {
++            type: "object",
++            additionalProperties: false,
++            required: ["name", "artifact_type"],
++            properties: {
++              name: { type: "string", minLength: 1 },
++              artifact_type: {
++                type: "string",
++                enum: ["pr", "commit", "document", "config", "report", "design", "other"],
++              },
++              description: { type: ["string", "null"] },
++              url: { type: ["string", "null"] },
++              verification_steps: {
++                type: ["array", "null"],
++                items: { type: "string" },
++              },
++              milestone_id: { type: ["string", "null"] },
++              task_ids: { type: ["array", "null"], items: { type: "string" } },
++            },
++          },
++        },
++        decisions_needed: {
++          type: ["array", "null"],
++          items: {
++            type: "object",
++            additionalProperties: false,
++            required: ["question"],
++            properties: {
++              question: { type: "string", minLength: 1 },
++              urgency: {
++                type: ["string", "null"],
++                enum: ["low", "medium", "high", "urgent", null],
++              },
++              options: { type: ["array", "null"], items: { type: "string" } },
++              blocking: { type: ["boolean", "null"] },
++              summary: { type: ["string", "null"] },
++            },
++          },
++        },
++        next_actions: { type: ["array", "null"], items: { type: "string" } },
++      },
++    };
++  }
++
++  function ensureAutopilotSliceSchemaPath(): string {
++    const file = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
++    try {
++      if (existsSync(file)) return file;
++      ensurePrivateDir(file);
++      writeFileAtomicSync(file, JSON.stringify(autopilotSliceSchema(), null, 2), 0o600);
++      return file;
++    } catch {
++      return file;
++    }
++  }
++
++  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
++    const trimmed = raw.trim();
++    if (!trimmed) return null;
++    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
++    if (direct && typeof direct === "object") return direct;
++    const first = trimmed.indexOf("{");
++    const last = trimmed.lastIndexOf("}");
++    if (first >= 0 && last > first) {
++      const candidate = trimmed.slice(first, last + 1);
++      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
++      if (parsed && typeof parsed === "object") return parsed;
++    }
++    return null;
++  }
++
++  function readSliceOutputFile(pathname: string): string | null {
++    try {
++      if (!existsSync(pathname)) return null;
++      const raw = readFileSync(pathname, "utf8");
++      return raw.trim().length > 0 ? raw : null;
++    } catch {
++      return null;
++    }
++  }
++
++  function writeRuntimeEvent(input: {
++    sourceClient: RuntimeSourceClient;
++    event: RuntimeHookPayload["event"];
++    runId: string;
++    initiativeId: string;
++    workstreamId: string | null;
++    agentId: string | null;
++    agentName: string | null;
++    phase: string | null;
++    message?: string | null;
++    progressPct?: number | null;
++    metadata?: Record<string, unknown> | null;
++    timestamp?: string | null;
++  }): RuntimeInstanceRecord {
++    return upsertRuntimeInstanceFromHook({
++      source_client: input.sourceClient,
++      event: input.event ?? null,
++      run_id: input.runId,
++      correlation_id: input.runId,
++      initiative_id: input.initiativeId,
++      workstream_id: input.workstreamId,
++      agent_id: input.agentId,
++      agent_name: input.agentName,
++      phase: input.phase,
++      progress_pct: input.progressPct ?? null,
++      message: input.message ?? null,
++      metadata: input.metadata ?? null,
++      timestamp: input.timestamp ?? new Date().toISOString(),
++    });
++  }
++
++  function buildWorkstreamSlicePrompt(input: {
++    initiativeTitle: string;
++    initiativeId: string;
++    workstreamId: string;
++    workstreamTitle: string;
++    milestoneSummaries: Array<{ id: string; title: string; status: string }>;
++    taskSummaries: Array<{ id: string; title: string; status: string; milestoneId: string | null }>;
++    executionPolicy: { domain: string; requiredSkills: string[] };
++    runId: string;
++  }): string {
++    const milestones = input.milestoneSummaries
++      .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
++      .slice(0, 10)
++      .join("\n");
++    const tasks = input.taskSummaries
++      .map((t) => {
++        const milestone = t.milestoneId ? ` milestone=${t.milestoneId}` : "";
++        return `- ${t.title} (${t.status}) [${t.id}]${milestone}`;
++      })
++      .slice(0, 18)
++      .join("\n");
++
++    return [
++      `You are an OrgX execution agent running a single workstream slice.`,
++      ``,
++      `Execution policy: ${input.executionPolicy.domain}`,
++      `Required skills: ${formatRequiredSkills(input.executionPolicy.requiredSkills)}`,
++      ``,
++      `Initiative: ${input.initiativeTitle} [${input.initiativeId}]`,
++      `Workstream: ${input.workstreamTitle} [${input.workstreamId}]`,
++      `Slice run: ${input.runId}`,
++      ``,
++      `Milestones (context):`,
++      milestones || "- (none found)",
++      ``,
++      `Candidate tasks (context only; do NOT auto-mark task status in OrgX):`,
++      tasks || "- (none found)",
++      ``,
++      `What to do:`,
++      `- Choose a coherent slice of work you can complete in one run.`,
++      `- Execute the work (code/docs/config) and produce verifiable outcomes.`,
++      `- If blocked, be explicit about what decision/info is required.`,
++      ``,
++      `Output requirements:`,
++      `- Return ONLY a single JSON object that matches the provided schema.`,
++      `- Artifacts must be verifiable: include URLs or local paths when possible, plus verification steps.`,
++      `- If you need a human decision, include it in decisions_needed.`,
++    ].join("\n");
++  }
++
++  function spawnCodexSliceWorker(input: {
++    runId: string;
++    prompt: string;
++    cwd: string;
++    schemaPath: string;
++    logPath: string;
++    outputPath: string;
++  }): { pid: number | null } {
++    ensurePrivateDir(input.logPath);
++    ensurePrivateDir(input.outputPath);
++
++    const stream = createWriteStream(input.logPath, { flags: "a", mode: 0o600 });
++    stream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
++
++    const child = spawn(
++      "codex",
++      [
++        "exec",
++        "--full-auto",
++        "--cd",
++        input.cwd,
++        "--output-schema",
++        input.schemaPath,
++        "--output-last-message",
++        input.outputPath,
++        input.prompt,
++      ],
++      {
++        cwd: input.cwd,
++        env: process.env,
++        stdio: ["ignore", "pipe", "pipe"],
++        detached: true,
++      }
++    );
++
++    child.stdout?.on("data", (chunk) => stream.write(chunk));
++    child.stderr?.on("data", (chunk) => stream.write(chunk));
++    child.on("close", (code, signal) => {
++      stream.write(
++        `\n==== ${new Date().toISOString()} :: exit code=${String(code)} signal=${String(
++          signal
++        )} ====\n`
++      );
++      stream.end();
++    });
++    child.on("error", (err) => {
++      stream.write(`\nspawn error: ${safeErrorMessage(err)}\n`);
++      stream.end();
++    });
++
++    child.unref();
++    return { pid: typeof child.pid === "number" ? child.pid : null };
++  }
++
+   async function fetchInitiativeEntity(initiativeId: string): Promise<Entity | null> {
+     try {
+       const list = await client.listEntities("initiative", { limit: 200 });

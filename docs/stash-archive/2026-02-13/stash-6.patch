@@ -1,0 +1,996 @@
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
+index b651eac..e659000 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
+@@ -10,6 +10,7 @@ import {
+ import { Skeleton } from '@/components/shared/Skeleton';
+ import { InferredAgentAvatars } from './AgentInference';
+ import { useMissionControl } from './MissionControlContext';
++import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+ 
+ interface InitiativeDetailProps {
+   initiative: Initiative;
+@@ -88,9 +89,16 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+             <div className="space-y-2">
+               <SectionLabel title="Workstreams" count={details.workstreams.length} />
+               {details.workstreams.map((ws) => {
+-                const taskCount = details.tasks.filter(
+-                  (t) => t.workstreamId === ws.id
+-                ).length;
++                const wsTasks = details.tasks.filter((t) => t.workstreamId === ws.id);
++                const doneWsTasks = wsTasks.filter((t) => isDoneStatus(t.status)).length;
++                const completion =
++                  wsTasks.length > 0
++                    ? completionPercent(doneWsTasks, wsTasks.length)
++                    : typeof ws.progress === 'number'
++                      ? clampPercent(ws.progress <= 1 ? ws.progress * 100 : ws.progress)
++                      : isDoneStatus(ws.status)
++                        ? 100
++                        : null;
+                 return (
+                   <button
+                     key={ws.id}
+@@ -114,10 +122,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+                       </span>
+                     </div>
+                     <div className="mt-1.5 flex items-center gap-3 text-[10px] text-white/35 uppercase tracking-[0.08em]">
+-                      <span>{taskCount} tasks</span>
+-                      {ws.progress !== null && (
+-                        <span>{Math.round(ws.progress)}%</span>
+-                      )}
++                      <span>{wsTasks.length} tasks</span>
++                      {completion !== null && <span>{completion}%</span>}
+                     </div>
+                   </button>
+                 );
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
+index 2e92022..cb3eb08 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
+@@ -7,6 +7,7 @@ import {
+   formatEntityStatus,
+ } from '@/lib/entityStatusColors';
+ import { useMissionControl } from './MissionControlContext';
++import { completionPercent, isDoneStatus } from '@/lib/progress';
+ 
+ interface MilestoneDetailProps {
+   milestone: InitiativeMilestone;
+@@ -29,6 +30,13 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+   const isDone =
+     milestone.status.toLowerCase() === 'done' ||
+     milestone.status.toLowerCase() === 'completed';
++  const doneTaskCount = associatedTasks.filter((t) => isDoneStatus(t.status)).length;
++  const progressValue =
++    associatedTasks.length > 0
++      ? completionPercent(doneTaskCount, associatedTasks.length)
++      : isDone
++        ? 100
++        : 0;
+ 
+   return (
+     <div className="flex h-full w-full min-h-0 flex-col">
+@@ -74,7 +82,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+       </div>
+ 
+       {/* Details */}
+-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
++      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+         {milestone.dueDate && (
+           <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+             <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Due Date</div>
+@@ -89,6 +97,23 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+             {associatedTasks.length}
+           </div>
+         </div>
++        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++          <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Completion</div>
++          <div className="mt-1 flex items-center gap-2">
++            <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
++              <div
++                className="h-full rounded-full transition-all"
++                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
++              />
++            </div>
++            <div className="text-[12px] text-white/75" style={{ fontVariantNumeric: 'tabular-nums' }}>
++              {progressValue}%
++            </div>
++          </div>
++          <div className="mt-1 text-[10px] text-white/35">
++            {doneTaskCount}/{associatedTasks.length} done
++          </div>
++        </div>
+       </div>
+ 
+       {/* Associated tasks */}
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
+index 675b406..4dbc31b 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
+@@ -1,4 +1,4 @@
+-import { useState } from 'react';
++import { useMemo, useState } from 'react';
+ import { colors } from '@/lib/tokens';
+ import type { Initiative, InitiativeWorkstream } from '@/types';
+ import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+@@ -12,6 +12,7 @@ import {
+ import { Skeleton } from '@/components/shared/Skeleton';
+ import { InferredAgentAvatars } from './AgentInference';
+ import { useMissionControl } from './MissionControlContext';
++import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+ 
+ interface WorkstreamDetailProps {
+   workstream: InitiativeWorkstream;
+@@ -30,18 +31,38 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+     embedMode,
+   });
+ 
+-  const tasks = details.tasks
+-    .filter((t) => t.workstreamId === workstream.id)
+-    .sort((a, b) => {
+-      const rankDiff = statusRank(a.status) - statusRank(b.status);
+-      if (rankDiff !== 0) return rankDiff;
+-      const dateA = a.createdAt ? Date.parse(a.createdAt) : 0;
+-      const dateB = b.createdAt ? Date.parse(b.createdAt) : 0;
+-      return dateB - dateA;
+-    });
+   const milestones = details.milestones.filter(
+     (m) => m.workstreamId === workstream.id
+   );
++  const milestoneIdSet = useMemo(() => new Set(milestones.map((m) => m.id)), [milestones]);
++
++  const tasks = useMemo(() => {
++    return details.tasks
++      .filter(
++        (t) =>
++          t.workstreamId === workstream.id ||
++          (t.milestoneId !== null && milestoneIdSet.has(t.milestoneId))
++      )
++      .sort((a, b) => {
++        const rankDiff = statusRank(a.status) - statusRank(b.status);
++        if (rankDiff !== 0) return rankDiff;
++        const dateA = a.createdAt ? Date.parse(a.createdAt) : 0;
++        const dateB = b.createdAt ? Date.parse(b.createdAt) : 0;
++        return dateB - dateA;
++      });
++  }, [details.tasks, milestoneIdSet, workstream.id]);
++
++  const doneTaskCount = tasks.filter((t) => isDoneStatus(t.status)).length;
++  const progressValue =
++    tasks.length > 0
++      ? completionPercent(doneTaskCount, tasks.length)
++      : typeof workstream.progress === 'number'
++        ? clampPercent(
++            workstream.progress <= 1 ? workstream.progress * 100 : workstream.progress
++          )
++        : isDoneStatus(workstream.status)
++          ? 100
++          : null;
+ 
+   return (
+     <div className="flex h-full w-full min-h-0 flex-col">
+@@ -86,16 +107,16 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+       </div>
+ 
+       {/* Progress */}
+-      {workstream.progress !== null && (
++      {progressValue !== null && (
+         <div>
+           <div className="flex items-center justify-between mb-1">
+             <span className="text-[10px] text-white/30 uppercase tracking-wider">Progress</span>
+-            <span className="text-[12px] text-white/60">{Math.round(workstream.progress)}%</span>
++            <span className="text-[12px] text-white/60">{progressValue}%</span>
+           </div>
+           <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+             <div
+               className="h-full rounded-full transition-all"
+-              style={{ width: `${Math.round(workstream.progress)}%`, backgroundColor: colors.lime }}
++              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
+             />
+           </div>
+         </div>
+@@ -114,7 +135,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+           <div className="text-[10px] uppercase tracking-[0.08em] text-white/35">Progress</div>
+           <div className="text-[15px] font-medium text-white/80 mt-0.5">
+-            {workstream.progress !== null ? `${Math.round(workstream.progress)}%` : '\u2014'}
++            {progressValue !== null ? `${progressValue}%` : '\u2014'}
+           </div>
+         </div>
+       </div>
+diff --git a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+index 854a81e..c44b825 100644
+--- a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
++++ b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
+ import type { MissionControlEdge, MissionControlNode } from '@/types';
+ import { colors } from '@/lib/tokens';
+ import { formatEntityStatus } from '@/lib/entityStatusColors';
++import { completionPercent, isDoneStatus } from '@/lib/progress';
+ import { LevelIcon } from './LevelIcon';
+ import { DependencyEditorPopover } from './DependencyEditorPopover';
+ import type { useEntityMutations } from '@/hooks/useEntityMutations';
+@@ -189,17 +190,52 @@ export function HierarchyTreeTable({
+ 
+   const dependencyCount = (node: MissionControlNode) => node.dependencyIds.length;
+ 
++  const progressByNodeId = useMemo(() => {
++    const map = new Map<string, number>();
++
++    const progressFromTasks = (tasks: MissionControlNode[], fallbackStatus: string): number => {
++      if (tasks.length > 0) {
++        const doneCount = tasks.filter((task) => isDoneStatus(task.status)).length;
++        return completionPercent(doneCount, tasks.length);
++      }
++      return isDoneStatus(fallbackStatus) ? 100 : 0;
++    };
++
++    for (const milestone of nodes.filter((node) => node.type === 'milestone')) {
++      const tasks = tasksByMilestone.get(milestone.id) ?? [];
++      map.set(milestone.id, progressFromTasks(tasks, milestone.status));
++    }
++
++    for (const ws of workstreams) {
++      const wsMilestones = milestonesByWorkstream.get(ws.id) ?? [];
++      const milestoneTasks = wsMilestones.flatMap(
++        (milestone) => tasksByMilestone.get(milestone.id) ?? []
++      );
++      const directTasks = directTasksByWorkstream.get(ws.id) ?? [];
++      map.set(ws.id, progressFromTasks([...directTasks, ...milestoneTasks], ws.status));
++    }
++
++    return map;
++  }, [
++    directTasksByWorkstream,
++    milestonesByWorkstream,
++    nodes,
++    tasksByMilestone,
++    workstreams,
++  ]);
++
+   return (
+     <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+       <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-white/45">
+         Hierarchy table
+       </div>
+       <div className="overflow-x-auto">
+-        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
++        <table className="w-full min-w-[1250px] border-separate border-spacing-y-1.5">
+           <thead>
+             <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-white/35">
+               <th className="px-2 py-1.5">Item</th>
+               <th className="px-2 py-1.5">Status</th>
++              <th className="px-2 py-1.5">Progress</th>
+               <th className="px-2 py-1.5">Priority</th>
+               <th className="px-2 py-1.5">ETA</th>
+               <th className="px-2 py-1.5">Duration (h)</th>
+@@ -217,6 +253,7 @@ export function HierarchyTreeTable({
+                 .map((id) => nodeById.get(id)?.title ?? id)
+                 .slice(0, 3)
+                 .join(', ');
++              const completion = progressByNodeId.get(node.id);
+ 
+               return (
+                 <tr
+@@ -323,6 +360,27 @@ export function HierarchyTreeTable({
+                     )}
+                   </td>
+ 
++                  <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
++                    {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
++                      <div className="flex items-center gap-2">
++                        <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
++                          <div
++                            className="h-full rounded-full transition-all"
++                            style={{
++                              width: `${completion}%`,
++                              backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
++                            }}
++                          />
++                        </div>
++                        <span className="text-[10px] text-white/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
++                          {completion}%
++                        </span>
++                      </div>
++                    ) : (
++                      <span className="text-white/35">—</span>
++                    )}
++                  </td>
++
+                   <td className="border border-white/[0.08] border-l-0 border-r-0 px-2 py-2 text-[11px] text-white/75">
+                     {editMode ? (
+                       <input
+diff --git a/dashboard/src/components/mission-control/InitiativeSection.tsx b/dashboard/src/components/mission-control/InitiativeSection.tsx
+index 4cccd7b..c2900fc 100644
+--- a/dashboard/src/components/mission-control/InitiativeSection.tsx
++++ b/dashboard/src/components/mission-control/InitiativeSection.tsx
+@@ -24,6 +24,7 @@ import { EditModeToolbar } from './EditModeToolbar';
+ import { DependencyMapPanel } from './DependencyMapPanel';
+ import { HierarchyTreeTable } from './HierarchyTreeTable';
+ import { RecentTodosRail } from './RecentTodosRail';
++import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+ 
+ interface InitiativeSectionProps {
+   initiative: Initiative;
+@@ -372,6 +373,7 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
+   const taskNodes = nodes.filter((node) => node.type === 'task');
+   const activeTaskCount = taskNodes.filter((node) => isActiveTaskStatus(node.status)).length;
+   const todoTaskCount = taskNodes.filter((node) => isTodoTaskStatus(node.status)).length;
++  const doneTaskCount = taskNodes.filter((node) => isDoneStatus(node.status)).length;
+   const effectiveInitiativeStatus =
+     initiative.status === 'active' && activeTaskCount === 0 && todoTaskCount > 0
+       ? 'paused'
+@@ -390,7 +392,32 @@ export function InitiativeSection({ initiative }: InitiativeSectionProps) {
+     budgetSourceNodes.reduce((sum, node) => sum + (node.expectedBudgetUsd || 0), 0) * 100
+   ) / 100;
+ 
+-  const progress = initiative.health;
++  const milestoneNodes = nodes.filter((node) => node.type === 'milestone');
++  const workstreamNodes = nodes.filter((node) => node.type === 'workstream');
++  const hasEntityHierarchy =
++    isExpanded &&
++    (hasPrimaryGraphData ||
++      details.workstreams.length > 0 ||
++      details.milestones.length > 0 ||
++      details.tasks.length > 0);
++
++  const computedProgress =
++    taskNodes.length > 0
++      ? completionPercent(doneTaskCount, taskNodes.length)
++      : milestoneNodes.length > 0
++        ? completionPercent(
++            milestoneNodes.filter((node) => isDoneStatus(node.status)).length,
++            milestoneNodes.length
++          )
++        : hasEntityHierarchy && workstreamNodes.length > 0
++          ? completionPercent(
++              workstreamNodes.filter((node) => isDoneStatus(node.status)).length,
++              workstreamNodes.length
++            )
++          : null;
++  const progress = clampPercent(
++    computedProgress === null ? initiative.health : computedProgress
++  );
+   const dueBadge = formatDueBadge(initiative.targetDate);
+   const dueBadgeClass =
+     dueBadge.tone === 'danger'
+diff --git a/dashboard/src/components/mission-control/WorkstreamCard.tsx b/dashboard/src/components/mission-control/WorkstreamCard.tsx
+index d643b4d..a97367e 100644
+--- a/dashboard/src/components/mission-control/WorkstreamCard.tsx
++++ b/dashboard/src/components/mission-control/WorkstreamCard.tsx
+@@ -7,6 +7,7 @@ import {
+ } from '@/lib/entityStatusColors';
+ import { InferredAgentAvatars } from './AgentInference';
+ import { useMissionControl } from './MissionControlContext';
++import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+ 
+ interface WorkstreamCardProps {
+   workstream: InitiativeWorkstream;
+@@ -21,9 +22,15 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
+   const activeTasks = tasks.filter((t) =>
+     ['active', 'in_progress'].includes(t.status.toLowerCase())
+   ).length;
+-  const doneTasks = tasks.filter((t) =>
+-    ['done', 'completed'].includes(t.status.toLowerCase())
+-  ).length;
++  const doneTasks = tasks.filter((t) => isDoneStatus(t.status)).length;
++  const progressValue =
++    tasks.length > 0
++      ? completionPercent(doneTasks, tasks.length)
++      : typeof workstream.progress === 'number'
++        ? clampPercent(workstream.progress <= 1 ? workstream.progress * 100 : workstream.progress)
++        : isDoneStatus(workstream.status)
++          ? 100
++          : null;
+ 
+   return (
+     <motion.button
+@@ -43,16 +50,16 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
+         </span>
+       </div>
+ 
+-      {workstream.progress !== null && (
++      {progressValue !== null && (
+         <div className="mb-2">
+           <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
+             <div
+               className="h-full rounded-full transition-all"
+-              style={{ width: `${Math.round(workstream.progress)}%`, backgroundColor: colors.lime }}
++              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
+             />
+           </div>
+           <span className="mt-0.5 block text-[10px] text-white/30">
+-            {Math.round(workstream.progress)}%
++            {progressValue}%
+           </span>
+         </div>
+       )}
+diff --git a/dashboard/src/components/onboarding/FirstRunGuideModal.tsx b/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
+index 9277f14..355f0a5 100644
+--- a/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
++++ b/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
+@@ -60,7 +60,6 @@ export function FirstRunGuideModal({
+   }, [byok.status]);
+ 
+   const hasProviderKeys = configuredProviders > 0;
+-  const recommendedAction: 'settings' | 'mission-control' = hasProviderKeys ? 'mission-control' : 'settings';
+ 
+   const steps = [
+     {
+@@ -74,10 +73,6 @@ export function FirstRunGuideModal({
+       label: 'Add provider key(s)',
+       done: hasProviderKeys,
+       detail: 'Set OpenAI / Anthropic / OpenRouter keys for agent launches, or rely on env vars.',
+-      action:
+-        !hasProviderKeys
+-          ? { label: 'Open settings', onClick: onOpenSettings }
+-          : null,
+     },
+     {
+       label: 'Launch your first agent',
+@@ -88,104 +83,42 @@ export function FirstRunGuideModal({
+       label: 'Open Mission Control',
+       done: false,
+       detail: 'Track dependency-ready next-up tasks and start auto-continue for execution.',
+-      action: { label: 'Open', onClick: onOpenMissionControl },
+     },
+   ];
+ 
+-  const doneCount = steps.filter((s) => s.done).length;
+-  const progressPct = Math.round((doneCount / steps.length) * 100);
+-
+   return (
+     <Modal open={open} onClose={onClose} maxWidth="max-w-2xl">
+-      <div className="flex h-full min-h-0 flex-col">
+-        <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
++      <div className="flex h-full w-full min-h-0 flex-col">
++        <div className="w-full border-b border-white/[0.06] px-5 py-4 sm:px-6">
+           <div className="flex items-start justify-between gap-4">
+             <div>
+-              <h3 className="text-[15px] font-semibold text-white">First run checklist</h3>
+-              <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+-                A fast path to seeing OrgX value inside OpenClaw.
++              <h3 className="text-[14px] font-semibold text-white">First Run Checklist</h3>
++              <p className="mt-1 text-[12px] text-white/55">
++                Quick path to seeing OrgX value inside OpenClaw.
+               </p>
+-              <div className="mt-3 flex flex-wrap items-center gap-2">
+-                <span className="chip">
+-                  {doneCount} / {steps.length} complete
+-                </span>
+-                <span className="text-[11px] text-white/35">
+-                  {progressPct}% done
+-                </span>
+-              </div>
+-              <div className="mt-2 h-1.5 w-full max-w-[340px] overflow-hidden rounded-full bg-white/[0.08]">
+-                <div
+-                  className="h-full rounded-full bg-[#BFFF00]/80"
+-                  style={{ width: `${progressPct}%` }}
+-                />
+-              </div>
+-            </div>
+-            <div className="flex items-center gap-2">
+-              <button
+-                type="button"
+-                onClick={() => {
+-                  setFirstRunGuideDismissed(true);
+-                  onClose();
+-                }}
+-                className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+-                title="Don't show automatically again"
+-              >
+-                Don't show again
+-              </button>
+-              <button
+-                type="button"
+-                onClick={onClose}
+-                aria-label="Close checklist"
+-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+-              >
+-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+-                  <path d="M18 6L6 18" />
+-                  <path d="M6 6l12 12" />
+-                </svg>
+-              </button>
+             </div>
++            <button
++              type="button"
++              onClick={onClose}
++              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.08] hover:text-white"
++            >
++              Close
++            </button>
+           </div>
+         </div>
+ 
+-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
++        <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+           <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+             <div className="space-y-3">
+               {steps.map((step) => (
+-                <div
+-                  key={step.label}
+-                  className={cn(
+-                    'flex items-start justify-between gap-3 rounded-xl border p-3',
+-                    step.done
+-                      ? 'border-white/[0.06] bg-white/[0.02]'
+-                      : 'border-white/[0.10] bg-white/[0.03]'
+-                  )}
+-                >
+-                  <div className="flex min-w-0 items-start gap-3">
+-                    <div className="pt-1">{stepDot(step.done)}</div>
+-                    <div className="min-w-0">
+-                      <p className={cn('text-[13px] font-semibold', step.done ? 'text-white/80' : 'text-white')}>
+-                        {step.label}
+-                      </p>
+-                      <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{step.detail}</p>
+-                    </div>
++                <div key={step.label} className="flex items-start gap-3">
++                  <div className="pt-1">{stepDot(step.done)}</div>
++                  <div className="min-w-0">
++                    <p className={cn('text-[13px] font-semibold', step.done ? 'text-white/80' : 'text-white')}>
++                      {step.label}
++                    </p>
++                    <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{step.detail}</p>
+                   </div>
+-
+-                  {step.action && !step.done ? (
+-                    <button
+-                      type="button"
+-                      onClick={step.action.onClick}
+-                      data-modal-autofocus={
+-                        recommendedAction === 'settings' && step.label === 'Add provider key(s)'
+-                          ? 'true'
+-                          : recommendedAction === 'mission-control' && step.label === 'Open Mission Control'
+-                            ? 'true'
+-                            : undefined
+-                      }
+-                      className="shrink-0 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
+-                    >
+-                      {step.action.label}
+-                    </button>
+-                  ) : null}
+                 </div>
+               ))}
+             </div>
+@@ -194,32 +127,34 @@ export function FirstRunGuideModal({
+               <button
+                 type="button"
+                 onClick={onOpenSettings}
+-                data-modal-autofocus={recommendedAction === 'settings' ? 'true' : undefined}
+                 className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-[11px] font-semibold text-[#D8FFA1]"
++                data-modal-autofocus="true"
+               >
+-                Open settings
++                Open Settings
+               </button>
+               <button
+                 type="button"
+                 onClick={onOpenMissionControl}
+-                data-modal-autofocus={recommendedAction === 'mission-control' ? 'true' : undefined}
+                 className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+               >
+                 Open Mission Control
+               </button>
+               <button
+                 type="button"
+-                onClick={onClose}
++                onClick={() => {
++                  setFirstRunGuideDismissed(true);
++                  onClose();
++                }}
+                 className="rounded-full border border-white/[0.12] px-3 py-1.5 text-[11px] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+-                title="Hide for now"
++                title="Don't show automatically again"
+               >
+-                Not now
++                Dismiss forever
+               </button>
+             </div>
+           </div>
+         </div>
+ 
+-        <div className="border-t border-white/[0.06] px-5 py-3 sm:px-6">
++        <div className="w-full border-t border-white/[0.06] px-5 py-3 sm:px-6">
+           <p className="text-[11px] text-white/40">
+             Tip: auto-continue is available per initiative from Mission Control quick actions.
+           </p>
+diff --git a/dashboard/src/components/settings/ByokSettingsModal.tsx b/dashboard/src/components/settings/ByokSettingsModal.tsx
+index 9392df1..27d42eb 100644
+--- a/dashboard/src/components/settings/ByokSettingsModal.tsx
++++ b/dashboard/src/components/settings/ByokSettingsModal.tsx
+@@ -5,24 +5,21 @@ import { useByokSettings } from '@/hooks/useByokSettings';
+ 
+ type ProviderId = 'openai' | 'anthropic' | 'openrouter';
+ 
+-const PROVIDERS: Array<{ id: ProviderId; label: string; hint: string; envVar: string }> = [
++const PROVIDERS: Array<{ id: ProviderId; label: string; hint: string }> = [
+   {
+     id: 'openai',
+     label: 'OpenAI',
+-    hint: 'Used for GPT models.',
+-    envVar: 'OPENAI_API_KEY',
++    hint: 'Used for GPT models. Env: OPENAI_API_KEY',
+   },
+   {
+     id: 'anthropic',
+     label: 'Anthropic',
+-    hint: 'Used for Claude models.',
+-    envVar: 'ANTHROPIC_API_KEY',
++    hint: 'Used for Claude models. Env: ANTHROPIC_API_KEY',
+   },
+   {
+     id: 'openrouter',
+     label: 'OpenRouter',
+-    hint: 'Used for multi-vendor routing.',
+-    envVar: 'OPENROUTER_API_KEY',
++    hint: 'Used for multi-vendor routing. Env: OPENROUTER_API_KEY',
+   },
+ ];
+ 
+@@ -32,10 +29,6 @@ function providerFieldName(provider: ProviderId): 'openaiApiKey' | 'anthropicApi
+   return 'openrouterApiKey';
+ }
+ 
+-function providerLabel(provider: ProviderId): string {
+-  return PROVIDERS.find((p) => p.id === provider)?.label ?? provider;
+-}
+-
+ export function ByokSettingsModal({
+   open,
+   onClose,
+@@ -62,20 +55,12 @@ export function ByokSettingsModal({
+     anthropic: false,
+     openrouter: false,
+   });
+-  const [revealed, setRevealed] = useState<Record<ProviderId, boolean>>({
+-    openai: false,
+-    anthropic: false,
+-    openrouter: false,
+-  });
+-  const [savingProvider, setSavingProvider] = useState<ProviderId | null>(null);
+   const [localError, setLocalError] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     if (!open) return;
+     setValues({ openai: '', anthropic: '', openrouter: '' });
+     setDirty({ openai: false, anthropic: false, openrouter: false });
+-    setRevealed({ openai: false, anthropic: false, openrouter: false });
+-    setSavingProvider(null);
+     setLocalError(null);
+   }, [open]);
+ 
+@@ -86,40 +71,35 @@ export function ByokSettingsModal({
+       Number(status.providers.openrouter.configured);
+   }, [status]);
+ 
+-  const saveProvider = async (provider: ProviderId) => {
++  const save = async (providerId: ProviderId) => {
+     if (!open) return;
+     setLocalError(null);
+-    const value = values[provider].trim();
+-    if (!dirty[provider]) return;
+-    if (!value) {
+-      setLocalError(`Enter a ${providerLabel(provider)} API key or use “Clear” to remove the saved key.`);
++
++    if (!dirty[providerId]) {
++      setLocalError('No changes to save.');
+       return;
+     }
+ 
+-    const field = providerFieldName(provider);
+-    try {
+-      setSavingProvider(provider);
+-      await byok.update({ [field]: value } as any);
+-      setDirty((prev) => ({ ...prev, [provider]: false }));
+-      setValues((prev) => ({ ...prev, [provider]: '' }));
+-      setRevealed((prev) => ({ ...prev, [provider]: false }));
+-    } finally {
+-      setSavingProvider(null);
++    const provider = PROVIDERS.find((p) => p.id === providerId);
++    const label = provider?.label ?? providerId;
++
++    const value = values[providerId].trim();
++    if (!value) {
++      setLocalError(`Enter a ${label} API key or use “Clear” to remove the saved key.`);
++      return;
+     }
++
++    await byok.update({ [providerFieldName(providerId)]: value } as any);
++    setDirty((prev) => ({ ...prev, [providerId]: false }));
++    setValues((prev) => ({ ...prev, [providerId]: '' }));
+   };
+ 
+   const clearProvider = async (provider: ProviderId) => {
+     setLocalError(null);
+     const field = providerFieldName(provider);
+-    try {
+-      setSavingProvider(provider);
+-      await byok.update({ [field]: null } as any);
+-      setDirty((prev) => ({ ...prev, [provider]: false }));
+-      setValues((prev) => ({ ...prev, [provider]: '' }));
+-      setRevealed((prev) => ({ ...prev, [provider]: false }));
+-    } finally {
+-      setSavingProvider(null);
+-    }
++    await byok.update({ [field]: null } as any);
++    setDirty((prev) => ({ ...prev, [provider]: false }));
++    setValues((prev) => ({ ...prev, [provider]: '' }));
+   };
+ 
+   const probe = async () => {
+@@ -129,71 +109,46 @@ export function ByokSettingsModal({
+ 
+   return (
+     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
+-      <div className="flex h-full min-h-0 flex-col">
+-        <div className="border-b border-white/[0.06] px-5 py-4 sm:px-6">
++      <div className="flex h-full w-full min-h-0 flex-col">
++        <div className="w-full border-b border-white/[0.06] px-5 py-4 sm:px-6">
+           <div className="flex items-start justify-between gap-4">
+             <div>
+-              <h3 className="text-[15px] font-semibold text-white">Provider keys</h3>
+-              <p className="mt-1 text-[12px] leading-relaxed text-white/55">
+-                Bring your own provider keys. Keys are stored locally and used for OpenClaw agent launches.
++              <h3 className="text-[14px] font-semibold text-white">Provider Keys (BYOK)</h3>
++              <p className="mt-1 text-[12px] text-white/55">
++                Save your model provider API keys locally so OpenClaw agent launches can run without extra setup.
+               </p>
+               {configuredCount === 0 ? (
+-                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1 text-[11px] text-amber-100/85">
+-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-200/80" />
+-                  No keys detected yet. You can also use env vars.
+-                </div>
++                <p className="mt-2 text-[11px] text-amber-200/80">
++                  No provider keys detected yet. You can also set these via environment variables.
++                </p>
+               ) : (
+-                <div className="mt-3 flex flex-wrap items-center gap-2">
+-                  <span className="chip">
+-                    {configuredCount} / 3 configured
+-                  </span>
+-                  {status?.updatedAt && (
+-                    <span className="text-[11px] text-white/35">
+-                      Updated {new Date(status.updatedAt).toLocaleString()}
+-                    </span>
+-                  )}
+-                </div>
++                <p className="mt-2 text-[11px] text-white/45">
++                  Detected {configuredCount} / 3 configured providers.
++                </p>
+               )}
+             </div>
+             <button
+               type="button"
+               onClick={onClose}
+-              aria-label="Close settings"
+-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.03] text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
++              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] text-white/60 hover:bg-white/[0.08] hover:text-white"
+             >
+-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+-                <path d="M18 6L6 18" />
+-                <path d="M6 6l12 12" />
+-              </svg>
++              Close
+             </button>
+           </div>
+         </div>
+ 
+-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
++        <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+           {(localError || byok.error) && (
+             <div className="mb-4 rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-[12px] text-rose-100">
+               {localError ?? byok.error}
+             </div>
+           )}
+ 
+-          <div className="mb-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+-            <p className="text-[12px] font-semibold text-white/80">Where keys come from</p>
+-            <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+-              If you set an env var (e.g. <code className="rounded bg-black/40 px-1">OPENAI_API_KEY</code>), it will be used unless a saved key overrides it.
+-            </p>
+-          </div>
+-
+-          <div className="grid grid-cols-1 gap-4">
++          <div className="grid grid-cols-1 gap-3">
+             {PROVIDERS.map((provider) => {
+               const providerStatus = status?.providers?.[provider.id];
+               const providerHealth = health?.providers?.[provider.id];
+               const masked = providerStatus?.masked ?? null;
+-              const source = providerStatus?.source ?? 'none';
+-              const hasStoredKey = source === 'stored';
+-              const isSavingThis = savingProvider === provider.id;
+-              const canSave = dirty[provider.id] && values[provider.id].trim().length > 0 && !byok.isSaving && !isSavingThis;
+-              const canClear = hasStoredKey && !byok.isSaving && !isSavingThis;
+-              const saveLabel = hasStoredKey ? 'Update' : 'Save';
+ 
+               return (
+                 <div
+@@ -202,8 +157,9 @@ export function ByokSettingsModal({
+                 >
+                   <div className="flex flex-wrap items-start justify-between gap-3">
+                     <div>
+-                      <div className="flex flex-wrap items-center gap-2">
+-                        <p className="text-[13px] font-semibold text-white">{provider.label}</p>
++                      <p className="text-[13px] font-semibold text-white">{provider.label}</p>
++                      <p className="mt-1 text-[11px] text-white/45">{provider.hint}</p>
++                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                         <span
+                           className={cn(
+                             'rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]',
+@@ -214,23 +170,11 @@ export function ByokSettingsModal({
+                         >
+                           {providerStatus?.configured ? 'Configured' : 'Missing'}
+                         </span>
+-                      </div>
+-                      <p className="mt-1 text-[12px] text-white/45">
+-                        {provider.hint}{' '}
+-                        <span className="text-white/30">
+-                          Env: <code className="rounded bg-black/40 px-1">{provider.envVar}</code>
+-                        </span>
+-                      </p>
+-                      <div className="mt-2 flex flex-wrap items-center gap-2">
+-                        {source !== 'none' && (
+-                          <span className="chip">
+-                            source: {source}
+-                          </span>
++                        {providerStatus?.source && providerStatus.source !== 'none' && (
++                          <span className="chip">source: {providerStatus.source}</span>
+                         )}
+                         {masked && (
+-                          <span className="chip">
+-                            key: {masked}
+-                          </span>
++                          <span className="chip">key: {masked}</span>
+                         )}
+                         {providerHealth && (
+                           <span
+@@ -247,51 +191,37 @@ export function ByokSettingsModal({
+                       </div>
+                     </div>
+ 
+-                    <div className="flex items-center gap-2">
+-                      <button
+-                        type="button"
+-                        onClick={() => setRevealed((prev) => ({ ...prev, [provider.id]: !prev[provider.id] }))}
+-                        className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08]"
+-                        title={revealed[provider.id] ? 'Hide key' : 'Show key'}
+-                      >
+-                        {revealed[provider.id] ? 'Hide' : 'Show'}
+-                      </button>
+-                      <button
+-                        type="button"
+-                        onClick={() => void clearProvider(provider.id)}
+-                        disabled={!canClear}
+-                        className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+-                        title={
+-                          hasStoredKey
+-                            ? 'Clear saved key (env vars remain set)'
+-                            : 'No saved key to clear (using env var or nothing set)'
+-                        }
+-                      >
+-                        Clear
+-                      </button>
+-                    </div>
++                    <button
++                      type="button"
++                      onClick={() => void clearProvider(provider.id)}
++                      disabled={byok.isSaving}
++                      className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
++                      title="Clear saved key (does not unset environment variables)"
++                    >
++                      Clear
++                    </button>
+                   </div>
+ 
+                   <form
+                     className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto] sm:items-end"
+                     onSubmit={(e) => {
+                       e.preventDefault();
+-                      void saveProvider(provider.id);
++                      void save(provider.id);
+                     }}
+                   >
+                     <div>
+                       <label className="text-[10px] uppercase tracking-[0.12em] text-white/30">
+-                        API key (stored locally)
++                        Paste key (stored locally)
+                       </label>
+                       <input
+-                        type={revealed[provider.id] ? 'text' : 'password'}
++                        type="password"
+                         value={values[provider.id]}
+                         onChange={(e) => {
+                           const next = e.target.value;
+                           setValues((prev) => ({ ...prev, [provider.id]: next }));
+                           setDirty((prev) => ({ ...prev, [provider.id]: true }));
+                         }}
+-                        placeholder={`Paste ${provider.label} key…`}
++                        placeholder={`Enter ${provider.label} API key…`}
+                         className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+                         autoComplete="off"
+                         spellCheck={false}
+@@ -301,15 +231,10 @@ export function ByokSettingsModal({
+ 
+                     <button
+                       type="submit"
+-                      disabled={!canSave}
+-                      className={cn(
+-                        'h-10 rounded-xl px-4 text-[12px] font-semibold transition-all',
+-                        canSave
+-                          ? 'bg-[#BFFF00] text-black hover:bg-[#d3ff42]'
+-                          : 'cursor-not-allowed border border-white/[0.12] bg-white/[0.03] text-white/45'
+-                      )}
++                      disabled={byok.isSaving}
++                      className="h-10 rounded-xl bg-[#BFFF00] px-4 text-[12px] font-semibold text-black transition-all hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-60"
+                     >
+-                      {isSavingThis || byok.isSaving ? 'Saving…' : saveLabel}
++                      {byok.isSaving ? 'Saving…' : 'Save'}
+                     </button>
+                   </form>
+ 
+@@ -324,7 +249,7 @@ export function ByokSettingsModal({
+           </div>
+         </div>
+ 
+-        <div className="border-t border-white/[0.06] px-5 py-3 sm:px-6">
++        <div className="w-full border-t border-white/[0.06] px-5 py-3 sm:px-6">
+           <div className="flex flex-wrap items-center justify-between gap-2">
+             <p className="text-[11px] text-white/45">
+               Readiness check runs <code className="rounded bg-black/40 px-1">openclaw models list</code> per provider.
+diff --git a/dashboard/src/components/shared/Modal.tsx b/dashboard/src/components/shared/Modal.tsx
+index a09d03b..39af088 100644
+--- a/dashboard/src/components/shared/Modal.tsx
++++ b/dashboard/src/components/shared/Modal.tsx
+@@ -107,7 +107,7 @@ export function Modal({
+             animate={{ opacity: 1, scale: 1, y: 0 }}
+             exit={{ opacity: 0, scale: 0.95, y: 20 }}
+             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+-            className={`glass-panel soft-shadow relative flex h-[100dvh] max-h-[100dvh] w-full ${maxWidth} overflow-hidden rounded-none sm:h-[88vh] sm:max-h-[88vh] sm:rounded-2xl`}
++            className={`glass-panel soft-shadow relative flex flex-col h-[100dvh] max-h-[100dvh] w-full ${maxWidth} overflow-hidden rounded-none sm:h-[88vh] sm:max-h-[88vh] sm:rounded-2xl`}
+             style={{ backgroundColor: colors.cardBgElevated, borderColor: colors.cardBorderStrong }}
+             onClick={(e) => e.stopPropagation()}
+             role="dialog"
+diff --git a/dashboard/src/lib/progress.ts b/dashboard/src/lib/progress.ts
+new file mode 100644
+index 0000000..8408e2f
+--- /dev/null
++++ b/dashboard/src/lib/progress.ts
+@@ -0,0 +1,38 @@
++function normalizeStatus(value: string): string {
++  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
++}
++
++const DONE_STATUSES = new Set([
++  'done',
++  'completed',
++  'complete',
++  'cancelled',
++  'canceled',
++  'archived',
++  'deleted',
++]);
++
++export function isDoneStatus(status: string): boolean {
++  return DONE_STATUSES.has(normalizeStatus(status));
++}
++
++export function clampPercent(value: number): number {
++  if (!Number.isFinite(value)) return 0;
++  return Math.max(0, Math.min(100, Math.round(value)));
++}
++
++export function completionPercent(doneCount: number, totalCount: number): number {
++  if (totalCount <= 0) return 0;
++  return clampPercent((doneCount / totalCount) * 100);
++}
++
++export function completionFromItems<T extends { status: string }>(items: T[]): {
++  done: number;
++  total: number;
++  percent: number;
++} {
++  const total = items.length;
++  const done = items.filter((item) => isDoneStatus(item.status)).length;
++  return { done, total, percent: completionPercent(done, total) };
++}
++

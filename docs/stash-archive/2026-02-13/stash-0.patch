@@ -1,0 +1,2261 @@
+diff --git a/dashboard/src/App.tsx b/dashboard/src/App.tsx
+index 3ea8587..bbaa333 100644
+--- a/dashboard/src/App.tsx
++++ b/dashboard/src/App.tsx
+@@ -1324,7 +1324,7 @@ function DashboardShell({
+ 
+           <div className="hidden items-center justify-center lg:flex">
+             <div
+-              className="flex rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
++              className="flex rounded-full border bg-white/[0.03] p-0.5"
+               role="group"
+               aria-label="Dashboard view"
+             >
+@@ -1389,7 +1389,7 @@ function DashboardShell({
+               aria-haspopup="dialog"
+               aria-expanded={notificationTrayOpen}
+               aria-controls="header-notifications-panel"
+-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
++              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
+             >
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                 <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2c0 .53-.21 1.04-.59 1.42L4 17h5" />
+@@ -1405,7 +1405,7 @@ function DashboardShell({
+               type="button"
+               onClick={() => openSettings('orgx')}
+               title="Settings"
+-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
++              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
+             >
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                 <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+@@ -1419,7 +1419,7 @@ function DashboardShell({
+                 try { window.sessionStorage.setItem(FIRST_RUN_GUIDE_SESSION_KEY, '1'); } catch { /* ignore */ }
+               }}
+               title="Help"
+-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
++              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
+             >
+               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                 <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
+@@ -1430,7 +1430,7 @@ function DashboardShell({
+             <button
+               type="button"
+               onClick={refetch}
+-              className="group inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-body text-primary transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
++              className="group inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-body text-primary transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
+               title="Refresh data"
+             >
+               <svg
+@@ -1485,7 +1485,7 @@ function DashboardShell({
+                   {compactMetrics.map((metric) => (
+                     <span
+                       key={metric.id}
+-                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro"
++                      className="inline-flex items-center gap-1 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro"
+                     >
+                       <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
+                       <span className="uppercase tracking-[0.08em] text-secondary">{metric.label}</span>
+@@ -1497,7 +1497,7 @@ function DashboardShell({
+                 </div>
+ 
+                 {visibleNotifications.length === 0 ? (
+-                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-body text-secondary">
++                  <div className="rounded-xl border bg-white/[0.02] px-3 py-3 text-body text-secondary">
+                     Everything looks clear.
+                   </div>
+                 ) : (
+@@ -1551,7 +1551,7 @@ function DashboardShell({
+ 
+         <div className="mt-2 flex items-center justify-center lg:hidden">
+           <div
+-            className="flex w-full max-w-[340px] rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
++            className="flex w-full max-w-[340px] rounded-full border bg-white/[0.03] p-0.5"
+             role="group"
+             aria-label="Dashboard view"
+           >
+@@ -1617,7 +1617,7 @@ function DashboardShell({
+               key={metric.id}
+               type="button"
+               onClick={() => handleCompactMetricClick(metric.id)}
+-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
++              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
+               title={`Bulk actions: ${metric.label.toLowerCase()}`}
+             >
+               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-strong bg-white/[0.02]">
+diff --git a/dashboard/src/components/activity/ActivityTimeline.tsx b/dashboard/src/components/activity/ActivityTimeline.tsx
+index d1d011a..b45ff5b 100644
+--- a/dashboard/src/components/activity/ActivityTimeline.tsx
++++ b/dashboard/src/components/activity/ActivityTimeline.tsx
+@@ -533,18 +533,18 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload
+ 
+ function renderArtifactValue(value: unknown): ReactNode {
+   if (typeof value === 'string') {
+-    return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-white/82" />;
++    return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-primary" />;
+   }
+ 
+   if (typeof value === 'number' || typeof value === 'boolean') {
+-    return <p className="text-body text-white/82">{String(value)}</p>;
++    return <p className="text-body text-primary">{String(value)}</p>;
+   }
+ 
+   if (Array.isArray(value)) {
+     return (
+       <div className="space-y-1.5">
+         {value.map((entry, index) => (
+-          <div key={`artifact-list-${index}`} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
++          <div key={`artifact-list-${index}`} className="rounded-lg border bg-white/[0.02] px-2.5 py-2">
+             {renderArtifactValue(entry)}
+           </div>
+         ))}
+@@ -557,9 +557,9 @@ function renderArtifactValue(value: unknown): ReactNode {
+     return (
+       <dl className="space-y-1.5">
+         {entries.map(([key, entry]) => (
+-          <div key={key} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
++          <div key={key} className="rounded-lg border bg-white/[0.02] px-2.5 py-2">
+             <dt className="text-micro uppercase tracking-[0.1em] text-secondary">{humanizeText(key)}</dt>
+-            <dd className="mt-1 text-body text-white/82">
++            <dd className="mt-1 text-body text-primary">
+               {typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
+                 ? String(entry)
+                 : Array.isArray(entry)
+@@ -1243,7 +1243,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+     });
+ 
+     const commonClassName =
+-      "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
++      "group w-full rounded-xl border bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+ 
+     const content = (
+       <div className="flex items-start gap-3">
+@@ -1281,7 +1281,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+           </div>
+ 
+           {(displaySummary || displayDesc) && (
+-            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-white/62">
++            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-secondary">
+               <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
+             </div>
+           )}
+@@ -1298,35 +1298,25 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
+               {primaryTag}
+             </span>
+-            <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-secondary">
+-              {runLabel}
+-            </span>
+-            <span
+-              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-white/62"
+-              style={{ borderColor: `${kindColor}44`, color: kindColor }}
+-            >
+-              <EntityIcon type={iconTypeForActivity(item)} size={10} className="opacity-90" />
+-              {humanizeText(labelForType(item.type))}
+-            </span>
+-            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
+-            {initiativeName && (
++            {/* One context chip: prefer initiative, fall back to workstream */}
++            {initiativeName ? (
+               <span
+-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
++                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
+                 title={initiativeName}
+               >
+                 <EntityIcon type="initiative" size={10} className="opacity-85" />
+                 <span className="truncate">{initiativeName}</span>
+               </span>
+-            )}
+-            {workstreamName && (
++            ) : workstreamName ? (
+               <span
+-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-white/54"
++                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
+                 title={workstreamName}
+               >
+                 <EntityIcon type="workstream" size={10} className="opacity-90" />
+                 <span className="truncate">{workstreamName}</span>
+               </span>
+-            )}
++            ) : null}
++            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
+           </div>
+         </div>
+       </div>
+@@ -1395,7 +1385,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+               key={session.id}
+               type="button"
+               onClick={() => onFocusRunId?.(session.runId)}
+-              className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 transition-colors hover:bg-white/[0.06]"
++              className="flex flex-shrink-0 items-center gap-1.5 rounded-full border bg-white/[0.03] px-2.5 py-1 transition-colors hover:bg-white/[0.06]"
+             >
+               <AgentAvatar name={session.agentName ?? 'OrgX'} size="xs" hint={session.agentName} />
+               <span className="max-w-[140px] truncate text-caption text-primary">{session.title}</span>
+@@ -1548,7 +1538,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+               value={query}
+               onChange={(event) => setQuery(event.target.value)}
+               placeholder="Search activity..."
+-              className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-white/82 placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
++              className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
+               aria-label="Search activity"
+             />
+           </div>
+@@ -1629,7 +1619,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+ 	                      <div className="space-y-2">
+ 	                        {visibleClusters.map((cluster, index) => {
+ 	                          const isExpanded = expandedClusters.has(cluster.key);
+-	                          if (cluster.count === 1) {
++	                          if (cluster.count < 4) {
+ 	                            return renderItem(cluster.representative, index);
+ 	                          }
+ 	                          return (
+@@ -1638,9 +1628,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+ 	                              <button
+ 	                                type="button"
+ 	                                onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
+-	                                className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
++	                                className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+ 	                              >
+-	                                <span className="font-semibold">×{cluster.count}</span>
++	                                <span className="font-semibold">and {cluster.count - 1} more</span>
+ 	                                <span className="text-muted">·</span>
+ 	                                <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+ 	                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
+@@ -1661,7 +1651,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+ 	                    <div className="space-y-2">
+ 	                      {visibleClusters.map((cluster, index) => {
+ 	                        const isExpanded = expandedClusters.has(cluster.key);
+-	                        if (cluster.count === 1) {
++	                        if (cluster.count < 4) {
+ 	                          return renderItem(cluster.representative, index);
+ 	                        }
+ 	                        return (
+@@ -1670,9 +1660,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+ 	                            <button
+ 	                              type="button"
+ 	                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
+-	                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
++	                              className="mt-1 ml-8 inline-flex items-center gap-1.5 rounded-full border bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+ 	                            >
+-	                              <span className="font-semibold">×{cluster.count}</span>
++	                              <span className="font-semibold">and {cluster.count - 1} more</span>
+ 	                              <span className="text-muted">·</span>
+ 	                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+ 	                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
+@@ -1887,24 +1877,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                           Autopilot Slice
+                         </p>
+                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                          <div className="rounded-lg border bg-black/20 px-3 py-2">
+                             <div className="text-micro uppercase tracking-[0.1em] text-secondary">Dispatcher</div>
+                             <div className="mt-1 text-body text-primary">OpenClaw</div>
+                           </div>
+-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                          <div className="rounded-lg border bg-black/20 px-3 py-2">
+                             <div className="text-micro uppercase tracking-[0.1em] text-secondary">Executor</div>
+                             <div className="mt-1 text-body text-primary">
+                               {activeAutopilotSlice.agentName ?? 'Codex'}
+                               {activeAutopilotSlice.agentId ? ` · ${activeAutopilotSlice.agentId}` : ''}
+                             </div>
+                           </div>
+-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                          <div className="rounded-lg border bg-black/20 px-3 py-2">
+                             <div className="text-micro uppercase tracking-[0.1em] text-secondary">Workstream</div>
+                             <div className="mt-1 text-body text-primary">
+                               {activeAutopilotSlice.workstreamTitle ?? activeAutopilotSlice.workstreamId ?? '—'}
+                             </div>
+                           </div>
+-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                          <div className="rounded-lg border bg-black/20 px-3 py-2">
+                             <div className="text-micro uppercase tracking-[0.1em] text-secondary">Policy</div>
+                             <div className="mt-1 text-body text-primary">
+                               {activeAutopilotSlice.domain ?? '—'}
+@@ -1981,19 +1971,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                     )}
+ 
+                     {activeProvenance && (
+-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
++                      <div className="rounded-xl border bg-white/[0.03] p-3">
+                         <p className="text-caption uppercase tracking-[0.11em] text-secondary">
+                           Provenance
+                         </p>
+                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                           {activeProvenance.domain && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Domain</div>
+                               <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.domain)}</div>
+                             </div>
+                           )}
+                           {(activeProvenance.provider || activeProvenance.model) && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model</div>
+                               <div className="mt-1 text-body text-primary">
+                                 {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
+@@ -2002,19 +1992,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                             </div>
+                           )}
+                           {activeProvenance.modelTier && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model tier</div>
+                               <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.modelTier)}</div>
+                             </div>
+                           )}
+                           {activeProvenance.pluginVersion && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Plugin</div>
+                               <div className="mt-1 text-body text-primary">v{activeProvenance.pluginVersion}</div>
+                             </div>
+                           )}
+                           {activeProvenance.skillPack && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2 sm:col-span-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Skill pack</div>
+                               <div className="mt-1 flex flex-wrap items-center gap-2 text-body text-primary">
+                                 <span>
+@@ -2035,7 +2025,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                             </div>
+                           )}
+                           {activeProvenance.kickoffContextHash && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2 sm:col-span-2">
+                               <div className="flex items-center justify-between gap-2">
+                                 <div className="text-micro uppercase tracking-[0.1em] text-secondary">Kickoff context</div>
+                                 <button
+@@ -2053,7 +2043,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                             </div>
+                           )}
+                           {activeProvenance.requiredSkills.length > 0 && (
+-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
++                            <div className="rounded-lg border bg-black/20 px-3 py-2 sm:col-span-2">
+                               <div className="text-micro uppercase tracking-[0.1em] text-secondary">Required skills</div>
+                               <div className="mt-1 flex flex-wrap gap-1.5">
+                                 {activeProvenance.requiredSkills.map((skill) => (
+@@ -2072,7 +2062,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                     )}
+ 
+                     {activeSummaryText && (
+-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
++                      <div className="rounded-xl border bg-white/[0.03] p-3">
+                         <p className="text-caption uppercase tracking-[0.11em] text-secondary">Summary</p>
+                         {detailSummarySource === 'missing' && (
+                           <p className="mt-1 text-caption text-amber-200/75">
+@@ -2082,13 +2072,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                         <MarkdownText
+                           mode="block"
+                           text={activeSummaryText}
+-                          className="mt-1.5 text-heading leading-relaxed text-white/82"
++                          className="mt-1.5 text-heading leading-relaxed text-primary"
+                         />
+                       </div>
+                     )}
+ 
+                     {humanizeActivityBody(activeDecorated.item.description) && (
+-                      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
++                      <div className="rounded-xl border bg-black/25 p-3">
+                         <p className="text-caption uppercase tracking-[0.11em] text-secondary">Details</p>
+                         <MarkdownText
+                           mode="block"
+@@ -2145,7 +2135,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                     )}
+ 
+                     {activeMetadataJson && (
+-                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
++                      <details className="rounded-xl border bg-black/35 p-3">
+                         <summary className="cursor-pointer select-none text-caption uppercase tracking-[0.11em] text-secondary">
+                           Raw metadata
+                         </summary>
+diff --git a/dashboard/src/components/activity/ThreadView.tsx b/dashboard/src/components/activity/ThreadView.tsx
+index ab994a8..e74fb6a 100644
+--- a/dashboard/src/components/activity/ThreadView.tsx
++++ b/dashboard/src/components/activity/ThreadView.tsx
+@@ -36,7 +36,7 @@ function formatCost(items: LiveActivityItem[]): string | null {
+     if (typeof cost === 'number') total += cost;
+   }
+   if (total <= 0) return null;
+-  if (total < 0.01) return `$${total.toFixed(4)}`;
++  if (total < 0.01) return '<$0.01';
+   return `$${total.toFixed(2)}`;
+ }
+ 
+@@ -130,7 +130,7 @@ export const ThreadView = memo(function ThreadView({
+ 
+         <div className="mt-1 flex flex-wrap items-center gap-2 text-micro text-secondary">
+           {agentName && (
+-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] px-1 py-0.5">
++            <span className="inline-flex items-center gap-1.5 rounded-full border px-1 py-0.5">
+               <AgentAvatar name={agentName} hint={session?.id ?? session?.runId ?? null} size="xs" />
+               <span>{agentName}</span>
+             </span>
+@@ -199,7 +199,8 @@ export const ThreadView = memo(function ThreadView({
+               {sorted.map((item, index) => {
+                 const visual = resolveActivityVisual(item);
+                 const color = visual.color;
+-                const model = humanizeModel(item.description);
++                const modelField = (item.metadata as Record<string, unknown> | undefined)?.model;
++                const model = typeof modelField === 'string' ? humanizeModel(modelField) : null;
+                 const title = humanizeText(item.title ?? '');
+                 const isError = item.type === 'run_failed';
+                 const isArtifact = item.type === 'artifact_created';
+@@ -270,7 +271,8 @@ export const ThreadView = memo(function ThreadView({
+ 
+         {sorted.length === 0 && (
+           <div className="flex flex-col items-center gap-2 py-8 text-center">
+-            <p className="text-body text-muted">No activity in this session yet.</p>
++            <p className="text-body text-secondary">No activity in this session yet.</p>
++            <p className="text-caption text-muted animate-pulse">Activity may take a moment to appear.</p>
+           </div>
+         )}
+ 
+diff --git a/dashboard/src/components/bulk/BulkHandoffsModal.tsx b/dashboard/src/components/bulk/BulkHandoffsModal.tsx
+index 12779e2..61a2647 100644
+--- a/dashboard/src/components/bulk/BulkHandoffsModal.tsx
++++ b/dashboard/src/components/bulk/BulkHandoffsModal.tsx
+@@ -165,7 +165,7 @@ export function BulkHandoffsModal({
+           </div>
+ 
+           {copied && (
+-            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-body text-secondary">
++            <div className="mt-3 rounded-xl border bg-white/[0.02] px-3 py-2 text-body text-secondary">
+               {copied}
+             </div>
+           )}
+@@ -184,7 +184,7 @@ export function BulkHandoffsModal({
+                 return (
+                   <div
+                     key={handoff.id}
+-                    className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
++                    className="rounded-xl border bg-white/[0.02] px-3 py-2.5"
+                     style={{
+                       borderColor: isSelected ? `${colors.lime}40` : 'rgba(255,255,255,0.08)',
+                     }}
+diff --git a/dashboard/src/components/bulk/BulkOutboxModal.tsx b/dashboard/src/components/bulk/BulkOutboxModal.tsx
+index 090ba98..ad868bb 100644
+--- a/dashboard/src/components/bulk/BulkOutboxModal.tsx
++++ b/dashboard/src/components/bulk/BulkOutboxModal.tsx
+@@ -87,7 +87,7 @@ export function BulkOutboxModal({
+           </div>
+ 
+           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
++            <div className="rounded-xl border bg-white/[0.02] px-3 py-2">
+               <p className="text-micro uppercase tracking-[0.12em] text-secondary">Replay status</p>
+               <p className="mt-1 text-body font-semibold" style={{ color: statusColor }}>
+                 {outbox.replayStatus}
+@@ -98,7 +98,7 @@ export function BulkOutboxModal({
+                 </p>
+               )}
+             </div>
+-            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
++            <div className="rounded-xl border bg-white/[0.02] px-3 py-2">
+               <p className="text-micro uppercase tracking-[0.12em] text-secondary">Window</p>
+               <p className="mt-1 text-caption text-primary">
+                 Oldest: <span className="font-semibold text-white">{formatIsoRelative(outbox.oldestEventAt)}</span>
+@@ -134,7 +134,7 @@ export function BulkOutboxModal({
+                 {sortedQueues.map(([queueId, count]) => (
+                   <div
+                     key={queueId}
+-                    className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2"
++                    className="flex items-center justify-between gap-3 rounded-xl border bg-white/[0.02] px-3 py-2"
+                   >
+                     <div className="min-w-0">
+                       <p className="truncate text-body font-medium text-white">
+diff --git a/dashboard/src/components/bulk/BulkSessionsModal.tsx b/dashboard/src/components/bulk/BulkSessionsModal.tsx
+index 10b1cbc..bd750d7 100644
+--- a/dashboard/src/components/bulk/BulkSessionsModal.tsx
++++ b/dashboard/src/components/bulk/BulkSessionsModal.tsx
+@@ -305,19 +305,19 @@ export function BulkSessionsModal({
+                 {subtitle}
+               </p>
+               <div className="mt-3 flex flex-wrap items-center gap-1.5">
+-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
++                <span className="inline-flex items-center gap-1 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colors.teal }} />
+                   Total <span className="font-semibold text-white">{counts.total}</span>
+                 </span>
+-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
++                <span className="inline-flex items-center gap-1 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.active > 0 ? colors.lime : colors.textMuted }} />
+                   Active <span className="font-semibold text-white">{counts.active}</span>
+                 </span>
+-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
++                <span className="inline-flex items-center gap-1 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.blocked > 0 ? colors.red : colors.textMuted }} />
+                   Blocked <span className="font-semibold text-white">{counts.blocked}</span>
+                 </span>
+-                <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
++                <span className="inline-flex items-center gap-1 rounded-full border bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: counts.failed > 0 ? colors.red : colors.textMuted }} />
+                   Failed <span className="font-semibold text-white">{counts.failed}</span>
+                 </span>
+@@ -360,7 +360,7 @@ export function BulkSessionsModal({
+           </div>
+ 
+           {notice && (
+-            <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-body text-secondary">
++            <div className="mt-3 rounded-xl border bg-white/[0.02] px-3 py-2 text-body text-secondary">
+               {notice}
+             </div>
+           )}
+@@ -423,7 +423,7 @@ export function BulkSessionsModal({
+                 return (
+                   <div
+                     key={session.id}
+-                    className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
++                    className="rounded-xl border bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
+                     style={{
+                       borderColor: isSelected ? `${colors.lime}40` : 'rgba(255,255,255,0.08)',
+                     }}
+diff --git a/dashboard/src/components/comments/EntityCommentsPanel.tsx b/dashboard/src/components/comments/EntityCommentsPanel.tsx
+index 13b5900..3bb9d7a 100644
+--- a/dashboard/src/components/comments/EntityCommentsPanel.tsx
++++ b/dashboard/src/components/comments/EntityCommentsPanel.tsx
+@@ -148,11 +148,14 @@ export function EntityCommentsPanel(props: {
+           onChange={(event) => setBody(event.target.value)}
+           onKeyDown={onTextareaKeyDown}
+           placeholder="Leave a note for humans or agents..."
+-          className="min-h-[96px] w-full resize-y rounded-xl border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-body text-bright outline-none placeholder:text-faint focus:border-white/20 focus:bg-white/[0.05] transition-colors"
++          className="min-h-[96px] w-full resize-y rounded-xl border bg-white/[0.03] px-4 py-3 text-body text-bright outline-none placeholder:text-faint focus:border-strong focus:bg-white/[0.05] transition-colors"
+         />
+         <div className="flex flex-wrap items-center justify-between gap-3">
+           <p className="text-caption text-muted">
+-            Visible to agents and collaborators. Tip: Cmd/Ctrl+Enter to post.
++            Visible to agents and collaborators.{' '}
++            <kbd className="inline-flex items-center gap-0.5 rounded border border-strong bg-white/[0.04] px-1 py-0.5 font-mono text-micro text-secondary">
++              {typeof navigator !== 'undefined' && /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}+Enter
++            </kbd>
+           </p>
+           <button
+             type="button"
+@@ -190,7 +193,7 @@ export function EntityCommentsPanel(props: {
+             return (
+               <div
+                 key={comment.id}
+-                className="rounded-2xl border border-white/[0.10] bg-white/[0.02] px-4 py-3"
++                className="rounded-2xl border bg-white/[0.02] px-4 py-3"
+               >
+                 <div className="flex flex-wrap items-center justify-between gap-2">
+                   <div className="flex flex-wrap items-center gap-2">
+diff --git a/dashboard/src/components/decisions/DecisionDetailModal.tsx b/dashboard/src/components/decisions/DecisionDetailModal.tsx
+index 172747a..4dd909c 100644
+--- a/dashboard/src/components/decisions/DecisionDetailModal.tsx
++++ b/dashboard/src/components/decisions/DecisionDetailModal.tsx
+@@ -166,20 +166,20 @@ export function DecisionDetailModal({
+ 
+         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
+           {context ? (
+-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
++            <div className="rounded-2xl border bg-white/[0.02] px-4 py-3">
+               <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
+                 Context
+               </p>
+               <MarkdownText text={context} mode="block" />
+             </div>
+           ) : (
+-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-body text-secondary">
++            <div className="rounded-2xl border bg-white/[0.02] px-4 py-3 text-body text-secondary">
+               No context provided for this decision.
+             </div>
+           )}
+ 
+           {options.length > 0 && (
+-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
++            <div className="rounded-2xl border bg-white/[0.02] px-4 py-3">
+               <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
+                 Options
+               </p>
+@@ -197,7 +197,7 @@ export function DecisionDetailModal({
+             </div>
+           )}
+ 
+-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
++          <div className="rounded-2xl border bg-white/[0.02] px-4 py-3">
+             <p className="mb-2 text-micro uppercase tracking-[0.12em] text-muted">
+               Actions
+             </p>
+@@ -228,7 +228,7 @@ export function DecisionDetailModal({
+             </div>
+           </div>
+ 
+-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
++          <div className="rounded-2xl border bg-white/[0.02] px-4 py-3">
+             <div className="flex items-start justify-between gap-3">
+               <div className="space-y-1">
+                 <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+diff --git a/dashboard/src/components/decisions/DecisionQueue.tsx b/dashboard/src/components/decisions/DecisionQueue.tsx
+index b6e4088..8ebaa6d 100644
+--- a/dashboard/src/components/decisions/DecisionQueue.tsx
++++ b/dashboard/src/components/decisions/DecisionQueue.tsx
+@@ -470,7 +470,7 @@ export const DecisionQueue = memo(function DecisionQueue({
+         {visible.length < sorted.length && (
+           <button
+             onClick={() => setVisibleCount((prev) => Math.min(sorted.length, prev + PAGE_SIZE))}
+-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.05]"
++            className="w-full rounded-xl border bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.05]"
+           >
+             Load more ({sorted.length - visible.length} remaining)
+           </button>
+diff --git a/dashboard/src/components/handoffs/HandoffPanel.tsx b/dashboard/src/components/handoffs/HandoffPanel.tsx
+index 42a3556..ab78a59 100644
+--- a/dashboard/src/components/handoffs/HandoffPanel.tsx
++++ b/dashboard/src/components/handoffs/HandoffPanel.tsx
+@@ -57,7 +57,7 @@ export const HandoffPanel = memo(function HandoffPanel({ handoffs }: HandoffPane
+           return (
+             <article
+               key={handoff.id}
+-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.05]"
++              className="rounded-xl border bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.05]"
+             >
+               <div className="flex items-center justify-between gap-2">
+                 <p className="text-body font-medium text-white">{handoff.title}</p>
+diff --git a/dashboard/src/components/initiatives/InitiativeCard.tsx b/dashboard/src/components/initiatives/InitiativeCard.tsx
+index ac9199f..2798586 100644
+--- a/dashboard/src/components/initiatives/InitiativeCard.tsx
++++ b/dashboard/src/components/initiatives/InitiativeCard.tsx
+@@ -54,7 +54,7 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
+   return (
+     <button
+       onClick={onClick}
+-      className="w-full rounded-xl border border-white/[0.08] bg-[linear-gradient(150deg,rgba(20,184,166,0.15),rgba(2,4,10,0.7)_42%,rgba(2,4,10,0.95))] p-3 text-left transition-all duration-200 hover:border-strong hover:bg-[linear-gradient(150deg,rgba(20,184,166,0.22),rgba(2,4,10,0.72)_42%,rgba(2,4,10,0.95))]"
++      className="w-full rounded-xl border bg-[linear-gradient(150deg,rgba(20,184,166,0.15),rgba(2,4,10,0.7)_42%,rgba(2,4,10,0.95))] p-3 text-left transition-all duration-200 hover:border-strong hover:bg-[linear-gradient(150deg,rgba(20,184,166,0.22),rgba(2,4,10,0.72)_42%,rgba(2,4,10,0.95))]"
+     >
+       <div className="mb-2 flex items-start justify-between gap-2">
+         <div className="flex items-center gap-2">
+@@ -91,15 +91,15 @@ export function InitiativeCard({ initiative, onClick }: InitiativeCardProps) {
+       )}
+ 
+       <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-micro uppercase tracking-[0.08em]">
+-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
++        <div className="rounded-md border bg-black/25 px-2 py-1.5">
+           <p className="text-muted">Live Streams</p>
+           <p className="text-body font-semibold text-white">{initiative.activeAgents}</p>
+         </div>
+-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
++        <div className="rounded-md border bg-black/25 px-2 py-1.5">
+           <p className="text-muted">Total Streams</p>
+           <p className="text-body font-semibold text-white">{initiative.totalAgents}</p>
+         </div>
+-        <div className="rounded-md border border-white/[0.1] bg-black/25 px-2 py-1.5">
++        <div className="rounded-md border bg-black/25 px-2 py-1.5">
+           <p className="text-muted">Workstreams</p>
+           <p className={`text-body font-semibold ${workstreamCount === 0 ? 'text-muted' : 'text-white'}`}>
+             {workstreamCount === 0 ? 'None yet' : workstreamCount}
+diff --git a/dashboard/src/components/mission-control/CollapsibleSection.tsx b/dashboard/src/components/mission-control/CollapsibleSection.tsx
+index a7e88e5..72948e2 100644
+--- a/dashboard/src/components/mission-control/CollapsibleSection.tsx
++++ b/dashboard/src/components/mission-control/CollapsibleSection.tsx
+@@ -86,7 +86,7 @@ export function CollapsibleSection({
+         onClick={toggle}
+         className={`flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors ${
+           sticky
+-            ? `sticky ${stickyOffsetClass} z-20 border-white/[0.08] bg-[#090B11]/92 shadow-[0_8px_18px_rgba(0,0,0,0.24)] backdrop-blur-xl`
++            ? `sticky ${stickyOffsetClass} z-20 bg-[#090B11]/92 shadow-[0_8px_18px_rgba(0,0,0,0.24)] backdrop-blur-xl`
+             : 'border-transparent hover:border-subtle hover:bg-white/[0.03]'
+         }`}
+         style={
+@@ -101,12 +101,12 @@ export function CollapsibleSection({
+           viewBox="0 0 24 24"
+           fill="none"
+           stroke="currentColor"
+-          strokeWidth="2.5"
++          strokeWidth="2"
+           className={`text-muted transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+         >
+           <path d="m6 9 6 6 6-6" />
+         </svg>
+-        <span className="text-caption font-semibold tracking-[0.02em] text-white/68">
++        <span className="text-caption font-semibold tracking-[0.02em] text-secondary">
+           {title}
+         </span>
+       </button>
+diff --git a/dashboard/src/components/mission-control/DependencyEditorPopover.tsx b/dashboard/src/components/mission-control/DependencyEditorPopover.tsx
+index 7d04ce9..263c1ae 100644
+--- a/dashboard/src/components/mission-control/DependencyEditorPopover.tsx
++++ b/dashboard/src/components/mission-control/DependencyEditorPopover.tsx
+@@ -73,7 +73,7 @@ export function DependencyEditorPopover({
+             className="mt-1.5 h-9 w-full rounded-md border border-strong bg-black/25 px-2.5 text-caption text-bright outline-none transition-colors placeholder:text-muted focus:border-[#BFFF00]/35"
+           />
+ 
+-          <div className="mt-2 flex max-h-[84px] flex-wrap gap-1.5 overflow-y-auto rounded-md border border-white/[0.08] bg-black/20 p-1.5">
++          <div className="mt-2 flex max-h-[84px] flex-wrap gap-1.5 overflow-y-auto rounded-md border bg-black/20 p-1.5">
+             {selected.length === 0 ? (
+               <span className="text-micro text-muted">No links selected</span>
+             ) : (
+@@ -95,7 +95,7 @@ export function DependencyEditorPopover({
+             )}
+           </div>
+ 
+-          <div className="mt-2 max-h-[150px] space-y-1 overflow-y-auto rounded-md border border-white/[0.08] bg-black/20 p-1.5">
++          <div className="mt-2 max-h-[150px] space-y-1 overflow-y-auto rounded-md border bg-black/20 p-1.5">
+             {filteredNodes.length === 0 ? (
+               <div className="px-1 text-micro text-muted">No matching nodes</div>
+             ) : (
+@@ -109,7 +109,7 @@ export function DependencyEditorPopover({
+                     className={`flex w-full items-center justify-between rounded-md border px-2 py-1 text-left text-micro transition-colors ${
+                       checked
+                         ? 'border-[#BFFF00]/32 bg-[#BFFF00]/12 text-[#D8FFA1]'
+-                        : 'border-white/[0.1] bg-white/[0.03] text-primary hover:bg-white/[0.08]'
++                        : 'border bg-white/[0.03] text-primary hover:bg-white/[0.08]'
+                     }`}
+                   >
+                     <span className="min-w-0 pr-2">
+diff --git a/dashboard/src/components/mission-control/DependencyMapPanel.tsx b/dashboard/src/components/mission-control/DependencyMapPanel.tsx
+index 1ce0611..9b1a67d 100644
+--- a/dashboard/src/components/mission-control/DependencyMapPanel.tsx
++++ b/dashboard/src/components/mission-control/DependencyMapPanel.tsx
+@@ -157,13 +157,13 @@ export function DependencyMapPanel({
+       </div>
+ 
+       {visibleNodes.length === 0 ? (
+-        <div className="rounded-xl border border-white/[0.07] bg-black/[0.14] px-3 py-3 text-caption text-secondary">
++        <div className="rounded-xl border bg-black/[0.14] px-3 py-3 text-caption text-secondary">
+           No nodes match this view. Clear filters or select a different node to see connected work.
+         </div>
+       ) : (
+         <div className={`grid gap-2 ${Object.values(grouped).filter(g => g.length > 0).length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
+           {(Object.keys(grouped) as Array<keyof typeof grouped>).filter((groupKey) => grouped[groupKey].length > 0).map((groupKey) => (
+-            <div key={groupKey} className="rounded-xl border border-white/[0.07] bg-black/[0.14] p-2.5">
++            <div key={groupKey} className="rounded-xl border bg-black/[0.14] p-2.5">
+               <div className="mb-1.5 text-micro uppercase tracking-[0.09em] text-secondary">
+                 {groupLabel(groupKey)} ({grouped[groupKey].length})
+               </div>
+@@ -203,7 +203,7 @@ export function DependencyMapPanel({
+       )}
+ 
+       {visibleEdges.length > 0 && (
+-        <div className="rounded-xl border border-white/[0.07] bg-black/[0.14] px-2.5 py-2">
++        <div className="rounded-xl border bg-black/[0.14] px-2.5 py-2">
+           <div className="mb-1 text-micro uppercase tracking-[0.08em] text-muted">
+             Dependency links
+           </div>
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
+index d6d4ead..5bab08e 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx
+@@ -34,7 +34,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+   const [editMode, setEditMode] = useState(false);
+   const [confirmDelete, setConfirmDelete] = useState(false);
+   const [notice, setNotice] = useState<string | null>(null);
+-  const [showNotes, setShowNotes] = useState(false);
++  const [showNotes, setShowNotes] = useState(true);
+   const [draftTitle, setDraftTitle] = useState(initiative.name);
+   const [draftSummary, setDraftSummary] = useState(initiative.description ?? '');
+   const [draftPriority, setDraftPriority] = useState(
+@@ -152,12 +152,12 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+           >
+             {formatEntityStatus(currentStatus)}
+           </span>
+-          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
++          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
+             {formatPriorityLabel(initiative.priority)}
+           </span>
+         </div>
+         {editMode ? (
+-          <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
++          <div className="space-y-2 rounded-xl border bg-white/[0.02] p-3">
+             <label className="block">
+               <span className="text-micro uppercase tracking-[0.08em] text-muted">
+                 Title
+@@ -270,7 +270,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+                         initiative,
+                       })
+                     }
+-                    className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 transition-colors hover:bg-white/[0.06]"
++                    className="w-full text-left rounded-xl border bg-white/[0.03] p-3.5 transition-colors hover:bg-white/[0.06]"
+                   >
+                     <div className="flex items-center justify-between gap-2">
+                       <span className="text-body text-bright break-words">
+@@ -302,7 +302,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+                   onClick={() =>
+                     openModal({ type: 'milestone', entity: ms, initiative })
+                   }
+-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
++                  className="w-full text-left rounded-xl border bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                 >
+                   <div className="flex items-center gap-2">
+                       <span className="text-body text-bright break-words">
+@@ -328,7 +328,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
+           </div>
+ 
+           {/* Notes */}
+-          <div className="mt-4 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
++          <div className="mt-4 space-y-2 rounded-2xl border bg-white/[0.02] p-4">
+             <div className="flex items-center justify-between gap-3">
+               <div>
+                 <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+@@ -552,7 +552,7 @@ function MetricBox({
+ }) {
+   return (
+     <div
+-      className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
++      className="rounded-xl border bg-white/[0.03] px-3 py-2.5"
+       style={accent ? { borderTopColor: `${accent}50`, borderTopWidth: 2 } : undefined}
+     >
+       <div className="text-micro uppercase tracking-[0.08em] text-muted">
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
+index fa8f481..4ef1949 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx
+@@ -25,7 +25,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+   const [addingTask, setAddingTask] = useState(false);
+   const [taskTitle, setTaskTitle] = useState('');
+   const [notice, setNotice] = useState<string | null>(null);
+-  const [showNotes, setShowNotes] = useState(false);
++  const [showNotes, setShowNotes] = useState(true);
+   const [draftTitle, setDraftTitle] = useState(milestone.title);
+   const [draftDescription, setDraftDescription] = useState(milestone.description ?? '');
+   const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(milestone.dueDate));
+@@ -90,22 +90,6 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+   return (
+     <div className="flex h-full w-full min-h-0 flex-col">
+       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+-        {/* Breadcrumb */}
+-        <div className="flex items-center gap-1.5 text-caption">
+-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
+-          <button
+-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
+-            className="break-words text-secondary transition-colors hover:text-white"
+-          >
+-            {initiative.name}
+-          </button>
+-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
+-            <path d="m9 18 6-6-6-6" />
+-          </svg>
+-          <EntityIcon type="milestone" size={12} className="flex-shrink-0 opacity-95" />
+-          <span className="break-words font-medium text-primary">{milestone.title}</span>
+-        </div>
+-
+       {/* Header */}
+       <div className="space-y-2">
+         <div className="flex items-center gap-3">
+@@ -120,7 +104,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+           </span>
+         </div>
+         {editMode ? (
+-          <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
++          <div className="space-y-2 rounded-xl border bg-white/[0.02] p-3">
+             <label className="block">
+               <span className="text-micro uppercase tracking-[0.08em] text-muted">Title</span>
+               <input
+@@ -178,20 +162,20 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+       {/* Details */}
+       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+         {milestone.dueDate && (
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++          <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+             <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
+             <div className="text-body text-primary mt-0.5">
+               {new Date(milestone.dueDate).toLocaleDateString()}
+             </div>
+           </div>
+         )}
+-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++        <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+           <div className="text-micro uppercase tracking-[0.08em] text-muted">Associated Tasks</div>
+           <div className="text-heading font-medium text-primary mt-0.5">
+             {associatedTasks.length}
+           </div>
+         </div>
+-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++        <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+           <div className="text-micro uppercase tracking-[0.08em] text-muted">Completion</div>
+           <div className="mt-1 flex items-center gap-2">
+             <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+@@ -220,7 +204,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+             <button
+               key={task.id}
+               onClick={() => openModal({ type: 'task', entity: task, initiative })}
+-              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
++              className="w-full text-left rounded-xl border bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+             >
+               <div className="flex items-center justify-between gap-2">
+                 <span className="text-body text-bright">{task.title}</span>
+@@ -234,7 +218,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
+       )}
+ 
+       {/* Notes */}
+-      <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
++      <div className="mt-2 space-y-2 rounded-2xl border bg-white/[0.02] p-4">
+         <div className="flex items-center justify-between gap-3">
+           <div>
+             <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Task.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Task.tsx
+index b00df64..d0cbf4e 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Task.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Task.tsx
+@@ -23,7 +23,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
+   const [confirmDelete, setConfirmDelete] = useState(false);
+   const [editMode, setEditMode] = useState(false);
+   const [notice, setNotice] = useState<string | null>(null);
+-  const [showNotes, setShowNotes] = useState(false);
++  const [showNotes, setShowNotes] = useState(true);
+   const [draftTitle, setDraftTitle] = useState(task.title);
+   const [draftDescription, setDraftDescription] = useState(task.description ?? '');
+   const [draftPriority, setDraftPriority] = useState(task.priority ?? '');
+@@ -95,22 +95,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
+   return (
+     <div className="flex h-full w-full min-h-0 flex-col">
+       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+-        {/* Breadcrumb */}
+-        <div className="flex items-center gap-1.5 text-caption">
+-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
+-          <button
+-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
+-            className="break-words text-secondary transition-colors hover:text-white"
+-          >
+-            {initiative.name}
+-          </button>
+-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
+-            <path d="m9 18 6-6-6-6" />
+-          </svg>
+-          <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-95" />
+-          <span className="break-words font-medium text-primary">{task.title}</span>
+-        </div>
+-
+         {/* Header */}
+         <div className="space-y-2">
+           <div className="flex flex-wrap items-center gap-3">
+@@ -124,7 +108,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
+           </div>
+ 
+           {editMode ? (
+-            <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
++            <div className="space-y-2 rounded-xl border bg-white/[0.02] p-3">
+               <label className="block">
+                 <span className="text-micro uppercase tracking-[0.08em] text-muted">Title</span>
+                 <input
+@@ -199,19 +183,19 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
+ 
+         {/* Details */}
+         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++          <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+             <div className="text-micro uppercase tracking-[0.08em] text-muted">Status</div>
+             <div className="text-body text-primary mt-0.5">
+               {formatEntityStatus(task.status)}
+             </div>
+           </div>
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++          <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+             <div className="text-micro uppercase tracking-[0.08em] text-muted">Priority</div>
+             <div className="text-body text-primary mt-0.5">
+               {task.priority ?? '-'}
+             </div>
+           </div>
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++          <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+             <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
+             <div className="text-body text-primary mt-0.5">
+               {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
+@@ -226,7 +210,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
+         )}
+ 
+         {/* Notes */}
+-        <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
++        <div className="mt-2 space-y-2 rounded-2xl border bg-white/[0.02] p-4">
+           <div className="flex items-center justify-between gap-3">
+             <div>
+               <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx b/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
+index 0d16802..21dd871 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx
+@@ -30,7 +30,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+   const [editMode, setEditMode] = useState(false);
+   const [confirmDelete, setConfirmDelete] = useState(false);
+   const [notice, setNotice] = useState<string | null>(null);
+-  const [showNotes, setShowNotes] = useState(false);
++  const [showNotes, setShowNotes] = useState(true);
+   const [draftName, setDraftName] = useState(workstream.name);
+   const [draftSummary, setDraftSummary] = useState(workstream.summary ?? '');
+   const [draftStatus, setDraftStatus] = useState(workstream.status);
+@@ -113,22 +113,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+   return (
+     <div className="flex h-full w-full min-h-0 flex-col">
+       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+-        {/* Breadcrumb */}
+-        <div className="flex items-center gap-1.5 text-caption">
+-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
+-          <button
+-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
+-            className="break-words text-secondary transition-colors hover:text-white"
+-          >
+-            {initiative.name}
+-          </button>
+-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
+-            <path d="m9 18 6-6-6-6" />
+-          </svg>
+-          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
+-          <span className="break-words font-medium text-primary">{workstream.name}</span>
+-        </div>
+-
+       {/* Header */}
+       <div className="space-y-2">
+         <div className="flex items-center gap-3">
+@@ -143,7 +127,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+           </span>
+         </div>
+         {editMode ? (
+-          <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
++          <div className="space-y-2 rounded-xl border bg-white/[0.02] p-3">
+             <label className="block">
+               <span className="text-micro uppercase tracking-[0.08em] text-muted">Name</span>
+               <input
+@@ -211,15 +195,15 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+ 
+       {/* Metrics */}
+       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++        <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+           <div className="text-micro uppercase tracking-[0.08em] text-muted">Tasks</div>
+           <div className="text-heading font-medium text-primary mt-0.5">{tasks.length}</div>
+         </div>
+-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++        <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+           <div className="text-micro uppercase tracking-[0.08em] text-muted">Milestones</div>
+           <div className="text-heading font-medium text-primary mt-0.5">{milestones.length}</div>
+         </div>
+-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
++        <div className="rounded-xl border bg-white/[0.03] px-3 py-2.5">
+           <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
+           <div className="text-heading font-medium text-primary mt-0.5">
+             {progressValue !== null ? `${progressValue}%` : '-'}
+@@ -245,7 +229,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+                 <button
+                   key={ms.id}
+                   onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
+-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
++                  className="w-full text-left rounded-xl border bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                 >
+                   <div className="flex items-center gap-2">
+                     <span className="text-body text-bright">{ms.title}</span>
+@@ -268,7 +252,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+                 <button
+                   key={task.id}
+                   onClick={() => openModal({ type: 'task', entity: task, initiative })}
+-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
++                  className="w-full text-left rounded-xl border bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                 >
+                   <div className="flex items-center justify-between gap-2">
+                     <span className="text-body text-bright">{task.title}</span>
+@@ -287,7 +271,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
+           )}
+ 
+           {/* Notes */}
+-          <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
++          <div className="mt-2 space-y-2 rounded-2xl border bg-white/[0.02] p-4">
+             <div className="flex items-center justify-between gap-3">
+               <div>
+                 <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+diff --git a/dashboard/src/components/mission-control/EntityDetailModal.tsx b/dashboard/src/components/mission-control/EntityDetailModal.tsx
+index 3f4fadf..6532391 100644
+--- a/dashboard/src/components/mission-control/EntityDetailModal.tsx
++++ b/dashboard/src/components/mission-control/EntityDetailModal.tsx
+@@ -39,7 +39,7 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
+               {breadcrumbLabel(target).map((crumb, i, arr) => (
+                 <span key={i} className="flex items-center gap-1.5 min-w-0">
+                   {i > 0 && (
+-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-faint">
++                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-faint">
+                       <path d="m9 18 6-6-6-6" />
+                     </svg>
+                   )}
+@@ -48,7 +48,7 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
+                   </span>
+                 </span>
+               ))}
+-              <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
++              <span className="ml-1 inline-flex items-center gap-1 rounded-full border bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
+                 <EntityIcon type={target.type} size={11} className="opacity-90" />
+                 {target.type}
+               </span>
+diff --git a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+index 342937c..f76e64d 100644
+--- a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
++++ b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+@@ -778,7 +778,7 @@ export function HierarchyTreeTable({
+                                 className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors ${
+                                   active
+                                     ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
+-                                    : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-white/82'
++                                    : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-primary'
+                                 }`}
+                               >
+                                 <span>{scope.label}</span>
+@@ -789,7 +789,7 @@ export function HierarchyTreeTable({
+                         </div>
+                       </div>
+ 
+-                      <div className="mb-2 border-t border-white/[0.08] pt-2">
++                      <div className="mb-2 border-t pt-2">
+                         <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                           Status
+                         </div>
+@@ -805,7 +805,7 @@ export function HierarchyTreeTable({
+                                 className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro transition-colors ${
+                                   isActive
+                                     ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
+-                                    : 'border-strong bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-bright'
++                                    : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-bright'
+                                 }`}
+                               >
+                                 <span>{formatEntityStatus(status)}</span>
+@@ -866,7 +866,7 @@ export function HierarchyTreeTable({
+           className={`rounded-xl border px-3 ${
+             selectedRowCount > 0
+               ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+-              : 'border-white/[0.08] bg-white/[0.02]'
++              : 'border bg-white/[0.02]'
+           }`}
+         >
+           <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
+@@ -880,7 +880,7 @@ export function HierarchyTreeTable({
+               />
+               Select all visible
+             </label>
+-            <span className="flex-shrink-0 text-caption text-white/58">
++            <span className="flex-shrink-0 text-caption text-secondary">
+               {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
+             </span>
+             {selectedRowCount > 0 && (
+@@ -928,7 +928,7 @@ export function HierarchyTreeTable({
+                 </button>
+                 {confirmBulkDelete ? (
+                   <div className="flex items-center gap-2">
+-                    <span className="text-micro text-white/58">Delete selected?</span>
++                    <span className="text-micro text-secondary">Delete selected?</span>
+                     <button
+                       type="button"
+                       onClick={() => {
+@@ -990,7 +990,7 @@ export function HierarchyTreeTable({
+         </div>
+       )}
+ 
+-      <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
++      <div className="overflow-x-auto rounded-xl border bg-black/[0.14] p-2">
+         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
+           <thead>
+             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
+@@ -1216,7 +1216,7 @@ export function HierarchyTreeTable({
+                             assignment_source: 'manual',
+                           });
+                         }}
+-                        className="w-[190px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="w-[190px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       />
+                     ) : (
+                       <div className="flex items-center gap-2">
+@@ -1238,7 +1238,7 @@ export function HierarchyTreeTable({
+                               ))}
+                             </div>
+                             <span
+-                              className="max-w-[110px] truncate text-micro text-white/62"
++                              className="max-w-[110px] truncate text-micro text-secondary"
+                               title={assignedNames}
+                             >
+                               {node.assignedAgents[0]?.name}
+@@ -1263,7 +1263,7 @@ export function HierarchyTreeTable({
+                         onChange={(event) => {
+                           void onUpdateNode(node, { status: event.target.value });
+                         }}
+-                        className="rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       >
+                         {STATUS_OPTIONS.map((status) => (
+                           <option key={status} value={status}>
+@@ -1315,7 +1315,7 @@ export function HierarchyTreeTable({
+                             void onUpdateNode(node, { priority_num: next });
+                           }
+                         }}
+-                        className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       />
+                     ) : (
+                       <span>P{node.priorityNum}</span>
+@@ -1333,7 +1333,7 @@ export function HierarchyTreeTable({
+                           const value = event.currentTarget.value;
+                           void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
+                         }}
+-                        className="w-[176px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="w-[176px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       />
+                     ) : (
+                       <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
+@@ -1355,7 +1355,7 @@ export function HierarchyTreeTable({
+                             void onUpdateNode(node, { expected_duration_hours: value });
+                           }
+                         }}
+-                        className="w-[82px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="w-[82px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       />
+                     ) : (
+                       <span>{node.expectedDurationHours}</span>
+@@ -1377,7 +1377,7 @@ export function HierarchyTreeTable({
+                             void onUpdateNode(node, { expected_budget_usd: value });
+                           }
+                         }}
+-                        className="w-[92px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
++                        className="w-[92px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-primary"
+                       />
+                     ) : (
+                       <span>
+diff --git a/dashboard/src/components/mission-control/InitiativeSection.tsx b/dashboard/src/components/mission-control/InitiativeSection.tsx
+index 7e41d82..f3c35c7 100644
+--- a/dashboard/src/components/mission-control/InitiativeSection.tsx
++++ b/dashboard/src/components/mission-control/InitiativeSection.tsx
+@@ -305,7 +305,7 @@ interface MetricChipProps {
+ 
+ function MetricChip({ label, value }: MetricChipProps) {
+   return (
+-    <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-2">
++    <div className="rounded-lg border bg-white/[0.03] px-2.5 py-2">
+       <div className="text-micro text-secondary">{label}</div>
+       <div className="mt-0.5 text-body font-semibold text-bright">{value}</div>
+     </div>
+@@ -627,7 +627,7 @@ export function InitiativeSection({
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+-            strokeWidth="2.5"
++            strokeWidth="2"
+             className="text-muted"
+           >
+             <path d="m9 18 6-6-6-6" />
+@@ -714,7 +714,7 @@ export function InitiativeSection({
+               {runtimeTotalCount} idle
+             </span>
+           ) : (
+-            <span className="w-full text-right text-micro text-white/28">—</span>
++            <span className="w-full text-right text-micro text-faint">—</span>
+           )}
+         </div>
+ 
+@@ -804,7 +804,7 @@ export function InitiativeSection({
+                           viewBox="0 0 24 24"
+                           fill="none"
+                           stroke="currentColor"
+-                          strokeWidth="2.5"
++                          strokeWidth="2"
+                           className={`text-amber-100/55 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                         >
+                           <path d="m6 9 6 6 6-6" />
+@@ -942,7 +942,7 @@ export function InitiativeSection({
+                 onClick={() => toggleExpanded(initiative.id)}
+                 className="flex w-full items-center justify-center gap-1.5 py-1.5 text-micro text-muted transition-colors hover:text-secondary"
+               >
+-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
++                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                   <path d="m18 15-6-6-6 6" />
+                 </svg>
+                 Collapse
+diff --git a/dashboard/src/components/mission-control/MissionControlFilters.tsx b/dashboard/src/components/mission-control/MissionControlFilters.tsx
+index 1f3924f..eddd313 100644
+--- a/dashboard/src/components/mission-control/MissionControlFilters.tsx
++++ b/dashboard/src/components/mission-control/MissionControlFilters.tsx
+@@ -267,7 +267,7 @@ export function MissionControlFilters({
+                   <select
+                     value={groupBy}
+                     onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
+-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
++                    className="h-9 rounded-lg border bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
+                   >
+                     {GROUP_BY_OPTIONS.map((option) => (
+                       <option key={option.value} value={option.value}>
+@@ -282,7 +282,7 @@ export function MissionControlFilters({
+                   <select
+                     value={sortBy}
+                     onChange={(event) => setSortBy(event.target.value as SortByOption)}
+-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
++                    className="h-9 rounded-lg border bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
+                   >
+                     {SORT_BY_OPTIONS.map((option) => (
+                       <option key={option.value} value={option.value}>
+@@ -301,7 +301,7 @@ export function MissionControlFilters({
+                   <button
+                     type="button"
+                     onClick={() => setShowAllStatuses((prev) => !prev)}
+-                    className="text-micro text-muted transition-colors hover:text-white/72"
++                    className="text-micro text-muted transition-colors hover:text-primary"
+                   >
+                     {showAllStatuses ? 'Hide empty' : `Show empty (${hiddenStatusCount})`}
+                   </button>
+@@ -316,7 +316,7 @@ export function MissionControlFilters({
+                       className={`flex cursor-pointer items-center justify-between rounded-md border px-2.5 py-1.5 text-caption transition-colors ${
+                         checked
+                           ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-bright'
+-                          : 'border-white/[0.08] bg-white/[0.02] text-primary hover:border-white/[0.15]'
++                          : 'border bg-white/[0.02] text-primary hover:border-strong'
+                       }`}
+                     >
+                       <span className="flex items-center gap-2">
+diff --git a/dashboard/src/components/mission-control/MissionControlView.tsx b/dashboard/src/components/mission-control/MissionControlView.tsx
+index 5960077..f9b33ca 100644
+--- a/dashboard/src/components/mission-control/MissionControlView.tsx
++++ b/dashboard/src/components/mission-control/MissionControlView.tsx
+@@ -208,7 +208,7 @@ function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'start
+   if (mode === 'blocked') return 'border-red-400/24 bg-red-500/[0.08] text-red-100/90';
+   if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.06] text-[#E8FFD0]/95';
+   if (mode === 'completed') return 'border-strong bg-white/[0.05] text-secondary';
+-  return 'border-strong bg-white/[0.04] text-white/68';
++  return 'border-strong bg-white/[0.04] text-secondary';
+ }
+ 
+ export function MissionControlView({
+@@ -1277,13 +1277,13 @@ function MissionControlInner({
+                     className="hidden min-w-[220px] max-w-[320px] items-center gap-2 rounded-lg border border-strong bg-white/[0.03] px-2.5 py-1.5 xl:flex"
+                     title={nextActionInitiative?.name ?? undefined}
+                   >
+-                    <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/44">
++                    <span className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                       Autopilot
+                     </span>
+                     <div className="min-w-0 flex-1 text-right">
+-                      <div className="truncate text-micro text-white/72">{autopilotStateLabel}</div>
++                      <div className="truncate text-micro text-primary">{autopilotStateLabel}</div>
+                       {nextActionInitiative && (
+-                        <div className="truncate text-micro text-white/44">
++                        <div className="truncate text-micro text-muted">
+                           {nextActionInitiative.name}
+                         </div>
+                       )}
+@@ -1456,7 +1456,7 @@ function MissionControlInner({
+                 className={`mt-3 relative grid overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_560px] xl:gap-0 xl:items-stretch ${
+                   selectedInitiativeCount > 0
+                     ? 'border-[#BFFF00]/14 bg-[#0A0E15]/72'
+-                    : 'border-white/[0.10] bg-[#0A0E15]/66'
++                    : 'border bg-[#0A0E15]/66'
+                 }`}
+               >
+                 {selectedInitiativeCount > 0 && (
+@@ -1480,7 +1480,7 @@ function MissionControlInner({
+                     />
+                     Select visible
+                   </label>
+-                  <span className="flex-shrink-0 text-caption text-white/58">
++                  <span className="flex-shrink-0 text-caption text-secondary">
+                     {selectedInitiativeCount > 0
+                       ? `${selectedInitiativeCount} selected`
+                       : `${sortedInitiatives.length} visible`}
+@@ -1530,7 +1530,7 @@ function MissionControlInner({
+                       </button>
+                       {confirmBulkInitiativeDelete ? (
+                         <div className="flex items-center gap-2">
+-                          <span className="text-micro text-white/58">Delete selected?</span>
++                          <span className="text-micro text-secondary">Delete selected?</span>
+                           <button
+                             type="button"
+                             onClick={() => {
+@@ -1586,7 +1586,7 @@ function MissionControlInner({
+                         duration: 0.2,
+                         ease: [0.22, 1, 0.36, 1],
+                       }}
+-                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
++                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-subtle xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
+                     >
+                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                         {nextActionQueue.isLoading ? (
+@@ -1602,7 +1602,7 @@ function MissionControlInner({
+                         )}
+                         <div className="min-w-0 flex-1">
+                           <div className="flex items-center gap-1.5">
+-                            <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/76">
++                            <span className="text-micro font-semibold uppercase tracking-[0.08em] text-primary">
+                               Next Up
+                             </span>
+                             {nextActionQueue.isLoading ? (
+@@ -1666,7 +1666,7 @@ function MissionControlInner({
+               <div
+                 role="status"
+                 aria-live="polite"
+-                className="mt-2 flex items-start justify-between gap-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-caption text-white/72"
++                className="mt-2 flex items-start justify-between gap-3 rounded-lg border bg-white/[0.02] px-3 py-2 text-caption text-primary"
+               >
+                 <div className="flex min-w-0 items-start gap-2">
+                   <span
+@@ -1801,7 +1801,7 @@ function MissionControlInner({
+                 ) : initiatives.length === 0 ? (
+                   !hasApiKey ? (
+                     <div className="pb-8">
+-                      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-6 py-8 text-center">
++                      <div className="rounded-2xl border bg-white/[0.02] px-6 py-8 text-center">
+                         <div className="text-heading font-semibold text-bright">Connect OrgX to get started</div>
+                         <div className="mt-1 text-body text-secondary">
+                           Mission Control shows your initiative hierarchy once a user-scoped API key is configured.
+@@ -1825,7 +1825,7 @@ function MissionControlInner({
+                     </div>
+                   )
+                 ) : sortedInitiatives.length === 0 ? (
+-                  <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center pb-8">
++                  <div className="rounded-2xl border bg-white/[0.02] px-4 py-8 text-center pb-8">
+                     <div className="text-body font-medium text-bright">
+                       No initiatives match the current filters
+                     </div>
+@@ -1853,7 +1853,7 @@ function MissionControlInner({
+                             aria-expanded={isGroupExpanded}
+                             aria-controls={panelId}
+                             onClick={() => toggleGroupExpanded(disclosureId)}
+-                            className="mb-2 flex w-full items-center gap-2 rounded-xl border border-white/[0.075] bg-white/[0.016] px-3 py-2.5 text-left transition-colors hover:border-strong hover:bg-white/[0.04]"
++                            className="mb-2 flex w-full items-center gap-2 rounded-xl border border bg-white/[0.016] px-3 py-2.5 text-left transition-colors hover:border-strong hover:bg-white/[0.04]"
+                           >
+                             <span
+                               aria-hidden
+@@ -1862,7 +1862,7 @@ function MissionControlInner({
+                               ▶
+                             </span>
+                             <span className="text-body font-semibold text-primary">{group.label}</span>
+-                            <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
++                            <span className="rounded-full border bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
+                               {group.count}
+                             </span>
+                             <span className="ml-auto text-micro uppercase tracking-[0.08em] text-secondary">
+@@ -1977,7 +1977,7 @@ function MissionControlInner({
+                       <button
+                         type="button"
+                         onClick={() => setNextUpDrawerOpen(false)}
+-                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
++                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-[#080d14]/85 text-primary transition-colors hover:text-white"
+                         aria-label="Close next up drawer"
+                       >
+                         ✕
+diff --git a/dashboard/src/components/mission-control/NextUpPanel.tsx b/dashboard/src/components/mission-control/NextUpPanel.tsx
+index 071ef72..f071b69 100644
+--- a/dashboard/src/components/mission-control/NextUpPanel.tsx
++++ b/dashboard/src/components/mission-control/NextUpPanel.tsx
+@@ -171,7 +171,7 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
+       {Array.from({ length: cards }).map((_, index) => (
+         <div
+           key={`nextup-skeleton-${index}`}
+-          className="nextup-skeleton-card rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
++          className="nextup-skeleton-card rounded-2xl border bg-white/[0.02] px-3 py-3"
+         >
+           <div className="flex items-start justify-between gap-2.5">
+             <div className="flex min-w-0 flex-1 items-start gap-2.5">
+@@ -184,7 +184,7 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
+             <Skeleton className="h-5 w-16 rounded-full" />
+           </div>
+ 
+-          <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2">
++          <div className="mt-3 rounded-lg border bg-black/[0.18] px-2.5 py-2">
+             <Skeleton className="h-3 w-14 rounded" />
+             <Skeleton className="mt-2 h-3 w-full rounded" />
+             <Skeleton className="mt-2 h-3 w-3/5 rounded" />
+@@ -442,7 +442,7 @@ export function NextUpPanel({
+                 animate={{ opacity: 1, y: 0 }}
+                 exit={{ opacity: 0, y: -4 }}
+                 transition={{ duration: 0.18 }}
+-                className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-caption text-primary"
++                className="rounded-xl border bg-white/[0.03] px-3 py-2 text-caption text-primary"
+               >
+                 {notice}
+               </motion.div>
+@@ -457,7 +457,7 @@ export function NextUpPanel({
+         ) : null}
+ 
+         {!isLoading && visibleItems.length === 0 && !error && (
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-body text-secondary">
++          <div className="rounded-xl border bg-white/[0.02] px-3 py-4 text-center text-body text-secondary">
+             No queued workstreams right now.
+           </div>
+         )}
+@@ -483,7 +483,7 @@ export function NextUpPanel({
+                     delay: Math.min(index, 7) * 0.018,
+                     ease: [0.22, 1, 0.36, 1],
+                   }}
+-                  className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
++                  className="group relative overflow-hidden rounded-2xl border bg-white/[0.02] px-3 py-3"
+                 >
+                   <div
+                     className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
+@@ -505,7 +505,7 @@ export function NextUpPanel({
+                             onClick={() =>
+                               onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
+                             }
+-                            className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
++                            className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-primary"
+                             title={item.initiativeTitle}
+                           >
+                             {item.initiativeTitle}
+@@ -522,10 +522,10 @@ export function NextUpPanel({
+                     </span>
+                   </div>
+ 
+-                  <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
++                  <div className="mt-2 rounded-lg border bg-black/[0.18] px-2.5 py-2 text-caption text-secondary">
+                     {item.nextTaskTitle ? (
+                       <div className="space-y-1">
+-                        <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
++                        <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-muted">
+                           <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
+                           <span>Next</span>
+                           {dueText ? (
+@@ -534,7 +534,7 @@ export function NextUpPanel({
+                             </span>
+                           ) : null}
+                         </div>
+-                        <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
++                        <p className="line-clamp-2 break-words text-caption leading-snug text-bright">
+                           {item.nextTaskTitle}
+                         </p>
+                       </div>
+@@ -547,7 +547,7 @@ export function NextUpPanel({
+                     <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
+                       Runner
+                     </span>
+-                    <span className="truncate text-white/68">
++                    <span className="truncate text-secondary">
+                       {item.runnerAgentName}
+                       {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
+                     </span>
+@@ -762,7 +762,7 @@ function NextUpReorderRow({
+           delay: Math.min(index, 7) * 0.018,
+           ease: [0.22, 1, 0.36, 1],
+         }}
+-        className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
++        className="group relative overflow-hidden rounded-2xl border bg-white/[0.02] px-3 py-3"
+       >
+         <div
+           className={`absolute left-1/2 top-1 z-20 -translate-x-1/2 transition-opacity ${
+@@ -807,7 +807,7 @@ function NextUpReorderRow({
+                 <button
+                   type="button"
+                   onClick={() => onOpenInitiative?.(item.initiativeId, item.initiativeTitle)}
+-                  className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
++                  className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-primary"
+                   title={item.initiativeTitle}
+                 >
+                   {item.initiativeTitle}
+@@ -850,10 +850,10 @@ function NextUpReorderRow({
+           </div>
+         </div>
+ 
+-        <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
++        <div className="mt-2 rounded-lg border bg-black/[0.18] px-2.5 py-2 text-caption text-secondary">
+           {item.nextTaskTitle ? (
+             <div className="space-y-1">
+-              <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
++              <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-muted">
+                 <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
+                 <span>Next</span>
+                 {dueText ? (
+@@ -862,7 +862,7 @@ function NextUpReorderRow({
+                   </span>
+                 ) : null}
+               </div>
+-              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
++              <p className="line-clamp-2 break-words text-caption leading-snug text-bright">
+                 {item.nextTaskTitle}
+               </p>
+             </div>
+@@ -875,7 +875,7 @@ function NextUpReorderRow({
+           <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
+             Runner
+           </span>
+-          <span className="truncate text-white/68">
++          <span className="truncate text-secondary">
+             {item.runnerAgentName}
+             {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
+           </span>
+diff --git a/dashboard/src/components/mission-control/TaskChip.tsx b/dashboard/src/components/mission-control/TaskChip.tsx
+index 4ed20f3..19d10ca 100644
+--- a/dashboard/src/components/mission-control/TaskChip.tsx
++++ b/dashboard/src/components/mission-control/TaskChip.tsx
+@@ -13,7 +13,7 @@ export function TaskChip({ task, initiative }: TaskChipProps) {
+   return (
+     <button
+       onClick={() => openModal({ type: 'task', entity: task, initiative })}
+-      className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.06] min-w-0"
++      className="flex items-center gap-2 rounded-lg border bg-white/[0.03] px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.06] min-w-0"
+     >
+       <span
+         className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
+diff --git a/dashboard/src/components/onboarding/ExplainerPanel.tsx b/dashboard/src/components/onboarding/ExplainerPanel.tsx
+index 649a225..f40e660 100644
+--- a/dashboard/src/components/onboarding/ExplainerPanel.tsx
++++ b/dashboard/src/components/onboarding/ExplainerPanel.tsx
+@@ -255,7 +255,7 @@ export function ExplainerPanel({
+       <div className="mt-3 grid gap-3 px-6 sm:px-8 lg:grid-cols-[1.24fr_0.86fr]">
+         <motion.div variants={rise} className="space-y-2.5">
+           <div
+-            className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5"
++            className="rounded-xl border bg-white/[0.02] p-3.5"
+             onMouseEnter={() => setPauseAutoRotate(true)}
+             onMouseLeave={() => setPauseAutoRotate(false)}
+           >
+@@ -281,7 +281,7 @@ export function ExplainerPanel({
+                 <p className="text-micro font-semibold uppercase tracking-[0.09em] text-muted">
+                   {activeSlide.kicker}
+                 </p>
+-                <h3 className="text-title font-semibold leading-snug text-white/94">
++                <h3 className="text-title font-semibold leading-snug text-bright">
+                   {activeSlide.title}
+                 </h3>
+                 <p className="text-body leading-relaxed text-secondary">
+@@ -292,7 +292,7 @@ export function ExplainerPanel({
+                   {activeSlide.highlights.map((item) => (
+                     <div
+                       key={`${activeSlide.id}-${item.label}`}
+-                      className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2"
++                      className="rounded-lg border bg-white/[0.02] px-2.5 py-2"
+                     >
+                       <div className="flex items-center gap-1.5">
+                         <EntityIcon type={item.type} size={12} className="flex-shrink-0 opacity-92" />
+@@ -353,7 +353,7 @@ export function ExplainerPanel({
+                   <EntityIcon type={feature.iconType} size={15} />
+                 </div>
+                 <p className="text-caption font-semibold text-white">{feature.label}</p>
+-                <p className="mt-0.5 text-micro leading-snug text-white/44">{feature.desc}</p>
++                <p className="mt-0.5 text-micro leading-snug text-muted">{feature.desc}</p>
+               </div>
+             ))}
+           </div>
+@@ -380,7 +380,7 @@ export function ExplainerPanel({
+             <button
+               type="button"
+               onClick={onUseManualKey}
+-              className="rounded-full border border-white/[0.1] px-4 py-2 text-body text-secondary transition hover:border-white/[0.18] hover:text-bright"
++              className="rounded-full border px-4 py-2 text-body text-secondary transition hover:border-strong hover:text-bright"
+             >
+               Use API key
+             </button>
+@@ -398,13 +398,13 @@ export function ExplainerPanel({
+             </p>
+           </div>
+ 
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3">
++          <div className="rounded-xl border bg-white/[0.02] px-3.5 py-3">
+             <div className="flex items-center gap-1.5">
+               <EntityIcon type="task" size={12} className="opacity-90" />
+               <p className="text-caption uppercase tracking-[0.08em] text-muted">Quick Setup</p>
+             </div>
+             <div className="mt-2 flex flex-wrap items-center gap-2">
+-              <code className="rounded-md border border-white/[0.08] bg-black/30 px-2 py-1 font-mono text-caption text-primary">
++              <code className="rounded-md border bg-black/30 px-2 py-1 font-mono text-caption text-primary">
+                 {SETUP_COMMAND}
+               </code>
+               <button
+@@ -412,7 +412,7 @@ export function ExplainerPanel({
+                 onClick={() => {
+                   void copySetupCommand();
+                 }}
+-                className="rounded-full border border-strong px-3 py-1 text-caption text-secondary transition hover:border-white/[0.2] hover:text-bright"
++                className="rounded-full border border-strong px-3 py-1 text-caption text-secondary transition hover:border-strong hover:text-bright"
+               >
+                 {copyState === 'ok' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy command'}
+               </button>
+@@ -424,11 +424,11 @@ export function ExplainerPanel({
+             )}
+           </div>
+ 
+-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3">
++          <div className="rounded-xl border bg-white/[0.02] px-3.5 py-3">
+             <p className="text-caption uppercase tracking-[0.08em] text-muted">What Unlocks After Connect</p>
+             <div className="mt-2 space-y-1.5">
+               {onboardingBenefits.map((benefit) => (
+-                <div key={benefit.label} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
++                <div key={benefit.label} className="rounded-lg border bg-white/[0.02] px-2.5 py-2">
+                   <div className="flex items-center gap-1.5">
+                     <EntityIcon type={benefit.type} size={12} className="flex-shrink-0 opacity-90" />
+                     <p className="text-caption font-semibold text-bright">{benefit.label}</p>
+diff --git a/dashboard/src/components/onboarding/FirstRunGuideModal.tsx b/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
+index 3105159..9e8edbb 100644
+--- a/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
++++ b/dashboard/src/components/onboarding/FirstRunGuideModal.tsx
+@@ -154,7 +154,7 @@ export function FirstRunGuideModal({
+         </div>
+ 
+         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+-          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
++          <div className="rounded-2xl border bg-white/[0.02] p-4">
+             <div className="space-y-3">
+               {steps.map((step) => (
+                 <div
+@@ -163,7 +163,7 @@ export function FirstRunGuideModal({
+                     'flex items-start justify-between gap-3 rounded-xl border p-3',
+                     step.done
+                       ? 'border-subtle bg-white/[0.02]'
+-                      : 'border-white/[0.10] bg-white/[0.03]'
++                      : 'border bg-white/[0.03]'
+                   )}
+                 >
+                   <div className="flex min-w-0 items-start gap-3">
+diff --git a/dashboard/src/components/onboarding/ManualKeyPanel.tsx b/dashboard/src/components/onboarding/ManualKeyPanel.tsx
+index 40e7df6..6d7688f 100644
+--- a/dashboard/src/components/onboarding/ManualKeyPanel.tsx
++++ b/dashboard/src/components/onboarding/ManualKeyPanel.tsx
+@@ -78,7 +78,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
+             href={settingsUrl}
+             target="_blank"
+             rel="noreferrer"
+-            className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.03] px-3 py-1.5 text-body font-semibold text-secondary transition hover:bg-white/[0.06] hover:text-primary"
++            className="inline-flex items-center gap-2 rounded-full border bg-white/[0.03] px-3 py-1.5 text-body font-semibold text-secondary transition hover:bg-white/[0.06] hover:text-primary"
+             title="Open OrgX settings to generate an API key"
+           >
+             Generate an API key
+@@ -112,7 +112,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
+           <span className="mb-1.5 block text-caption font-medium uppercase tracking-[0.14em] text-muted">
+             API key
+           </span>
+-          <div className={`flex items-stretch overflow-hidden rounded-xl border transition-colors focus-within:border-[#BFFF00]/40 ${hasError ? 'border-red-500/30' : 'border-white/[0.08]'}`}>
++          <div className={`flex items-stretch overflow-hidden rounded-xl border transition-colors focus-within:border-[#BFFF00]/40 ${hasError ? 'border-red-500/30' : 'border'}`}>
+             <span className="flex items-center border-r border-subtle bg-white/[0.03] px-3 font-mono text-body text-faint select-none">
+               oxk_
+             </span>
+@@ -166,7 +166,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
+         <button
+           type="button"
+           onClick={onBack}
+-          className="rounded-full border border-white/[0.1] px-4 py-2 text-body text-secondary transition hover:border-white/[0.18] hover:text-bright"
++          className="rounded-full border px-4 py-2 text-body text-secondary transition hover:border-strong hover:text-bright"
+         >
+           Back to pairing
+         </button>
+diff --git a/dashboard/src/components/onboarding/OnboardingGate.tsx b/dashboard/src/components/onboarding/OnboardingGate.tsx
+index 58901dd..f14adaa 100644
+--- a/dashboard/src/components/onboarding/OnboardingGate.tsx
++++ b/dashboard/src/components/onboarding/OnboardingGate.tsx
+@@ -211,7 +211,7 @@ export function OnboardingGate({
+               <button
+                 type="button"
+                 onClick={() => { void onRefresh(); }}
+-                className="rounded-full border border-white/[0.08] px-2.5 py-1 text-caption text-muted transition hover:bg-white/[0.04] hover:text-secondary"
++                className="rounded-full border px-2.5 py-1 text-caption text-muted transition hover:bg-white/[0.04] hover:text-secondary"
+               >
+                 Refresh
+               </button>
+diff --git a/dashboard/src/components/sessions/AgentDetailModal.tsx b/dashboard/src/components/sessions/AgentDetailModal.tsx
+index 1a23555..13fe55b 100644
+--- a/dashboard/src/components/sessions/AgentDetailModal.tsx
++++ b/dashboard/src/components/sessions/AgentDetailModal.tsx
+@@ -151,13 +151,13 @@ export function AgentDetailModal({
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+-              strokeWidth="2.5"
++              strokeWidth="2"
+               className="flex-shrink-0 text-faint"
+             >
+               <path d="m9 18 6-6-6-6" />
+             </svg>
+             <span className="truncate text-primary font-medium">{agentName}</span>
+-            <span className="ml-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-muted">
++            <span className="ml-1 rounded-full border bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-muted">
+               agent
+             </span>
+           </div>
+@@ -215,28 +215,36 @@ export function AgentDetailModal({
+ 
+           {/* Session Metrics */}
+           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+-            {([
+-              { label: 'Running', value: sessionMetrics.running, color: colors.lime },
+-              { label: 'Blocked', value: sessionMetrics.blocked, color: colors.red },
+-              { label: 'Failed', value: sessionMetrics.failed, color: colors.amber },
+-              { label: 'Completed', value: sessionMetrics.completed, color: colors.teal },
+-            ] as const).map((metric) => (
+-              <div
+-                key={metric.label}
+-                className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2.5"
+-              >
+-                <p className="text-micro uppercase tracking-[0.1em] text-muted">{metric.label}</p>
+-                <p
+-                  className="mt-0.5 text-title font-semibold"
+-                  style={{
+-                    color: metric.value > 0 ? metric.color : 'rgba(255,255,255,0.3)',
+-                    fontVariantNumeric: 'tabular-nums',
+-                  }}
++            {(() => {
++              const metrics = [
++                { label: 'Running', value: sessionMetrics.running, color: colors.lime },
++                { label: 'Blocked', value: sessionMetrics.blocked, color: colors.red },
++                { label: 'Failed', value: sessionMetrics.failed, color: colors.amber },
++                { label: 'Completed', value: sessionMetrics.completed, color: colors.teal },
++              ] as const;
++              const nonZero = metrics.filter((m) => m.value > 0);
++              if (nonZero.length === 0) {
++                return (
++                  <div className="col-span-full rounded-xl border border-subtle bg-white/[0.02] px-3 py-4 text-center text-body text-muted">
++                    No sessions yet
++                  </div>
++                );
++              }
++              return nonZero.map((metric) => (
++                <div
++                  key={metric.label}
++                  className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2.5"
+                 >
+-                  {metric.value}
+-                </p>
+-              </div>
+-            ))}
++                  <p className="text-micro uppercase tracking-[0.1em] text-muted">{metric.label}</p>
++                  <p
++                    className="mt-0.5 text-title font-semibold"
++                    style={{ color: metric.color, fontVariantNumeric: 'tabular-nums' }}
++                  >
++                    {metric.value}
++                  </p>
++                </div>
++              ));
++            })()}
+           </div>
+ 
+           {/* Session List */}
+@@ -282,7 +290,7 @@ export function AgentDetailModal({
+                   <button
+                     type="button"
+                     onClick={() => setShowAllSessions((prev) => !prev)}
+-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
++                    className="w-full rounded-lg border bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
+                   >
+                     {showAllSessions
+                       ? 'Show fewer'
+diff --git a/dashboard/src/components/sessions/AgentLaunchModal.tsx b/dashboard/src/components/sessions/AgentLaunchModal.tsx
+index 7703b63..389912b 100644
+--- a/dashboard/src/components/sessions/AgentLaunchModal.tsx
++++ b/dashboard/src/components/sessions/AgentLaunchModal.tsx
+@@ -411,7 +411,7 @@ export function AgentLaunchModal({
+ 	                    <select
+ 	                      value={selectedAgentId}
+ 	                      onChange={(e) => setSelectedAgentId(e.target.value)}
+-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
++	                      className="mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+ 	                    >
+ 	                      {catalogAgents.map((agent) => {
+ 	                        const badge = toStatusBadge(agent.status);
+@@ -458,7 +458,7 @@ export function AgentLaunchModal({
+ 	                          <select
+ 	                            value={selectedProvider}
+ 	                            onChange={(e) => setSelectedProvider(e.target.value)}
+-	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
++	                            className="mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+ 	                          >
+ 	                            <option value="auto">Auto (keep agent model)</option>
+ 	                            <option value="anthropic">Anthropic</option>
+@@ -511,7 +511,7 @@ export function AgentLaunchModal({
+ 	                    <select
+ 	                      value={selectedInitiativeId}
+ 	                      onChange={(e) => setSelectedInitiativeId(e.target.value)}
+-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
++	                      className="mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+ 	                    >
+ 	                      <option value="">Select an initiative…</option>
+ 	                      {(initiatives ?? []).map((initiative) => (
+@@ -530,7 +530,7 @@ export function AgentLaunchModal({
+ 	                        onChange={(e) => setSelectedWorkstreamId(e.target.value)}
+ 	                        disabled={!selectedInitiative}
+ 	                        className={cn(
+-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
++	                          'mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+ 	                          !selectedInitiative && 'opacity-50'
+ 	                        )}
+ 	                      >
+@@ -550,7 +550,7 @@ export function AgentLaunchModal({
+ 	                        onChange={(e) => setSelectedTaskId(e.target.value)}
+ 	                        disabled={!selectedInitiative}
+ 	                        className={cn(
+-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
++	                          'mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+ 	                          !selectedInitiative && 'opacity-50'
+ 	                        )}
+ 	                      >
+@@ -579,7 +579,7 @@ export function AgentLaunchModal({
+ 	                      value={message}
+ 	                      onChange={(e) => setMessage(e.target.value)}
+ 	                      rows={4}
+-	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
++	                      className="mt-1 w-full resize-none rounded-xl border bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+ 	                      placeholder="Optional. If left blank, a default kickoff message is used."
+ 	                    />
+ 	                  </div>
+@@ -587,19 +587,19 @@ export function AgentLaunchModal({
+ 	                  <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 text-body text-secondary">
+ 	                    <p className="text-micro uppercase tracking-[0.12em] text-muted">Review</p>
+ 	                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+-	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
++	                      <div className="rounded-lg border bg-black/20 px-3 py-2">
+ 	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Agent</div>
+ 	                        <div className="mt-0.5 truncate text-body text-primary">
+ 	                          {(selectedAgent?.name ?? selectedAgentId.trim()) || '—'}
+ 	                        </div>
+ 	                      </div>
+-	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
++	                      <div className="rounded-lg border bg-black/20 px-3 py-2">
+ 	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Initiative</div>
+ 	                        <div className="mt-0.5 truncate text-body text-primary">
+ 	                          {(selectedInitiative?.name ?? selectedInitiativeId.trim()) || '—'}
+ 	                        </div>
+ 	                      </div>
+-	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
++	                      <div className="rounded-lg border bg-black/20 px-3 py-2">
+ 	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Workstream</div>
+ 	                        <div className="mt-0.5 truncate text-body text-primary">
+ 	                          {selectedWorkstreamId.trim()
+@@ -607,7 +607,7 @@ export function AgentLaunchModal({
+ 	                            : 'Any'}
+ 	                        </div>
+ 	                      </div>
+-	                      <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
++	                      <div className="rounded-lg border bg-black/20 px-3 py-2">
+ 	                        <div className="text-micro uppercase tracking-[0.12em] text-muted">Task</div>
+ 	                        <div className="mt-0.5 truncate text-body text-primary">
+ 	                          {selectedTaskId.trim()
+diff --git a/dashboard/src/components/sessions/AgentsChatsPanel.tsx b/dashboard/src/components/sessions/AgentsChatsPanel.tsx
+index 3d861b8..5c7f25b 100644
+--- a/dashboard/src/components/sessions/AgentsChatsPanel.tsx
++++ b/dashboard/src/components/sessions/AgentsChatsPanel.tsx
+@@ -1,7 +1,7 @@
+ import { memo, useEffect, useMemo, useState } from 'react';
+ import { AnimatePresence, motion } from 'framer-motion';
+ import { cn } from '@/lib/utils';
+-import { colors, getAgentRole } from '@/lib/tokens';
++import { colors, getAgentRole, agentRoles } from '@/lib/tokens';
+ import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
+ import { statusColor } from '@/lib/entityStatusColors';
+ import { resolveProvider, type ProviderId } from '@/lib/providers';
+@@ -49,14 +49,9 @@ const ACTIVE_STATUSES = new Set([
+ const ATTENTION_STATUSES = new Set(['blocked', 'failed']);
+ const ARCHIVED_PAGE_SIZE = 10;
+ 
+-const DEFAULT_ORGX_AGENTS = [
+-  { id: 'orchestrator', name: 'Orchestrator', role: 'Coordinates cross-team execution' },
+-  { id: 'engineering', name: 'Engineering', role: 'Builds and ships technical work' },
+-  { id: 'product', name: 'Product', role: 'Defines features and requirements' },
+-  { id: 'marketing', name: 'Marketing', role: 'Drives campaigns and content' },
+-  { id: 'design', name: 'Design', role: 'Creates interfaces and experiences' },
+-  { id: 'operations', name: 'Operations', role: 'Manages reliability and processes' },
+-] as const;
++const DEFAULT_ORGX_AGENTS = Object.entries(agentRoles)
++  .filter(([name]) => name !== 'System')
++  .map(([name, role]) => ({ id: name.toLowerCase(), name, role }));
+ 
+ type AgentGroup = {
+   groupKey: string;
+@@ -661,7 +656,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
+         <div className="mt-2 flex flex-wrap items-center gap-2">
+           <span className="text-caption text-secondary">History</span>
+           <div
+-            className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
++            className="hidden items-center gap-1 rounded-full border bg-black/30 p-0.5 sm:inline-flex"
+             role="group"
+             aria-label="Session history filter"
+           >
+@@ -692,7 +687,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
+             id="offline-date-filter"
+             value={timeFilterId}
+             onChange={(event) => onTimeFilterChange(event.target.value as ActivityTimeFilterId)}
+-            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
++            className="rounded-lg border bg-black/30 px-2 py-1 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
+           >
+             {ACTIVITY_TIME_FILTERS.map((option) => (
+               <option key={option.id} value={option.id}>
+@@ -788,7 +783,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
+                 'overflow-hidden rounded-xl border border-subtle bg-white/[0.02] transition-all',
+                 active && 'border-white/20 bg-white/[0.05]',
+                 isFiltered && 'border-[#0AD4C4]/30',
+-                !hasSessions && !catalogIsLive && !runtimeIsLive && 'opacity-55'
++                !hasSessions && !catalogIsLive && !runtimeIsLive && 'hidden'
+               )}
+             >
+               {/* Agent group header: avatar + name + status dot + session count + detail + collapse */}
+@@ -1046,7 +1041,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
+                   key={agent.id}
+                   className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 opacity-55"
+                 >
+-                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03]">
++                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border bg-white/[0.03]">
+                     <span className="text-micro font-semibold text-secondary">
+                       {agent.name.charAt(0)}
+                     </span>
+@@ -1133,7 +1128,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
+                 {paginatedArchivedSessions.length < archivedSessionCount && (
+                   <button
+                     onClick={() => setArchivedPage((prev) => prev + 1)}
+-                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
++                    className="w-full rounded-lg border bg-white/[0.02] px-3 py-1.5 text-micro text-secondary transition-colors hover:bg-white/[0.05]"
+                   >
+                     Load more ({archivedSessionCount - paginatedArchivedSessions.length} remaining)
+                   </button>
+diff --git a/dashboard/src/components/sessions/SessionInspector.tsx b/dashboard/src/components/sessions/SessionInspector.tsx
+index 68c9b09..d1a3f4d 100644
+--- a/dashboard/src/components/sessions/SessionInspector.tsx
++++ b/dashboard/src/components/sessions/SessionInspector.tsx
+@@ -411,7 +411,7 @@ export const SessionInspector = memo(function SessionInspector({
+           </div>
+ 
+           {notice && (
+-            <p className="rounded-md border border-white/[0.08] bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
++            <p className="rounded-md border bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
+               {notice}
+             </p>
+           )}
+diff --git a/dashboard/src/components/settings/AgentSuitePanel.tsx b/dashboard/src/components/settings/AgentSuitePanel.tsx
+index 02fadc1..509daaf 100644
+--- a/dashboard/src/components/settings/AgentSuitePanel.tsx
++++ b/dashboard/src/components/settings/AgentSuitePanel.tsx
+@@ -14,7 +14,7 @@ function Tag({ tone, children }: { tone: TagTone; children: ReactNode }) {
+   const className = useMemo(() => {
+     if (tone === 'good') return 'border-lime/25 bg-lime/[0.10] text-lime';
+     if (tone === 'warn') return 'border-amber-300/25 bg-amber-400/10 text-amber-100/90';
+-    return 'border-white/[0.10] bg-white/[0.02] text-primary';
++    return 'border bg-white/[0.02] text-primary';
+   }, [tone]);
+ 
+   return (
+@@ -87,7 +87,7 @@ export function AgentSuitePanel({
+   };
+ 
+   return (
+-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
++    <div className="rounded-2xl border bg-white/[0.02] p-4">
+       <div className="flex flex-wrap items-start justify-between gap-3">
+         <div>
+           <h3 className="text-heading font-semibold text-white">OrgX agent suite</h3>
+@@ -182,7 +182,7 @@ export function AgentSuitePanel({
+ 
+           {showDetails && (
+             <div className="mt-3 grid gap-3">
+-              <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
++              <div className="rounded-xl border bg-black/20 p-3">
+                 <div className="grid gap-1 text-body text-secondary">
+                   <div className="flex flex-wrap items-center justify-between gap-2">
+                     <span>OpenClaw config</span>
+@@ -253,7 +253,7 @@ export function AgentSuitePanel({
+                 </div>
+               </div>
+ 
+-              <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
++              <div className="rounded-xl border bg-black/20 p-3">
+                 <p className="text-body font-semibold text-primary">Agents</p>
+                 <div className="mt-2 grid gap-2">
+                   {plan.agents.map((agent) => (
+@@ -282,7 +282,7 @@ export function AgentSuitePanel({
+                 </div>
+               </div>
+ 
+-              <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
++              <div className="rounded-xl border bg-black/20 p-3">
+                 <p className="text-body font-semibold text-primary">Planned file writes</p>
+                 <p className="mt-1 text-body leading-relaxed text-secondary">
+                   Managed files are written to <code className="rounded bg-black/40 px-1">.orgx/managed</code>. Local overrides
+@@ -310,7 +310,7 @@ export function AgentSuitePanel({
+                 </div>
+ 
+                 {missingAgents > 0 && (
+-                  <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
++                  <div className="mt-3 rounded-lg border bg-white/[0.02] px-3 py-2">
+                     <p className="text-caption font-semibold text-primary">OpenClaw agents to add</p>
+                     <div className="mt-1 flex flex-wrap gap-2">
+                       {plan.openclawConfigAddedAgents.map((id) => (
+@@ -326,7 +326,7 @@ export function AgentSuitePanel({
+                 )}
+ 
+                 {changedFileItems.length > 0 && (
+-                  <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
++                  <div className="mt-3 rounded-lg border bg-white/[0.02] px-3 py-2">
+                     <p className="text-caption font-semibold text-primary">Files that will change</p>
+                     <div className="mt-2 grid gap-1.5">
+                       {changedFileItems.slice(0, 24).map((entry) => (
+diff --git a/dashboard/src/components/settings/ByokSettingsModal.tsx b/dashboard/src/components/settings/ByokSettingsModal.tsx
+index d7da862..d4036ba 100644
+--- a/dashboard/src/components/settings/ByokSettingsModal.tsx
++++ b/dashboard/src/components/settings/ByokSettingsModal.tsx
+@@ -198,7 +198,7 @@ export function ByokSettingsModal({
+               return (
+                 <div
+                   key={provider.id}
+-                  className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4"
++                  className="rounded-2xl border bg-white/[0.02] p-4"
+                 >
+                   <div className="flex flex-wrap items-start justify-between gap-3">
+                     <div>
+@@ -292,7 +292,7 @@ export function ByokSettingsModal({
+                           setDirty((prev) => ({ ...prev, [provider.id]: true }));
+                         }}
+                         placeholder={`Paste ${provider.label} key…`}
+-                        className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
++                        className="mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-body text-primary placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+                         autoComplete="off"
+                         spellCheck={false}
+                         data-modal-autofocus={provider.id === 'openai' ? 'true' : undefined}
+diff --git a/dashboard/src/components/settings/ByokSettingsPanel.tsx b/dashboard/src/components/settings/ByokSettingsPanel.tsx
+index 70111f5..2850e45 100644
+--- a/dashboard/src/components/settings/ByokSettingsPanel.tsx
++++ b/dashboard/src/components/settings/ByokSettingsPanel.tsx
+@@ -187,7 +187,7 @@ export function ByokSettingsPanel({
+           return (
+             <div
+               key={provider.id}
+-              className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4"
++              className="rounded-2xl border bg-white/[0.02] p-4"
+             >
+               <div className="flex flex-wrap items-start justify-between gap-3">
+                 <div>
+@@ -267,7 +267,7 @@ export function ByokSettingsPanel({
+                     }}
+                     type={revealed[provider.id] ? 'text' : 'password'}
+                     placeholder={`Paste ${provider.label} key`}
+-                    className="w-full rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2.5 font-mono text-body text-primary placeholder:text-faint focus:border-[#BFFF00]/40 focus:outline-none"
++                    className="w-full rounded-xl border bg-black/30 px-3 py-2.5 font-mono text-body text-primary placeholder:text-faint focus:border-[#BFFF00]/40 focus:outline-none"
+                   />
+                 </label>
+ 
+diff --git a/dashboard/src/components/settings/OrgxConnectionPanel.tsx b/dashboard/src/components/settings/OrgxConnectionPanel.tsx
+index 5990371..bd94d41 100644
+--- a/dashboard/src/components/settings/OrgxConnectionPanel.tsx
++++ b/dashboard/src/components/settings/OrgxConnectionPanel.tsx
+@@ -132,7 +132,7 @@ export function OrgxConnectionPanel({
+           onBack={onBackToPairing}
+         />
+       ) : (
+-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
++        <div className="rounded-2xl border bg-white/[0.02] p-4">
+           <div className="flex flex-wrap items-center gap-2">
+             <button
+               type="button"
+diff --git a/dashboard/src/components/settings/SettingsModal.tsx b/dashboard/src/components/settings/SettingsModal.tsx
+index 7bc96c7..744c6ce 100644
+--- a/dashboard/src/components/settings/SettingsModal.tsx
++++ b/dashboard/src/components/settings/SettingsModal.tsx
+@@ -69,7 +69,7 @@ export function SettingsModal({
+           </div>
+ 
+           <div
+-            className="mt-4 inline-flex rounded-full border border-white/[0.10] bg-white/[0.03] p-0.5"
++            className="mt-4 inline-flex rounded-full border bg-white/[0.03] p-0.5"
+             role="tablist"
+             aria-label="Settings tabs"
+           >
+diff --git a/dashboard/src/components/shared/MarkdownText.tsx b/dashboard/src/components/shared/MarkdownText.tsx
+index 4f28c5e..a0dece2 100644
+--- a/dashboard/src/components/shared/MarkdownText.tsx
++++ b/dashboard/src/components/shared/MarkdownText.tsx
+@@ -154,10 +154,10 @@ function renderBlocks(text: string): ReactNode[] {
+       }
+ 
+       blocks.push(
+-        <div key={`tbl-${index}`} className="overflow-x-auto rounded-xl border border-white/[0.1] bg-black/25">
++        <div key={`tbl-${index}`} className="overflow-x-auto rounded-xl border bg-black/25">
+           <table className="min-w-full border-collapse text-left">
+             <thead>
+-              <tr className="border-b border-white/[0.08] bg-white/[0.03]">
++              <tr className="border-b bg-white/[0.03]">
+                 {header.map((cell, cellIndex) => (
+                   <th
+                     key={`tbl-h-${cellIndex}`}
+@@ -204,7 +204,7 @@ function renderBlocks(text: string): ReactNode[] {
+       if (index < lines.length) index += 1;
+ 
+       blocks.push(
+-        <div key={`code-${index}`} className="rounded-xl border border-white/[0.1] bg-black/40 p-3">
++        <div key={`code-${index}`} className="rounded-xl border bg-black/40 p-3">
+           {lang && <p className="mb-1 text-micro uppercase tracking-[0.12em] text-muted">{lang}</p>}
+           <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-primary">
+             <code>{codeLines.join('\n')}</code>
+diff --git a/dashboard/src/components/shared/MobileTabBar.tsx b/dashboard/src/components/shared/MobileTabBar.tsx
+index 9bd5e7b..0e02b9b 100644
+--- a/dashboard/src/components/shared/MobileTabBar.tsx
++++ b/dashboard/src/components/shared/MobileTabBar.tsx
+@@ -70,7 +70,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0
+               aria-current={isActive ? 'page' : undefined}
+               className={cn(
+                 'relative flex min-w-[76px] flex-1 flex-col items-center gap-1 overflow-hidden rounded-[18px] px-2 pb-1.5 pt-2.5 transition-colors',
+-                isActive ? 'text-lime' : 'text-secondary hover:text-white/72'
++                isActive ? 'text-lime' : 'text-secondary hover:text-primary'
+               )}
+             >
+               {isActive && (
+@@ -93,7 +93,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0
+                   'relative inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors',
+                   isActive
+                     ? 'border-[#BFFF00]/35 bg-[#BFFF00]/[0.12] text-[#D8FFA1]'
+-                    : 'border-white/[0.1] bg-white/[0.03]'
++                    : 'border bg-white/[0.03]'
+                 )}
+               >
+                 <span className="relative z-[1]">
+diff --git a/dashboard/src/components/shared/Modal.tsx b/dashboard/src/components/shared/Modal.tsx
+index f73d588..766c62b 100644
+--- a/dashboard/src/components/shared/Modal.tsx
++++ b/dashboard/src/components/shared/Modal.tsx
+@@ -10,6 +10,8 @@ interface ModalProps {
+   maxWidth?: string;
+   /** When true, modal height fits its content instead of stretching to 88vh. Use for small form dialogs. */
+   fitContent?: boolean;
++  /** When true, ArrowUp/ArrowDown cycle focus between [data-nav-item] elements within the modal. */
++  enableArrowNav?: boolean;
+ }
+ 
+ export function Modal({
+@@ -18,6 +20,7 @@ export function Modal({
+   children,
+   maxWidth = 'max-w-2xl',
+   fitContent = false,
++  enableArrowNav = false,
+ }: ModalProps) {
+   const dialogRef = useRef<HTMLDivElement | null>(null);
+   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+@@ -58,6 +61,22 @@ export function Modal({
+         return;
+       }
+ 
++      if (enableArrowNav && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
++        const dialog = dialogRef.current;
++        if (!dialog) return;
++        const active = document.activeElement;
++        if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement || active instanceof HTMLSelectElement) return;
++        const navItems = Array.from(dialog.querySelectorAll<HTMLElement>('[data-nav-item]'));
++        if (navItems.length === 0) return;
++        event.preventDefault();
++        const currentIdx = navItems.indexOf(active as HTMLElement);
++        const next = event.key === 'ArrowDown'
++          ? navItems[(currentIdx + 1) % navItems.length]
++          : navItems[(currentIdx - 1 + navItems.length) % navItems.length];
++        next.focus();
++        return;
++      }
++
+       if (event.key !== 'Tab') return;
+       const dialog = dialogRef.current;
+       if (!dialog) return;
+diff --git a/dashboard/src/components/shared/ModalShell.tsx b/dashboard/src/components/shared/ModalShell.tsx
+index 3a1a89e..3cedc5d 100644
+--- a/dashboard/src/components/shared/ModalShell.tsx
++++ b/dashboard/src/components/shared/ModalShell.tsx
+@@ -49,7 +49,7 @@ export function ModalShell({
+             </span>
+           ))}
+           {typeBadge && (
+-            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
++            <span className="ml-1 inline-flex items-center gap-1 rounded-full border bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
+               {typeBadge.icon && <EntityIcon type={typeBadge.icon} size={11} className="opacity-90" />}
+               {typeBadge.label}
+             </span>
+diff --git a/dashboard/src/components/shared/SearchInput.tsx b/dashboard/src/components/shared/SearchInput.tsx
+index 0c7d570..5d1c586 100644
+--- a/dashboard/src/components/shared/SearchInput.tsx
++++ b/dashboard/src/components/shared/SearchInput.tsx
+@@ -27,7 +27,7 @@ export function SearchInput({ value, onChange, placeholder }: SearchInputProps)
+         value={value}
+         onChange={(e) => onChange(e.target.value)}
+         placeholder={placeholder}
+-        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] py-2.5 pl-10 pr-8 text-body text-white placeholder:text-muted transition-all focus:border-[#BFFF00]/30 focus:bg-white/[0.05] focus:outline-none"
++        className="w-full rounded-xl border bg-white/[0.03] py-2.5 pl-10 pr-8 text-body text-white placeholder:text-muted transition-all focus:border-[#BFFF00]/30 focus:bg-white/[0.05] focus:outline-none"
+       />
+       {value.length > 0 && (
+         <button
+diff --git a/src/index.ts b/src/index.ts
+index 3c44f90..70a04e1 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -23,6 +23,7 @@ import type {
+ } from "./types.js";
+ import { createHttpHandler } from "./http-handler.js";
+ import { applyOrgxAgentSuitePlan, computeOrgxAgentSuitePlan } from "./agent-suite.js";
++import { appendActivityItems } from "./activity-store.js";
+ import { existsSync, readFileSync } from "node:fs";
+ import { join } from "node:path";
+ import { homedir } from "node:os";

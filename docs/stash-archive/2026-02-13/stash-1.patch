@@ -1,0 +1,1607 @@
+diff --git a/dashboard/src/components/activity/ActivityTimeline.tsx b/dashboard/src/components/activity/ActivityTimeline.tsx
+index e230eab..52aa966 100644
+--- a/dashboard/src/components/activity/ActivityTimeline.tsx
++++ b/dashboard/src/components/activity/ActivityTimeline.tsx
+@@ -312,6 +312,98 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload
+   return null;
+ }
+ 
++type AutopilotSliceDetail = {
++  event: string;
++  executor: string | null;
++  agentId: string | null;
++  agentName: string | null;
++  domain: string | null;
++  requiredSkills: string[];
++  workstreamId: string | null;
++  workstreamTitle: string | null;
++  taskIds: string[];
++  milestoneIds: string[];
++  logPath: string | null;
++  outputPath: string | null;
++  parsedStatus: string | null;
++  summary: string | null;
++  decisionsNeeded: Array<{ question: string; urgency: string | null; blocking: boolean | null }>;
++  artifacts: Array<{ name: string; artifact_type: string | null; url: string | null }>;
++  statusUpdateCounts: Record<string, unknown> | null;
++};
++
++function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSliceDetail | null {
++  if (!item) return null;
++  const metadata = item.metadata as Record<string, unknown> | undefined;
++  if (!metadata || typeof metadata !== 'object') return null;
++
++  const eventRaw =
++    (typeof metadata.event === 'string' ? metadata.event : null) ??
++    (typeof metadata.hook_event === 'string' ? metadata.hook_event : null) ??
++    null;
++  const event = (eventRaw ?? '').trim();
++  if (!event.startsWith('autopilot_slice')) return null;
++
++  const toStringOrNull = (value: unknown): string | null =>
++    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
++  const toStringArray = (value: unknown): string[] =>
++    Array.isArray(value)
++      ? value
++          .filter((entry): entry is string => typeof entry === 'string')
++          .map((entry) => entry.trim())
++          .filter(Boolean)
++      : [];
++
++  const decisionsNeededRaw = Array.isArray(metadata.decisions_needed)
++    ? (metadata.decisions_needed as unknown[])
++    : [];
++  const decisionsNeeded = decisionsNeededRaw
++    .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
++    .map((entry) => entry as Record<string, unknown>)
++    .map((entry) => ({
++      question: toStringOrNull(entry.question) ?? '',
++      urgency: toStringOrNull(entry.urgency),
++      blocking: typeof entry.blocking === 'boolean' ? entry.blocking : null,
++    }))
++    .filter((entry) => entry.question.length > 0);
++
++  const artifactsRaw = Array.isArray(metadata.artifacts) ? (metadata.artifacts as unknown[]) : [];
++  const artifacts = artifactsRaw
++    .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
++    .map((entry) => entry as Record<string, unknown>)
++    .map((entry) => ({
++      name: toStringOrNull(entry.name) ?? '',
++      artifact_type: toStringOrNull(entry.artifact_type),
++      url: toStringOrNull(entry.url),
++    }))
++    .filter((entry) => entry.name.length > 0);
++
++  const statusUpdateCounts =
++    metadata.status_update_counts && typeof metadata.status_update_counts === 'object'
++      ? (metadata.status_update_counts as Record<string, unknown>)
++      : null;
++
++  return {
++    event,
++    executor: toStringOrNull(metadata.executor),
++    agentId: toStringOrNull(metadata.agent_id) ?? item.agentId ?? null,
++    agentName: toStringOrNull(metadata.agent_name) ?? item.agentName ?? null,
++    domain: toStringOrNull(metadata.domain),
++    requiredSkills: toStringArray(metadata.required_skills),
++    workstreamId: toStringOrNull(metadata.workstream_id),
++    workstreamTitle: toStringOrNull(metadata.workstream_title),
++    taskIds: toStringArray(metadata.task_ids),
++    milestoneIds: toStringArray(metadata.milestone_ids),
++    logPath: toStringOrNull(metadata.log_path),
++    outputPath: toStringOrNull(metadata.output_path),
++    parsedStatus: toStringOrNull(metadata.parsed_status),
++    summary: toStringOrNull(metadata.summary),
++    decisionsNeeded,
++    artifacts,
++    statusUpdateCounts,
++  };
++}
++
+ function renderArtifactValue(value: unknown): ReactNode {
+   if (typeof value === 'string') {
+     return <MarkdownText mode="block" text={value} className="text-[13px] leading-relaxed text-white/82" />;
+@@ -792,6 +884,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+     () => extractArtifactPayload(activeDecorated?.item ?? null),
+     [activeDecorated]
+   );
++  const activeAutopilotSlice = useMemo(
++    () => extractAutopilotSliceDetail(activeDecorated?.item ?? null),
++    [activeDecorated]
++  );
+   const activeMetadataJson = useMemo(
+     () =>
+       metadataToJson(
+@@ -802,11 +898,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+   const activeSummaryText = useMemo(() => {
+     const override = humanizeActivityBody(detailSummaryOverride);
+     if (override) return override;
++    const autopilotSummary = humanizeActivityBody(activeAutopilotSlice?.summary);
+     return (
+       humanizeActivityBody(activeDecorated?.item.summary) ??
+-      humanizeActivityBody(activeDecorated?.item.description)
++      humanizeActivityBody(activeDecorated?.item.description) ??
++      autopilotSummary
+     );
+-  }, [detailSummaryOverride, activeDecorated]);
++  }, [detailSummaryOverride, activeDecorated, activeAutopilotSlice]);
++
++  const activeAgentName = activeDecorated?.item.agentName ?? activeAutopilotSlice?.agentName ?? null;
++  const activeAgentId = activeDecorated?.item.agentId ?? activeAutopilotSlice?.agentId ?? null;
+ 
+   const closeDetail = useCallback(() => {
+     setActiveItemId(null);
+@@ -1547,16 +1648,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+ 	                    Copy run
+ 	                  </button>
+ 	                )}
+-	                {activeDecorated.item.agentId && (
+-	                  <button
+-	                    type="button"
+-	                    onClick={() => void copyText('Agent id', activeDecorated.item.agentId ?? '')}
+-	                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+-	                    aria-label="Copy agent id"
+-	                  >
+-	                    Copy agent
+-	                  </button>
+-	                )}
++		                {activeAgentId && (
++		                  <button
++		                    type="button"
++		                    onClick={() => void copyText('Agent id', activeAgentId ?? '')}
++		                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
++		                    aria-label="Copy agent id"
++		                  >
++		                    Copy agent
++		                  </button>
++		                )}
+ 	                <button
+ 	                  type="button"
+ 	                  onClick={() => void copyText('Event id', activeDecorated.item.id)}
+@@ -1632,28 +1733,159 @@ export const ActivityTimeline = memo(function ActivityTimeline({
+                       <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+                         {labelForType(activeDecorated.item.type)}
+                       </span>
+-                      {activeDecorated.item.agentName && (
+-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/65">
+-                          <AgentAvatar
+-                            name={activeDecorated.item.agentName}
+-                            hint={`${activeDecorated.item.agentId ?? ''} ${activeDecorated.item.title ?? ''}`}
+-                            size="xs"
+-                          />
+-                          <span>{activeDecorated.item.agentName}</span>
+-                        </span>
+-                      )}
+-                      {activeDecorated.runId && (
+-                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
+-                          {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
+-                        </span>
+-                      )}
+-                    </div>
++	                      {activeAgentName && (
++	                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] px-1.5 py-0.5 text-white/65">
++	                          <AgentAvatar
++	                            name={activeAgentName}
++	                            hint={`${activeAgentId ?? ''} ${activeDecorated.item.title ?? ''}`}
++	                            size="xs"
++	                          />
++	                          <span>{activeAgentName}</span>
++	                        </span>
++	                      )}
++	                      {activeDecorated.runId && (
++	                        <span className="rounded-full border border-white/[0.12] px-2 py-0.5 text-white/65">
++	                          {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
++	                        </span>
++	                      )}
++	                    </div>
++
++	                    {activeAutopilotSlice && (
++	                      <div className="rounded-xl border border-lime/15 bg-lime/10 p-3">
++	                        <div className="flex flex-wrap items-start justify-between gap-2">
++	                          <div className="min-w-0">
++	                            <p className="text-[11px] uppercase tracking-[0.11em] text-lime-100/80">
++	                              Autopilot Slice
++	                            </p>
++	                            <p className="mt-1 text-[12px] text-white/60">
++	                              {humanizeText(activeAutopilotSlice.event)}
++	                              {activeAutopilotSlice.parsedStatus
++	                                ? ` · ${humanizeText(activeAutopilotSlice.parsedStatus)}`
++	                                : ''}
++	                            </p>
++	                          </div>
++	                          <div className="flex flex-wrap gap-2">
++	                            {activeAutopilotSlice.logPath && (
++	                              <button
++	                                type="button"
++	                                onClick={() => void copyText('Log path', activeAutopilotSlice.logPath ?? '')}
++	                                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
++	                              >
++	                                Copy log
++	                              </button>
++	                            )}
++	                            {activeAutopilotSlice.outputPath && (
++	                              <button
++	                                type="button"
++	                                onClick={() => void copyText('Output path', activeAutopilotSlice.outputPath ?? '')}
++	                                className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
++	                              >
++	                                Copy output
++	                              </button>
++	                            )}
++	                          </div>
++	                        </div>
++
++	                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
++	                          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">Dispatcher</p>
++	                            <p className="mt-1 text-[12px] text-white/75">OpenClaw</p>
++	                          </div>
++	                          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">Executor</p>
++	                            <p className="mt-1 text-[12px] text-white/75">
++	                              {activeAutopilotSlice.executor ? humanizeText(activeAutopilotSlice.executor) : 'Codex'}
++	                            </p>
++	                          </div>
++	                          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">Workstream</p>
++	                            <p className="mt-1 text-[12px] text-white/75">
++	                              {activeAutopilotSlice.workstreamTitle ??
++	                                activeAutopilotSlice.workstreamId ??
++	                                '—'}
++	                            </p>
++	                          </div>
++	                          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">Policy</p>
++	                            <p className="mt-1 text-[12px] text-white/75">
++	                              {activeAutopilotSlice.domain ? humanizeText(activeAutopilotSlice.domain) : '—'}
++	                              {activeAutopilotSlice.requiredSkills.length > 0
++	                                ? ` · ${activeAutopilotSlice.requiredSkills.map((s) => `$${s.replace(/^\$/, '')}`).join(', ')}`
++	                                : ''}
++	                            </p>
++	                          </div>
++	                        </div>
++
++	                        {activeAutopilotSlice.taskIds.length > 0 && (
++	                          <div className="mt-3">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">Task IDs</p>
++	                            <div className="mt-1 flex flex-wrap gap-1.5">
++	                              {activeAutopilotSlice.taskIds.slice(0, 10).map((taskId) => (
++	                                <span
++	                                  key={taskId}
++	                                  className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-0.5 font-mono text-[11px] text-white/70"
++	                                >
++	                                  {taskId}
++	                                </span>
++	                              ))}
++	                              {activeAutopilotSlice.taskIds.length > 10 && (
++	                                <span className="rounded-full border border-white/[0.10] bg-white/[0.02] px-2 py-0.5 text-[11px] text-white/55">
++	                                  +{activeAutopilotSlice.taskIds.length - 10} more
++	                                </span>
++	                              )}
++	                            </div>
++	                          </div>
++	                        )}
++
++	                        {activeAutopilotSlice.decisionsNeeded.length > 0 && (
++	                          <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-500/[0.06] px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-amber-100/75">
++	                              Decisions Needed
++	                            </p>
++	                            <div className="mt-1 space-y-1 text-[12px] text-white/75">
++	                              {activeAutopilotSlice.decisionsNeeded.slice(0, 5).map((decision) => (
++	                                <p key={decision.question} className="break-words">
++	                                  {decision.question}
++	                                </p>
++	                              ))}
++	                            </div>
++	                          </div>
++	                        )}
++
++	                        {activeAutopilotSlice.artifacts.length > 0 && (
++	                          <div className="mt-3 rounded-lg border border-cyan-400/20 bg-cyan-500/[0.06] px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-cyan-100/75">
++	                              Artifacts Reported
++	                            </p>
++	                            <div className="mt-1 space-y-1 text-[12px] text-white/75">
++	                              {activeAutopilotSlice.artifacts.slice(0, 6).map((artifact) => (
++	                                <p key={`${artifact.name}-${artifact.url ?? ''}`} className="break-words">
++	                                  {artifact.name}
++	                                  {artifact.url ? ` · ${artifact.url}` : ''}
++	                                </p>
++	                              ))}
++	                            </div>
++	                          </div>
++	                        )}
++
++	                        {activeAutopilotSlice.statusUpdateCounts && (
++	                          <div className="mt-3 rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
++	                            <p className="text-[10px] uppercase tracking-[0.11em] text-white/45">
++	                              Status Updates
++	                            </p>
++	                            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/60">
++	                              {JSON.stringify(activeAutopilotSlice.statusUpdateCounts, null, 2)}
++	                            </pre>
++	                          </div>
++	                        )}
++	                      </div>
++	                    )}
+ 
+-                    {activeSummaryText && (
+-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+-                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Summary</p>
+-                        {detailSummarySource === 'missing' && (
+-                          <p className="mt-1 text-[11px] text-amber-200/75">
++	                    {activeSummaryText && (
++	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
++	                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">Summary</p>
++	                        {detailSummarySource === 'missing' && (
++	                          <p className="mt-1 text-[11px] text-amber-200/75">
+                             Full local turn transcript was unavailable; showing the event summary payload.
+                           </p>
+                         )}
+diff --git a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+index 4c6242e..543eb5d 100644
+--- a/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
++++ b/dashboard/src/components/mission-control/HierarchyTreeTable.tsx
+@@ -150,6 +150,10 @@ export function HierarchyTreeTable({
+   const hierarchyFilterRef = useRef<HTMLDivElement | null>(null);
+   const stickyAnchorRef = useRef<HTMLDivElement | null>(null);
+   const stickyHeaderProbeRef = useRef<HTMLTableCellElement | null>(null);
++  const stickyControlsRowRef = useRef<HTMLDivElement | null>(null);
++  const stickySelectionRowRef = useRef<HTMLDivElement | null>(null);
++  const [stickyControlsHeight, setStickyControlsHeight] = useState(0);
++  const [stickySelectionHeight, setStickySelectionHeight] = useState(0);
+ 
+   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+   const allNodeHints = useMemo(
+@@ -605,6 +609,40 @@ export function HierarchyTreeTable({
+   };
+ 
+   const stickyTop = 'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px) + var(--mc-collapsible-header-offset, 40px))';
++  const selectionStickyTop = suppressStickyControls
++    ? stickyTop
++    : `calc(${stickyTop} + ${stickyControlsHeight}px)`;
++  const tableHeaderStickyTop = `calc(${stickyTop} + ${stickySelectionHeight}px)`;
++
++  useEffect(() => {
++    const update = () => {
++      const controls = stickyControlsRowRef.current;
++      const selection = stickySelectionRowRef.current;
++      const controlsHeight = controls ? controls.getBoundingClientRect().height : 0;
++      const selectionHeight = selection ? selection.getBoundingClientRect().height : 0;
++      setStickyControlsHeight((previous) =>
++        Math.abs(previous - controlsHeight) < 0.5 ? previous : controlsHeight
++      );
++      setStickySelectionHeight((previous) =>
++        Math.abs(previous - selectionHeight) < 0.5 ? previous : selectionHeight
++      );
++    };
++
++    update();
++
++    let observer: ResizeObserver | null = null;
++    if (typeof ResizeObserver !== 'undefined') {
++      observer = new ResizeObserver(() => update());
++      if (stickyControlsRowRef.current) observer.observe(stickyControlsRowRef.current);
++      if (stickySelectionRowRef.current) observer.observe(stickySelectionRowRef.current);
++    }
++
++    window.addEventListener('resize', update);
++    return () => {
++      window.removeEventListener('resize', update);
++      observer?.disconnect();
++    };
++  }, [suppressStickyControls]);
+ 
+   useEffect(() => {
+     const anchor = stickyAnchorRef.current;
+@@ -623,14 +661,17 @@ export function HierarchyTreeTable({
+       const hostTopPx = scrollHost?.getBoundingClientRect().top ?? 0;
+       const headerTopPx = headerCell.getBoundingClientRect().top;
+       const threshold = hostTopPx + topPx;
++      const selectionHeightPx =
++        stickySelectionRowRef.current?.getBoundingClientRect().height ?? stickySelectionHeight;
++      const headerStickyLine = threshold + selectionHeightPx;
+       // Add hysteresis so the controls bar doesn't jitter at the handoff point.
+       // Collapse once the header is effectively "stuck", and only re-open once the header
+       // has moved noticeably below the sticky line.
+       setSuppressStickyControls((previous) => {
+         if (previous) {
+-          return headerTopPx <= threshold + 36;
++          return headerTopPx <= headerStickyLine + 36;
+         }
+-        return headerTopPx <= threshold + 1;
++        return headerTopPx <= headerStickyLine + 1;
+       });
+     };
+ 
+@@ -647,15 +688,15 @@ export function HierarchyTreeTable({
+       eventTarget.removeEventListener('scroll', queueUpdate);
+       window.removeEventListener('resize', queueUpdate);
+     };
+-  }, []);
++  }, [stickySelectionHeight]);
+ 
+   return (
+     <section className="space-y-2.5">
+       <div ref={stickyAnchorRef} className="sticky h-0 z-20" style={{ top: stickyTop }} aria-hidden="true" />
+ 
+       {!suppressStickyControls && (
+-        <div className="sticky z-20 mb-1.5" style={{ top: stickyTop }}>
+-          <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
++        <div ref={stickyControlsRowRef} className="sticky z-20 mb-1.5 pb-3.5" style={{ top: stickyTop }}>
++          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+             <div className="w-full xl:max-w-[380px]">
+               <SearchInput
+                 value={searchQuery}
+@@ -797,127 +838,129 @@ export function HierarchyTreeTable({
+                   </motion.button>
+                 )}
+               </AnimatePresence>
+-              <button
+-                type="button"
+-                onClick={toggleSelectAllVisibleRows}
+-                data-state={allVisibleSelected ? 'active' : 'idle'}
+-                className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold"
+-              >
+-                {allVisibleSelected ? 'Clear visible' : 'Select visible'}
+-              </button>
+             </div>
+           </div>
++        </div>
++      )}
+ 
+-          <div
+-            className={`rounded-xl border px-3 ${
+-              selectedRowCount > 0
+-                ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+-                : 'border-white/[0.08] bg-white/[0.02]'
+-            }`}
+-          >
+-            <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
+-              <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+-                <input
+-                  ref={selectAllRef}
+-                  type="checkbox"
+-                  checked={allVisibleSelected}
+-                  onChange={toggleSelectAllVisibleRows}
+-                  className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+-                />
+-                Select all visible
+-              </label>
+-              <span className="flex-shrink-0 text-[11px] text-white/58">
+-                {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
+-              </span>
+-              {selectedRowCount > 0 && (
+-                <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      void runBulkStatusUpdate('planned');
+-                    }}
+-                    disabled={isBulkMutating}
+-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                  >
+-                    Plan
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      void runBulkStatusUpdate('in_progress');
+-                    }}
+-                    disabled={isBulkMutating}
+-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                    data-state="active"
+-                  >
+-                    Start
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      void runBulkStatusUpdate('blocked');
+-                    }}
+-                    disabled={isBulkMutating}
+-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                  >
+-                    Block
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={() => {
+-                      void runBulkStatusUpdate('done');
+-                    }}
+-                    disabled={isBulkMutating}
+-                    className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+-                  >
+-                    Complete
+-                  </button>
+-                  {confirmBulkDelete ? (
+-                    <div className="flex items-center gap-2">
+-                      <span className="text-[10px] text-white/58">Delete selected?</span>
+-                      <button
+-                        type="button"
+-                        onClick={() => {
+-                          void runBulkDelete();
+-                        }}
+-                        disabled={isBulkMutating}
+-                        className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+-                      >
+-                        Delete
+-                      </button>
+-                      <button
+-                        type="button"
+-                        onClick={() => setConfirmBulkDelete(false)}
+-                        disabled={isBulkMutating}
+-                        className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+-                      >
+-                        Keep
+-                      </button>
+-                    </div>
+-                  ) : (
++      <div ref={stickySelectionRowRef} className="sticky z-20 mb-1.5" style={{ top: selectionStickyTop }}>
++        <div
++          className={`rounded-xl border px-3 ${
++            selectedRowCount > 0
++              ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
++              : 'border-white/[0.08] bg-white/[0.02]'
++          }`}
++        >
++          <div className="flex h-[48px] min-w-max flex-nowrap items-center gap-2 overflow-x-auto py-1 whitespace-nowrap">
++            <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
++              <input
++                ref={selectAllRef}
++                type="checkbox"
++                checked={allVisibleSelected}
++                onChange={toggleSelectAllVisibleRows}
++                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
++              />
++              Select all visible
++            </label>
++            <button
++              type="button"
++              onClick={toggleSelectAllVisibleRows}
++              data-state={allVisibleSelected ? 'active' : 'idle'}
++              className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-semibold"
++            >
++              {allVisibleSelected ? 'Clear visible' : 'Select visible'}
++            </button>
++            <span className="flex-shrink-0 text-[11px] text-white/58">
++              {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}
++            </span>
++            {selectedRowCount > 0 && (
++              <div className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap">
++                <button
++                  type="button"
++                  onClick={() => {
++                    void runBulkStatusUpdate('planned');
++                  }}
++                  disabled={isBulkMutating}
++                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                >
++                  Plan
++                </button>
++                <button
++                  type="button"
++                  onClick={() => {
++                    void runBulkStatusUpdate('in_progress');
++                  }}
++                  disabled={isBulkMutating}
++                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                  data-state="active"
++                >
++                  Start
++                </button>
++                <button
++                  type="button"
++                  onClick={() => {
++                    void runBulkStatusUpdate('blocked');
++                  }}
++                  disabled={isBulkMutating}
++                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                >
++                  Block
++                </button>
++                <button
++                  type="button"
++                  onClick={() => {
++                    void runBulkStatusUpdate('done');
++                  }}
++                  disabled={isBulkMutating}
++                  className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
++                >
++                  Complete
++                </button>
++                {confirmBulkDelete ? (
++                  <div className="flex items-center gap-2">
++                    <span className="text-[10px] text-white/58">Delete selected?</span>
+                     <button
+                       type="button"
+-                      onClick={() => setConfirmBulkDelete(true)}
++                      onClick={() => {
++                        void runBulkDelete();
++                      }}
+                       disabled={isBulkMutating}
+-                      className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
++                      className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                     >
+                       Delete
+                     </button>
+-                  )}
++                    <button
++                      type="button"
++                      onClick={() => setConfirmBulkDelete(false)}
++                      disabled={isBulkMutating}
++                      className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
++                    >
++                      Keep
++                    </button>
++                  </div>
++                ) : (
+                   <button
+                     type="button"
+-                    onClick={clearSelectedRows}
++                    onClick={() => setConfirmBulkDelete(true)}
+                     disabled={isBulkMutating}
+-                    className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
++                    className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                   >
+-                    Clear
++                    Delete
+                   </button>
+-                </div>
+-              )}
+-            </div>
++                )}
++                <button
++                  type="button"
++                  onClick={clearSelectedRows}
++                  disabled={isBulkMutating}
++                  className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
++                >
++                  Clear
++                </button>
++              </div>
++            )}
+           </div>
+         </div>
+-      )}
++      </div>
+ 
+       {bulkNotice && (
+         <div
+@@ -944,65 +987,65 @@ export function HierarchyTreeTable({
+               <th
+                 ref={stickyHeaderProbeRef}
+                 className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 <span className="sr-only">Select rows</span>
+               </th>
+               <th
+                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+                 onClick={() => toggleSort('title')}
+               >
+                 Item <SortChevron field="title" />
+               </th>
+               <th
+                 className="w-[188px] px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 Assigned
+               </th>
+               <th
+                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+                 onClick={() => toggleSort('status')}
+               >
+                 Status <SortChevron field="status" />
+               </th>
+               <th
+                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 Progress
+               </th>
+               <th
+                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+                 onClick={() => toggleSort('priority')}
+               >
+                 Priority <SortChevron field="priority" />
+               </th>
+               <th
+                 className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+                 onClick={() => toggleSort('eta')}
+               >
+                 ETA <SortChevron field="eta" />
+               </th>
+               <th
+                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 Duration (h)
+               </th>
+               <th
+                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 Budget ($)
+               </th>
+               <th
+                 className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-white/[0.06]"
+-                style={{ top: stickyTop }}
++                style={{ top: tableHeaderStickyTop }}
+               >
+                 Dependencies
+               </th>
+diff --git a/src/http-handler.ts b/src/http-handler.ts
+index ff67d0c..898f259 100644
+--- a/src/http-handler.ts
++++ b/src/http-handler.ts
+@@ -4051,8 +4051,43 @@ export function createHttpHandler(
+       }
+     });
+     child.on("error", (error) => {
++      const message = safeErrorMessage(error);
+       try {
+-        logStream.write(`\nworker error: ${safeErrorMessage(error)}\n`);
++        logStream.write(`\nworker error: ${message}\n`);
++      } catch {
++        // ignore
++      }
++
++      // Ensure the slice loop has something parseable to consume.
++      try {
++        const workstreamId =
++          typeof input.env.ORGX_WORKSTREAM_ID === "string" && input.env.ORGX_WORKSTREAM_ID.trim()
++            ? input.env.ORGX_WORKSTREAM_ID.trim()
++            : "unknown";
++        const payload = {
++          status: "error",
++          summary: `Worker error: ${message}`,
++          workstream_id: workstreamId,
++          workstream_title: null,
++          slice_id: input.runId,
++          artifacts: [],
++          decisions_needed: [
++            {
++              question: "Autopilot slice worker failed to start. Fix local runtime and retry.",
++              summary: message,
++              options: ["Retry", "Stop autopilot", "Inspect logs and adjust ORGX_CODEX_BIN"],
++              urgency: "urgent",
++              blocking: true,
++            },
++          ],
++          task_updates: [],
++          milestone_updates: [],
++          next_actions: [
++            `Inspect log: ${input.logPath}`,
++            `Inspect output: ${input.outputPath}`,
++          ],
++        };
++        outStream.write(`\n${JSON.stringify(payload)}\n`);
+       } catch {
+         // ignore
+       }
+@@ -4134,7 +4169,7 @@ export function createHttpHandler(
+       `Milestones (context):`,
+       milestones || "- (none found)",
+       ``,
+-      `Candidate tasks (context only; do NOT assume status is updated unless you explicitly request it in output):`,
++      `Slice tasks (selected by the dispatcher; treat these as your workset for this run):`,
+       tasks || "- (none found)",
+       ``,
+       `Reporting:`,
+@@ -4143,7 +4178,7 @@ export function createHttpHandler(
+       `  (ORGX_RUNTIME_HOOK_URL and ORGX_HOOK_TOKEN are already set in env.)`,
+       ``,
+       `What to do:`,
+-      `- Choose a coherent slice of work you can complete end-to-end in this run.`,
++      `- Execute this slice end-to-end. If you need to narrow scope, explain why in summary.`,
+       `- Execute the work (code/docs/config) and produce verifiable outcomes.`,
+       `- If blocked, be explicit about what decision/info is required.`,
+       ``,
+@@ -4657,20 +4692,20 @@ export function createHttpHandler(
+         });
+ 
+         try {
+-          writeRuntimeEvent({
+-            sourceClient: "codex",
+-            event: slice.status === "error" ? "error" : "session_stop",
+-            runId: slice.runId,
+-            initiativeId: slice.initiativeId,
+-            workstreamId: slice.workstreamId,
+-            taskId: slice.taskIds[0] ?? null,
+-            agentId: slice.agentId,
+-            agentName: null,
+-            phase: slice.status === "completed" ? "completed" : "blocked",
+-            message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
+-            metadata: {
+-              event: "autopilot_slice_finished",
+-              status: parsedStatus,
++	          writeRuntimeEvent({
++	            sourceClient: "codex",
++	            event: slice.status === "error" ? "error" : "session_stop",
++	            runId: slice.runId,
++	            initiativeId: slice.initiativeId,
++	            workstreamId: slice.workstreamId,
++	            taskId: slice.taskIds[0] ?? null,
++	            agentId: slice.agentId,
++	            agentName: slice.agentName,
++	            phase: slice.status === "completed" ? "completed" : "blocked",
++	            message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
++	            metadata: {
++	              event: "autopilot_slice_finished",
++	              status: parsedStatus,
+               artifacts: artifacts.length,
+               decisions: decisions.length,
+               status_updates: statusUpdateResult.applied,
+@@ -4681,33 +4716,99 @@ export function createHttpHandler(
+           // best effort
+         }
+ 
+-        await emitActivitySafe({
+-          initiativeId: run.initiativeId,
+-          runId: slice.runId,
+-          correlationId: slice.runId,
+-          phase: slice.status === "completed" ? "completed" : "blocked",
+-          level: slice.status === "completed" ? "info" : "warn",
+-          message:
+-            slice.status === "completed"
+-              ? `Autopilot slice completed: ${slice.workstreamTitle ?? slice.workstreamId}.`
+-              : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
+-          metadata: {
+-            event: "autopilot_slice_result",
+-            workstream_id: slice.workstreamId,
+-            task_ids: slice.taskIds,
+-            milestone_ids: slice.milestoneIds,
+-            parsed_status: parsedStatus,
+-            has_output: Boolean(parsed),
+-            output_path: slice.outputPath,
+-            log_path: slice.logPath,
+-            error: slice.lastError,
+-          },
+-        });
++	        await emitActivitySafe({
++	          initiativeId: run.initiativeId,
++	          runId: slice.runId,
++	          correlationId: slice.runId,
++	          phase: slice.status === "completed" ? "completed" : "blocked",
++	          level: slice.status === "completed" ? "info" : "warn",
++	          message:
++	            slice.status === "completed"
++	              ? `Autopilot slice completed: ${slice.workstreamTitle ?? slice.workstreamId}.`
++	              : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
++	          metadata: {
++	            event: "autopilot_slice_result",
++	            agent_id: slice.agentId,
++	            agent_name: slice.agentName,
++	            executor: "codex",
++	            workstream_id: slice.workstreamId,
++	            workstream_title: slice.workstreamTitle ?? null,
++	            task_ids: slice.taskIds,
++	            milestone_ids: slice.milestoneIds,
++	            domain: slice.domain,
++	            required_skills: slice.requiredSkills,
++	            parsed_status: parsedStatus,
++	            has_output: Boolean(parsed),
++	            summary: parsed?.summary ?? null,
++	            decisions_needed: decisions.map((decision) => ({
++	              question: decision.question,
++	              urgency: decision.urgency ?? null,
++	              blocking:
++	                typeof decision.blocking === "boolean" ? decision.blocking : null,
++	            })),
++	            artifacts: artifacts.map((artifact) => ({
++	              name: artifact.name,
++	              artifact_type: artifact.artifact_type ?? null,
++	              url: artifact.url ?? null,
++	              milestone_id: artifact.milestone_id ?? null,
++	              task_ids: artifact.task_ids ?? null,
++	            })),
++	            status_update_counts: {
++	              task_updates: taskUpdates.length,
++	              milestone_updates: milestoneUpdates.length,
++	              applied: statusUpdateResult.applied,
++	              buffered: statusUpdateResult.buffered,
++	            },
++	            output_path: slice.outputPath,
++	            log_path: slice.logPath,
++	            error: slice.lastError,
++	          },
++	        });
+ 
+-        run.lastRunId = slice.runId;
+-        run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
+-        run.activeRunId = null;
+-        run.activeTaskId = null;
++	        // Autopilot should stop on non-completed slices so the user can verify outcomes / resolve decisions.
++	        if (slice.status !== "completed") {
++	          const summaryForStop =
++	            parsed?.summary ?? slice.lastError ?? "Autopilot slice did not complete.";
++	          run.lastRunId = slice.runId;
++	          run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
++	          run.updatedAt = now;
++
++	          if (decisions.length === 0) {
++	            await requestDecisionSafe({
++	              initiativeId: run.initiativeId,
++	              correlationId: slice.runId,
++	              title:
++	                slice.status === "error"
++	                  ? `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`
++	                  : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}`,
++	              summary: [
++	                summaryForStop,
++	                "",
++	                `Log: ${slice.logPath}`,
++	                `Output: ${slice.outputPath}`,
++	              ].join("\n"),
++	              urgency: slice.status === "error" ? "urgent" : "high",
++	              options: [
++	                "Retry this workstream slice",
++	                "Pause autopilot and investigate",
++	                "Skip this workstream for now",
++	              ],
++	              blocking: true,
++	            });
++	          }
++
++	          await stopAutoContinueRun({
++	            run,
++	            reason: slice.status === "error" ? "error" : "blocked",
++	            error: summaryForStop,
++	          });
++	          return;
++	        }
++
++	        run.lastRunId = slice.runId;
++	        run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
++	        run.activeRunId = null;
++	        run.activeTaskId = null;
+         run.updatedAt = now;
+ 
+         try {
+@@ -4778,32 +4879,75 @@ export function createHttpHandler(
+         milestone?.status?.toLowerCase() === "blocked" ||
+         workstream?.status?.toLowerCase() === "blocked"
+       );
+-    };
++	    };
++
++	    // Select the next eligible workstream by scanning ordered todos.
++	    let selectedWorkstreamId: string | null = null;
++	    let preferredTaskId: string | null = null;
++
++	    const isEligibleTodoTask = (node: MissionControlNode): boolean => {
++	      if (!node || node.type !== "task") return false;
++	      if (!isTodoStatus(node.status)) return false;
++	      if (
++	        !run.includeVerification &&
++	        typeof node.title === "string" &&
++	        /^verification\\s+scenario/i.test(node.title)
++	      ) {
++	        return false;
++	      }
++	      if (run.allowedWorkstreamIds && node.workstreamId) {
++	        if (!run.allowedWorkstreamIds.includes(node.workstreamId)) return false;
++	      }
++	      if (!node.workstreamId) return false;
++	      const ws = nodeById.get(node.workstreamId);
++	      if (ws && !isDispatchableWorkstreamStatus(ws.status)) return false;
++	      if (!taskIsReady(node)) return false;
++	      if (taskHasBlockedParent(node)) return false;
++	      return true;
++	    };
++
++	    // Prefer Next Up pinned ordering when available (gives users a deterministic narrative).
++	    try {
++	      const pinnedQueue = readNextUpQueuePins();
++	      const pinnedCandidates = pinnedQueue.pins.filter((pin) => {
++	        if ((pin.initiativeId ?? "").trim() !== run.initiativeId) return false;
++	        const wsId = (pin.workstreamId ?? "").trim();
++	        if (!wsId) return false;
++	        if (run.allowedWorkstreamIds && run.allowedWorkstreamIds.length > 0) {
++	          return run.allowedWorkstreamIds.includes(wsId);
++	        }
++	        return true;
++	      });
++
++	      for (const pin of pinnedCandidates) {
++	        const wsId = (pin.workstreamId ?? "").trim();
++	        if (!wsId) continue;
++	        const ws = nodeById.get(wsId);
++	        if (ws && !isDispatchableWorkstreamStatus(ws.status)) continue;
++
++	        const hasReady = graph.recentTodos.some((taskId) => {
++	          const node = nodeById.get(taskId);
++	          return Boolean(node && node.workstreamId === wsId && isEligibleTodoTask(node));
++	        });
++	        if (!hasReady) continue;
+ 
+-    // Select the next eligible workstream by scanning ordered todos.
+-    let selectedWorkstreamId: string | null = null;
+-    for (const taskId of graph.recentTodos) {
+-      const node = nodeById.get(taskId);
+-      if (!node || node.type !== "task") continue;
+-      if (!isTodoStatus(node.status)) continue;
+-      if (
+-        !run.includeVerification &&
+-        typeof node.title === "string" &&
+-        /^verification\\s+scenario/i.test(node.title)
+-      ) {
+-        continue;
+-      }
+-      if (run.allowedWorkstreamIds && node.workstreamId) {
+-        if (!run.allowedWorkstreamIds.includes(node.workstreamId)) continue;
+-      }
+-      if (!node.workstreamId) continue;
+-      const ws = nodeById.get(node.workstreamId);
+-      if (ws && !isDispatchableWorkstreamStatus(ws.status)) continue;
+-      if (!taskIsReady(node)) continue;
+-      if (taskHasBlockedParent(node)) continue;
+-      selectedWorkstreamId = node.workstreamId;
+-      break;
+-    }
++	        selectedWorkstreamId = wsId;
++	        preferredTaskId = pin.preferredTaskId ?? null;
++	        break;
++	      }
++	    } catch {
++	      // ignore; fall back to recentTodos scan
++	    }
++
++	    if (!selectedWorkstreamId) {
++	      for (const taskId of graph.recentTodos) {
++	        const node = nodeById.get(taskId);
++	        if (!node || node.type !== "task") continue;
++	        if (!isEligibleTodoTask(node)) continue;
++	        selectedWorkstreamId = node.workstreamId;
++	        break;
++	      }
++	    }
+ 
+     if (!selectedWorkstreamId) {
+       await stopAutoContinueRun({ run, reason: "blocked" });
+@@ -4817,22 +4961,46 @@ export function createHttpHandler(
+     const initiativeTitle =
+       initiativeNode?.title ?? `Initiative ${run.initiativeId.slice(0, 8)}`;
+ 
+-    const sliceTaskNodes = graph.recentTodos
+-      .map((taskId) => nodeById.get(taskId))
+-      .filter(
+-        (node): node is MissionControlNode =>
+-          Boolean(
+-            node &&
+-              node.type === "task" &&
+-              node.workstreamId === selectedWorkstreamId &&
+-              isTodoStatus(node.status) &&
+-              taskIsReady(node) &&
+-              !taskHasBlockedParent(node) &&
+-              (run.includeVerification ||
+-                !/^verification\\s+scenario/i.test(String(node.title ?? "")))
+-          )
+-      )
+-      .slice(0, AUTO_CONTINUE_SLICE_MAX_TASKS);
++	    const sliceCandidates = graph.recentTodos
++	      .map((taskId) => nodeById.get(taskId))
++	      .filter(
++	        (node): node is MissionControlNode =>
++	          Boolean(
++	            node &&
++	              node.type === "task" &&
++	              node.workstreamId === selectedWorkstreamId &&
++	              isEligibleTodoTask(node)
++	          )
++	      )
++	      .sort((a, b) => {
++	        const priorityDelta = a.priorityNum - b.priorityNum;
++	        if (priorityDelta !== 0) return priorityDelta;
++
++	        const aDue = a.dueDate ? Date.parse(a.dueDate) : Number.POSITIVE_INFINITY;
++	        const bDue = b.dueDate ? Date.parse(b.dueDate) : Number.POSITIVE_INFINITY;
++	        if (aDue !== bDue) return aDue - bDue;
++
++	        const aEta = a.etaEndAt ? Date.parse(a.etaEndAt) : Number.POSITIVE_INFINITY;
++	        const bEta = b.etaEndAt ? Date.parse(b.etaEndAt) : Number.POSITIVE_INFINITY;
++	        if (aEta !== bEta) return aEta - bEta;
++
++	        const aEpoch = a.updatedAt ? Date.parse(a.updatedAt) : 0;
++	        const bEpoch = b.updatedAt ? Date.parse(b.updatedAt) : 0;
++	        return aEpoch - bEpoch;
++	      });
++
++	    const sliceTaskNodes = (() => {
++	      const items = [...sliceCandidates];
++	      const preferred = (preferredTaskId ?? "").trim();
++	      if (preferred) {
++	        const idx = items.findIndex((node) => node.id === preferred);
++	        if (idx > 0) {
++	          const [hit] = items.splice(idx, 1);
++	          items.unshift(hit);
++	        }
++	      }
++	      return items.slice(0, AUTO_CONTINUE_SLICE_MAX_TASKS);
++	    })();
+ 
+     const primaryTask = sliceTaskNodes[0] ?? null;
+     if (!primaryTask) {
+@@ -4962,28 +5130,69 @@ export function createHttpHandler(
+       const port = readOpenClawGatewayPort(snapshot.raw);
+       runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
+       runtimeHookToken = resolveRuntimeHookToken();
+-    } catch {
+-      // best effort
+-    }
+-    const spawned = spawnCodexSliceWorker({
+-      runId: sliceRunId,
+-      prompt,
+-      cwd: workerCwd,
+-      logPath,
+-      outputPath,
+-      env: {
+-        ORGX_SOURCE_CLIENT: "codex",
+-        ORGX_RUN_ID: sliceRunId,
+-        ORGX_CORRELATION_ID: sliceRunId,
+-        ORGX_INITIATIVE_ID: run.initiativeId,
+-        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+-        ORGX_TASK_ID: primaryTask.id,
+-        ORGX_AGENT_ID: run.agentId || "main",
+-        ORGX_AGENT_NAME: agentDisplayName,
+-        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
+-        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
+-      },
+-    });
++	    } catch {
++	      // best effort
++	    }
++	    let spawned: { pid: number | null };
++	    try {
++	      spawned = spawnCodexSliceWorker({
++	        runId: sliceRunId,
++	        prompt,
++	        cwd: workerCwd,
++	        logPath,
++	        outputPath,
++	        env: {
++	          ORGX_SOURCE_CLIENT: "codex",
++	          ORGX_RUN_ID: sliceRunId,
++	          ORGX_CORRELATION_ID: sliceRunId,
++	          ORGX_INITIATIVE_ID: run.initiativeId,
++	          ORGX_WORKSTREAM_ID: selectedWorkstreamId,
++	          ORGX_TASK_ID: primaryTask.id,
++	          ORGX_AGENT_ID: run.agentId || "main",
++	          ORGX_AGENT_NAME: agentDisplayName,
++	          ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
++	          ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
++	        },
++	      });
++	    } catch (err: unknown) {
++	      const error = safeErrorMessage(err);
++	      run.lastError = error;
++	      run.updatedAt = now;
++
++	      await emitActivitySafe({
++	        initiativeId: run.initiativeId,
++	        runId: sliceRunId,
++	        correlationId: sliceRunId,
++	        phase: "blocked",
++	        level: "error",
++	        message: `Autopilot failed to start slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
++	        metadata: {
++	          event: "autopilot_slice_spawn_error",
++	          workstream_id: selectedWorkstreamId,
++	          workstream_title: workstreamTitle ?? null,
++	          domain: executionPolicy.domain,
++	          required_skills: executionPolicy.requiredSkills,
++	          task_ids: sliceTaskNodes.map((t) => t.id),
++	          milestone_ids: milestoneIds,
++	          log_path: logPath,
++	          output_path: outputPath,
++	          error,
++	        },
++	      });
++
++	      await requestDecisionSafe({
++	        initiativeId: run.initiativeId,
++	        correlationId: sliceRunId,
++	        title: `Autopilot slice failed to start: ${workstreamTitle ?? selectedWorkstreamId}`,
++	        summary: `Slice worker spawn failed: ${error}. Check codex install/ORGX_CODEX_BIN/ORGX_AUTOPILOT_CWD and retry.`,
++	        urgency: "urgent",
++	        options: ["Retry dispatch", "Fix local codex install/path and retry", "Stop autopilot"],
++	        blocking: true,
++	      });
++
++	      await stopAutoContinueRun({ run, reason: "error", error });
++	      return;
++	    }
+ 
+     const slice: AutoContinueSliceRun = {
+       runId: sliceRunId,
+@@ -7145,7 +7354,6 @@ export function createHttpHandler(
+           const normalizedPayload: Record<string, unknown> = {
+             body,
+             comment_type: commentType,
+-            commentType,
+             severity,
+             tags,
+             parent_comment_id: null,
+@@ -7155,20 +7363,30 @@ export function createHttpHandler(
+             const data = await client.rawRequest("POST", path, normalizedPayload);
+             sendJson(res, 200, data);
+           } catch (err: unknown) {
+-            const comment = appendEntityComment({
+-              entityType,
+-              entityId,
+-              body,
+-              commentType,
+-              severity,
+-              tags,
+-            });
+-            sendJson(res, 200, {
+-              status: "success",
+-              comment,
+-              localFallback: true,
+-              warning: safeErrorMessage(err),
+-            });
++            const warning = safeErrorMessage(err);
++            try {
++              const comment = appendEntityComment({
++                entityType,
++                entityId,
++                body,
++                commentType,
++                severity,
++                tags,
++              });
++              sendJson(res, 200, {
++                status: "success",
++                comment,
++                localFallback: true,
++                warning,
++              });
++            } catch (localErr: unknown) {
++              // If both remote and local persistence fail, surface the remote warning and local error.
++              sendJson(res, 500, {
++                ok: false,
++                error: warning || "Unable to save comment",
++                localError: safeErrorMessage(localErr),
++              });
++            }
+           }
+         } catch (err: unknown) {
+           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+diff --git a/tests/http/entity-comments-route.test.mjs b/tests/http/entity-comments-route.test.mjs
+new file mode 100644
+index 0000000..50d780e
+--- /dev/null
++++ b/tests/http/entity-comments-route.test.mjs
+@@ -0,0 +1,152 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++
++import { mkdtempSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++
++import { createHttpHandler } from "../../dist/http-handler.js";
++
++function createStubResponse() {
++  const res = {
++    status: null,
++    headers: null,
++    body: "",
++    writableEnded: false,
++    writeHead(status, headers) {
++      this.status = status;
++      this.headers = headers ?? null;
++    },
++    end(body) {
++      if (body) {
++        this.body += Buffer.isBuffer(body) ? body.toString("utf8") : String(body);
++      }
++      this.writableEnded = true;
++    },
++  };
++  return res;
++}
++
++function createNoopOnboarding() {
++  return {
++    getState: () => ({
++      status: "idle",
++      hasApiKey: false,
++      connectionVerified: false,
++      workspaceName: null,
++      lastError: null,
++      nextAction: "connect",
++      docsUrl: "https://example.com",
++      keySource: "none",
++      installationId: null,
++      connectUrl: null,
++      pairingId: null,
++      expiresAt: null,
++      pollIntervalMs: null,
++    }),
++    startPairing: async () => {
++      throw new Error("not implemented");
++    },
++    getStatus: async () => {
++      throw new Error("not implemented");
++    },
++    submitManualKey: async () => {
++      throw new Error("not implemented");
++    },
++    disconnect: async () => {
++      throw new Error("not implemented");
++    },
++  };
++}
++
++function baseConfig() {
++  return {
++    apiKey: "oxk_test",
++    userId: "",
++    baseUrl: "https://www.useorgx.com",
++    syncIntervalMs: 300_000,
++    enabled: true,
++    dashboardEnabled: true,
++  };
++}
++
++test("Entity comments POST falls back locally when upstream save fails (and does not send commentType upstream)", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-comments-"));
++  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
++  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
++
++  try {
++    const config = baseConfig();
++    const calls = { rawRequest: [] };
++
++    const client = {
++      getBaseUrl: () => config.baseUrl,
++      listEntities: async () => ({ data: [] }),
++      rawRequest: async (method, path, body) => {
++        calls.rawRequest.push({ method, path, body });
++        if (method === "POST") {
++          throw new Error("500 Internal Server Error: Unable to save comment.");
++        }
++        throw new Error("upstream unavailable");
++      },
++    };
++
++    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
++
++    const res1 = createStubResponse();
++    await handler(
++      {
++        method: "POST",
++        url: "/orgx/api/entities/initiative/init-1/comments",
++        headers: { "content-type": "application/json" },
++        body: JSON.stringify({
++          body: "Hi there",
++          commentType: "note",
++          severity: "info",
++          tags: [],
++        }),
++      },
++      res1
++    );
++
++    assert.equal(res1.status, 200);
++    const body1 = JSON.parse(res1.body);
++    assert.equal(body1?.status, "success");
++    assert.equal(body1?.localFallback, true);
++    assert.ok(body1?.comment?.id?.startsWith("local_"));
++    assert.equal(body1?.comment?.body, "Hi there");
++
++    const upstreamPost = calls.rawRequest.find((c) => c.method === "POST");
++    assert.ok(upstreamPost, "expected upstream POST attempt");
++    assert.equal(
++      upstreamPost.path,
++      "/api/entities/initiative/init-1/comments"
++    );
++    assert.ok(upstreamPost.body && typeof upstreamPost.body === "object");
++    assert.ok(!("commentType" in upstreamPost.body), "should not send commentType upstream");
++    assert.equal(upstreamPost.body.comment_type, "note");
++
++    const res2 = createStubResponse();
++    await handler(
++      {
++        method: "GET",
++        url: "/orgx/api/entities/initiative/init-1/comments",
++        headers: {},
++      },
++      res2
++    );
++
++    assert.equal(res2.status, 200);
++    const body2 = JSON.parse(res2.body);
++    assert.equal(body2?.status, "success");
++    assert.ok(Array.isArray(body2?.comments));
++    assert.ok(body2.comments.some((c) => c?.body === "Hi there"), "expected local comment in GET response");
++  } finally {
++    if (prevPluginDir == null) {
++      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
++    } else {
++      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
++    }
++  }
++});
++
+diff --git a/tests/http/runtime-snapshot-injection.test.mjs b/tests/http/runtime-snapshot-injection.test.mjs
+new file mode 100644
+index 0000000..7dc6684
+--- /dev/null
++++ b/tests/http/runtime-snapshot-injection.test.mjs
+@@ -0,0 +1,159 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++
++import { createHttpHandler } from "../../dist/http-handler.js";
++import {
++  clearRuntimeInstances,
++  resolveRuntimeHookToken,
++} from "../../dist/runtime-instance-store.js";
++
++function createStubResponse() {
++  const res = {
++    status: null,
++    headers: null,
++    body: "",
++    writableEnded: false,
++    writeHead(status, headers) {
++      this.status = status;
++      this.headers = headers ?? null;
++    },
++    end(body) {
++      if (body) {
++        this.body += Buffer.isBuffer(body) ? body.toString("utf8") : String(body);
++      }
++      this.writableEnded = true;
++    },
++  };
++  return res;
++}
++
++function createNoopOnboarding() {
++  return {
++    getState: () => ({
++      status: "idle",
++      hasApiKey: false,
++      connectionVerified: false,
++      workspaceName: null,
++      lastError: null,
++      nextAction: "connect",
++      docsUrl: "https://example.com",
++      keySource: "none",
++      installationId: null,
++      connectUrl: null,
++      pairingId: null,
++      expiresAt: null,
++      pollIntervalMs: null,
++    }),
++    startPairing: async () => {
++      throw new Error("not implemented");
++    },
++    getStatus: async () => {
++      throw new Error("not implemented");
++    },
++    submitManualKey: async () => {
++      throw new Error("not implemented");
++    },
++    disconnect: async () => {
++      throw new Error("not implemented");
++    },
++  };
++}
++
++test("live/snapshot injects runtime instances as sessions", async () => {
++  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
++  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-plugin-test-"));
++  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
++
++  try {
++    clearRuntimeInstances();
++    const token = resolveRuntimeHookToken();
++
++    const config = {
++      apiKey: "oxk_test",
++      userId: "",
++      baseUrl: "https://www.useorgx.com",
++      syncIntervalMs: 300_000,
++      enabled: true,
++      dashboardEnabled: true,
++    };
++
++    const calls = { emitActivity: [] };
++    const client = {
++      getBaseUrl: () => config.baseUrl,
++      getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
++      getLiveActivity: async () => ({ activities: [], total: 0 }),
++      getHandoffs: async () => ({ handoffs: [] }),
++      getLiveDecisions: async () => ({ decisions: [] }),
++      getLiveAgents: async () => ({ agents: [], summary: {} }),
++      emitActivity: async (payload) => {
++        calls.emitActivity.push(payload);
++        return { ok: true, run_id: payload?.run_id ?? "run_1", event_id: null, reused_run: false };
++      },
++    };
++
++    const handler = createHttpHandler(
++      config,
++      client,
++      () => null,
++      createNoopOnboarding(),
++      undefined,
++      {
++        outbox: {
++          readSummary: async () => ({
++            pendingTotal: 0,
++            pendingByQueue: {},
++            oldestEventAt: null,
++            newestEventAt: null,
++          }),
++          readAllItems: async () => [],
++        },
++        openclaw: { listAgents: async () => [] },
++      }
++    );
++
++    const resHook = createStubResponse();
++    const reqHook = {
++      method: "POST",
++      url: "/orgx/api/hooks/runtime",
++      headers: { "x-orgx-hook-token": token },
++      body: {
++        source_client: "codex",
++        event: "session_start",
++        run_id: "run-123",
++        initiative_id: "init-1",
++        workstream_id: "ws-1",
++        agent_id: "engineering-agent",
++        agent_name: "Engineering Agent",
++        phase: "execution",
++        message: "Autopilot slice started",
++        metadata: { event: "autopilot_slice_started", workstream_title: "Workstream 1" },
++      },
++    };
++
++    await handler(reqHook, resHook);
++    assert.equal(resHook.status, 200);
++
++    const resSnap = createStubResponse();
++    const reqSnap = {
++      method: "GET",
++      url: "/orgx/api/live/snapshot?initiative=init-1",
++      headers: {},
++    };
++
++    await handler(reqSnap, resSnap);
++    assert.equal(resSnap.status, 200);
++
++    const payload = JSON.parse(resSnap.body);
++    assert.ok(payload?.sessions?.nodes?.some((node) => node.runId === "run-123"));
++  } finally {
++    if (prevPluginDir === undefined) {
++      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
++    } else {
++      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
++    }
++    rmSync(dir, { recursive: true, force: true });
++  }
++});
