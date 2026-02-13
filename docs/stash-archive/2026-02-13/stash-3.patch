@@ -1,0 +1,354 @@
+diff --git a/src/http-handler.ts b/src/http-handler.ts
+index 60e005a..3b5add8 100644
+--- a/src/http-handler.ts
++++ b/src/http-handler.ts
+@@ -16,7 +16,14 @@
+  *   /orgx/api/runs/:id/actions/:action → run control action
+  */
+ 
+-import { readFileSync, existsSync, mkdirSync } from "node:fs";
++import {
++  chmodSync,
++  createWriteStream,
++  existsSync,
++  mkdirSync,
++  readFileSync,
++  writeFileSync,
++} from "node:fs";
+ import { homedir } from "node:os";
+ import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -829,6 +836,97 @@ function enrichSessionsWithRuntime(
+   return { ...input, nodes };
+ }
+ 
++function injectRuntimeInstancesAsSessions(
++  input: SessionTreeResponse,
++  instances: RuntimeInstanceRecord[]
++): SessionTreeResponse {
++  if (!Array.isArray(input.nodes)) return input;
++  if (!Array.isArray(instances) || instances.length === 0) return input;
++
++  const nodes = [...input.nodes];
++  const edges = Array.isArray(input.edges) ? input.edges : [];
++  const groups = [...(input.groups ?? [])];
++
++  const existingRunIds = new Set<string>();
++  const existingNodeIds = new Set<string>();
++  for (const node of nodes) {
++    existingNodeIds.add(node.id);
++    if (node.runId) existingRunIds.add(node.runId);
++  }
++
++  const groupsById = new Map(groups.map((group) => [group.id, group]));
++
++  for (const instance of instances) {
++    if (!instance || typeof instance !== "object") continue;
++    const runId =
++      instance.runId?.trim() || instance.correlationId?.trim() || "";
++    if (!runId) continue;
++    if (existingRunIds.has(runId)) continue;
++
++    // Only surface active/stale runtime instances as sessions so the UI can show
++    // "in progress" work even when the cloud session tree has no corresponding node.
++    if (instance.state !== "active" && instance.state !== "stale") continue;
++
++    const initiativeId = instance.initiativeId?.trim() || null;
++    const workstreamId = instance.workstreamId?.trim() || null;
++    const groupId = initiativeId ?? "runtime";
++
++    const meta =
++      instance.metadata && typeof instance.metadata === "object"
++        ? (instance.metadata as Record<string, unknown>)
++        : {};
++    const titleHint =
++      pickString(meta, ["workstream_title", "workstreamTitle"]) ??
++      (workstreamId ? `Workstream ${workstreamId.slice(0, 8)}` : null);
++    const initiativeHint =
++      pickString(meta, ["initiative_title", "initiativeTitle"]) ??
++      (initiativeId ? `Initiative ${initiativeId.slice(0, 8)}` : null);
++    const groupLabel = (initiativeHint ?? groupId).trim();
++
++    if (!groupsById.has(groupId)) {
++      const group = { id: groupId, label: groupLabel, status: null };
++      groupsById.set(groupId, group);
++      groups.push(group);
++    }
++
++    const nodeId = `runtime:${instance.id}`;
++    if (existingNodeIds.has(nodeId)) continue;
++    existingNodeIds.add(nodeId);
++    existingRunIds.add(runId);
++
++    const node = {
++      id: nodeId,
++      parentId: null,
++      runId,
++      title: titleHint ?? instance.lastMessage ?? `Runtime ${runId.slice(0, 8)}`,
++      agentId: instance.agentId ?? null,
++      agentName: instance.agentName ?? null,
++      status: "running",
++      progress: instance.progressPct ?? null,
++      initiativeId,
++      workstreamId,
++      groupId,
++      groupLabel,
++      startedAt: instance.createdAt ?? instance.lastEventAt ?? null,
++      updatedAt: instance.updatedAt ?? null,
++      lastEventAt: instance.lastEventAt ?? null,
++      lastEventSummary: instance.lastMessage ?? null,
++      blockers: [],
++      phase: (instance.phase as any) ?? null,
++      state: instance.state ?? null,
++      runtimeClient: normalizeRuntimeSource(instance.sourceClient),
++      runtimeLabel: instance.displayName,
++      runtimeProvider: instance.providerLogo,
++      instanceId: instance.id,
++      lastHeartbeatAt: instance.lastHeartbeatAt ?? null,
++    } satisfies SessionTreeResponse["nodes"][number];
++
++    nodes.push(node);
++  }
++
++  return { nodes, edges, groups };
++}
++
+ function enrichActivityWithRuntime(
+   input: LiveActivityItem[],
+   instances: RuntimeInstanceRecord[]
+@@ -3370,6 +3468,72 @@ export function createHttpHandler(
+   let autoContinueTickInFlight = false;
+   const AUTO_CONTINUE_TICK_MS = 2_500;
+ 
++  const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
++  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 55 * 60_000; // 55 minutes
++  const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
++  const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
++  const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
++
++  type AutoContinueSliceStatus =
++    | "completed"
++    | "blocked"
++    | "needs_decision"
++    | "error";
++
++  type AutoContinueSliceDecision = {
++    question: string;
++    summary?: string | null;
++    options?: string[] | null;
++    urgency?: "low" | "medium" | "high" | "urgent";
++    blocking?: boolean | null;
++  };
++
++  type AutoContinueSliceArtifact = {
++    name: string;
++    artifact_type?: string | null;
++    description?: string | null;
++    url?: string | null;
++    verification_steps?: string[] | null;
++    milestone_id?: string | null;
++    task_ids?: string[] | null;
++  };
++
++  type AutoContinueSliceResult = {
++    status: AutoContinueSliceStatus;
++    summary: string;
++    artifacts?: AutoContinueSliceArtifact[] | null;
++    decisions_needed?: AutoContinueSliceDecision[] | null;
++    task_updates?: Array<{ task_id: string; status: string; reason?: string | null }> | null;
++    milestone_updates?: Array<{ milestone_id: string; status: string; reason?: string | null }> | null;
++    next_actions?: string[] | null;
++  };
++
++  type AutoContinueSliceRun = {
++    runId: string;
++    initiativeId: string;
++    initiativeTitle: string | null;
++    workstreamId: string;
++    workstreamTitle: string | null;
++    agentId: string;
++    agentName: string | null;
++    domain: string;
++    requiredSkills: string[];
++    pid: number | null;
++    status: "running" | "completed" | "blocked" | "error";
++    startedAt: string;
++    updatedAt: string;
++    finishedAt: string | null;
++    tokenEstimate: number | null;
++    outputPath: string;
++    logPath: string;
++    taskIds: string[];
++    milestoneIds: string[];
++    lastError: string | null;
++  };
++
++  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
++  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
++
+   const setLocalInitiativeStatusOverride = (
+     initiativeId: string,
+     status: string
+diff --git a/src/mcp-client-setup.ts b/src/mcp-client-setup.ts
+index 6d336d8..9b265ca 100644
+--- a/src/mcp-client-setup.ts
++++ b/src/mcp-client-setup.ts
+@@ -8,6 +8,7 @@ import { writeFileAtomicSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+ import type { Logger } from "./mcp-http-handler.js";
+ 
+ const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
++const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
+ 
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+@@ -51,10 +52,30 @@ export function patchClaudeMcpConfig(input: {
+   localMcpUrl: string;
+ }): { updated: boolean; next: Record<string, unknown> } {
+   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
++  const existingOrgx = isRecord(currentServers.orgx) ? currentServers.orgx : {};
++  const existingOrgxUrl = typeof existingOrgx.url === "string" ? existingOrgx.url : "";
++  const existingOrgxType = typeof existingOrgx.type === "string" ? existingOrgx.type : "";
+   const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
+   const priorUrl = typeof existing.url === "string" ? existing.url : "";
+   const priorType = typeof existing.type === "string" ? existing.type : "";
+ 
++  // Ensure hosted OrgX is available alongside the local proxy. Avoid overwriting
++  // custom `orgx` entries unless it's clearly redundant (pointing at the same
++  // local proxy URL we install under `orgx-openclaw`).
++  const shouldSetHostedOrgx =
++    !isRecord(currentServers.orgx) ||
++    (existingOrgxUrl === input.localMcpUrl && existingOrgxType === "http");
++
++  const nextOrgxEntry: Record<string, unknown> = {
++    ...existingOrgx,
++    type: "http",
++    url: ORGX_HOSTED_MCP_URL,
++    description:
++      typeof existingOrgx.description === "string" && existingOrgx.description.trim().length > 0
++        ? existingOrgx.description
++        : "OrgX cloud MCP (OAuth)",
++  };
++
+   const nextEntry: Record<string, unknown> = {
+     ...existing,
+     type: "http",
+@@ -67,6 +88,7 @@ export function patchClaudeMcpConfig(input: {
+ 
+   const nextServers: Record<string, unknown> = {
+     ...currentServers,
++    ...(shouldSetHostedOrgx ? { orgx: nextOrgxEntry } : {}),
+     [ORGX_LOCAL_MCP_KEY]: nextEntry,
+   };
+ 
+@@ -75,7 +97,10 @@ export function patchClaudeMcpConfig(input: {
+     mcpServers: nextServers,
+   };
+ 
+-  const updated = priorUrl !== input.localMcpUrl || priorType !== "http";
++  const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http";
++  const updatedHosted =
++    shouldSetHostedOrgx && (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
++  const updated = updatedLocal || updatedHosted;
+   return { updated, next };
+ }
+ 
+@@ -110,10 +135,32 @@ export function patchCodexConfigToml(input: {
+   current: string;
+   localMcpUrl: string;
+ }): { updated: boolean; next: string } {
+-  const lines = input.current.split(/\r?\n/);
++  let current = input.current;
++  let updatedHosted = false;
++
++  const hostedHeaderRegex = /^\[mcp_servers\.(?:"orgx"|orgx)\]\s*$/;
++  {
++    const lines = current.split(/\r?\n/);
++    const hasHosted = lines.some((line) => hostedHeaderRegex.test(line.trim()));
++    if (!hasHosted) {
++      const hostedUrlLine = `url = "${ORGX_HOSTED_MCP_URL}"`;
++      const suffix = [
++        ...(current.trim().length === 0 ? [] : [""]),
++        "[mcp_servers.orgx]",
++        hostedUrlLine,
++        "",
++      ].join("\n");
++      const normalized = current.endsWith("\n") ? current : `${current}\n`;
++      current = `${normalized}${suffix}`;
++      updatedHosted = true;
++    }
++  }
++
++  const lines = current.split(/\r?\n/);
+   // Never overwrite `[mcp_servers.orgx]` because users commonly point that at the
+-  // hosted OAuth-backed MCP server. We add/update a separate entry for the local
+-  // OpenClaw bridge instead.
++  // hosted OAuth-backed MCP server (or staging). If it is missing entirely, add a
++  // default hosted entry, then add/update a separate entry for the local OpenClaw
++  // bridge instead.
+   const headerRegex =
+     /^\[mcp_servers\.(?:"orgx-openclaw"|"orgx_openclaw"|orgx-openclaw|orgx_openclaw)\]\s*$/;
+   let headerIndex = -1;
+@@ -133,7 +180,7 @@ export function patchCodexConfigToml(input: {
+       urlLine,
+       "",
+     ].join("\n");
+-    const normalized = input.current.endsWith("\n") ? input.current : `${input.current}\n`;
++    const normalized = current.endsWith("\n") ? current : `${current}\n`;
+     return { updated: true, next: `${normalized}${suffix}` };
+   }
+ 
+@@ -164,7 +211,7 @@ export function patchCodexConfigToml(input: {
+     updated = true;
+   }
+ 
+-  return { updated, next: `${lines.join("\n")}\n` };
++  return { updated: updatedHosted || updated, next: `${lines.join("\n")}\n` };
+ }
+ 
+ export async function autoConfigureDetectedMcpClients(input: {
+diff --git a/tests/mcp/mcp-client-setup.test.mjs b/tests/mcp/mcp-client-setup.test.mjs
+index b65bfb7..d1931b2 100644
+--- a/tests/mcp/mcp-client-setup.test.mjs
++++ b/tests/mcp/mcp-client-setup.test.mjs
+@@ -27,6 +27,24 @@ test("patchClaudeMcpConfig adds orgx-openclaw entry without overwriting orgx", a
+   assert.equal(patched.next.mcpServers["orgx-openclaw"].type, "http");
+ });
+ 
++test("patchClaudeMcpConfig migrates orgx from local proxy to hosted and keeps orgx-openclaw", async () => {
++  const mod = await importFreshModule();
++  const local = "http://127.0.0.1:18789/orgx/mcp";
++  const current = {
++    mcpServers: {
++      orgx: {
++        type: "http",
++        url: local,
++      },
++    },
++  };
++
++  const patched = mod.patchClaudeMcpConfig({ current, localMcpUrl: local });
++  assert.equal(patched.updated, true);
++  assert.equal(patched.next.mcpServers.orgx.url, "https://mcp.useorgx.com/mcp");
++  assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
++});
++
+ test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
+   const mod = await importFreshModule();
+   const local = "http://127.0.0.1:18789/orgx/mcp";
+@@ -62,3 +80,16 @@ test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx",
+   assert.ok(patched.next.includes(`url = "https://mcp.useorgx.com/mcp"`));
+   assert.ok(patched.next.includes(`url = "${local}"`));
+ });
++
++test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when missing", async () => {
++  const mod = await importFreshModule();
++  const local = "http://127.0.0.1:18789/orgx/mcp";
++  const current = ['model = "gpt-5.3-codex"', ""].join("\n");
++
++  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
++  assert.equal(patched.updated, true);
++  assert.ok(patched.next.includes("[mcp_servers.orgx]"));
++  assert.ok(patched.next.includes('url = "https://mcp.useorgx.com/mcp"'));
++  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
++  assert.ok(patched.next.includes(`url = "${local}"`));
++});
