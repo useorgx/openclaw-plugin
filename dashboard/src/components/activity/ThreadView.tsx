@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { colors } from '@/lib/tokens';
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
@@ -36,7 +36,7 @@ function formatCost(items: LiveActivityItem[]): string | null {
     if (typeof cost === 'number') total += cost;
   }
   if (total <= 0) return null;
-  if (total < 0.01) return `$${total.toFixed(4)}`;
+  if (total < 0.01) return '<$0.01';
   return `$${total.toFixed(2)}`;
 }
 
@@ -46,6 +46,8 @@ export const ThreadView = memo(function ThreadView({
   agentName,
   onBack,
 }: ThreadViewProps) {
+  const [showProvenance, setShowProvenance] = useState(false);
+
   const sorted = useMemo(
     () =>
       [...items].sort(
@@ -130,7 +132,7 @@ export const ThreadView = memo(function ThreadView({
 
         <div className="mt-1 flex flex-wrap items-center gap-2 text-micro text-secondary">
           {agentName && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] px-1 py-0.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-subtle px-1 py-0.5">
               <AgentAvatar name={agentName} hint={session?.id ?? session?.runId ?? null} size="xs" />
               <span>{agentName}</span>
             </span>
@@ -143,22 +145,6 @@ export const ThreadView = memo(function ThreadView({
           {provenance?.domain && (
             <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
               {humanizeText(provenance.domain)}
-            </span>
-          )}
-          {(provenance?.provider || provenance?.model) && (
-            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
-              {provenance.provider ? `${humanizeText(provenance.provider)} · ` : ''}
-              {provenance.model ? humanizeModel(provenance.model) : '—'}
-            </span>
-          )}
-          {provenance?.modelTier && (
-            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
-              tier: {humanizeText(provenance.modelTier)}
-            </span>
-          )}
-          {provenance?.kickoffContextHash && (
-            <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 font-mono text-secondary">
-              kickoff {provenance.kickoffContextHash.slice(0, 8)}…
             </span>
           )}
           {session?.status && (
@@ -182,7 +168,48 @@ export const ThreadView = memo(function ThreadView({
               {session.status}
             </span>
           )}
+          {provenance && (provenance.provider || provenance.model || provenance.modelTier || provenance.kickoffContextHash) && (
+            <button
+              type="button"
+              onClick={() => setShowProvenance((p) => !p)}
+              className="inline-flex items-center gap-1 text-micro text-muted transition-colors hover:text-secondary"
+            >
+              <svg
+                width="8"
+                height="8"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={`transition-transform duration-150 ${showProvenance ? 'rotate-180' : ''}`}
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+              Info
+            </button>
+          )}
         </div>
+
+        {showProvenance && provenance && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro">
+            {(provenance.provider || provenance.model) && (
+              <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
+                {provenance.provider ? `${humanizeText(provenance.provider)} · ` : ''}
+                {provenance.model ? humanizeModel(provenance.model) : '—'}
+              </span>
+            )}
+            {provenance.modelTier && (
+              <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary">
+                tier: {humanizeText(provenance.modelTier)}
+              </span>
+            )}
+            {provenance.kickoffContextHash && (
+              <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 font-mono text-secondary">
+                kickoff {provenance.kickoffContextHash.slice(0, 8)}…
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Turn list */}
@@ -199,7 +226,8 @@ export const ThreadView = memo(function ThreadView({
               {sorted.map((item, index) => {
                 const visual = resolveActivityVisual(item);
                 const color = visual.color;
-                const model = humanizeModel(item.description);
+                const modelField = (item.metadata as Record<string, unknown> | undefined)?.model;
+                const model = typeof modelField === 'string' ? humanizeModel(modelField) : null;
                 const title = humanizeText(item.title ?? '');
                 const isError = item.type === 'run_failed';
                 const isArtifact = item.type === 'artifact_created';
@@ -270,7 +298,8 @@ export const ThreadView = memo(function ThreadView({
 
         {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <p className="text-body text-muted">No activity in this session yet.</p>
+            <p className="text-body text-secondary">No activity in this session yet.</p>
+            <p className="text-caption text-muted animate-pulse">Activity may take a moment to appear.</p>
           </div>
         )}
 
