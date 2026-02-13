@@ -32,6 +32,8 @@ import type {
   BillingStatus,
   BillingCheckoutRequest,
   BillingUrlResult,
+  KickoffContextRequest,
+  KickoffContextResponse,
 } from "./types.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -268,6 +270,14 @@ export class OrgXClient {
       return response.data;
     }
     return response as SyncResponse;
+  }
+
+  // ===========================================================================
+  // Kickoff Context
+  // ===========================================================================
+
+  async getKickoffContext(payload: KickoffContextRequest): Promise<KickoffContextResponse> {
+    return await this.post<KickoffContextResponse>("/api/client/kickoff-context", payload ?? {});
   }
 
   async delegationPreflight(payload: {

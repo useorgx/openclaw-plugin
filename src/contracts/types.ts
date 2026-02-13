@@ -78,6 +78,70 @@ export interface OrgSnapshot {
   syncedAt: string;
 }
 
+// =============================================================================
+// KICKOFF CONTEXT (RICH LAUNCH PAYLOADS)
+// =============================================================================
+
+export type KickoffContextScope = {
+  initiative_id?: string | null;
+  workstream_id?: string | null;
+  task_id?: string | null;
+};
+
+export type KickoffContextEntityRef = {
+  id: string;
+  title: string;
+  status?: string | null;
+  summary?: string | null;
+  url?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type KickoffContextToolScope = {
+  allow?: string[];
+  deny?: string[];
+  notes?: string | null;
+};
+
+export interface KickoffContext {
+  /** Deterministic hash of the payload used to render a kickoff message. */
+  context_hash: string;
+  /** Optional schema version for forward/back compat. */
+  schema_version?: string | null;
+  /** Human-friendly overview sentence(s). */
+  overview?: string | null;
+
+  initiative?: KickoffContextEntityRef | null;
+  workstream?: KickoffContextEntityRef | null;
+  task?: (KickoffContextEntityRef & { description?: string | null; checklist?: string[] | null }) | null;
+
+  acceptance_criteria?: string[] | null;
+  constraints?: string[] | null;
+  risks?: string[] | null;
+
+  decisions?: KickoffContextEntityRef[] | null;
+  artifacts?: KickoffContextEntityRef[] | null;
+
+  tool_scope?: KickoffContextToolScope | null;
+  reporting_expectations?: string[] | null;
+
+  /** Server-provided hints for agent tone/behavior; optional. */
+  persona?: {
+    voice?: string | null;
+    collaboration_style?: string | null;
+    defaults?: string[] | null;
+  } | null;
+}
+
+export type KickoffContextRequest = KickoffContextScope & {
+  agent_id?: string | null;
+  domain?: string | null;
+  required_skills?: string[] | null;
+  message?: string | null;
+};
+
+export type KickoffContextResponse = { ok: true; data: KickoffContext } | { ok: false; error: string };
+
 export interface Initiative {
   id: string;
   title: string;
