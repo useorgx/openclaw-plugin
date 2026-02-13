@@ -75,6 +75,7 @@ export function OrgxConnectionPanel({
   onUseManualKey: () => void;
   onDisconnect: () => Promise<unknown>;
 }) {
+  const settingsUrl = 'https://www.useorgx.com/settings#security';
   const showManual = state.status === 'manual_key';
   const showPairingState = state.status === 'awaiting_browser_auth' || state.status === 'pairing';
   const dot = dotState(state.status);
@@ -169,13 +170,13 @@ export function OrgxConnectionPanel({
               Refresh status
             </button>
             <a
-              href="https://www.useorgx.com/settings"
+              href={settingsUrl}
               target="_blank"
               rel="noreferrer"
               className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
-              title="Manage keys and workspace settings at useorgx.com"
+              title="Generate/revoke API keys at useorgx.com"
             >
-              Open OrgX settings
+              Open API keys
             </a>
           </div>
 
@@ -217,4 +218,3 @@ export function OrgxConnectionPanel({
     </div>
   );
 }
-

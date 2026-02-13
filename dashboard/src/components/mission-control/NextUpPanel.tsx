@@ -68,6 +68,70 @@ function AutoGlyph({ className = '' }: ActionGlyphProps) {
   );
 }
 
+function HandOpenGlyph({ className = '' }: ActionGlyphProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden className={className}>
+      <path
+        d="M6.2 9.4V6.7c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v2.2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8.4 8.9V5.8c0-.7.5-1.3 1.1-1.3s1.1.6 1.1 1.3v3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10.6 8.9V6.2c0-.7.5-1.3 1.1-1.3s1.1.6 1.1 1.3v3.2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12.8 9.6V7.2c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v4.2c0 2.7-1.9 4.6-4.6 4.6H9.2c-2.1 0-3.7-1-4.6-2.8l-.9-1.7c-.3-.6 0-1.4.6-1.7.6-.3 1.3 0 1.6.6l.7 1.4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden className={className}>
+      <path
+        d="M6.4 9.2V7.4c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v1.3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8.6 8.9V7c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10.8 9.2V7.3c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v2.6"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M13 9.8V8.2c0-.7.5-1.2 1.1-1.2s1.1.5 1.1 1.2v3.6c0 2.4-1.7 4-4.1 4H9.7c-2 0-3.4-.9-4.2-2.5l-.8-1.4c-.3-.6 0-1.3.5-1.6.6-.3 1.2-.1 1.6.5l.6 1"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function queueTone(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
   if (queueState === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
@@ -205,6 +269,8 @@ export function NextUpPanel({
         ? 'notice'
         : null;
 
+  const showStatusBanner = statusTone !== null;
+
   return (
     <PremiumCard
       className={`flex h-full min-h-0 flex-col overflow-hidden ${
@@ -221,8 +287,8 @@ export function NextUpPanel({
         </div>
       </div>
 
-      <div className="px-3 pt-2">
-        <div className="min-h-[56px]">
+      {showStatusBanner && (
+        <div className="px-3 pt-2">
           <AnimatePresence initial={false} mode="wait">
             {statusTone === 'upgrade' && upgradeGate ? (
               <motion.div
@@ -331,7 +397,7 @@ export function NextUpPanel({
             ) : null}
           </AnimatePresence>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
         {!isLoading && visibleItems.length === 0 && !error && (
@@ -514,7 +580,10 @@ export function NextUpPanel({
           <Reorder.Group
             axis="y"
             values={orderedKeys}
-            onReorder={setOrderedKeys}
+            onReorder={(keys) => {
+              orderedKeysRef.current = keys;
+              setOrderedKeys(keys);
+            }}
             className="space-y-2.5"
           >
             {orderedKeys
@@ -602,6 +671,7 @@ function NextUpReorderRow({
   ) => Promise<void>;
 }) {
   const controls = useDragControls();
+  const [isDragging, setIsDragging] = useState(false);
   const key = `${item.initiativeId}:${item.workstreamId}`;
   const isRowBusy = actionKey === key;
   const isAutoRunning =
@@ -615,7 +685,15 @@ function NextUpReorderRow({
       id={key}
       dragListener={false}
       dragControls={controls}
-      onDragEnd={onCommitReorder}
+      onDragStart={() => setIsDragging(true)}
+      onDragEnd={() => {
+        setIsDragging(false);
+        onCommitReorder();
+      }}
+      whileDrag={{
+        scale: 1.01,
+        boxShadow: '0 18px 40px rgba(0,0,0,0.42)',
+      }}
       className="relative"
     >
       <motion.article
@@ -631,29 +709,42 @@ function NextUpReorderRow({
         className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
       >
         <div
+          className={`absolute left-1/2 top-1 z-20 -translate-x-1/2 transition-opacity ${
+            isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          <button
+            type="button"
+            onPointerDown={(event) => controls.start(event)}
+            aria-label="Drag to reorder"
+            title={isDragging ? 'Reordering' : 'Drag to reorder'}
+            className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[10px] font-semibold transition-colors ${
+              isDragging
+                ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2] cursor-grabbing'
+                : 'border-white/[0.12] bg-white/[0.04] text-white/60 cursor-grab hover:bg-white/[0.08] hover:text-white/85'
+            }`}
+          >
+            {isDragging ? (
+              <HandGrabGlyph className="h-4 w-4 opacity-90" />
+            ) : (
+              <HandOpenGlyph className="h-4 w-4 opacity-90" />
+            )}
+            <span>{isDragging ? 'Grabbed' : 'Grab'}</span>
+          </button>
+        </div>
+
+        <div
           className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
           aria-hidden
         />
 
         <div className="flex items-start justify-between gap-2.5">
           <div className="min-w-0 flex flex-1 items-start gap-2.5">
-            <div className="flex items-start gap-2">
-              <button
-                type="button"
-                onPointerDown={(event) => controls.start(event)}
-                title="Drag to reorder"
-                className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.12] bg-white/[0.04] text-white/55 opacity-0 transition-opacity hover:text-white/80 group-hover:opacity-100"
-              >
-                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
-                  <path d="M7 4.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm6 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM7 9a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm6 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM7 13.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm6 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" />
-                </svg>
-              </button>
-              <AgentAvatar
-                name={item.runnerAgentName}
-                hint={`${item.runnerAgentId} ${item.runnerSource}`}
-                size="sm"
-              />
-            </div>
+            <AgentAvatar
+              name={item.runnerAgentName}
+              hint={`${item.runnerAgentId} ${item.runnerSource}`}
+              size="sm"
+            />
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-1.5">
                 <EntityIcon type="initiative" size={11} className="flex-shrink-0 opacity-85" />

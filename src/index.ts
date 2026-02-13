@@ -918,9 +918,10 @@ export default function register(api: PluginAPI): void {
 
   function buildManualKeyConnectUrl(): string {
     try {
-      return new URL("/settings", baseApiUrl).toString();
+      // Deep-link into the Security section where API keys live.
+      return new URL("/settings#security", baseApiUrl).toString();
     } catch {
-      return "https://www.useorgx.com/settings";
+      return "https://www.useorgx.com/settings#security";
     }
   }
 

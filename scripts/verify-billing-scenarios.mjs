@@ -156,27 +156,42 @@ async function main() {
     }
   }
 
+  let checkoutError = null;
+  let portalError = null;
+
   if (!args.skipCheckout) {
-    const checkout = await client.createBillingCheckout({
-      planId:
-        args.plan === "team" || args.plan === "enterprise"
-          ? args.plan
-          : "starter",
-      billingCycle: args.billingCycle === "annual" ? "annual" : "monthly",
-    });
-    const checkoutUrl = checkout?.url ?? checkout?.checkout_url ?? null;
-    console.log(`[billing] checkout url=${checkoutUrl ?? "null"}`);
-    if (checkoutUrl && checkoutUrl.includes("checkout=mock")) {
-      console.log(
-        "[billing] Stripe not configured in this environment (mock checkout returned)."
-      );
+    try {
+      const checkout = await client.createBillingCheckout({
+        planId:
+          args.plan === "team" || args.plan === "enterprise"
+            ? args.plan
+            : "starter",
+        billingCycle: args.billingCycle === "annual" ? "annual" : "monthly",
+      });
+      const checkoutUrl = checkout?.url ?? checkout?.checkout_url ?? null;
+      console.log(`[billing] checkout url=${checkoutUrl ?? "null"}`);
+      if (checkoutUrl && checkoutUrl.includes("checkout=mock")) {
+        console.log(
+          "[billing] Stripe not configured in this environment (mock checkout returned)."
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      checkoutError = message;
+      console.error(`[billing] checkout failed: ${message}`);
     }
   }
 
   if (!args.skipPortal) {
-    const portal = await client.createBillingPortal();
-    const portalUrl = portal?.url ?? portal?.checkout_url ?? null;
-    console.log(`[billing] portal url=${portalUrl ?? "null"}`);
+    try {
+      const portal = await client.createBillingPortal();
+      const portalUrl = portal?.url ?? portal?.checkout_url ?? null;
+      console.log(`[billing] portal url=${portalUrl ?? "null"}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      portalError = message;
+      console.error(`[billing] portal failed: ${message}`);
+    }
   }
 
   if (args.waitForPlan) {
@@ -207,6 +222,13 @@ async function main() {
     throw new Error(
       `Timed out waiting for plan=${expected} after ${args.timeoutMs}ms.`
     );
+  }
+
+  if (checkoutError || portalError) {
+    const parts = [];
+    if (checkoutError) parts.push(`checkout: ${checkoutError}`);
+    if (portalError) parts.push(`portal: ${portalError}`);
+    throw new Error(parts.join(" | "));
   }
 
   console.log("[billing] verification script completed");
