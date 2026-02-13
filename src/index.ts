@@ -1982,14 +1982,15 @@ export default function register(api: PluginAPI): void {
         pickStringField(payload, "entity_id") ??
         pickStringField(payload, "entityId") ??
         null;
+      const entityId = isUuid(entityIdRaw ?? undefined) ? entityIdRaw : null;
 
       await client.recordRunRetro({
         initiative_id: context.value.initiativeId,
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
         source_client: context.value.sourceClient,
-        entity_type: entityType && entityIdRaw ? entityType : undefined,
-        entity_id: entityType && entityIdRaw ? entityIdRaw : undefined,
+        entity_type: entityType && entityId ? entityType : undefined,
+        entity_id: entityType && entityId ? entityId : undefined,
         title: pickStringField(payload, "title") ?? undefined,
         idempotency_key:
           pickStringField(payload, "idempotency_key") ??
@@ -2010,7 +2011,7 @@ export default function register(api: PluginAPI): void {
         return;
       }
       await client.createEntity("artifact", {
-        name,
+        title: name,
         artifact_type: pickStringField(payload, "artifact_type") ?? "other",
         description: pickStringField(payload, "description"),
         artifact_url: pickStringField(payload, "url"),
@@ -3869,7 +3870,7 @@ export default function register(api: PluginAPI): void {
 
         try {
           const entity = await client.createEntity("artifact", {
-            name: params.name,
+            title: params.name,
             artifact_type: params.artifact_type,
             description: params.description,
             artifact_url: params.url,

@@ -1,0 +1,213 @@
+{
+  "generatedAt": "2026-02-13T21:46:51.876Z",
+  "url": "http://127.0.0.1:18789/orgx/live",
+  "totals": {
+    "activityItems": 20,
+    "clusterTogglesClicked": 7,
+    "sessionsAudited": 0,
+    "sessionsTarget": 20
+  },
+  "activities": [
+    {
+      "index": 1,
+      "ariaLabel": "Open activity details for Decision requested",
+      "cardScreenshot": "shots/activity-cards/card-0001.png",
+      "detail": {
+        "headline": "Approve dashboard UI layout for Q4 Feature Ship.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0001.png"
+      }
+    },
+    {
+      "index": 2,
+      "ariaLabel": "Open activity details for Artifact created: Subject line variants",
+      "cardScreenshot": "shots/activity-cards/card-0002.png",
+      "detail": {
+        "headline": "Drafted 3 subject line variants for approval.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0002.png"
+      }
+    },
+    {
+      "index": 3,
+      "ariaLabel": "Open activity details for Task delegated",
+      "cardScreenshot": "shots/activity-cards/card-0003.png",
+      "detail": {
+        "headline": "Spin up data agent for instrumentation plan.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0003.png"
+      }
+    },
+    {
+      "index": 4,
+      "ariaLabel": "Open activity details for User: Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.",
+      "cardScreenshot": "shots/activity-cards/card-0004.png",
+      "detail": {
+        "headline": "Stall detector: 0. Pipeline: empty (no in‑progress/ready/blocked).",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0004.png"
+      }
+    },
+    {
+      "index": 5,
+      "ariaLabel": "Open activity details for Changeset replayed",
+      "cardScreenshot": "shots/activity-cards/card-0005.png",
+      "detail": {
+        "headline": "1 operation",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0005.png"
+      }
+    },
+    {
+      "index": 6,
+      "ariaLabel": "Open activity details for Blocker created",
+      "cardScreenshot": "shots/activity-cards/card-0006.png",
+      "detail": {
+        "headline": "Agent execution failed",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0006.png"
+      }
+    },
+    {
+      "index": 7,
+      "ariaLabel": "Open activity details for Blocker created",
+      "cardScreenshot": "shots/activity-cards/card-0007.png",
+      "detail": {
+        "headline": "Agent execution failed",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0007.png"
+      }
+    },
+    {
+      "index": 8,
+      "ariaLabel": "Open activity details for Buffered retro for session #71de",
+      "cardScreenshot": "shots/activity-cards/card-0008.png",
+      "detail": {
+        "headline": "OpenClaw run completed (session #71de).",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0008.png"
+      }
+    },
+    {
+      "index": 9,
+      "ariaLabel": "Open activity details for User: System: [2026-02-13 14:45:37 CST] Exec failed (clear-mi, signal SIGKILL) :: _turn\": false, \"weight\": 1.0, \"metadata\": {\"finish_details\": {\"type\": \"stop\", \"stop_tokens\": [200012]}, \"is_complete\": true, \"citations\": [], \"content_references\": [], \"reasoning_status\": \"is_reasoning\", \"request_id\": \"961496f31965e983-DFW\", \"message_type\": \"next\", \"model_slug\": \"o3\", \"default_model_slug\": \"o3\", \"parent_id\": \"#9a75\", \"timestamp_\": \"absolute\", \"can_sa System: [2026-02-13 14:46:06 CST] Exec failed (briny-me, signal SIGKILL) :: \\n except Exception as e:\\n logging.error(f&quot;Unexpected error: {e}&quot;)\\n return {&quot;message&quot;: &quot;Internal Server Error&quot;, &quot;error&quot;: e.with_traceback}, 500\\n\"]}, \"status\": \"finished_successfully\", \"end_turn\": null, \"weight\": 1.0, \"metadata\": {\"command\": \"context_stuff\", \"is_visually_hidden_from_conversation\": false, \"retrieval_turn_number\" System: [2026-02-13 14:46:30 CST] Exec failed (delta-la, signal SIGKILL) :: ull, \"subtool\": null, \"used_internet\": false, \"changed_url\": false, \"result_of_subtool\": null}, \"timestamp_\": \"absolute\", \"can_save\": true}, \"recipient\": \"all\", \"channel\": null}, \"parent\": \"abfb0dd4-…",
+      "cardScreenshot": "shots/activity-cards/card-0009.png",
+      "detail": {
+        "headline": "OrgX sync pulled (no pending decisions). Quality gate enforced — all clear. Stall detector: 0. Pipeline: em…",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0009.png"
+      }
+    },
+    {
+      "index": 10,
+      "ariaLabel": "Open activity details for User: [Fri 2026-02-13 14:45 CST] Execution policy: marketing Required skills: $orgx-marketing-agent Initiative: Content Engine: Dogfood the Larry Playbook Workstream: Content Production Pipeline Continue this workstream from the latest context. Identify and execute the next concrete task, then provide a concise progress summary.",
+      "cardScreenshot": "shots/activity-cards/card-0010.png",
+      "detail": {
+        "headline": "Executed next task: drafted a full Larry Playbook dogfood content pack (positioning, key messages, objectio…",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0010.png"
+      }
+    },
+    {
+      "index": 11,
+      "ariaLabel": "Open activity details for Next Up dispatched Content Production Pipeline.",
+      "cardScreenshot": "shots/activity-cards/card-0011.png",
+      "detail": {
+        "headline": "Next Up dispatched Content Production Pipeline.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0011.png"
+      }
+    },
+    {
+      "index": 12,
+      "ariaLabel": "Open activity details for Spawn guard check degraded for workstream Content Production Pipeline; continuing with local policy.",
+      "cardScreenshot": "shots/activity-cards/card-0012.png",
+      "detail": {
+        "headline": "Spawn guard check degraded for workstream Content Production Pipeline; continuing with local policy.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0012.png"
+      }
+    },
+    {
+      "index": 13,
+      "ariaLabel": "Open activity details for Stall detector: 0. Pipeline: empty (no in‑progress/ready/blocked).",
+      "cardScreenshot": "shots/activity-cards/card-0013.png",
+      "detail": {
+        "headline": "Stall detector: 0. Pipeline: empty (no in‑progress/ready/blocked).",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0013.png"
+      }
+    },
+    {
+      "index": 14,
+      "ariaLabel": "Open activity details for Stall detector: 0. Pipeline: empty (no in‑progress/ready/blocked).",
+      "cardScreenshot": "shots/activity-cards/card-0014.png",
+      "detail": {
+        "headline": "Stall detector: 0. Pipeline: empty (no in‑progress/ready/blocked).",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0014.png"
+      }
+    },
+    {
+      "index": 15,
+      "ariaLabel": "Open activity details for Midday tweet draft (tech milestone): “Shipped API work in OrgX today: kickoff context endpoint + new skill pack endpoint, and fixed live dashboard OG previews with static images. Building the boring-but-critical plumbing so agents actually ship. #buildinpublic #AItools #agenticworkflows”",
+      "cardScreenshot": "shots/activity-cards/card-0015.png",
+      "detail": {
+        "headline": "Midday tweet draft (tech milestone): “Shipped API work in OrgX today: kickoff context endpoint + new skill…",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0015.png"
+      }
+    },
+    {
+      "index": 16,
+      "ariaLabel": "Open activity details for Codex failed due to known config issue: `mcp_servers.orgx` missing `command` in `~/.codex/config.toml`. Want me to patch that (comment out the orgx MCP server or add a command) and re-dispatch?",
+      "cardScreenshot": "shots/activity-cards/card-0016.png",
+      "detail": {
+        "headline": "Codex failed due to known config issue: mcp_servers.orgx missing command in ~/.codex/config.toml. Want me t…",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0016.png"
+      }
+    },
+    {
+      "index": 17,
+      "ariaLabel": "Open activity details for Dispatched Codex in a safe temp repo for Holt thinking time. I’ll update when it finishes.",
+      "cardScreenshot": "shots/activity-cards/card-0017.png",
+      "detail": {
+        "headline": "Dispatched Codex in a safe temp repo for Holt thinking time. I’ll update when it finishes.",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0017.png"
+      }
+    },
+    {
+      "index": 18,
+      "ariaLabel": "Open activity details for HEARTBEAT_OK",
+      "cardScreenshot": "shots/activity-cards/card-0018.png",
+      "detail": {
+        "headline": "HEARTBEAT_OK",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0018.png"
+      }
+    },
+    {
+      "index": 19,
+      "ariaLabel": "Open activity details for HEARTBEAT_OK",
+      "cardScreenshot": "shots/activity-cards/card-0019.png",
+      "detail": {
+        "headline": "HEARTBEAT_OK",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0019.png"
+      }
+    },
+    {
+      "index": 20,
+      "ariaLabel": "Open activity details for Error: Connection error.",
+      "cardScreenshot": "shots/activity-cards/card-0020.png",
+      "detail": {
+        "headline": "gpt-5.2-codex",
+        "meta": "ACTIVITY DETAIL",
+        "screenshot": "shots/activity-details/detail-0020.png"
+      }
+    }
+  ],
+  "sessions": []
+}

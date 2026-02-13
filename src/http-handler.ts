@@ -4446,7 +4446,7 @@ export function createHttpHandler(
       const entity = await client.createEntity("artifact", {
         initiative_id: input.initiativeId,
         workstream_id: input.workstreamId,
-        name,
+        title: name,
         artifact_type: artifactType,
         description,
         artifact_url: input.artifact.url ?? undefined,
