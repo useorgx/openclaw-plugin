@@ -4,6 +4,7 @@ import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Markdown } from '@/components/shared/Markdown';
+import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import type { LiveDecision } from '@/types';
 
 type DecisionActionSummary = {
@@ -34,6 +35,7 @@ export function DecisionDetailModal({
 }: DecisionDetailModalProps) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showNotes, setShowNotes] = useState(true);
 
   const requestedAt = decision?.requestedAt ?? null;
   const updatedAt = decision?.updatedAt ?? null;
@@ -225,9 +227,33 @@ export function DecisionDetailModal({
               )}
             </div>
           </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                  Notes
+                </p>
+                <p className="text-[11px] text-white/35">
+                  Commentary thread for humans and agents on this decision.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotes((prev) => !prev)}
+                className="inline-flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white/80 transition-colors hover:bg-white/[0.09]"
+              >
+                {showNotes ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {showNotes ? (
+              <div className="mt-3 border-t border-white/[0.06] pt-3">
+                <EntityCommentsPanel entityType="decision" entityId={decision.id} />
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </Modal>
   );
 }
-
