@@ -45,6 +45,8 @@
     "demo:record": "node ./scripts/record-demo.mjs",
     "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
+    "seo:plan": "node ./scripts/apply-seo-plan-v1.mjs",
+    "seo:run": "node ./scripts/seo/run.mjs",
     "install:dashboard": "npm --prefix dashboard ci",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "rm -rf dist && tsc && node ./scripts/copy-manifest.mjs",

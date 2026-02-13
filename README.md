@@ -79,6 +79,8 @@ Environment overrides:
 The plugin registers these tools for your agents:
 
 - **`orgx_status`** — Get current org status (initiatives, agents, tasks, decisions)
+- **`orgx_status_json`** — Get current org status as JSON (for MCP Apps / automation)
+- **`orgx_live_app`** — Open the OrgX Live MCP App (interactive widget)
 - **`orgx_sync`** — Bidirectional memory sync with OrgX
 - **`orgx_spawn_check`** — Pre-spawn quality gate + model routing
 - **`orgx_quality_score`** — Record quality scores for completed work
@@ -212,6 +214,17 @@ Notes:
 
 Manual dispatch:
 - Use `docs/marketing/manual-agent-dispatch-golden-prompt.md` when manually launching a marketing agent for a specific task (non-batched dispatch).
+
+## SEO Automation (Keywords Everywhere + DataForSEO)
+
+This repo also includes a repo-local SEO pipeline runner (scripts only; not shipped in the plugin package) under `scripts/seo/`.
+
+- Apply an OrgX initiative plan for SEO automation: `npm run seo:plan`
+- Run the pipeline:
+  - Dry run (no API calls): `npm run seo:run -- --config=docs/seo/seo.config.example.json --mode=all --dry-run=true`
+  - Live run: `npm run seo:run -- --config=docs/seo/seo.config.example.json --mode=all`
+
+Details: `scripts/seo/README.md`
 
 ## API Endpoints
 
