@@ -756,6 +756,16 @@ export default function register(api: PluginAPI): void {
     return typeof err === "string" ? err : "Unexpected error";
   }
 
+  function isAuthFailure(err: unknown): boolean {
+    const message = toErrorMessage(err).toLowerCase();
+    return (
+      message.includes("401") ||
+      message.includes("unauthorized") ||
+      message.includes("invalid_token") ||
+      message.includes("invalid api key")
+    );
+  }
+
   const registerTool = api.registerTool.bind(api);
   api.registerTool = (tool, options) => {
     const toolName = tool.name;
@@ -1563,13 +1573,28 @@ export default function register(api: PluginAPI): void {
         await flushOutboxQueues();
         api.log?.debug?.("[orgx] Sync OK");
       } catch (err: unknown) {
+        const authFailure = isAuthFailure(err);
+        const errorMessage = authFailure
+          ? "Unauthorized. Your OrgX key may be revoked or expired. Reconnect in browser or use API key."
+          : toErrorMessage(err);
         updateOnboardingState({
           status: "error",
           hasApiKey: true,
           connectionVerified: false,
-          lastError: toErrorMessage(err),
+          lastError: errorMessage,
           nextAction: "reconnect",
         });
+        if (authFailure) {
+          void posthogCapture({
+            event: "openclaw_sync_auth_failed",
+            distinctId: config.installationId,
+            properties: {
+              plugin_version: config.pluginVersion,
+            },
+          }).catch(() => {
+            // best effort
+          });
+        }
         api.log?.warn?.(
           `[orgx] Sync failed: ${err instanceof Error ? err.message : err}`
         );
