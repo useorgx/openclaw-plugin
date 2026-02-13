@@ -38,6 +38,7 @@
     "agents:refresh": "node ./scripts/daily-agents-refresh.mjs",
     "agents:install": "node ./scripts/install-daily-agents-refresh.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
+    "verify:agent-suite": "npm run build:core && node ./scripts/verify-agent-suite-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",
