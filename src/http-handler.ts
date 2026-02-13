@@ -69,6 +69,11 @@ import {
   readAgentRuns,
   upsertAgentRun,
 } from "./agent-run-store.js";
+import {
+  appendEntityComment,
+  listEntityComments,
+  mergeEntityComments,
+} from "./entity-comment-store.js";
 import { readByokKeys, writeByokKeys } from "./byok-store.js";
 import {
   computeMilestoneRollup,
@@ -6503,14 +6508,66 @@ export function createHttpHandler(
 
           const path = `/api/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/comments`;
           if (method === "GET") {
-            const data = await client.rawRequest("GET", path);
-            sendJson(res, 200, data);
+            const local = listEntityComments(entityType, entityId);
+            try {
+              const data = (await client.rawRequest("GET", path)) as any;
+              const comments = mergeEntityComments(data?.comments, local);
+              if (data && typeof data === "object") {
+                sendJson(res, 200, { ...data, comments });
+              } else {
+                sendJson(res, 200, { status: "success", comments, nextCursor: null });
+              }
+            } catch (err: unknown) {
+              sendJson(res, 200, {
+                status: "success",
+                comments: local,
+                nextCursor: null,
+                localFallback: true,
+                warning: safeErrorMessage(err),
+              });
+            }
             return true;
           }
 
           const payload = await parseJsonRequest(req);
-          const data = await client.rawRequest("POST", path, payload);
-          sendJson(res, 200, data);
+          const body = pickString(payload, ["body", "comment", "text", "message"]) ?? "";
+          if (!body.trim()) {
+            sendJson(res, 400, { ok: false, error: "comment body is required" });
+            return true;
+          }
+          const commentType =
+            pickString(payload, ["comment_type", "commentType", "type"]) ?? "note";
+          const severity = pickString(payload, ["severity", "level"]) ?? "info";
+          const tags = (payload as any)?.tags;
+
+          const normalizedPayload: Record<string, unknown> = {
+            body,
+            comment_type: commentType,
+            commentType,
+            severity,
+            tags,
+            parent_comment_id: null,
+          };
+
+          try {
+            const data = await client.rawRequest("POST", path, normalizedPayload);
+            sendJson(res, 200, data);
+          } catch (err: unknown) {
+            const comment = appendEntityComment({
+              entityType,
+              entityId,
+              body,
+              commentType,
+              severity,
+              tags,
+            });
+            sendJson(res, 200, {
+              status: "success",
+              comment,
+              localFallback: true,
+              warning: safeErrorMessage(err),
+            });
+          }
         } catch (err: unknown) {
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }

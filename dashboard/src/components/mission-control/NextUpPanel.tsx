@@ -4,6 +4,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { Skeleton } from '@/components/shared/Skeleton';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
@@ -159,6 +160,47 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
 
+function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
+  const cards = compact ? 3 : 6;
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2 px-1 pt-1 text-[10px] uppercase tracking-[0.12em] text-white/40">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
+        <span>Calibrating queue</span>
+      </div>
+      {Array.from({ length: cards }).map((_, index) => (
+        <div
+          key={`nextup-skeleton-${index}`}
+          className="nextup-skeleton-card rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
+        >
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex min-w-0 flex-1 items-start gap-2.5">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="min-w-0 flex-1">
+                <Skeleton className="h-3 w-40 rounded-md" />
+                <Skeleton className="mt-2 h-4 w-56 rounded-md" />
+              </div>
+            </div>
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+
+          <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2">
+            <Skeleton className="h-3 w-14 rounded" />
+            <Skeleton className="mt-2 h-3 w-full rounded" />
+            <Skeleton className="mt-2 h-3 w-3/5 rounded" />
+          </div>
+
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <Skeleton className="h-8 w-24 rounded-full" />
+            <Skeleton className="h-8 w-20 rounded-full" />
+            <Skeleton className="h-8 w-24 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function NextUpPanel({
   initiativeId = null,
   authToken = null,
@@ -286,7 +328,11 @@ export function NextUpPanel({
       <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-[14px] font-semibold text-white">{title}</h2>
-          <span className="chip text-[10px]">{total}</span>
+          {isLoading ? (
+            <Skeleton className="h-5 w-10 rounded-full" />
+          ) : (
+            <span className="chip text-[10px]">{total}</span>
+          )}
           {isFetching && !isLoading && (
             <span className="text-[10px] text-white/38">refreshing…</span>
           )}
@@ -406,13 +452,17 @@ export function NextUpPanel({
       )}
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
+        {isLoading ? (
+          <NextUpLoadingSkeleton compact={compact} />
+        ) : null}
+
         {!isLoading && visibleItems.length === 0 && !error && (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-[12px] text-white/50">
             No queued workstreams right now.
           </div>
         )}
 
-        {compact ? (
+        {!isLoading && compact ? (
           <AnimatePresence initial={false}>
             {visibleItems.map((item, index) => {
               const key = itemKey(item);
@@ -582,7 +632,7 @@ export function NextUpPanel({
               );
             })}
           </AnimatePresence>
-        ) : (
+        ) : !isLoading ? (
           <Reorder.Group
             axis="y"
             values={orderedKeys}
@@ -629,7 +679,7 @@ export function NextUpPanel({
                 />
               ))}
           </Reorder.Group>
-        )}
+        ) : null}
       </div>
 
       {degraded.length > 0 && (
