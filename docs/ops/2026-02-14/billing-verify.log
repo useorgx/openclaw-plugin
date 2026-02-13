@@ -1,0 +1,63 @@
+
+===== verify:billing (2026-02-13T04:26:05.223Z) =====
+
+> @useorgx/openclaw-plugin@0.4.5 verify:billing
+> npm run build:core && node ./scripts/verify-billing-scenarios.mjs --plan=starter --billing-cycle=monthly
+
+
+> @useorgx/openclaw-plugin@0.4.5 build:core
+> rm -rf dist && tsc && node ./scripts/copy-manifest.mjs
+
+[billing] baseUrl=https://www.useorgx.com
+[billing] status plan=free hasSubscription=false subscriptionStatus=null
+[billing] failed: 500 Internal Server Error
+
+[exit] code=1
+
+===== verify:billing portal-only (2026-02-13T04:27:04.750Z) =====
+
+===== verify:billing checkout-only (2026-02-13T04:27:04.750Z) =====
+
+> @useorgx/openclaw-plugin@0.4.5 verify:billing
+> npm run build:core && node ./scripts/verify-billing-scenarios.mjs --plan=starter --billing-cycle=monthly --skip-portal
+
+
+> @useorgx/openclaw-plugin@0.4.5 verify:billing
+> npm run build:core && node ./scripts/verify-billing-scenarios.mjs --skip-checkout
+
+
+> @useorgx/openclaw-plugin@0.4.5 build:core
+> rm -rf dist && tsc && node ./scripts/copy-manifest.mjs
+
+
+> @useorgx/openclaw-plugin@0.4.5 build:core
+> rm -rf dist && tsc && node ./scripts/copy-manifest.mjs
+
+[billing] baseUrl=https://www.useorgx.com
+[billing] baseUrl=https://www.useorgx.com
+[billing] status plan=free hasSubscription=false subscriptionStatus=null
+[billing] status plan=free hasSubscription=false subscriptionStatus=null
+[billing] portal url=https://billing.stripe.com/p/session/live_YWNjdF8xU2NjcXZCWWlwNzdtWE12LF9UeUFJckV3clBoSU9ia2pvVnNPeDg5clVCTFBObjBp010010ChXXn9
+[billing] verification script completed
+
+[exit] code=0
+[billing] failed: 500 Internal Server Error
+
+[exit] code=1
+
+===== verify:billing (after script update) (2026-02-13T04:29:56.021Z) =====
+
+> @useorgx/openclaw-plugin@0.4.5 verify:billing
+> npm run build:core && node ./scripts/verify-billing-scenarios.mjs --plan=starter --billing-cycle=monthly
+
+
+> @useorgx/openclaw-plugin@0.4.5 build:core
+> rm -rf dist && tsc && node ./scripts/copy-manifest.mjs
+
+[billing] baseUrl=https://www.useorgx.com
+[billing] status plan=free hasSubscription=false subscriptionStatus=null
+[billing] checkout failed: 500 Internal Server Error
+[billing] portal url=https://billing.stripe.com/p/session/live_YWNjdF8xU2NjcXZCWWlwNzdtWE12LF9UeUFMeFBaekQycW95VjZkNkt1MUJrejF3eXJjdVVi0100PJ5HYII7
+[billing] failed: checkout: 500 Internal Server Error
+
+[exit] code=1

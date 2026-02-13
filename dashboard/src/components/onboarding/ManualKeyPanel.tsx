@@ -25,6 +25,7 @@ const rise = {
 export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPanelProps) {
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const settingsUrl = 'https://www.useorgx.com/settings#security';
 
   const submit = async () => {
     setError(null);
@@ -72,6 +73,37 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
         <motion.p variants={rise} className="mt-1 text-[12px] text-white/35">
           Paste full key or only the part after <span className="font-mono text-white/50">oxk_</span>.
         </motion.p>
+        <motion.div variants={rise} className="mt-3">
+          <a
+            href={settingsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-white/[0.10] bg-white/[0.03] px-3 py-1.5 text-[12px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white/80"
+            title="Open OrgX settings to generate an API key"
+          >
+            Generate an API key
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path
+                d="M4.5 2.5h5v5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+              <path
+                d="M9.5 2.5L5 7"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+              <path
+                d="M2.75 3.5H2.5c-.55 0-1 .45-1 1v5c0 .55.45 1 1 1h5c.55 0 1-.45 1-1V9.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </a>
+        </motion.div>
       </div>
 
       {/* ── Form ────────────────────────────────────────────────── */}
