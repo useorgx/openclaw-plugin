@@ -27,7 +27,7 @@ import { CollapsibleSection } from './CollapsibleSection';
 interface InitiativeSectionProps {
   initiative: Initiative;
   selected?: boolean;
-  onSelectionChange?: (initiativeId: string, selected: boolean) => void;
+  onSelectionChange?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
   runtimeActivity?: {
     activeCount: number;
     totalCount: number;
@@ -639,7 +639,10 @@ export function InitiativeSection({
             <input
               type="checkbox"
               checked={selected}
-              onChange={(event) => onSelectionChange(initiative.id, event.currentTarget.checked)}
+              onChange={(event) => {
+                const shiftKey = (event.nativeEvent as MouseEvent).shiftKey ?? false;
+                onSelectionChange(initiative.id, event.currentTarget.checked, shiftKey);
+              }}
               onClick={(event) => event.stopPropagation()}
               aria-label={`Select initiative ${initiative.name}`}
               className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"

@@ -10,6 +10,7 @@ import { SearchInput } from '@/components/shared/SearchInput';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { useEntityMutations } from '@/hooks/useEntityMutations';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useMissionControl } from './MissionControlContext';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
@@ -358,6 +359,7 @@ export function HierarchyTreeTable({
   ]);
 
   const visibleRowIds = useMemo(() => rows.map(({ node }) => node.id), [rows]);
+  const { handleSelect: handleRangeSelect } = useRangeSelection(visibleRowIds);
   const visibleRowIdSet = useMemo(() => new Set(visibleRowIds), [visibleRowIds]);
   const selectedRows = useMemo(
     () => rows.filter(({ node }) => selectedRowIds.has(node.id)),
@@ -511,15 +513,10 @@ export function HierarchyTreeTable({
     setActiveStatusFilters(new Set());
   };
 
-  const toggleRowSelected = (nodeId: string, checked: boolean) => {
+  const toggleRowSelected = (nodeId: string, checked: boolean, shiftKey: boolean) => {
     setBulkNotice(null);
     setConfirmBulkDelete(false);
-    setSelectedRowIds((previous) => {
-      const next = new Set(previous);
-      if (checked) next.add(nodeId);
-      else next.delete(nodeId);
-      return next;
-    });
+    handleRangeSelect(nodeId, checked, shiftKey, setSelectedRowIds);
   };
 
   const toggleSelectAllVisibleRows = () => {
@@ -1047,7 +1044,8 @@ export function HierarchyTreeTable({
                       checked={isSelectedForBulk}
                       onChange={(event) => {
                         event.stopPropagation();
-                        toggleRowSelected(node.id, event.currentTarget.checked);
+                        const shiftKey = (event.nativeEvent as MouseEvent).shiftKey ?? false;
+                        toggleRowSelected(node.id, event.currentTarget.checked, shiftKey);
                       }}
                       onClick={(event) => event.stopPropagation()}
                       aria-label={`Select ${node.type}: ${node.title}`}

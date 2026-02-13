@@ -12,6 +12,7 @@ import type {
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { SearchInput } from '@/components/shared/SearchInput';
@@ -526,6 +527,22 @@ function MissionControlInner({
     [groupBy, groups],
   );
 
+  const flatVisibleInitiativeIds = useMemo(() => {
+    if (!groups) return sortedInitiatives.map((i) => i.id);
+    const ids: string[] = [];
+    for (const group of groups) {
+      const disclosureId = groupDisclosureId(groupBy, group.key);
+      if (expandedGroupIds.has(disclosureId)) {
+        for (const initiative of group.initiatives) {
+          ids.push(initiative.id);
+        }
+      }
+    }
+    return ids;
+  }, [groups, sortedInitiatives, groupBy, expandedGroupIds]);
+
+  const { handleSelect: handleInitiativeRangeSelect } = useRangeSelection(flatVisibleInitiativeIds);
+
   const toggleGroupExpanded = useCallback((id: string) => {
     setExpandedGroupIds((previous) => {
       const next = new Set(previous);
@@ -618,20 +635,12 @@ function MissionControlInner({
   const autopilotInitiativeId = nextActionInitiative?.id ?? null;
 
   const setInitiativeSelected = useCallback(
-    (initiativeId: string, selected: boolean) => {
+    (initiativeId: string, selected: boolean, shiftKey: boolean) => {
       setBulkInitiativeNotice(null);
       setConfirmBulkInitiativeDelete(false);
-      setSelectedInitiativeIds((previous) => {
-        const next = new Set(previous);
-        if (selected) {
-          next.add(initiativeId);
-        } else {
-          next.delete(initiativeId);
-        }
-        return next;
-      });
+      handleInitiativeRangeSelect(initiativeId, selected, shiftKey, setSelectedInitiativeIds);
     },
-    []
+    [handleInitiativeRangeSelect]
   );
 
   const toggleSelectAllVisibleInitiatives = useCallback(() => {
