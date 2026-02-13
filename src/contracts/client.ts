@@ -19,6 +19,10 @@ import type {
   EmitActivityResponse,
   ApplyChangesetRequest,
   ApplyChangesetResponse,
+  RecordRunOutcomeRequest,
+  RecordRunOutcomeResponse,
+  RecordRunRetroRequest,
+  RecordRunRetroResponse,
   LiveActivityItem,
   SessionTreeResponse,
   HandoffSummary,
@@ -454,6 +458,40 @@ export class OrgXClient {
       return response.data;
     }
     return response as ApplyChangesetResponse;
+  }
+
+  async recordRunOutcome(
+    payload: RecordRunOutcomeRequest
+  ): Promise<RecordRunOutcomeResponse> {
+    const response = await this.post<
+      RecordRunOutcomeResponse | { ok: boolean; data?: RecordRunOutcomeResponse }
+    >("/api/client/live/runs/outcomes/record", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as RecordRunOutcomeResponse;
+  }
+
+  async recordRunRetro(
+    payload: RecordRunRetroRequest
+  ): Promise<RecordRunRetroResponse> {
+    const response = await this.post<
+      RecordRunRetroResponse | { ok: boolean; data?: RecordRunRetroResponse }
+    >("/api/client/live/runs/retro", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as RecordRunRetroResponse;
   }
 
   // ===========================================================================

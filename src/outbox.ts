@@ -51,7 +51,8 @@ async function hardenPath(path: string, mode: number): Promise<void> {
 
 export interface OutboxEvent {
   id: string;
-  type: "progress" | "decision" | "artifact" | "changeset";
+  // Stored as JSON for offline replay. Keep stable and additive.
+  type: "progress" | "decision" | "artifact" | "changeset" | "retro" | "outcome";
   timestamp: string;
   payload: Record<string, unknown>;
   /** Converted to a LiveActivityItem for dashboard display. */

@@ -459,6 +459,77 @@ export interface ApplyChangesetResponse {
   auth_mode?: 'service' | 'api_key';
 }
 
+export interface RecordRunOutcomeRequest {
+  initiative_id: string;
+  execution_id: string;
+  execution_type: string;
+  agent_id: string;
+  task_type?: string;
+  domain?: string;
+  started_at?: string;
+  completed_at?: string;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  steps?: Array<Record<string, unknown>>;
+  success: boolean;
+  quality_score?: number;
+  duration_vs_estimate?: number;
+  cost_vs_budget?: number;
+  human_interventions?: number;
+  user_satisfaction?: number;
+  errors?: string[];
+  metadata?: Record<string, unknown>;
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: ReportingSourceClient;
+}
+
+export interface RecordRunOutcomeResponse {
+  ok: true;
+  run_id: string;
+  reused_run: boolean;
+  execution_id: string;
+  event_id: string | null;
+  auth_mode?: 'service' | 'api_key';
+}
+
+export type RetroFollowUpPriority = 'p0' | 'p1' | 'p2';
+
+export interface RetroJson {
+  summary: string;
+  what_went_well?: string[];
+  what_went_wrong?: string[];
+  decisions?: string[];
+  follow_ups?: Array<{ title: string; priority?: RetroFollowUpPriority; reason?: string }>;
+  signals?: Record<string, unknown>;
+}
+
+export type RetroEntityType = 'initiative' | 'workstream' | 'milestone' | 'task';
+
+export interface RecordRunRetroRequest {
+  initiative_id: string;
+  entity_type?: RetroEntityType;
+  entity_id?: string;
+  title?: string;
+  idempotency_key?: string;
+  retro: RetroJson;
+  markdown?: string;
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: ReportingSourceClient;
+}
+
+export interface RecordRunRetroResponse {
+  ok: true;
+  run_id: string;
+  reused_run: boolean;
+  work_artifact_id: string | null;
+  run_step_id: string | null;
+  run_artifact_id: string | null;
+  event_id: string | null;
+  auth_mode?: 'service' | 'api_key';
+}
+
 // =============================================================================
 // LIVE SESSION GRAPH + HANDOFFS
 // =============================================================================

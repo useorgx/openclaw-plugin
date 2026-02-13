@@ -3838,6 +3838,162 @@ export function createHttpHandler(
         run.tokensUsed += Math.max(0, consumedTokens);
         run.activeTaskTokenEstimate = null;
 
+        // Best-effort: persist retro + outcome to OrgX so learning aggregator can consume local runs.
+        // If the server is unreachable, buffer to outbox for later replay.
+        try {
+          const initiativeId = run.initiativeId;
+          if (initiativeId) {
+            const completedAt = new Date().toISOString();
+            const success = !summary.hadError;
+            const correlationId = record.runId;
+
+            const outcomePayload = {
+              initiative_id: initiativeId,
+              correlation_id: correlationId,
+              source_client: "openclaw" as const,
+              execution_id: `openclaw:${record.runId}`,
+              execution_type: "openclaw.session",
+              agent_id: record.agentId,
+              task_type: record.taskId ?? undefined,
+              started_at: record.startedAt,
+              completed_at: completedAt,
+              inputs: {
+                message: record.message,
+                workstream_id: record.workstreamId,
+                task_id: record.taskId,
+              },
+              outputs: {
+                had_error: summary.hadError,
+                error_message: summary.errorMessage,
+              },
+              steps: [],
+              success,
+              human_interventions: 0,
+              errors: summary.errorMessage ? [summary.errorMessage] : [],
+              metadata: {
+                provider: record.provider,
+                model: record.model,
+                tokens: summary.tokens,
+                cost_usd: summary.costUsd,
+                source: "openclaw_auto_continue",
+              },
+            };
+
+            try {
+              await client.recordRunOutcome(outcomePayload as any);
+            } catch (err: unknown) {
+              const timestamp = new Date().toISOString();
+              await appendToOutbox(initiativeId, {
+                id: randomUUID(),
+                type: "outcome",
+                timestamp,
+                payload: outcomePayload as any,
+                activityItem: {
+                  id: randomUUID(),
+                  type: "run_completed",
+                  title: `Buffered outcome for session ${record.runId}`,
+                  description: null,
+                  agentId: record.agentId,
+                  agentName: null,
+                  runId: record.runId,
+                  initiativeId,
+                  timestamp,
+                  phase: success ? "completed" : "blocked",
+                  summary:
+                    record.taskId
+                      ? `OpenClaw ${success ? "completed" : "blocked"} task ${record.taskId}.`
+                      : `OpenClaw run ${success ? "completed" : "blocked"} (session ${record.runId}).`,
+                  metadata: {
+                    source: "openclaw_local_fallback",
+                    error: safeErrorMessage(err),
+                  },
+                },
+              });
+            }
+
+            const retroEntityType = record.taskId
+              ? ("task" as const)
+              : record.workstreamId
+                ? ("workstream" as const)
+                : ("initiative" as const);
+            const retroEntityId =
+              record.taskId ?? record.workstreamId ?? initiativeId;
+            const retroSummary = record.taskId
+              ? `OpenClaw ${success ? "completed" : "blocked"} task ${record.taskId}.`
+              : `OpenClaw run ${success ? "completed" : "blocked"} (session ${record.runId}).`;
+
+            const retroPayload = {
+              initiative_id: initiativeId,
+              correlation_id: correlationId,
+              source_client: "openclaw" as const,
+              entity_type: retroEntityType,
+              entity_id: retroEntityId,
+              title: record.taskId ?? record.runId,
+              idempotency_key: `retro:${record.runId}`,
+              retro: {
+                summary: retroSummary,
+                what_went_well: success ? ["Completed without runtime error."] : [],
+                what_went_wrong: success
+                  ? []
+                  : [summary.errorMessage ?? "Session ended with error."],
+                decisions: [],
+                follow_ups: success
+                  ? []
+                  : [
+                      {
+                        title: "Investigate OpenClaw session failure and unblock task",
+                        priority: "p0" as const,
+                        reason: summary.errorMessage ?? "Session ended with error.",
+                      },
+                    ],
+                signals: {
+                  tokens: summary.tokens,
+                  cost_usd: summary.costUsd,
+                  had_error: summary.hadError,
+                  error_message: summary.errorMessage,
+                  session_id: record.runId,
+                  task_id: record.taskId,
+                  workstream_id: record.workstreamId,
+                  provider: record.provider,
+                  model: record.model,
+                  source: "openclaw_auto_continue",
+                },
+              },
+            };
+
+            try {
+              await client.recordRunRetro(retroPayload as any);
+            } catch (err: unknown) {
+              const timestamp = new Date().toISOString();
+              await appendToOutbox(initiativeId, {
+                id: randomUUID(),
+                type: "retro",
+                timestamp,
+                payload: retroPayload as any,
+                activityItem: {
+                  id: randomUUID(),
+                  type: "artifact_created",
+                  title: `Buffered retro for session ${record.runId}`,
+                  description: null,
+                  agentId: record.agentId,
+                  agentName: null,
+                  runId: record.runId,
+                  initiativeId,
+                  timestamp,
+                  phase: success ? "completed" : "blocked",
+                  summary: retroSummary,
+                  metadata: {
+                    source: "openclaw_local_fallback",
+                    error: safeErrorMessage(err),
+                  },
+                },
+              });
+            }
+          }
+        } catch {
+          // best effort
+        }
+
         if (record.taskId) {
           try {
             await client.updateEntity("task", record.taskId, {
