@@ -17,12 +17,16 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { AgentLaunchModal } from './AgentLaunchModal';
 import { AgentDetailModal } from './AgentDetailModal';
 import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
+import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
+import { ACTIVITY_TIME_FILTERS, cutoffEpochForActivityFilter, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
   activity: LiveActivityItem[];
   selectedSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
+  timeFilterId: ActivityTimeFilterId;
+  onTimeFilterChange: (next: ActivityTimeFilterId) => void;
   onAgentFilter?: (agentName: string | null) => void;
   agentFilter?: string | null;
   onReconnect?: () => void;
@@ -42,15 +46,6 @@ const ACTIVE_STATUSES = new Set([
   'planning',
 ]);
 const ATTENTION_STATUSES = new Set(['blocked', 'failed']);
-const HISTORY_FILTERS = [
-  { id: 'live', label: 'Live', minutes: null },
-  { id: 'all', label: 'All', minutes: null },
-  { id: '24h', label: '24h', minutes: 24 * 60 },
-  { id: '3d', label: '3d', minutes: 3 * 24 * 60 },
-  { id: '7d', label: '7d', minutes: 7 * 24 * 60 },
-  { id: '30d', label: '30d', minutes: 30 * 24 * 60 },
-] as const;
-
 const ARCHIVED_PAGE_SIZE = 10;
 
 const DEFAULT_ORGX_AGENTS = [
@@ -179,6 +174,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   activity,
   selectedSessionId,
   onSelectSession,
+  timeFilterId,
+  onTimeFilterChange,
   onAgentFilter,
   agentFilter,
   onReconnect,
@@ -187,8 +184,6 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
-  const [offlineDateFilter, setOfflineDateFilter] =
-    useState<(typeof HISTORY_FILTERS)[number]['id']>('all');
   const [showArchived, setShowArchived] = useState(false);
   const [archivedPage, setArchivedPage] = useState(0);
   const [detailAgentKey, setDetailAgentKey] = useState<string | null>(null);
@@ -196,9 +191,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   const catalogQuery = useAgentCatalog({ enabled: true });
   const catalogAgents = catalogQuery.data?.agents ?? [];
 
+  const activityCutoffEpoch = useMemo(
+    () => cutoffEpochForActivityFilter(timeFilterId),
+    [timeFilterId]
+  );
+
+  const activityWithinWindow = useMemo(() => {
+    if (activityCutoffEpoch === null) return activity;
+    return activity.filter((item) => toEpoch(item.timestamp) >= activityCutoffEpoch);
+  }, [activity, activityCutoffEpoch]);
+
   const summaryByRunId = useMemo(() => {
     const map = new Map<string, string>();
-    const ordered = [...activity].sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp));
+    const ordered = [...activityWithinWindow].sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp));
 
     for (const item of ordered) {
       const runId = item.runId;
@@ -215,7 +220,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     }
 
     return map;
-  }, [activity]);
+  }, [activityWithinWindow]);
 
   const {
     agents,
@@ -407,9 +412,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       return a.agentName.localeCompare(b.agentName);
     });
 
-    const selectedWindow =
-      HISTORY_FILTERS.find((item) => item.id === offlineDateFilter) ??
-      HISTORY_FILTERS[0];
+    const selectedWindow = resolveActivityTimeFilter(timeFilterId);
     const isLiveWindow = selectedWindow.id === 'live';
     const cutoffEpoch =
       selectedWindow.minutes === null || isLiveWindow
@@ -532,13 +535,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         .reduce((sum, group) => sum + group.nodes.length, 0),
       archivedGroups: archivedGroupsList,
     };
-  }, [offlineDateFilter, sessions.nodes, catalogAgents, runtimeInstances]);
+  }, [timeFilterId, sessions.nodes, catalogAgents, runtimeInstances]);
 
   // Reset archived disclosure when filter changes
   useEffect(() => {
     setShowArchived(false);
     setArchivedPage(0);
-  }, [offlineDateFilter]);
+  }, [timeFilterId]);
 
   const archivedSessionCount = useMemo(
     () => archivedGroups.reduce((sum, g) => sum + g.nodes.length, 0),
@@ -612,7 +615,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       if (!detailGroup) return [];
       const detailName = normalizeIdentity(detailGroup.agentName);
       const detailId = normalizeIdentity(detailGroup.agentId);
-      return activity.filter((item) => {
+      return activityWithinWindow.filter((item) => {
         const itemName = normalizeIdentity(item.agentName);
         const itemId = normalizeIdentity(item.agentId);
         return (
@@ -621,7 +624,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         );
       });
     },
-    [activity, detailGroup]
+    [activityWithinWindow, detailGroup]
   );
 
   const hasNoSessions = sessions.nodes.length === 0;
@@ -645,19 +648,21 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         onRefresh={() => catalogQuery.refetch()}
       />
       <div className="border-b border-white/[0.06] px-4 py-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[14px] font-semibold text-white">Agents / Chats</h2>
-            <span className="chip text-[11px]">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="min-w-0 truncate text-[14px] font-semibold text-white">
+              Agents / Chats
+            </h2>
+            <span className="chip flex-shrink-0 text-[11px] tabular-nums">
               {visibleSessionCount}/{sessions.nodes.length}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={toggleCollapseAll}
               disabled={groupKeysWithSessions.length === 0}
-              className="hidden rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-45 sm:inline-flex"
+              className="control-pill hidden flex-shrink-0 px-3 text-[11px] font-semibold sm:inline-flex"
               title={
                 collapseAllState.allCollapsed ? 'Expand all agent groups' : 'Collapse all agent groups'
               }
@@ -667,7 +672,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             <button
               type="button"
               onClick={() => setLaunchModalOpen(true)}
-              className="rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[12px] font-medium text-white/65 transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="control-pill flex-shrink-0 px-3 text-[11px] font-semibold"
             >
               Launch
             </button>
@@ -680,13 +685,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             role="group"
             aria-label="Session history filter"
           >
-            {HISTORY_FILTERS.map((option) => {
-              const active = offlineDateFilter === option.id;
+            {ACTIVITY_TIME_FILTERS.map((option) => {
+              const active = timeFilterId === option.id;
               return (
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => setOfflineDateFilter(option.id)}
+                  onClick={() => onTimeFilterChange(option.id)}
                   aria-pressed={active}
                   className={cn(
                     'rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[-0.01em] transition-colors',
@@ -705,15 +710,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </label>
           <select
             id="offline-date-filter"
-            value={offlineDateFilter}
-            onChange={(event) =>
-              setOfflineDateFilter(
-                event.target.value as (typeof HISTORY_FILTERS)[number]['id']
-              )
-            }
+            value={timeFilterId}
+            onChange={(event) => onTimeFilterChange(event.target.value as ActivityTimeFilterId)}
             className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[11px] text-white/75 focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
           >
-            {HISTORY_FILTERS.map((option) => (
+            {ACTIVITY_TIME_FILTERS.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>

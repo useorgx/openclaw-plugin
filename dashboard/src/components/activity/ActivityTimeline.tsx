@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,8 @@ import { Modal } from '@/components/shared/Modal';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
+import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
+import { resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 
 const itemVariants = {
   initial: { opacity: 0, y: 8, scale: 0.98 },
@@ -28,13 +30,20 @@ interface ActivityTimelineProps {
   selectedWorkstreamId?: string | null;
   selectedWorkstreamLabel?: string | null;
   agentFilter?: string | null;
+  timeFilterId?: ActivityTimeFilterId;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
   onClearSelection: () => void;
   onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
 }
 
-const MAX_RENDERED_ACTIVITY = 480;
+const INITIAL_RENDER_COUNT = 240;
+const RENDER_STEP = 240;
+const MAX_RENDER_COUNT = 3_600;
+const MAX_FILTER_POOL = 12_000;
 
 type ActivityBucket = 'message' | 'artifact' | 'decision';
 type ActivityFilterId = 'all' | 'messages' | 'artifacts' | 'decisions';
@@ -437,6 +446,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   selectedWorkstreamId = null,
   selectedWorkstreamLabel = null,
   agentFilter = null,
+  timeFilterId = 'live',
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
   onClearSelection,
   onClearWorkstreamFilter,
   onClearAgentFilter,
@@ -448,6 +461,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [query, setQuery] = useState('');
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
+  const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
@@ -457,6 +471,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const timeWindow = useMemo(() => resolveActivityTimeFilter(timeFilterId), [timeFilterId]);
 
   const runLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -579,8 +597,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return null;
   }, [hasSessionFilter, selectedRunIdSet, sessions]);
 
-  const { filtered, truncatedCount } = useMemo(() => {
-    const visible: DecoratedActivityItem[] = [];
+  const { filtered, filteredTotal, hiddenCount } = useMemo(() => {
+    const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -614,21 +632,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         if (!haystack.includes(normalizedQuery)) continue;
       }
 
-      if (visible.length < MAX_RENDERED_ACTIVITY) {
-        visible.push(decorated);
+      if (matched.length < MAX_FILTER_POOL) {
+        matched.push(decorated);
       } else {
-        overflow += 1;
+        overflow += 1; // avoid unbounded CPU for huge windows
       }
     }
 
-    const sorted = [...visible].sort((a, b) => {
+    const sortedAll = [...matched].sort((a, b) => {
       const delta = b.timestampEpoch - a.timestampEpoch;
       return sortOrder === 'newest' ? delta : -delta;
     });
 
+    const targetCount = Math.min(
+      Math.max(1, Math.min(MAX_RENDER_COUNT, renderCount)),
+      sortedAll.length
+    );
+    const rendered = sortedAll.slice(0, targetCount);
+    const total = sortedAll.length + overflow;
+
     return {
-      filtered: sorted,
-      truncatedCount: overflow,
+      filtered: rendered,
+      filteredTotal: total,
+      hiddenCount: Math.max(0, total - rendered.length),
     };
   }, [
     activeFilter,
@@ -637,6 +663,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     hasSessionFilter,
     query,
     runLabelById,
+    renderCount,
     selectedWorkstreamId,
     selectedRunIdSet,
     sessionWorkstreamByRunId,
@@ -709,6 +736,51 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       return next;
     });
   }, []);
+
+  const renderableTotal = useMemo(
+    () => Math.min(MAX_RENDER_COUNT, Math.min(MAX_FILTER_POOL, filteredTotal)),
+    [filteredTotal]
+  );
+
+  useEffect(() => {
+    setRenderCount(INITIAL_RENDER_COUNT);
+  }, [
+    activeFilter,
+    agentFilter,
+    hasSessionFilter,
+    query,
+    selectedWorkstreamId,
+    sortOrder,
+    timeFilterId,
+  ]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((entry) => entry.isIntersecting);
+        if (!hit) return;
+
+        if (filtered.length < renderableTotal) {
+          setRenderCount((prev) =>
+            Math.min(renderableTotal, Math.max(prev, INITIAL_RENDER_COUNT) + RENDER_STEP)
+          );
+          return;
+        }
+
+        if (hasMore && !isLoadingMore) {
+          onLoadMore?.();
+        }
+      },
+      { root, rootMargin: '240px' }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [filtered.length, hasMore, isLoadingMore, onLoadMore, renderableTotal]);
 
   const activeIndex = useMemo(() => {
     if (!activeItemId) return -1;
@@ -1109,11 +1181,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="text-[14px] font-semibold text-white">Activity</h2>
             <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75">
-              {filtered.length}
+              {filteredTotal}
             </span>
-            {truncatedCount > 0 && (
+            {hiddenCount > 0 && (
               <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
-                +{truncatedCount} hidden
+                +{hiddenCount} hidden
+              </span>
+            )}
+            {timeWindow.id !== 'all' && (
+              <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
+                {timeWindow.label}
               </span>
             )}
             <span
@@ -1271,7 +1348,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-6 text-center">
             <svg
@@ -1388,10 +1465,25 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               );
             })}
 
-            {truncatedCount > 0 && (
+            {hiddenCount > 0 && (
               <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] text-white/45">
-                Showing latest {filtered.length} events ({truncatedCount} older events omitted for smooth rendering).
+                Showing {filtered.length}/{filteredTotal} matched events (load more to see older).
               </p>
+            )}
+
+            <div ref={sentinelRef} className="h-6" />
+
+            {(hasMore || isLoadingMore) && (
+              <div className="flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => onLoadMore?.()}
+                  disabled={!hasMore || isLoadingMore}
+                  className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                >
+                  {isLoadingMore ? 'Loading older…' : 'Load older'}
+                </button>
+              </div>
             )}
           </div>
         )}

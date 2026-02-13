@@ -2,9 +2,11 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { useLiveData } from '@/hooks/useLiveData';
+import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
+import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type { Agent, Initiative, NextUpQueueItem, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
@@ -223,6 +225,8 @@ function DashboardShell({
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
+  const [activityTimeFilterId, setActivityTimeFilterId] =
+    useState<ActivityTimeFilterId>('all');
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -407,6 +411,13 @@ function DashboardShell({
     () => data.sessions.nodes.find((n) => n.id === activityFilterSessionId) ?? null,
     [activityFilterSessionId, data.sessions.nodes]
   );
+
+  const activityFeed = useActivityFeed({
+    seed: data.activity,
+    timeFilterId: activityTimeFilterId,
+    runId: selectedActivitySession?.runId ?? null,
+    pageSize: 200,
+  });
 
   const selectedSession = useMemo(
     () => data.sessions.nodes.find((n) => n.id === selectedSessionId) ?? null,
@@ -1686,14 +1697,16 @@ function DashboardShell({
 	            onSelectSession={handleSelectSession}
 	            onAgentFilter={setAgentFilter}
             agentFilter={agentFilter}
+            timeFilterId={activityTimeFilterId}
+            onTimeFilterChange={setActivityTimeFilterId}
             onReconnect={handleReconnect}
             connectionStatus={data.connection}
-          />
-        </section>
+	          />
+	        </section>
 
         <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
 	          <ActivityTimeline
-	            activity={data.activity}
+	            activity={activityFeed.items}
 	            sessions={data.sessions.nodes}
 	            initiatives={initiatives}
 	            selectedRunIds={
@@ -1705,6 +1718,10 @@ function DashboardShell({
               selectedWorkstreamId={activityFilterWorkstreamId}
               selectedWorkstreamLabel={activityFilterWorkstreamLabel}
 	            agentFilter={agentFilter}
+              timeFilterId={activityTimeFilterId}
+              hasMore={activityFeed.hasMore}
+              isLoadingMore={activityFeed.isLoadingMore}
+              onLoadMore={activityFeed.loadMore}
 	            onClearSelection={clearActivitySessionFilter}
               onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={() => setAgentFilter(null)}
