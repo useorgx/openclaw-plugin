@@ -22,7 +22,7 @@ import type {
   ChangesetOperation,
 } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,7 @@ import {
   replaceOutbox,
 } from "./outbox.js";
 import type { OutboxEvent } from "./outbox.js";
+import { readAgentRuns, markAgentRunStopped } from "./agent-run-store.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
 import { createMcpHttpHandler, type RegisteredTool } from "./mcp-http-handler.js";
@@ -1295,6 +1296,319 @@ export default function register(api: PluginAPI): void {
     return strings.length > 0 ? strings : undefined;
   }
 
+  function isPidAlive(pid: number | null): boolean {
+    if (!Number.isFinite(pid) || !pid || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function toFiniteNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  }
+
+  function isSafePathSegment(value: string): boolean {
+    const normalized = value.trim();
+    if (!normalized || normalized === "." || normalized === "..") return false;
+    if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("\0")) {
+      return false;
+    }
+    if (normalized.includes("..")) return false;
+    return true;
+  }
+
+  function parseRetroEntityType(
+    value: string | null
+  ): "initiative" | "workstream" | "milestone" | "task" | undefined {
+    if (!value) return undefined;
+    switch (value) {
+      case "initiative":
+      case "workstream":
+      case "milestone":
+      case "task":
+        return value;
+      default:
+        return undefined;
+    }
+  }
+
+  function readOpenClawSessionSummary(input: {
+    agentId: string;
+    sessionId: string;
+  }): {
+    tokens: number;
+    costUsd: number;
+    hadError: boolean;
+    errorMessage: string | null;
+  } {
+    const agentId = input.agentId.trim();
+    const sessionId = input.sessionId.trim();
+    if (!agentId || !sessionId) {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+    if (!isSafePathSegment(agentId) || !isSafePathSegment(sessionId)) {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+
+    const jsonlPath = join(
+      homedir(),
+      ".openclaw",
+      "agents",
+      agentId,
+      "sessions",
+      `${sessionId}.jsonl`
+    );
+
+    try {
+      if (!existsSync(jsonlPath)) {
+        return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+      }
+      const raw = readFileSync(jsonlPath, "utf8");
+      const lines = raw.split("\n");
+
+      let tokens = 0;
+      let costUsd = 0;
+      let hadError = false;
+      let errorMessage: string | null = null;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const evt = JSON.parse(trimmed) as Record<string, unknown>;
+          if (evt.type !== "message") continue;
+          const msg = evt.message as Record<string, unknown> | undefined;
+          if (!msg || typeof msg !== "object") continue;
+
+          const usage = msg.usage as Record<string, unknown> | undefined;
+          if (usage && typeof usage === "object") {
+            const totalTokens =
+              toFiniteNumber(usage.totalTokens) ??
+              toFiniteNumber(usage.total_tokens) ??
+              null;
+            const inputTokens = toFiniteNumber(usage.input) ?? 0;
+            const outputTokens = toFiniteNumber(usage.output) ?? 0;
+            const cacheReadTokens = toFiniteNumber(usage.cacheRead) ?? 0;
+            const cacheWriteTokens = toFiniteNumber(usage.cacheWrite) ?? 0;
+
+            tokens += Math.max(
+              0,
+              Math.round(
+                totalTokens ??
+                  inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
+              )
+            );
+
+            const cost = usage.cost as Record<string, unknown> | undefined;
+            const costTotal = cost ? toFiniteNumber(cost.total) : null;
+            if (costTotal !== null) {
+              costUsd += Math.max(0, costTotal);
+            }
+          }
+
+          const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : "";
+          const msgError =
+            typeof msg.errorMessage === "string" && msg.errorMessage.trim().length > 0
+              ? msg.errorMessage.trim()
+              : null;
+          if (stopReason === "error" || msgError) {
+            hadError = true;
+            errorMessage = msgError ?? errorMessage;
+          }
+        } catch {
+          // Ignore malformed lines.
+        }
+      }
+
+      return {
+        tokens,
+        costUsd: Math.round(costUsd * 10_000) / 10_000,
+        hadError,
+        errorMessage,
+      };
+    } catch {
+      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
+    }
+  }
+
+  async function reconcileStoppedAgentRuns(): Promise<void> {
+    try {
+      const store = readAgentRuns();
+      const runs = Object.values(store.runs ?? {});
+      for (const run of runs) {
+        if (!run || typeof run !== "object") continue;
+        if (run.status !== "running") continue;
+        if (!run.pid || isPidAlive(run.pid)) continue;
+
+        const stopped = markAgentRunStopped(run.runId);
+        if (!stopped) continue;
+
+        const initiativeId = stopped.initiativeId?.trim() ?? "";
+        if (!initiativeId) continue;
+
+        const summary = readOpenClawSessionSummary({
+          agentId: stopped.agentId,
+          sessionId: stopped.runId,
+        });
+
+        const completedAt = stopped.stoppedAt ?? new Date().toISOString();
+        const success = !summary.hadError;
+        const correlationId = stopped.runId;
+
+        const outcomePayload = {
+          initiative_id: initiativeId,
+          correlation_id: correlationId,
+          source_client: "openclaw" as const,
+          execution_id: `openclaw:${stopped.runId}`,
+          execution_type: "openclaw.session",
+          agent_id: stopped.agentId,
+          task_type: stopped.taskId ?? undefined,
+          started_at: stopped.startedAt,
+          completed_at: completedAt,
+          inputs: {
+            message: stopped.message,
+            workstream_id: stopped.workstreamId,
+            task_id: stopped.taskId,
+          },
+          outputs: {
+            had_error: summary.hadError,
+            error_message: summary.errorMessage,
+          },
+          steps: [],
+          success,
+          human_interventions: 0,
+          errors: summary.errorMessage ? [summary.errorMessage] : [],
+          metadata: {
+            provider: stopped.provider,
+            model: stopped.model,
+            tokens: summary.tokens,
+            cost_usd: summary.costUsd,
+            source: "openclaw_agent_run_reconcile",
+          },
+        };
+
+        const retroEntityType = stopped.taskId
+          ? ("task" as const)
+          : stopped.workstreamId
+            ? ("workstream" as const)
+            : ("initiative" as const);
+        const retroEntityId = stopped.taskId ?? stopped.workstreamId ?? initiativeId;
+        const retroSummary = stopped.taskId
+          ? `OpenClaw ${success ? "completed" : "blocked"} task ${stopped.taskId}.`
+          : `OpenClaw run ${success ? "completed" : "blocked"} (session ${stopped.runId}).`;
+
+        const retroPayload = {
+          initiative_id: initiativeId,
+          correlation_id: correlationId,
+          source_client: "openclaw" as const,
+          entity_type: retroEntityType,
+          entity_id: retroEntityId,
+          title: stopped.taskId ?? stopped.runId,
+          idempotency_key: `retro:${stopped.runId}`,
+          retro: {
+            summary: retroSummary,
+            what_went_well: success ? ["Completed without runtime error."] : [],
+            what_went_wrong: success
+              ? []
+              : [summary.errorMessage ?? "Session ended with error."],
+            decisions: [],
+            follow_ups: success
+              ? []
+              : [
+                  {
+                    title: "Investigate OpenClaw session failure and unblock task",
+                    priority: "p0" as const,
+                    reason: summary.errorMessage ?? "Session ended with error.",
+                  },
+                ],
+            signals: {
+              tokens: summary.tokens,
+              cost_usd: summary.costUsd,
+              had_error: summary.hadError,
+              error_message: summary.errorMessage,
+              session_id: stopped.runId,
+              task_id: stopped.taskId,
+              workstream_id: stopped.workstreamId,
+              provider: stopped.provider,
+              model: stopped.model,
+              source: "openclaw_agent_run_reconcile",
+            },
+          },
+        };
+
+        try {
+          await client.recordRunOutcome(outcomePayload);
+        } catch (err: unknown) {
+          const timestamp = new Date().toISOString();
+          const activityItem: LiveActivityItem = {
+            id: randomUUID(),
+            type: "run_completed",
+            title: `Buffered outcome for session ${stopped.runId}`,
+            description: null,
+            agentId: stopped.agentId,
+            agentName: null,
+            runId: stopped.runId,
+            initiativeId,
+            timestamp,
+            phase: success ? "completed" : "blocked",
+            summary: retroSummary,
+            metadata: {
+              source: "openclaw_local_fallback",
+              error: toErrorMessage(err),
+            },
+          };
+          await appendToOutbox(initiativeId, {
+            id: randomUUID(),
+            type: "outcome",
+            timestamp,
+            payload: outcomePayload,
+            activityItem,
+          });
+        }
+
+        try {
+          await client.recordRunRetro(retroPayload);
+        } catch (err: unknown) {
+          const timestamp = new Date().toISOString();
+          const activityItem: LiveActivityItem = {
+            id: randomUUID(),
+            type: "artifact_created",
+            title: `Buffered retro for session ${stopped.runId}`,
+            description: null,
+            agentId: stopped.agentId,
+            agentName: null,
+            runId: stopped.runId,
+            initiativeId,
+            timestamp,
+            phase: success ? "completed" : "blocked",
+            summary: retroSummary,
+            metadata: {
+              source: "openclaw_local_fallback",
+              error: toErrorMessage(err),
+            },
+          };
+          await appendToOutbox(initiativeId, {
+            id: randomUUID(),
+            type: "retro",
+            timestamp,
+            payload: retroPayload,
+            activityItem,
+          });
+        }
+      }
+    } catch {
+      // best effort
+    }
+  }
+
   async function replayOutboxEvent(event: OutboxEvent): Promise<void> {
     const payload = event.payload ?? {};
 
@@ -1452,6 +1766,161 @@ export default function register(api: PluginAPI): void {
       return;
     }
 
+    if (event.type === "outcome") {
+      const context = resolveReportingContext(payload as ReportingContextInput);
+      if (!context.ok) {
+        throw new Error(context.error);
+      }
+
+      const executionId =
+        pickStringField(payload, "execution_id") ??
+        pickStringField(payload, "executionId");
+      const executionType =
+        pickStringField(payload, "execution_type") ??
+        pickStringField(payload, "executionType");
+      const agentId =
+        pickStringField(payload, "agent_id") ??
+        pickStringField(payload, "agentId");
+      const success =
+        typeof (payload as Record<string, unknown>).success === "boolean"
+          ? ((payload as Record<string, unknown>).success as boolean)
+          : null;
+
+      if (!executionId || !executionType || !agentId || success === null) {
+        api.log?.warn?.("[orgx] Dropping invalid outcome outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+
+      const metaRaw = payload.metadata;
+      const meta =
+        metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
+          ? (metaRaw as Record<string, unknown>)
+          : {};
+
+      await client.recordRunOutcome({
+        initiative_id: context.value.initiativeId,
+        run_id: context.value.runId,
+        correlation_id: context.value.correlationId,
+        source_client: context.value.sourceClient,
+        execution_id: executionId,
+        execution_type: executionType,
+        agent_id: agentId,
+        task_type:
+          pickStringField(payload, "task_type") ??
+          pickStringField(payload, "taskType") ??
+          undefined,
+        domain: pickStringField(payload, "domain") ?? undefined,
+        started_at:
+          pickStringField(payload, "started_at") ??
+          pickStringField(payload, "startedAt") ??
+          undefined,
+        completed_at:
+          pickStringField(payload, "completed_at") ??
+          pickStringField(payload, "completedAt") ??
+          undefined,
+        inputs:
+          payload.inputs && typeof payload.inputs === "object"
+            ? (payload.inputs as Record<string, unknown>)
+            : undefined,
+        outputs:
+          payload.outputs && typeof payload.outputs === "object"
+            ? (payload.outputs as Record<string, unknown>)
+            : undefined,
+        steps: Array.isArray(payload.steps)
+          ? (payload.steps as Array<Record<string, unknown>>)
+          : undefined,
+        success,
+        quality_score:
+          typeof payload.quality_score === "number"
+            ? payload.quality_score
+            : typeof (payload as any).qualityScore === "number"
+              ? (payload as any).qualityScore
+              : undefined,
+        duration_vs_estimate:
+          typeof payload.duration_vs_estimate === "number"
+            ? payload.duration_vs_estimate
+            : typeof (payload as any).durationVsEstimate === "number"
+              ? (payload as any).durationVsEstimate
+              : undefined,
+        cost_vs_budget:
+          typeof payload.cost_vs_budget === "number"
+            ? payload.cost_vs_budget
+            : typeof (payload as any).costVsBudget === "number"
+              ? (payload as any).costVsBudget
+              : undefined,
+        human_interventions:
+          typeof payload.human_interventions === "number"
+            ? payload.human_interventions
+            : typeof (payload as any).humanInterventions === "number"
+              ? (payload as any).humanInterventions
+              : undefined,
+        user_satisfaction:
+          typeof payload.user_satisfaction === "number"
+            ? payload.user_satisfaction
+            : typeof (payload as any).userSatisfaction === "number"
+              ? (payload as any).userSatisfaction
+              : undefined,
+        errors: Array.isArray(payload.errors)
+          ? (payload.errors as unknown[]).filter((e): e is string => typeof e === "string")
+          : undefined,
+        metadata: {
+          ...meta,
+          source: "orgx_openclaw_outbox_replay",
+          outbox_event_id: event.id,
+        },
+      });
+      return;
+    }
+
+    if (event.type === "retro") {
+      const context = resolveReportingContext(payload as ReportingContextInput);
+      if (!context.ok) {
+        throw new Error(context.error);
+      }
+
+      const retro =
+        payload.retro && typeof payload.retro === "object" && !Array.isArray(payload.retro)
+          ? (payload.retro as Record<string, unknown>)
+          : null;
+      const summary =
+        retro && typeof retro.summary === "string" ? retro.summary.trim() : "";
+      if (!retro || !summary) {
+        api.log?.warn?.("[orgx] Dropping invalid retro outbox event", {
+          eventId: event.id,
+        });
+        return;
+      }
+
+      const entityTypeRaw =
+        pickStringField(payload, "entity_type") ??
+        pickStringField(payload, "entityType");
+      const entityType = parseRetroEntityType(entityTypeRaw) ?? null;
+
+      const entityIdRaw =
+        pickStringField(payload, "entity_id") ??
+        pickStringField(payload, "entityId") ??
+        null;
+
+      await client.recordRunRetro({
+        initiative_id: context.value.initiativeId,
+        run_id: context.value.runId,
+        correlation_id: context.value.correlationId,
+        source_client: context.value.sourceClient,
+        entity_type: entityType && entityIdRaw ? entityType : undefined,
+        entity_id: entityType && entityIdRaw ? entityIdRaw : undefined,
+        title: pickStringField(payload, "title") ?? undefined,
+        idempotency_key:
+          pickStringField(payload, "idempotency_key") ??
+          pickStringField(payload, "idempotencyKey") ??
+          undefined,
+        retro: retro as any,
+        markdown: pickStringField(payload, "markdown") ?? undefined,
+      });
+      return;
+    }
+
     if (event.type === "artifact") {
       const name = pickStringField(payload, "name");
       if (!name) {
@@ -1562,6 +2031,7 @@ export default function register(api: PluginAPI): void {
       }
 
       try {
+        await reconcileStoppedAgentRuns();
         updateCachedSnapshot(await client.getOrgSnapshot());
         updateOnboardingState({
           status: "connected",
