@@ -5,7 +5,7 @@ import { InitiativeSection } from './InitiativeSection';
 interface InitiativeOrbitProps {
   initiatives: Initiative[];
   selectedInitiativeIds?: Set<string>;
-  onToggleInitiativeSelection?: (initiativeId: string, selected: boolean) => void;
+  onToggleInitiativeSelection?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
   runtimeActivityByInitiativeId?: ReadonlyMap<
     string,
     { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
