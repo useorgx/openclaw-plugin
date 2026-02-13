@@ -41,6 +41,7 @@
     "verify:agent-suite": "npm run build:core && node ./scripts/verify-agent-suite-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
+    "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",
     "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
