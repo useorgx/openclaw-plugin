@@ -27,6 +27,24 @@ test("patchClaudeMcpConfig adds orgx-openclaw entry without overwriting orgx", a
   assert.equal(patched.next.mcpServers["orgx-openclaw"].type, "http");
 });
 
+test("patchClaudeMcpConfig migrates orgx from local proxy to hosted and keeps orgx-openclaw", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = {
+    mcpServers: {
+      orgx: {
+        type: "http",
+        url: local,
+      },
+    },
+  };
+
+  const patched = mod.patchClaudeMcpConfig({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.equal(patched.next.mcpServers.orgx.url, "https://mcp.useorgx.com/mcp");
+  assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
+});
+
 test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
@@ -60,5 +78,18 @@ test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx",
   assert.equal(patched.updated, true);
   assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
   assert.ok(patched.next.includes(`url = "https://mcp.useorgx.com/mcp"`));
+  assert.ok(patched.next.includes(`url = "${local}"`));
+});
+
+test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when missing", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = ['model = "gpt-5.3-codex"', ""].join("\n");
+
+  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(patched.next.includes("[mcp_servers.orgx]"));
+  assert.ok(patched.next.includes('url = "https://mcp.useorgx.com/mcp"'));
+  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
   assert.ok(patched.next.includes(`url = "${local}"`));
 });

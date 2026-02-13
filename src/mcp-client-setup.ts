@@ -8,6 +8,7 @@ import { writeFileAtomicSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 import type { Logger } from "./mcp-http-handler.js";
 
 const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
+const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -51,9 +52,29 @@ export function patchClaudeMcpConfig(input: {
   localMcpUrl: string;
 }): { updated: boolean; next: Record<string, unknown> } {
   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
+  const existingOrgx = isRecord(currentServers.orgx) ? currentServers.orgx : {};
+  const existingOrgxUrl = typeof existingOrgx.url === "string" ? existingOrgx.url : "";
+  const existingOrgxType = typeof existingOrgx.type === "string" ? existingOrgx.type : "";
   const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
   const priorUrl = typeof existing.url === "string" ? existing.url : "";
   const priorType = typeof existing.type === "string" ? existing.type : "";
+
+  // Ensure hosted OrgX is available alongside the local proxy. Avoid overwriting
+  // custom `orgx` entries unless it's clearly redundant (pointing at the same
+  // local proxy URL we install under `orgx-openclaw`).
+  const shouldSetHostedOrgx =
+    !isRecord(currentServers.orgx) ||
+    (existingOrgxUrl === input.localMcpUrl && existingOrgxType === "http");
+
+  const nextOrgxEntry: Record<string, unknown> = {
+    ...existingOrgx,
+    type: "http",
+    url: ORGX_HOSTED_MCP_URL,
+    description:
+      typeof existingOrgx.description === "string" && existingOrgx.description.trim().length > 0
+        ? existingOrgx.description
+        : "OrgX cloud MCP (OAuth)",
+  };
 
   const nextEntry: Record<string, unknown> = {
     ...existing,
@@ -67,6 +88,7 @@ export function patchClaudeMcpConfig(input: {
 
   const nextServers: Record<string, unknown> = {
     ...currentServers,
+    ...(shouldSetHostedOrgx ? { orgx: nextOrgxEntry } : {}),
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
   };
 
@@ -75,7 +97,11 @@ export function patchClaudeMcpConfig(input: {
     mcpServers: nextServers,
   };
 
-  const updated = priorUrl !== input.localMcpUrl || priorType !== "http";
+  const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http";
+  const updatedHosted =
+    shouldSetHostedOrgx &&
+    (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
+  const updated = updatedLocal || updatedHosted;
   return { updated, next };
 }
 
@@ -110,10 +136,34 @@ export function patchCodexConfigToml(input: {
   current: string;
   localMcpUrl: string;
 }): { updated: boolean; next: string } {
-  const lines = input.current.split(/\r?\n/);
+  let current = input.current;
+  let updatedHosted = false;
+
+  // If the hosted OrgX entry is missing entirely, add a sensible default. This is
+  // a no-op if the user already has `orgx` pointed at staging or another URL.
+  const hostedHeaderRegex = /^\[mcp_servers\.(?:"orgx"|orgx)\]\s*$/;
+  {
+    const lines = current.split(/\r?\n/);
+    const hasHosted = lines.some((line) => hostedHeaderRegex.test(line.trim()));
+    if (!hasHosted) {
+      const hostedUrlLine = `url = "${ORGX_HOSTED_MCP_URL}"`;
+      const suffix = [
+        ...(current.trim().length === 0 ? [] : [""]),
+        "[mcp_servers.orgx]",
+        hostedUrlLine,
+        "",
+      ].join("\n");
+      const normalized = current.endsWith("\n") ? current : `${current}\n`;
+      current = `${normalized}${suffix}`;
+      updatedHosted = true;
+    }
+  }
+
+  const lines = current.split(/\r?\n/);
   // Never overwrite `[mcp_servers.orgx]` because users commonly point that at the
-  // hosted OAuth-backed MCP server. We add/update a separate entry for the local
-  // OpenClaw bridge instead.
+  // hosted OAuth-backed MCP server (or staging). If it is missing entirely, add a
+  // default hosted entry, then add/update a separate entry for the local OpenClaw
+  // bridge instead.
   const headerRegex =
     /^\[mcp_servers\.(?:"orgx-openclaw"|"orgx_openclaw"|orgx-openclaw|orgx_openclaw)\]\s*$/;
   let headerIndex = -1;
@@ -133,7 +183,7 @@ export function patchCodexConfigToml(input: {
       urlLine,
       "",
     ].join("\n");
-    const normalized = input.current.endsWith("\n") ? input.current : `${input.current}\n`;
+    const normalized = current.endsWith("\n") ? current : `${current}\n`;
     return { updated: true, next: `${normalized}${suffix}` };
   }
 
@@ -164,7 +214,7 @@ export function patchCodexConfigToml(input: {
     updated = true;
   }
 
-  return { updated, next: `${lines.join("\n")}\n` };
+  return { updated: updatedHosted || updated, next: `${lines.join("\n")}\n` };
 }
 
 export async function autoConfigureDetectedMcpClients(input: {
