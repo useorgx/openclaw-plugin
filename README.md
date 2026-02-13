@@ -98,6 +98,14 @@ Shows:
 - Activity stream
 - Outbox replay visibility for buffered offline events
 
+### 🔁 Auto-Continue (Scaffold → Agent Execution)
+
+If you scaffold an initiative from chat (for example, "plan X" and then create/scaffold), OrgX can automatically start executing the first workstream via the stream auto-continue pipeline.
+
+Troubleshooting:
+- If agents do not start automatically, say: `start agents` to re-trigger dispatch.
+- Open the live link (Mission Control) to see stream status (`ready`, `active`, `blocked`) and any upgrade/approval decisions.
+
 ### 🎯 Model Routing
 
 OrgX automatically routes tasks to the appropriate model tier:
