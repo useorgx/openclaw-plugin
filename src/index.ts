@@ -56,6 +56,7 @@ import {
 import { autoConfigureDetectedMcpClients } from "./mcp-client-setup.js";
 import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 import { posthogCapture } from "./telemetry/posthog.js";
+import { refreshSkillPackState } from "./skill-pack-state.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -2076,6 +2077,31 @@ export default function register(api: PluginAPI): void {
       try {
         await reconcileStoppedAgentRuns();
         updateCachedSnapshot(await client.getOrgSnapshot());
+
+        // Best-effort: poll the canonical OrgX SkillPack so the dashboard/install path
+        // can apply it without blocking on an on-demand fetch.
+        try {
+          const refreshed = await refreshSkillPackState({
+            getSkillPack: (args) => client.getSkillPack(args),
+          });
+          if (refreshed.changed) {
+            void posthogCapture({
+              event: "openclaw_skill_pack_updated",
+              distinctId: config.installationId,
+              properties: {
+                plugin_version: config.pluginVersion,
+                skill_pack_name: refreshed.state.pack?.name ?? null,
+                skill_pack_version: refreshed.state.pack?.version ?? null,
+                skill_pack_checksum: refreshed.state.pack?.checksum ?? null,
+              },
+            }).catch(() => {
+              // best effort
+            });
+          }
+        } catch {
+          // best effort
+        }
+
         updateOnboardingState({
           status: "connected",
           hasApiKey: true,

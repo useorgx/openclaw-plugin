@@ -115,114 +115,28 @@ import {
   readOpenClawSettingsSnapshot,
   resolvePreferredOpenClawProvider,
 } from "./openclaw-settings.js";
+import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
-const ORGX_DEFAULT_SKILL_PACK_NAME = "orgx-agent-suite";
-const SKILL_PACK_CACHE_TTL_MS = 30_000;
-
-let skillPackCache: {
-  fetchedAtMs: number;
-  etag: string | null;
-  overrides: OrgxSkillPackOverrides | null;
-} | null = null;
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function parseOpenclawSkillOverridesFromManifest(
-  manifest: Record<string, unknown> | null
-): Partial<Record<string, string>> {
-  const root = manifest ?? {};
-  const candidates = [
-    asRecord((root as any).openclaw_skills),
-    asRecord((root as any).openclawSkills),
-    asRecord(asRecord((root as any).openclaw)?.skills),
-  ].filter(Boolean) as Array<Record<string, unknown>>;
-
-  const out: Record<string, string> = {};
-  for (const candidate of candidates) {
-    for (const [k, v] of Object.entries(candidate)) {
-      if (typeof v !== "string") continue;
-      const key = k.trim().toLowerCase();
-      if (!key) continue;
-      out[key] = v;
-    }
-  }
-  return out;
-}
-
-async function loadSkillPackOverridesBestEffort(input: {
+async function resolveSkillPackOverrides(input: {
   client: { getSkillPack?: (...args: any[]) => Promise<any> };
   force?: boolean;
 }): Promise<OrgxSkillPackOverrides | null> {
-  const nowMs = Date.now();
+  const state = readSkillPackState();
   const force = Boolean(input.force);
 
-  if (!force && skillPackCache && nowMs - skillPackCache.fetchedAtMs <= SKILL_PACK_CACHE_TTL_MS) {
-    return skillPackCache.overrides;
-  }
+  if (!force && state.overrides) return state.overrides;
+  const getSkillPack = input.client.getSkillPack;
+  if (typeof getSkillPack !== "function") return state.overrides;
 
-  if (typeof input.client.getSkillPack !== "function") {
-    // Older clients/tests may not provide SkillPack support; fall back to builtin skills.
-    skillPackCache = skillPackCache
-      ? { ...skillPackCache, fetchedAtMs: nowMs }
-      : { fetchedAtMs: nowMs, etag: null, overrides: null };
-    return null;
-  }
-
-  const priorEtag = skillPackCache?.etag ?? null;
-  const result = await input.client.getSkillPack({
-    name: ORGX_DEFAULT_SKILL_PACK_NAME,
-    ifNoneMatch: priorEtag,
+  const refreshed = await refreshSkillPackState({
+    getSkillPack: (args) => getSkillPack(args),
+    force,
   });
-
-  if (result.ok && result.notModified) {
-    if (skillPackCache) {
-      skillPackCache.fetchedAtMs = nowMs;
-    } else {
-      skillPackCache = { fetchedAtMs: nowMs, etag: result.etag ?? priorEtag, overrides: null };
-    }
-    return skillPackCache.overrides;
-  }
-
-  if (result.ok && !result.notModified && result.pack) {
-    const manifest = asRecord(result.pack.manifest) ?? {};
-    const rawOverrides = parseOpenclawSkillOverridesFromManifest(manifest);
-
-    const openclaw_skills: Partial<Record<any, string>> = {};
-    for (const [k, v] of Object.entries(rawOverrides)) {
-      openclaw_skills[k as any] = v;
-    }
-
-    const overrides: OrgxSkillPackOverrides = {
-      source: "server",
-      name: result.pack.name,
-      version: result.pack.version,
-      checksum: result.pack.checksum,
-      etag: result.etag ?? null,
-      updated_at: result.pack.updated_at ?? null,
-      openclaw_skills: openclaw_skills as any,
-    };
-
-    skillPackCache = {
-      fetchedAtMs: nowMs,
-      etag: result.etag ?? null,
-      overrides,
-    };
-    return overrides;
-  }
-
-  // Best-effort: keep prior cache if server is unavailable/misconfigured.
-  skillPackCache = skillPackCache
-    ? { ...skillPackCache, fetchedAtMs: nowMs }
-    : { fetchedAtMs: nowMs, etag: priorEtag, overrides: null };
-  return skillPackCache.overrides;
+  return refreshed.state.overrides;
 }
 
 function safeErrorMessage(err: unknown): string {
@@ -6114,6 +6028,7 @@ export function createHttpHandler(
       const isAgentRestartRoute = route === "agents/restart";
       const isByokSettingsRoute = route === "settings/byok";
       const isAgentSuiteInstallRoute = route === "agent-suite/install";
+      const isSkillPackPolicyRoute = route === "skill-pack/policy";
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -7610,6 +7525,8 @@ export function createHttpHandler(
         !(isOnboardingDisconnectRoute && method === "POST") &&
         !(isByokSettingsRoute && method === "POST") &&
         !(isAgentSuiteInstallRoute && method === "POST") &&
+        !(isSkillPackPolicyRoute && method === "GET") &&
+        !(isSkillPackPolicyRoute && method === "POST") &&
         !(isLiveActivityHeadlineRoute && method === "POST") &&
         !(route === "hooks/runtime" && method === "POST") &&
         !(route === "hooks/runtime/setup" && method === "POST")
@@ -7626,10 +7543,19 @@ export function createHttpHandler(
       switch (route) {
         case "agent-suite/status": {
           try {
-            const skillPack = await loadSkillPackOverridesBestEffort({ client });
+            const skillPack = await resolveSkillPackOverrides({ client });
+            const state = readSkillPackState();
+            const updateAvailable = Boolean(
+              state.remote?.checksum &&
+                state.pack?.checksum &&
+                state.remote.checksum !== state.pack.checksum
+            );
             const plan = computeOrgxAgentSuitePlan({
               packVersion: config.pluginVersion || "0.0.0",
               skillPack,
+              skillPackRemote: state.remote,
+              skillPackPolicy: state.policy,
+              skillPackUpdateAvailable: updateAvailable,
             });
             sendJson(res, 200, {
               ok: true,
@@ -7657,13 +7583,22 @@ export function createHttpHandler(
             const dryRun = Boolean(
               (payload as any)?.dryRun ?? (payload as any)?.dry_run
             );
-            const skillPack = await loadSkillPackOverridesBestEffort({
+            const skillPack = await resolveSkillPackOverrides({
               client,
               force: Boolean((payload as any)?.forceSkillPack ?? (payload as any)?.force_skill_pack),
             });
+            const state = readSkillPackState();
+            const updateAvailable = Boolean(
+              state.remote?.checksum &&
+                state.pack?.checksum &&
+                state.remote.checksum !== state.pack.checksum
+            );
             const plan = computeOrgxAgentSuitePlan({
               packVersion: config.pluginVersion || "0.0.0",
               skillPack,
+              skillPackRemote: state.remote,
+              skillPackPolicy: state.policy,
+              skillPackUpdateAvailable: updateAvailable,
             });
             const result = applyOrgxAgentSuitePlan({ plan, dryRun, skillPack });
             sendJson(res, 200, {
@@ -7678,6 +7613,62 @@ export function createHttpHandler(
               ok: false,
               error: safeErrorMessage(err),
             });
+          }
+          return true;
+        }
+
+        case "skill-pack/policy": {
+          if (method === "GET") {
+            const state = readSkillPackState();
+            const updateAvailable = Boolean(
+              state.remote?.checksum &&
+                state.pack?.checksum &&
+                state.remote.checksum !== state.pack.checksum
+            );
+            sendJson(res, 200, {
+              ok: true,
+              data: {
+                policy: state.policy,
+                pack: state.pack,
+                remote: state.remote,
+                updateAvailable,
+                lastCheckedAt: state.lastCheckedAt,
+                lastError: state.lastError,
+              },
+            });
+            return true;
+          }
+
+          if (method !== "POST") {
+            sendJson(res, 405, { ok: false, error: "Use GET/POST /orgx/api/skill-pack/policy" });
+            return true;
+          }
+
+          try {
+            const payload = await parseJsonRequest(req);
+            const frozenRaw = (payload as any)?.frozen;
+            const frozen =
+              typeof frozenRaw === "boolean" ? frozenRaw : undefined;
+
+            const pinToCurrent = Boolean((payload as any)?.pinToCurrent ?? (payload as any)?.pin_to_current);
+            const clearPin = Boolean((payload as any)?.clearPin ?? (payload as any)?.clear_pin);
+            const pinnedChecksum =
+              typeof (payload as any)?.pinnedChecksum === "string"
+                ? String((payload as any)?.pinnedChecksum)
+                : (payload as any)?.pinnedChecksum === null
+                  ? null
+                  : undefined;
+
+            const state = updateSkillPackPolicy({
+              frozen,
+              pinToCurrent,
+              clearPin,
+              pinnedChecksum,
+            });
+
+            sendJson(res, 200, { ok: true, data: state.policy });
+          } catch (err: unknown) {
+            sendJson(res, 400, { ok: false, error: safeErrorMessage(err) });
           }
           return true;
         }

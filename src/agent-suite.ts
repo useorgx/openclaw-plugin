@@ -84,6 +84,17 @@ export type OrgxAgentSuiteStatus = {
     etag?: string | null;
     updated_at?: string | null;
   } | null;
+  skillPackRemote?: {
+    name: string;
+    version: string;
+    checksum: string;
+    updated_at?: string | null;
+  } | null;
+  skillPackPolicy?: {
+    frozen: boolean;
+    pinnedChecksum: string | null;
+  } | null;
+  skillPackUpdateAvailable?: boolean;
   agents: Array<{
     id: string;
     name: string;
@@ -527,6 +538,9 @@ export function computeOrgxAgentSuitePlan(input: {
   packVersion: string;
   openclawDir?: string;
   skillPack?: OrgxSkillPackOverrides | null;
+  skillPackRemote?: OrgxAgentSuiteStatus["skillPackRemote"] | null;
+  skillPackPolicy?: OrgxAgentSuiteStatus["skillPackPolicy"] | null;
+  skillPackUpdateAvailable?: boolean;
 }): OrgxAgentSuitePlan {
   const packVersion = input.packVersion.trim() || "0.0.0";
   const openclawDir = input.openclawDir ?? getOpenClawDir();
@@ -601,6 +615,9 @@ export function computeOrgxAgentSuitePlan(input: {
           updated_at: input.skillPack.updated_at ?? null,
         }
       : null,
+    skillPackRemote: input.skillPackRemote ?? null,
+    skillPackPolicy: input.skillPackPolicy ?? null,
+    skillPackUpdateAvailable: Boolean(input.skillPackUpdateAvailable),
     agents,
     openclawConfigWouldUpdate: upsert.updated,
     openclawConfigAddedAgents: upsert.addedAgentIds,
