@@ -140,6 +140,102 @@ test("tools/call executes tool and returns content", async () => {
   assert.equal(payload.result.content[0].text, "echo:hi");
 });
 
+test("scoped tools/list filters tools by domain allowlist", async () => {
+  const mod = await importFreshModule();
+  const tools = new Map();
+  tools.set("orgx_emit_activity", {
+    name: "orgx_emit_activity",
+    description: "emit",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+  tools.set("orgx_apply_changeset", {
+    name: "orgx_apply_changeset",
+    description: "mutate",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+
+  const handler = mod.createMcpHttpHandler({
+    tools,
+    serverName: "orgx-local",
+    serverVersion: "0.0.0",
+  });
+
+  {
+    const req = {
+      method: "POST",
+      url: "/orgx/mcp/engineering",
+      headers: {},
+      body: JSON.stringify({ jsonrpc: "2.0", id: "t2", method: "tools/list", params: {} }),
+    };
+    const mock = createMockResponse();
+    await handler(req, mock.res);
+    assert.equal(mock.state.status, 200);
+    const payload = JSON.parse(mock.state.body);
+    const names = payload.result.tools.map((t) => t.name);
+    assert.ok(names.includes("orgx_emit_activity"));
+    assert.equal(names.includes("orgx_apply_changeset"), false);
+  }
+
+  {
+    const req = {
+      method: "POST",
+      url: "/orgx/mcp/orchestration",
+      headers: {},
+      body: JSON.stringify({ jsonrpc: "2.0", id: "t3", method: "tools/list", params: {} }),
+    };
+    const mock = createMockResponse();
+    await handler(req, mock.res);
+    assert.equal(mock.state.status, 200);
+    const payload = JSON.parse(mock.state.body);
+    const names = payload.result.tools.map((t) => t.name);
+    assert.ok(names.includes("orgx_emit_activity"));
+    assert.ok(names.includes("orgx_apply_changeset"));
+  }
+});
+
+test("scoped tools/call rejects tools not in allowlist", async () => {
+  const mod = await importFreshModule();
+  const tools = new Map();
+  tools.set("orgx_apply_changeset", {
+    name: "orgx_apply_changeset",
+    description: "mutate",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+
+  const handler = mod.createMcpHttpHandler({
+    tools,
+    serverName: "orgx-local",
+    serverVersion: "0.0.0",
+  });
+
+  const req = {
+    method: "POST",
+    url: "/orgx/mcp/engineering",
+    headers: {},
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: { name: "orgx_apply_changeset", arguments: {} },
+    }),
+  };
+  const mock = createMockResponse();
+  await handler(req, mock.res);
+  assert.equal(mock.state.status, 200);
+  const payload = JSON.parse(mock.state.body);
+  assert.ok(payload.error);
+  assert.equal(payload.error.code, -32601);
+});
+
 test("notifications do not produce a JSON-RPC response", async () => {
   const mod = await importFreshModule();
   const tools = new Map();
@@ -159,4 +255,3 @@ test("notifications do not produce a JSON-RPC response", async () => {
   await handler(req, mock.res);
   assert.equal(mock.state.status, 204);
 });
-

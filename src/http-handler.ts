@@ -116,6 +116,7 @@ import {
   resolvePreferredOpenClawProvider,
 } from "./openclaw-settings.js";
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
+import { posthogCapture } from "./telemetry/posthog.js";
 
 // =============================================================================
 // Helpers
@@ -3038,7 +3039,7 @@ async function resolveAutoAssignments(input: {
 // =============================================================================
 
 export function createHttpHandler(
-  config: OrgXConfig & { dashboardEnabled?: boolean; pluginVersion?: string },
+  config: OrgXConfig & { dashboardEnabled?: boolean; pluginVersion?: string; installationId?: string | null },
   client: OrgXClient,
   getSnapshot: () => OrgSnapshot | null,
   onboarding: OnboardingController,
@@ -3056,6 +3057,69 @@ export function createHttpHandler(
   const stopProcess = openclawAdapter.stopDetachedProcess ?? stopDetachedProcess;
   const pidAlive = openclawAdapter.isPidAlive ?? isPidAlive;
 
+  const telemetryDistinctId =
+    (typeof (config as any).installationId === "string" &&
+    String((config as any).installationId).trim().length > 0
+      ? String((config as any).installationId).trim()
+      : null) ?? "orgx-openclaw-plugin";
+
+  function withProvenanceMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
+    const input = metadata ?? {};
+    const out: Record<string, unknown> = { ...input };
+
+    if (out.orgx_plugin_version === undefined) {
+      out.orgx_plugin_version = (config.pluginVersion ?? "").trim() || null;
+    }
+
+    try {
+      const state = readSkillPackState();
+      const overrides = state.overrides;
+
+      if (out.skill_pack_name === undefined) {
+        out.skill_pack_name = overrides?.name ?? state.pack?.name ?? null;
+      }
+      if (out.skill_pack_version === undefined) {
+        out.skill_pack_version = overrides?.version ?? state.pack?.version ?? null;
+      }
+      if (out.skill_pack_checksum === undefined) {
+        out.skill_pack_checksum = overrides?.checksum ?? state.pack?.checksum ?? null;
+      }
+      if (out.skill_pack_source === undefined) {
+        out.skill_pack_source = overrides?.source ?? null;
+      }
+      if (out.skill_pack_etag === undefined) {
+        out.skill_pack_etag = state.etag ?? null;
+      }
+      if (out.skill_pack_policy_frozen === undefined) {
+        out.skill_pack_policy_frozen = Boolean(state.policy?.frozen);
+      }
+      if (out.skill_pack_policy_pinned_checksum === undefined) {
+        out.skill_pack_policy_pinned_checksum = state.policy?.pinnedChecksum ?? null;
+      }
+    } catch {
+      // best effort
+    }
+
+    if (out.orgx_provenance === undefined) {
+      out.orgx_provenance = {
+        plugin_version: out.orgx_plugin_version ?? null,
+        skill_pack: {
+          name: out.skill_pack_name ?? null,
+          version: out.skill_pack_version ?? null,
+          checksum: out.skill_pack_checksum ?? null,
+          source: out.skill_pack_source ?? null,
+          etag: out.skill_pack_etag ?? null,
+        },
+        policy: {
+          frozen: out.skill_pack_policy_frozen ?? null,
+          pinned_checksum: out.skill_pack_policy_pinned_checksum ?? null,
+        },
+      };
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
   async function emitActivitySafe(input: {
     initiativeId: string | null;
     runId?: string | null;
@@ -3071,6 +3135,8 @@ export function createHttpHandler(
     if (!initiativeId) return;
     const message = input.message.trim();
     if (!message) return;
+
+    const enrichedMetadata = withProvenanceMetadata(input.metadata);
 
     try {
       await client.emitActivity({
@@ -3088,7 +3154,7 @@ export function createHttpHandler(
             : undefined,
         level: input.level,
         next_step: input.nextStep,
-        metadata: input.metadata,
+        metadata: enrichedMetadata,
       });
     } catch {
       // Fall back to local outbox so activity is still visible in Mission Control/Activity.
@@ -3109,12 +3175,12 @@ export function createHttpHandler(
           title: message,
           description: input.nextStep ?? null,
           agentId:
-            (typeof input.metadata?.agent_id === "string"
-              ? input.metadata.agent_id
+            (typeof enrichedMetadata?.agent_id === "string"
+              ? enrichedMetadata.agent_id
               : null) ?? null,
           agentName:
-            (typeof input.metadata?.agent_name === "string"
-              ? input.metadata.agent_name
+            (typeof enrichedMetadata?.agent_name === "string"
+              ? enrichedMetadata.agent_name
               : null) ?? null,
           runId,
           initiativeId,
@@ -3122,7 +3188,7 @@ export function createHttpHandler(
           phase: input.phase,
           summary: message,
           metadata: {
-            ...(input.metadata ?? {}),
+            ...(enrichedMetadata ?? {}),
             source: "openclaw_local_fallback",
           },
         };
@@ -3147,7 +3213,7 @@ export function createHttpHandler(
                 : undefined,
             level: input.level ?? "info",
             next_step: input.nextStep ?? undefined,
-            metadata: input.metadata ?? undefined,
+            metadata: enrichedMetadata,
           },
           activityItem,
         });
@@ -6310,6 +6376,25 @@ export function createHttpHandler(
           const kickoffMessage = kickoffRendered.message;
           const kickoffContextHash = kickoffRendered.contextHash;
 
+          void posthogCapture({
+            event: "openclaw_agent_launch_requested",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              agent_id: agentId,
+              initiative_present: Boolean(initiativeId),
+              workstream_present: Boolean(workstreamId),
+              task_present: Boolean(taskId),
+              domain: executionPolicy.domain,
+              required_skills_count: executionPolicy.requiredSkills.length,
+              provider: routingProvider,
+              model: requestedModel,
+              dry_run: Boolean(dryRun),
+            },
+          }).catch(() => {
+            // best effort
+          });
+
           if (dryRun) {
             sendJson(res, 200, {
               ok: true,
@@ -6342,6 +6427,24 @@ export function createHttpHandler(
             workstreamTitle: resolvedWorkstreamTitle,
           });
           if (!guard.allowed) {
+            void posthogCapture({
+              event: "openclaw_agent_launch_blocked",
+              distinctId: telemetryDistinctId,
+              properties: {
+                plugin_version: (config.pluginVersion ?? "").trim() || null,
+                agent_id: agentId,
+                initiative_present: Boolean(initiativeId),
+                workstream_present: Boolean(workstreamId),
+                task_present: Boolean(taskId),
+                domain: executionPolicy.domain,
+                required_skills_count: executionPolicy.requiredSkills.length,
+                retryable: Boolean(guard.retryable),
+                blocked_reason: guard.blockedReason ?? null,
+                model_tier: extractSpawnGuardModelTier(guard.spawnGuardResult ?? null),
+              },
+            }).catch(() => {
+              // best effort
+            });
             sendJson(res, guard.retryable ? 429 : 409, {
               ok: false,
               code: guard.retryable
@@ -6457,6 +6560,29 @@ export function createHttpHandler(
             status: "running",
           });
 
+          void posthogCapture({
+            event: "openclaw_agent_launch_started",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              agent_id: agentId,
+              initiative_present: Boolean(initiativeId),
+              workstream_present: Boolean(workstreamId),
+              task_present: Boolean(taskId),
+              domain: executionPolicy.domain,
+              required_skills_count: executionPolicy.requiredSkills.length,
+              provider: routedProvider,
+              model: routedModel,
+              model_tier: extractSpawnGuardModelTier(guard.spawnGuardResult ?? null),
+              kickoff_context_hash_prefix:
+                typeof kickoffContextHash === "string" && kickoffContextHash.length >= 12
+                  ? kickoffContextHash.slice(0, 12)
+                  : kickoffContextHash ?? null,
+            },
+          }).catch(() => {
+            // best effort
+          });
+
           sendJson(res, 202, {
             ok: true,
             agentId,
@@ -6473,6 +6599,16 @@ export function createHttpHandler(
             kickoffContextHash,
           });
         } catch (err: unknown) {
+          void posthogCapture({
+            event: "openclaw_agent_launch_failed",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              error: safeErrorMessage(err),
+            },
+          }).catch(() => {
+            // best effort
+          });
           sendJson(res, 500, {
             ok: false,
             error: safeErrorMessage(err),
@@ -6510,6 +6646,20 @@ export function createHttpHandler(
           const result = await stopProcess(record.pid);
           const updated = markAgentRunStopped(runId);
 
+          void posthogCapture({
+            event: "openclaw_agent_stop",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              agent_id: record.agentId,
+              had_pid: Boolean(record.pid),
+              stopped: Boolean(result.stopped),
+              was_running: Boolean(result.wasRunning),
+            },
+          }).catch(() => {
+            // best effort
+          });
+
           sendJson(res, 200, {
             ok: true,
             runId,
@@ -6520,6 +6670,16 @@ export function createHttpHandler(
             record: updated,
           });
         } catch (err: unknown) {
+          void posthogCapture({
+            event: "openclaw_agent_stop_failed",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              error: safeErrorMessage(err),
+            },
+          }).catch(() => {
+            // best effort
+          });
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }
         return true;
@@ -6702,6 +6862,22 @@ export function createHttpHandler(
             status: "running",
           });
 
+          void posthogCapture({
+            event: "openclaw_agent_restart_started",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              agent_id: record.agentId,
+              provider: routedProvider,
+              model: routedModel,
+              domain: executionPolicy.domain,
+              required_skills_count: executionPolicy.requiredSkills.length,
+              model_tier: extractSpawnGuardModelTier(guard.spawnGuardResult ?? null),
+            },
+          }).catch(() => {
+            // best effort
+          });
+
           sendJson(res, 202, {
             ok: true,
             previousRunId,
@@ -6714,6 +6890,16 @@ export function createHttpHandler(
             requiredSkills: executionPolicy.requiredSkills,
           });
         } catch (err: unknown) {
+          void posthogCapture({
+            event: "openclaw_agent_restart_failed",
+            distinctId: telemetryDistinctId,
+            properties: {
+              plugin_version: (config.pluginVersion ?? "").trim() || null,
+              error: safeErrorMessage(err),
+            },
+          }).catch(() => {
+            // best effort
+          });
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }
         return true;
@@ -7601,6 +7787,39 @@ export function createHttpHandler(
               skillPackUpdateAvailable: updateAvailable,
             });
             const result = applyOrgxAgentSuitePlan({ plan, dryRun, skillPack });
+
+            const counts = (result.plan.workspaceFiles ?? []).reduce(
+              (acc, entry) => {
+                acc[entry.action] += 1;
+                return acc;
+              },
+              { create: 0, update: 0, noop: 0, conflict: 0 } as Record<
+                "create" | "update" | "noop" | "conflict",
+                number
+              >
+            );
+
+            void posthogCapture({
+              event: "openclaw_agent_suite_install",
+              distinctId: telemetryDistinctId,
+              properties: {
+                plugin_version: (config.pluginVersion ?? "").trim() || null,
+                dry_run: Boolean(dryRun),
+                applied: Boolean(result.applied),
+                openclaw_config_updated: Boolean(result.plan.openclawConfigWouldUpdate),
+                added_agents_count: result.plan.openclawConfigAddedAgents.length,
+                files_create: counts.create,
+                files_update: counts.update,
+                files_noop: counts.noop,
+                files_conflict: counts.conflict,
+                skill_pack_source: result.plan.skillPack?.source ?? null,
+                skill_pack_checksum: result.plan.skillPack?.checksum ?? null,
+                skill_pack_version: result.plan.skillPack?.version ?? null,
+              },
+            }).catch(() => {
+              // best effort
+            });
+
             sendJson(res, 200, {
               ok: true,
               operationId: generateAgentSuiteOperationId(),
@@ -7609,6 +7828,16 @@ export function createHttpHandler(
               data: result.plan,
             });
           } catch (err: unknown) {
+            void posthogCapture({
+              event: "openclaw_agent_suite_install_failed",
+              distinctId: telemetryDistinctId,
+              properties: {
+                plugin_version: (config.pluginVersion ?? "").trim() || null,
+                error: safeErrorMessage(err),
+              },
+            }).catch(() => {
+              // best effort
+            });
             sendJson(res, 500, {
               ok: false,
               error: safeErrorMessage(err),
@@ -7664,6 +7893,18 @@ export function createHttpHandler(
               pinToCurrent,
               clearPin,
               pinnedChecksum,
+            });
+
+            void posthogCapture({
+              event: "openclaw_skill_pack_policy_updated",
+              distinctId: telemetryDistinctId,
+              properties: {
+                plugin_version: (config.pluginVersion ?? "").trim() || null,
+                frozen: state.policy.frozen,
+                pinned_checksum_prefix: state.policy.pinnedChecksum ? state.policy.pinnedChecksum.slice(0, 12) : null,
+              },
+            }).catch(() => {
+              // best effort
             });
 
             sendJson(res, 200, { ok: true, data: state.policy });

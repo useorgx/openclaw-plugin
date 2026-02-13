@@ -56,7 +56,7 @@ import {
 import { autoConfigureDetectedMcpClients } from "./mcp-client-setup.js";
 import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 import { posthogCapture } from "./telemetry/posthog.js";
-import { refreshSkillPackState } from "./skill-pack-state.js";
+import { readSkillPackState, refreshSkillPackState } from "./skill-pack-state.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -3188,6 +3188,52 @@ export default function register(api: PluginAPI): void {
     { optional: true }
   );
 
+  function withProvenanceMetadata(metadata?: Record<string, unknown>): Record<string, unknown> {
+    const input = metadata ?? {};
+    const out: Record<string, unknown> = { ...input };
+
+    if (out.orgx_plugin_version === undefined) {
+      out.orgx_plugin_version = (config.pluginVersion ?? "").trim() || null;
+    }
+
+    try {
+      const state = readSkillPackState();
+      const overrides = state.overrides;
+      if (out.skill_pack_name === undefined) {
+        out.skill_pack_name = overrides?.name ?? state.pack?.name ?? null;
+      }
+      if (out.skill_pack_version === undefined) {
+        out.skill_pack_version = overrides?.version ?? state.pack?.version ?? null;
+      }
+      if (out.skill_pack_checksum === undefined) {
+        out.skill_pack_checksum = overrides?.checksum ?? state.pack?.checksum ?? null;
+      }
+      if (out.skill_pack_source === undefined) {
+        out.skill_pack_source = overrides?.source ?? null;
+      }
+      if (out.skill_pack_etag === undefined) {
+        out.skill_pack_etag = state.etag ?? null;
+      }
+    } catch {
+      // best effort
+    }
+
+    if (out.orgx_provenance === undefined) {
+      out.orgx_provenance = {
+        plugin_version: out.orgx_plugin_version ?? null,
+        skill_pack: {
+          name: out.skill_pack_name ?? null,
+          version: out.skill_pack_version ?? null,
+          checksum: out.skill_pack_checksum ?? null,
+          source: out.skill_pack_source ?? null,
+          etag: out.skill_pack_etag ?? null,
+        },
+      };
+    }
+
+    return out;
+  }
+
   async function emitActivityWithFallback(
     source: string,
     payload: {
@@ -3224,10 +3270,10 @@ export default function register(api: PluginAPI): void {
       progress_pct: payload.progress_pct,
       level: payload.level ?? "info",
       next_step: payload.next_step,
-      metadata: {
+      metadata: withProvenanceMetadata({
         ...(payload.metadata ?? {}),
         source,
-      },
+      }),
     };
 
     const activityItem: LiveActivityItem = {
@@ -3320,10 +3366,10 @@ export default function register(api: PluginAPI): void {
       summary: `${payload.operations.length} operation${
         payload.operations.length === 1 ? "" : "s"
       }`,
-      metadata: {
+      metadata: withProvenanceMetadata({
         source,
         idempotency_key: idempotencyKey,
-      },
+      }),
     };
 
     try {
@@ -3717,23 +3763,23 @@ export default function register(api: PluginAPI): void {
         const now = new Date().toISOString();
         const id = `artifact:${randomUUID().slice(0, 8)}`;
 
-        const activityItem: LiveActivityItem = {
-          id,
-          type: "artifact_created",
-          title: params.name,
-          description: params.description ?? null,
-          agentId: null,
-          agentName: null,
-          runId: null,
-          initiativeId: null,
-          timestamp: now,
-          summary: params.url ?? null,
-          metadata: {
-            source: "orgx_register_artifact",
-            artifact_type: params.artifact_type,
-            url: params.url,
-          },
-        };
+          const activityItem: LiveActivityItem = {
+            id,
+            type: "artifact_created",
+            title: params.name,
+            description: params.description ?? null,
+            agentId: null,
+            agentName: null,
+            runId: null,
+            initiativeId: null,
+            timestamp: now,
+            summary: params.url ?? null,
+            metadata: withProvenanceMetadata({
+              source: "orgx_register_artifact",
+              artifact_type: params.artifact_type,
+              url: params.url,
+            }),
+          };
 
         try {
           const entity = await client.createEntity("artifact", {

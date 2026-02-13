@@ -52,6 +52,95 @@ const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 
 type JsonRpcId = string | number | null;
 
+type OrgxMcpScopeKey =
+  | "engineering"
+  | "product"
+  | "design"
+  | "marketing"
+  | "sales"
+  | "operations"
+  | "orchestration";
+
+type ToolScope = {
+  key: OrgxMcpScopeKey;
+  allowedTools: Set<string>;
+};
+
+// Domain-scoped MCP servers are meant to be "default safe". The unscoped
+// `/orgx/mcp` endpoint remains available for power users / debugging.
+//
+// NOTE: This scopes only the tools exposed by this plugin (OrgX reporting + mutation).
+// It cannot restrict OpenClaw-native tools (filesystem, shell, etc).
+const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
+  engineering: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+  ],
+  product: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+  ],
+  design: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+  ],
+  marketing: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+  ],
+  sales: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+  ],
+  operations: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+    // Operations is allowed to do explicit changesets for remediation/runbooks.
+    "orgx_apply_changeset",
+  ],
+  orchestration: [
+    "orgx_status",
+    "orgx_sync",
+    "orgx_emit_activity",
+    "orgx_report_progress",
+    "orgx_register_artifact",
+    "orgx_request_decision",
+    "orgx_spawn_check",
+    // Orchestrator is the primary mutation surface by design.
+    "orgx_apply_changeset",
+  ],
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -94,6 +183,26 @@ function jsonRpcResult(id: JsonRpcId, result: unknown): Record<string, unknown> 
 function normalizePath(rawUrl: string): string {
   const [path] = rawUrl.split("?", 2);
   return path || "/";
+}
+
+function parseScopeKey(url: string): OrgxMcpScopeKey | null {
+  // Supported paths:
+  // - /orgx/mcp (unscoped)
+  // - /orgx/mcp/<scope> (domain-scoped)
+  if (!url.startsWith("/orgx/mcp/")) return null;
+  const rest = url.slice("/orgx/mcp/".length);
+  const key = rest.split("/", 1)[0]?.trim() ?? "";
+  if (!key) return null;
+  if (!Object.prototype.hasOwnProperty.call(ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE, key)) return null;
+  return key as OrgxMcpScopeKey;
+}
+
+function resolveToolScope(scopeKey: OrgxMcpScopeKey | null): ToolScope | null {
+  if (!scopeKey) return null;
+  return {
+    key: scopeKey,
+    allowedTools: new Set(ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE[scopeKey]),
+  };
 }
 
 async function readRequestBodyBuffer(req: PluginRequest): Promise<Buffer> {
@@ -172,6 +281,7 @@ async function handleRpcMessage(input: {
   logger: Logger;
   serverName: string;
   serverVersion: string;
+  toolScope: ToolScope | null;
 }): Promise<Record<string, unknown> | null> {
   const msg = input.message;
   if (!isRecord(msg)) {
@@ -194,6 +304,7 @@ async function handleRpcMessage(input: {
   if (method === "initialize") {
     const requestedProtocol = typeof params.protocolVersion === "string" ? params.protocolVersion : null;
     const protocolVersion = requestedProtocol?.trim() || DEFAULT_PROTOCOL_VERSION;
+    const scopedServerName = input.toolScope ? `${input.serverName}/${input.toolScope.key}` : input.serverName;
     return jsonRpcResult(id, {
       protocolVersion,
       capabilities: {
@@ -201,7 +312,7 @@ async function handleRpcMessage(input: {
         prompts: {},
       },
       serverInfo: {
-        name: input.serverName,
+        name: scopedServerName,
         version: input.serverVersion,
       },
     });
@@ -212,6 +323,14 @@ async function handleRpcMessage(input: {
   }
 
   if (method === "tools/list") {
+    if (input.toolScope) {
+      const scopedTools = new Map<string, RegisteredTool>();
+      for (const name of input.toolScope.allowedTools) {
+        const tool = input.tools.get(name);
+        if (tool) scopedTools.set(name, tool);
+      }
+      return jsonRpcResult(id, { tools: buildToolsList(scopedTools) });
+    }
     return jsonRpcResult(id, {
       tools: buildToolsList(input.tools),
     });
@@ -221,6 +340,14 @@ async function handleRpcMessage(input: {
     const toolName = typeof params.name === "string" ? params.name.trim() : "";
     if (!toolName) {
       return jsonRpcError(id, -32602, "Missing tool name");
+    }
+
+    if (input.toolScope && !input.toolScope.allowedTools.has(toolName)) {
+      return jsonRpcError(
+        id,
+        -32601,
+        `Tool not available in scope '${input.toolScope.key}': ${toolName}`
+      );
     }
 
     const tool = input.tools.get(toolName) ?? null;
@@ -311,6 +438,17 @@ export function createMcpHttpHandler(input: {
       return false;
     }
 
+    const scopeKey = parseScopeKey(url);
+    const toolScope = resolveToolScope(scopeKey);
+    if (url.startsWith("/orgx/mcp/") && !scopeKey) {
+      sendText(
+        res,
+        404,
+        `Unknown OrgX MCP scope. Supported: ${Object.keys(ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE).join(", ")}\n`
+      );
+      return true;
+    }
+
     if (method === "OPTIONS") {
       res.writeHead(204, {
         "cache-control": "no-store",
@@ -320,7 +458,8 @@ export function createMcpHttpHandler(input: {
     }
 
     if (method === "GET") {
-      sendText(res, 200, "OrgX Local MCP bridge is running.\n");
+      const suffix = toolScope ? ` (scope: ${toolScope.key})` : "";
+      sendText(res, 200, `OrgX Local MCP bridge is running${suffix}.\n`);
       return true;
     }
 
@@ -350,6 +489,7 @@ export function createMcpHttpHandler(input: {
         logger,
         serverName: input.serverName,
         serverVersion: input.serverVersion,
+        toolScope,
       });
       if (response) responses.push(response);
     }

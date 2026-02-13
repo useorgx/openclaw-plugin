@@ -10,6 +10,31 @@ import type { Logger } from "./mcp-http-handler.js";
 const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
 const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
 
+const ORGX_LOCAL_MCP_SCOPES = [
+  "engineering",
+  "product",
+  "design",
+  "marketing",
+  "sales",
+  "operations",
+  "orchestration",
+] as const;
+
+type OrgxLocalMcpScope = typeof ORGX_LOCAL_MCP_SCOPES[number];
+
+function scopedMcpServerKey(scope: OrgxLocalMcpScope): string {
+  return `${ORGX_LOCAL_MCP_KEY}-${scope}`;
+}
+
+function scopedMcpUrl(localMcpUrl: string, scope: OrgxLocalMcpScope): string {
+  const base = localMcpUrl.replace(/\/+$/, "");
+  return `${base}/${scope}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -86,10 +111,34 @@ export function patchClaudeMcpConfig(input: {
         : "OrgX platform via local OpenClaw plugin (no OAuth)",
   };
 
+  const updatedScopes: string[] = [];
+  const scopedEntries: Record<string, unknown> = {};
+  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
+    const key = scopedMcpServerKey(scope);
+    const expectedUrl = scopedMcpUrl(input.localMcpUrl, scope);
+    const existingScoped = isRecord(currentServers[key]) ? currentServers[key] : {};
+    const priorUrl = typeof existingScoped.url === "string" ? existingScoped.url : "";
+    const priorType = typeof existingScoped.type === "string" ? existingScoped.type : "";
+    const nextScoped: Record<string, unknown> = {
+      ...existingScoped,
+      type: "http",
+      url: expectedUrl,
+      description:
+        typeof existingScoped.description === "string" && existingScoped.description.trim().length > 0
+          ? existingScoped.description
+          : `OrgX platform via local OpenClaw plugin (${scope} scope)`,
+    };
+    scopedEntries[key] = nextScoped;
+    if (priorUrl !== expectedUrl || priorType !== "http") {
+      updatedScopes.push(scope);
+    }
+  }
+
   const nextServers: Record<string, unknown> = {
     ...currentServers,
     ...(shouldSetHostedOrgx ? { orgx: nextOrgxEntry } : {}),
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
+    ...scopedEntries,
   };
 
   const next: Record<string, unknown> = {
@@ -101,7 +150,7 @@ export function patchClaudeMcpConfig(input: {
   const updatedHosted =
     shouldSetHostedOrgx &&
     (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
-  const updated = updatedLocal || updatedHosted;
+  const updated = updatedLocal || updatedHosted || updatedScopes.length > 0;
   return { updated, next };
 }
 
@@ -118,9 +167,24 @@ export function patchCursorMcpConfig(input: {
     url: input.localMcpUrl,
   };
 
+  const scopedEntries: Record<string, unknown> = {};
+  let updatedScopes = false;
+  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
+    const key = scopedMcpServerKey(scope);
+    const expectedUrl = scopedMcpUrl(input.localMcpUrl, scope);
+    const existingScoped = isRecord(currentServers[key]) ? currentServers[key] : {};
+    const priorScopedUrl = typeof existingScoped.url === "string" ? existingScoped.url : "";
+    scopedEntries[key] = {
+      ...existingScoped,
+      url: expectedUrl,
+    };
+    if (priorScopedUrl !== expectedUrl) updatedScopes = true;
+  }
+
   const nextServers: Record<string, unknown> = {
     ...currentServers,
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
+    ...scopedEntries,
   };
 
   const next: Record<string, unknown> = {
@@ -128,44 +192,19 @@ export function patchCursorMcpConfig(input: {
     mcpServers: nextServers,
   };
 
-  const updated = priorUrl !== input.localMcpUrl;
+  const updated = priorUrl !== input.localMcpUrl || updatedScopes;
   return { updated, next };
 }
 
-export function patchCodexConfigToml(input: {
+function upsertCodexMcpServerSection(input: {
   current: string;
-  localMcpUrl: string;
+  key: string;
+  url: string;
 }): { updated: boolean; next: string } {
-  let current = input.current;
-  let updatedHosted = false;
-
-  // If the hosted OrgX entry is missing entirely, add a sensible default. This is
-  // a no-op if the user already has `orgx` pointed at staging or another URL.
-  const hostedHeaderRegex = /^\[mcp_servers\.(?:"orgx"|orgx)\]\s*$/;
-  {
-    const lines = current.split(/\r?\n/);
-    const hasHosted = lines.some((line) => hostedHeaderRegex.test(line.trim()));
-    if (!hasHosted) {
-      const hostedUrlLine = `url = "${ORGX_HOSTED_MCP_URL}"`;
-      const suffix = [
-        ...(current.trim().length === 0 ? [] : [""]),
-        "[mcp_servers.orgx]",
-        hostedUrlLine,
-        "",
-      ].join("\n");
-      const normalized = current.endsWith("\n") ? current : `${current}\n`;
-      current = `${normalized}${suffix}`;
-      updatedHosted = true;
-    }
-  }
-
-  const lines = current.split(/\r?\n/);
-  // Never overwrite `[mcp_servers.orgx]` because users commonly point that at the
-  // hosted OAuth-backed MCP server (or staging). If it is missing entirely, add a
-  // default hosted entry, then add/update a separate entry for the local OpenClaw
-  // bridge instead.
-  const headerRegex =
-    /^\[mcp_servers\.(?:"orgx-openclaw"|"orgx_openclaw"|orgx-openclaw|orgx_openclaw)\]\s*$/;
+  const currentText = input.current;
+  const lines = currentText.split(/\r?\n/);
+  const escapedKey = escapeRegExp(input.key);
+  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|${escapedKey})\\]\\s*$`);
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i += 1) {
     if (headerRegex.test(lines[i].trim())) {
@@ -174,16 +213,11 @@ export function patchCodexConfigToml(input: {
     }
   }
 
-  const urlLine = `url = "${input.localMcpUrl}"`;
+  const urlLine = `url = "${input.url}"`;
 
   if (headerIndex === -1) {
-    const suffix = [
-      "",
-      "[mcp_servers.\"orgx-openclaw\"]",
-      urlLine,
-      "",
-    ].join("\n");
-    const normalized = current.endsWith("\n") ? current : `${current}\n`;
+    const suffix = ["", `[mcp_servers.\"${input.key}\"]`, urlLine, ""].join("\n");
+    const normalized = currentText.endsWith("\n") ? currentText : `${currentText}\n`;
     return { updated: true, next: `${normalized}${suffix}` };
   }
 
@@ -214,7 +248,57 @@ export function patchCodexConfigToml(input: {
     updated = true;
   }
 
-  return { updated: updatedHosted || updated, next: `${lines.join("\n")}\n` };
+  return { updated, next: `${lines.join("\n")}\n` };
+}
+
+export function patchCodexConfigToml(input: {
+  current: string;
+  localMcpUrl: string;
+}): { updated: boolean; next: string } {
+  let current = input.current;
+  let updatedHosted = false;
+
+  // If the hosted OrgX entry is missing entirely, add a sensible default. This is
+  // a no-op if the user already has `orgx` pointed at staging or another URL.
+  const hostedHeaderRegex = /^\[mcp_servers\.(?:"orgx"|orgx)\]\s*$/;
+  {
+    const lines = current.split(/\r?\n/);
+    const hasHosted = lines.some((line) => hostedHeaderRegex.test(line.trim()));
+    if (!hasHosted) {
+      const hostedUrlLine = `url = "${ORGX_HOSTED_MCP_URL}"`;
+      const suffix = [
+        ...(current.trim().length === 0 ? [] : [""]),
+        "[mcp_servers.orgx]",
+        hostedUrlLine,
+        "",
+      ].join("\n");
+      const normalized = current.endsWith("\n") ? current : `${current}\n`;
+      current = `${normalized}${suffix}`;
+      updatedHosted = true;
+    }
+  }
+
+  let updated = false;
+
+  const base = upsertCodexMcpServerSection({
+    current,
+    key: ORGX_LOCAL_MCP_KEY,
+    url: input.localMcpUrl,
+  });
+  updated = updated || base.updated;
+  current = base.next;
+
+  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
+    const next = upsertCodexMcpServerSection({
+      current,
+      key: scopedMcpServerKey(scope),
+      url: scopedMcpUrl(input.localMcpUrl, scope),
+    });
+    updated = updated || next.updated;
+    current = next.next;
+  }
+
+  return { updated: updatedHosted || updated, next: current };
 }
 
 export async function autoConfigureDetectedMcpClients(input: {
