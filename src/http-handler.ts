@@ -3426,6 +3426,9 @@ export function createHttpHandler(
     slice_id?: string | null;
     artifacts?: AutoContinueSliceArtifact[] | null;
     decisions_needed?: AutoContinueSliceDecision[] | null;
+    // Agent-driven state transitions (optional). The system only mutates status if the agent requests it.
+    task_updates?: Array<{ task_id: string; status: string; reason?: string | null }> | null;
+    milestone_updates?: Array<{ milestone_id: string; status: string; reason?: string | null }> | null;
     next_actions?: string[] | null;
   };
 
@@ -3511,6 +3514,32 @@ export function createHttpHandler(
               options: { type: ["array", "null"], items: { type: "string" } },
               blocking: { type: ["boolean", "null"] },
               summary: { type: ["string", "null"] },
+            },
+          },
+        },
+        task_updates: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["task_id", "status"],
+            properties: {
+              task_id: { type: "string", minLength: 1 },
+              status: { type: "string", minLength: 1 },
+              reason: { type: ["string", "null"] },
+            },
+          },
+        },
+        milestone_updates: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["milestone_id", "status"],
+            properties: {
+              milestone_id: { type: "string", minLength: 1 },
+              status: { type: "string", minLength: 1 },
+              reason: { type: ["string", "null"] },
             },
           },
         },
@@ -3634,6 +3663,7 @@ export function createHttpHandler(
       `- Return ONLY a single JSON object that matches the provided schema.`,
       `- Artifacts must be verifiable: include URLs or local paths when possible, plus verification steps.`,
       `- If you need a human decision, include it in decisions_needed.`,
+      `- If you are confident certain OrgX statuses should change, include task_updates and/or milestone_updates with a short reason.`,
     ].join("\n");
   }
 
@@ -4110,6 +4140,98 @@ export function createHttpHandler(
     }
   }
 
+  async function applyAgentStatusUpdatesSafe(input: {
+    initiativeId: string;
+    runId: string;
+    correlationId: string;
+    taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
+    milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
+  }): Promise<{ applied: number; buffered: boolean }> {
+    const operations: Array<Record<string, unknown>> = [];
+
+    for (const update of input.taskUpdates) {
+      const taskId = (update?.task_id ?? "").trim();
+      const status = (update?.status ?? "").trim();
+      if (!taskId || !status) continue;
+      operations.push({ op: "task.update", task_id: taskId, status });
+    }
+
+    for (const update of input.milestoneUpdates) {
+      const milestoneId = (update?.milestone_id ?? "").trim();
+      const status = (update?.status ?? "").trim();
+      if (!milestoneId || !status) continue;
+      operations.push({ op: "milestone.update", milestone_id: milestoneId, status });
+    }
+
+    if (operations.length === 0) return { applied: 0, buffered: false };
+
+    try {
+      await client.applyChangeset({
+        initiative_id: input.initiativeId,
+        run_id: input.runId,
+        correlation_id: input.correlationId,
+        source_client: "openclaw",
+        idempotency_key: idempotencyKey([
+          "openclaw",
+          "autopilot",
+          "slice_status",
+          input.initiativeId,
+          input.runId,
+        ]),
+        operations: operations as any,
+      });
+      return { applied: operations.length, buffered: false };
+    } catch (err: unknown) {
+      const timestamp = new Date().toISOString();
+      const activityItem: LiveActivityItem = {
+        id: randomUUID(),
+        type: "run_started",
+        title: `Buffered status updates for slice ${input.runId}`,
+        description: null,
+        agentId: null,
+        agentName: null,
+        runId: input.runId,
+        initiativeId: input.initiativeId,
+        timestamp,
+        phase: "review",
+        summary: `Will apply ${operations.length} status update(s) when connected.`,
+        metadata: {
+          source: "openclaw_local_fallback",
+          event: "autopilot_slice_status_updates_buffered",
+          error: safeErrorMessage(err),
+        },
+      };
+
+      try {
+        await appendToOutbox(input.initiativeId, {
+          id: randomUUID(),
+          type: "changeset",
+          timestamp,
+          payload: {
+            initiative_id: input.initiativeId,
+            run_id: input.runId,
+            correlation_id: input.correlationId,
+            source_client: "openclaw",
+            idempotency_key: idempotencyKey([
+              "openclaw",
+              "autopilot",
+              "slice_status",
+              input.initiativeId,
+              input.runId,
+              "outbox",
+            ]),
+            operations,
+          },
+          activityItem,
+        });
+      } catch {
+        // best effort
+      }
+
+      return { applied: operations.length, buffered: true };
+    }
+  }
+
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
     if (run.status !== "running" && run.status !== "stopping") return;
 
@@ -4239,6 +4361,13 @@ export function createHttpHandler(
               )
           : [];
 
+        const taskUpdates = Array.isArray((parsed as any)?.task_updates)
+          ? ((parsed as any).task_updates as Array<{ task_id: string; status: string; reason?: string | null }>)
+          : [];
+        const milestoneUpdates = Array.isArray((parsed as any)?.milestone_updates)
+          ? ((parsed as any).milestone_updates as Array<{ milestone_id: string; status: string; reason?: string | null }>)
+          : [];
+
         for (const decision of decisions) {
           await requestDecisionSafe({
             initiativeId: run.initiativeId,
@@ -4263,6 +4392,14 @@ export function createHttpHandler(
           });
         }
 
+        const statusUpdateResult = await applyAgentStatusUpdatesSafe({
+          initiativeId: run.initiativeId,
+          runId: slice.runId,
+          correlationId: slice.runId,
+          taskUpdates,
+          milestoneUpdates,
+        });
+
         try {
           writeRuntimeEvent({
             sourceClient: "codex",
@@ -4279,6 +4416,8 @@ export function createHttpHandler(
               status: parsedStatus,
               artifacts: artifacts.length,
               decisions: decisions.length,
+              status_updates: statusUpdateResult.applied,
+              status_updates_buffered: statusUpdateResult.buffered,
             },
           });
         } catch {
