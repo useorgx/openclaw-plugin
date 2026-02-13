@@ -22,6 +22,7 @@ import type {
   ChangesetOperation,
 } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
+import { applyOrgxAgentSuitePlan, computeOrgxAgentSuitePlan } from "./agent-suite.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -338,6 +339,7 @@ function resolveConfig(
     baseUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
     enabled: pluginConf.enabled ?? true,
+    autoInstallAgentSuiteOnConnect: pluginConf.autoInstallAgentSuiteOnConnect ?? true,
     dashboardEnabled: pluginConf.dashboardEnabled ?? true,
     installationId: input.installationId,
     pluginVersion: resolvePluginVersion(),
@@ -2100,6 +2102,56 @@ export default function register(api: PluginAPI): void {
           }
         } catch {
           // best effort
+        }
+
+        // Best-effort: provision/update the OrgX agent suite after we've verified a working connection.
+        // This makes domain agents available immediately for launches without requiring a manual install.
+        try {
+          if (config.autoInstallAgentSuiteOnConnect !== false) {
+            const state = readSkillPackState();
+            const updateAvailable = Boolean(
+              state.remote?.checksum &&
+                state.pack?.checksum &&
+                state.remote.checksum !== state.pack.checksum
+            );
+            const plan = computeOrgxAgentSuitePlan({
+              packVersion: config.pluginVersion || "0.0.0",
+              skillPack: state.overrides,
+              skillPackRemote: state.remote,
+              skillPackPolicy: state.policy,
+              skillPackUpdateAvailable: updateAvailable,
+            });
+            const hasConflicts = (plan.workspaceFiles ?? []).some((f) => f.action === "conflict");
+            const hasWork =
+              Boolean(plan.openclawConfigWouldUpdate) ||
+              (plan.workspaceFiles ?? []).some((f) => f.action !== "noop");
+
+            if (hasWork && !hasConflicts) {
+              const applied = applyOrgxAgentSuitePlan({
+                plan,
+                dryRun: false,
+                skillPack: state.overrides,
+              });
+              void applied;
+              void posthogCapture({
+                event: "openclaw_agent_suite_auto_install",
+                distinctId: config.installationId,
+                properties: {
+                  plugin_version: (config.pluginVersion ?? "").trim() || null,
+                  skill_pack_source: plan.skillPack?.source ?? null,
+                  skill_pack_checksum: plan.skillPack?.checksum ?? null,
+                  skill_pack_version: plan.skillPack?.version ?? null,
+                  openclaw_config_updated: Boolean(plan.openclawConfigWouldUpdate),
+                },
+              }).catch(() => {
+                // best effort
+              });
+            }
+          }
+        } catch (err: unknown) {
+          api.log?.debug?.("[orgx] Agent suite auto-provision skipped/failed (best effort)", {
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
 
         updateOnboardingState({

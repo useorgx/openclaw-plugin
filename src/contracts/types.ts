@@ -20,6 +20,14 @@ export interface OrgXConfig {
   syncIntervalMs: number;
   /** Plugin enabled */
   enabled: boolean;
+  /**
+   * When true (default), provision/update the OrgX agent suite automatically
+   * after a successful connection/sync.
+   *
+   * Safe by default: provisioning uses managed/local overlays and skips files
+   * that appear to have out-of-band edits ("conflict").
+   */
+  autoInstallAgentSuiteOnConnect?: boolean;
 }
 
 export type OnboardingStatus =
