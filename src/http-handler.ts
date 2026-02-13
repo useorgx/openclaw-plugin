@@ -5194,6 +5194,9 @@ export function createHttpHandler(
       const isMissionControlAutoContinueStopRoute =
         route === "mission-control/auto-continue/stop";
       const isEntitiesRoute = route === "entities";
+      const entityCommentsMatch = route.match(
+        /^entities\/([^/]+)\/([^/]+)\/comments$/
+      );
       const entityActionMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/([^/]+)$/
       );
@@ -6485,6 +6488,35 @@ export function createHttpHandler(
         return true;
       }
 
+      // Entity comments route: GET/POST /orgx/api/entities/{type}/{id}/comments
+      if (entityCommentsMatch && (method === "GET" || method === "POST")) {
+        try {
+          const entityType = decodeURIComponent(entityCommentsMatch[1]);
+          const entityId = decodeURIComponent(entityCommentsMatch[2]);
+          if (!entityType || !entityId) {
+            sendJson(res, 400, {
+              ok: false,
+              error: "entity type and id are required",
+            });
+            return true;
+          }
+
+          const path = `/api/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/comments`;
+          if (method === "GET") {
+            const data = await client.rawRequest("GET", path);
+            sendJson(res, 200, data);
+            return true;
+          }
+
+          const payload = await parseJsonRequest(req);
+          const data = await client.rawRequest("POST", path, payload);
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
       // Entity action / delete route: POST /orgx/api/entities/{type}/{id}/{action}
       if (entityActionMatch && method === "POST") {
         try {
@@ -6597,6 +6629,7 @@ export function createHttpHandler(
         !(isMissionControlNextUpReorderRoute && method === "POST") &&
         !(isEntitiesRoute && method === "POST") &&
         !(isEntitiesRoute && method === "PATCH") &&
+        !(entityCommentsMatch && method === "POST") &&
         !(entityActionMatch && method === "POST") &&
         !(isOnboardingStartRoute && method === "POST") &&
         !(isOnboardingManualKeyRoute && method === "POST") &&

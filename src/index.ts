@@ -26,7 +26,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   clearPersistedApiKey,
   loadAuthStore,
@@ -755,6 +755,10 @@ export default function register(api: PluginAPI): void {
   function toErrorMessage(err: unknown): string {
     if (err instanceof Error) return err.message;
     return typeof err === "string" ? err : "Unexpected error";
+  }
+
+  function stableHash(value: string): string {
+    return createHash("sha256").update(value).digest("hex");
   }
 
   function isAuthFailure(err: unknown): boolean {
@@ -1711,13 +1715,31 @@ export default function register(api: PluginAPI): void {
       if (!context.ok) {
         throw new Error(context.error);
       }
+
+      // Payloads should include a stable idempotency_key when enqueued, but older
+      // events may not. Derive a deterministic fallback so outbox replay won't
+      // double-create the same remote decision.
+      const fallbackKey = stableHash(
+        JSON.stringify({
+          t: "decision",
+          initiative_id: context.value.initiativeId,
+          run_id: context.value.runId ?? null,
+          correlation_id: context.value.correlationId ?? null,
+          question,
+        })
+      ).slice(0, 24);
+
+      const resolvedIdempotencyKey =
+        pickStringField(payload, "idempotency_key") ??
+        pickStringField(payload, "idempotencyKey") ??
+        `openclaw:decision:${fallbackKey}`;
+
       await client.applyChangeset({
         initiative_id: context.value.initiativeId,
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
         source_client: context.value.sourceClient,
-        idempotency_key:
-          pickStringField(payload, "idempotency_key") ?? `decision:${event.id}`,
+        idempotency_key: resolvedIdempotencyKey,
         operations: [
           {
             op: "decision.create",
@@ -1754,13 +1776,30 @@ export default function register(api: PluginAPI): void {
         return;
       }
 
+      // Payloads should include a stable idempotency_key when enqueued, but older
+      // events may not. Derive a deterministic fallback so outbox replay won't
+      // double-create the same remote change.
+      const fallbackKey = stableHash(
+        JSON.stringify({
+          t: "changeset",
+          initiative_id: context.value.initiativeId,
+          run_id: context.value.runId ?? null,
+          correlation_id: context.value.correlationId ?? null,
+          operations,
+        })
+      ).slice(0, 24);
+
+      const resolvedIdempotencyKey =
+        pickStringField(payload, "idempotency_key") ??
+        pickStringField(payload, "idempotencyKey") ??
+        `openclaw:changeset:${fallbackKey}`;
+
       await client.applyChangeset({
         initiative_id: context.value.initiativeId,
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
         source_client: context.value.sourceClient,
-        idempotency_key:
-          pickStringField(payload, "idempotency_key") ?? `changeset:${event.id}`,
+        idempotency_key: resolvedIdempotencyKey,
         operations,
       });
       return;
