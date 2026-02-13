@@ -8,6 +8,38 @@ import { join } from "node:path";
 import { createHttpHandler } from "../dist/http-handler.js";
 import { computeOrgxAgentSuitePlan, applyOrgxAgentSuitePlan } from "../dist/agent-suite.js";
 
+async function maybeFetchRealKickoffContext(scope) {
+  const enabled = String(process.env.ORGX_E2E_USE_REAL_SERVER ?? "").trim() === "1";
+  if (!enabled) return null;
+
+  const apiKey = String(process.env.ORGX_API_KEY ?? "").trim();
+  if (!apiKey) {
+    throw new Error("ORGX_E2E_USE_REAL_SERVER=1 requires ORGX_API_KEY to be set");
+  }
+
+  const baseUrl = String(process.env.ORGX_BASE_URL ?? "https://www.useorgx.com").trim().replace(/\/+$/, "");
+
+  const response = await fetch(`${baseUrl}/api/client/kickoff-context`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(scope ?? {}),
+  });
+
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail =
+      json && typeof json === "object" && typeof json.error === "string"
+        ? json.error
+        : `${response.status} ${response.statusText}`;
+    throw new Error(`Real kickoff-context fetch failed: ${detail}`);
+  }
+
+  return json;
+}
+
 function createStubResponse() {
   const res = {
     status: null,
@@ -103,6 +135,14 @@ async function runOnce(runIndex) {
     tool_scope: { allow: ["orgx_sync"], deny: ["rm -rf"] },
   };
 
+  const realKickoffContext = await maybeFetchRealKickoffContext({
+    initiative_id: "init-1",
+    workstream_id: "ws-1",
+    task_id: "task-1",
+    domain: "engineering",
+    agent_id: "orgx-engineering-agent",
+  });
+
   const client = {
     getBaseUrl: () => config.baseUrl,
     getBillingStatus: async () => ({ plan: "starter", hasSubscription: true, subscriptionStatus: "active", subscriptionCurrentPeriodEnd: null }),
@@ -113,6 +153,7 @@ async function runOnce(runIndex) {
     rawRequest: async (method, path) => {
       assert.equal(method, "POST");
       assert.equal(path, "/api/client/kickoff-context");
+      if (realKickoffContext) return realKickoffContext;
       return { ok: true, data: kickoff };
     },
   };
@@ -166,4 +207,3 @@ main().catch((err) => {
   console.error(`[e2e] failed: ${message}`);
   process.exit(1);
 });
-
