@@ -302,6 +302,17 @@ export interface AgentSuitePlan {
     etag?: string | null;
     updated_at?: string | null;
   } | null;
+  skillPackRemote?: {
+    name: string;
+    version: string;
+    checksum: string;
+    updated_at?: string | null;
+  } | null;
+  skillPackPolicy?: {
+    frozen: boolean;
+    pinnedChecksum: string | null;
+  } | null;
+  skillPackUpdateAvailable?: boolean;
   agents: AgentSuiteAgent[];
   openclawConfigWouldUpdate: boolean;
   openclawConfigAddedAgents: string[];

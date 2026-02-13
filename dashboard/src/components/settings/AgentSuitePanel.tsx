@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useAgentSuite } from '@/hooks/useAgentSuite';
+import { buildOrgxHeaders } from '@/lib/http';
 
 function pluralize(count: number, noun: string): string {
   return count === 1 ? `${count} ${noun}` : `${count} ${noun}s`;
@@ -71,6 +72,20 @@ export function AgentSuitePanel({
   const lastInstall = suite.installResult?.ok ? suite.installResult : null;
   const isDryRun = Boolean(lastInstall?.dryRun);
 
+  const updateSkillPackPolicy = async (body: Record<string, unknown>) => {
+    await fetch('/orgx/api/skill-pack/policy', {
+      method: 'POST',
+      headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+      body: JSON.stringify(body),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error((payload as any)?.error ?? `Failed to update policy (${res.status})`);
+      }
+    });
+    await suite.refetchStatus();
+  };
+
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -132,6 +147,8 @@ export function AgentSuitePanel({
             <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
             <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>{changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}</Tag>
             {conflictFiles > 0 && <Tag tone="warn">{pluralize(conflictFiles, 'conflict')}</Tag>}
+            {plan.skillPackUpdateAvailable && <Tag tone="warn">skill update available</Tag>}
+            {plan.skillPackPolicy?.frozen && <Tag tone="neutral">skills frozen</Tag>}
           </>
         )}
       </div>
@@ -187,6 +204,52 @@ export function AgentSuitePanel({
                         : 'builtin'}
                     </code>
                   </div>
+                  {plan.skillPackRemote && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Skill pack remote</span>
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                        {plan.skillPackRemote.name}@{plan.skillPackRemote.version}
+                      </code>
+                    </div>
+                  )}
+                  {plan.skillPackPolicy && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Skill pack policy</span>
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                        {plan.skillPackPolicy.frozen ? 'frozen' : 'live'}
+                        {plan.skillPackPolicy.pinnedChecksum ? `, pinned:${plan.skillPackPolicy.pinnedChecksum.slice(0, 8)}…` : ''}
+                      </code>
+                    </div>
+                  )}
+                  {plan.skillPackPolicy && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void updateSkillPackPolicy({ frozen: !plan.skillPackPolicy?.frozen });
+                        }}
+                        className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+                      >
+                        {plan.skillPackPolicy.frozen ? 'Unfreeze skills' : 'Freeze skills'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (plan.skillPackPolicy?.pinnedChecksum) {
+                            void updateSkillPackPolicy({ clearPin: true });
+                          } else {
+                            void updateSkillPackPolicy({ pinToCurrent: true });
+                          }
+                        }}
+                        className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06]"
+                      >
+                        {plan.skillPackPolicy.pinnedChecksum ? 'Unpin' : 'Pin current'}
+                      </button>
+                      <p className="text-[11px] text-white/40">
+                        Freeze prevents background checks; pin prevents applying a new checksum.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
