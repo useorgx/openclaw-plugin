@@ -220,6 +220,8 @@ export const DecisionQueue = memo(function DecisionQueue({
 
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
+  const allEnabled = sorted.length > 0 && !isApprovingAll;
+  const selectedEnabled = selectedCount > 0 && !isApprovingAll;
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -230,28 +232,34 @@ export const DecisionQueue = memo(function DecisionQueue({
         onApprove={handleApproveFromDetail}
       />
       <div className="space-y-2 border-b border-white/[0.06] px-4 py-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <h2 className="inline-flex items-center gap-2 text-[14px] font-semibold text-white">
               <EntityIcon type="decision" size={14} />
               Decisions
             </h2>
-            <p className="text-[12px] text-white/45">
+            <p className="hidden text-[12px] text-white/45 sm:block">
               Select multiple items to bulk review and approve
             </p>
           </div>
 
           <button
             onClick={handleApproveAll}
-            disabled={sorted.length === 0 || isApprovingAll}
-            className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors"
-            style={{
-              backgroundColor:
-                sorted.length === 0 || isApprovingAll ? 'rgba(255,255,255,0.08)' : colors.lime,
-              color: sorted.length === 0 || isApprovingAll ? 'rgba(255,255,255,0.45)' : '#000',
-            }}
+            disabled={!allEnabled}
+            data-state={allEnabled ? 'active' : 'idle'}
+            className="control-pill flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
           >
-            {isApprovingAll ? 'Approving…' : `Approve all (${sorted.length})`}
+            {isApprovingAll ? (
+              'Approving…'
+            ) : (
+              <>
+                <span className="hidden sm:inline">Approve all</span>
+                <span className="sm:hidden">Approve</span>
+                <span className="inline-flex h-5 items-center rounded-full border border-white/[0.16] bg-white/[0.04] px-2 text-[10px] text-white/70 tabular-nums">
+                  {sorted.length}
+                </span>
+              </>
+            )}
           </button>
         </div>
 
@@ -259,16 +267,27 @@ export const DecisionQueue = memo(function DecisionQueue({
           <button
             onClick={toggleSelectAll}
             disabled={sorted.length === 0 || isApprovingAll}
-            className="rounded-md border border-white/[0.12] bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/70 transition-colors hover:bg-white/[0.07] disabled:opacity-45"
+            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
           >
             {allVisibleSelected ? 'Clear all' : 'Select all'}
           </button>
           <button
             onClick={handleApproveSelected}
-            disabled={selectedCount === 0 || isApprovingAll}
-            className="rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1.5 text-[11px] font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            disabled={!selectedEnabled}
+            data-state={selectedEnabled ? 'active' : 'idle'}
+            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
           >
-            {isApprovingAll ? 'Approving…' : `Approve selected (${selectedCount})`}
+            {isApprovingAll ? (
+              'Approving…'
+            ) : (
+              <>
+                <span className="hidden sm:inline">Approve selected</span>
+                <span className="sm:hidden">Approve sel.</span>
+                <span className="inline-flex h-5 items-center rounded-full border border-white/[0.16] bg-white/[0.04] px-2 text-[10px] text-white/70 tabular-nums">
+                  {selectedCount}
+                </span>
+              </>
+            )}
           </button>
           <span className="text-[11px] text-white/45">
             {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}

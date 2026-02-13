@@ -1177,101 +1177,107 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         </div>
       )}
       <div className="border-b border-white/[0.06] px-4 py-3.5">
-        <div className="toolbar-shell flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 className="text-[14px] font-semibold text-white">Activity</h2>
-            <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75">
-              {filteredTotal}
-            </span>
-            {hiddenCount > 0 && (
-              <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55">
-                +{hiddenCount} hidden
+        <div className="toolbar-shell flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-[14px] font-semibold text-white">Activity</h2>
+              <span className="rounded-full border border-white/[0.14] bg-white/[0.05] px-2 py-0.5 text-[10px] text-white/75 tabular-nums">
+                {filteredTotal}
               </span>
-            )}
-            {timeWindow.id !== 'all' && (
-              <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
-                {timeWindow.label}
-              </span>
-            )}
-            <span
-              className={cn('h-1.5 w-1.5 rounded-full', isLive && 'pulse-soft')}
-              style={{ backgroundColor: colors.lime }}
-              aria-label="Live"
-              title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
-            />
+              {hiddenCount > 0 && (
+                <span className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/55 tabular-nums">
+                  +{hiddenCount} hidden
+                </span>
+              )}
+              {timeWindow.id !== 'all' && (
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/55">
+                  {timeWindow.label}
+                </span>
+              )}
+              <span
+                className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
+                style={{ backgroundColor: colors.lime }}
+                aria-label="Live"
+                title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
+              />
+            </div>
 
-            {hasSessionFilter && (
+            <div className="flex flex-shrink-0 items-center gap-2">
               <button
-                onClick={onClearSelection}
-                className="chip inline-flex min-w-0 items-center gap-2"
-                aria-label="Clear session filter"
+                type="button"
+                onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
+                className="control-pill px-3 text-[11px] font-medium"
+                aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
               >
-                <AgentAvatar
-                  name={filteredSession?.agentName ?? 'OrgX'}
-                  hint={selectedSessionLabel ?? null}
-                  size="xs"
-                />
-                <span className="min-w-0 truncate">
-                  Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
-                </span>
-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
-                  ×
-                </span>
+                {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
               </button>
-            )}
-            {selectedWorkstreamId && (
               <button
-                onClick={onClearWorkstreamFilter}
-                className="chip inline-flex min-w-0 items-center gap-2"
-                style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
-                aria-label="Clear workstream filter"
+                type="button"
+                onClick={() => setCollapsed((prev) => !prev)}
+                data-state={collapsed ? 'active' : 'idle'}
+                className="control-pill px-3 text-[11px] font-medium"
+                aria-pressed={collapsed}
               >
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
-                  ↳
-                </span>
-                <span className="min-w-0 truncate">
-                  Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
-                </span>
-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
-                  ×
-                </span>
+                {collapsed ? 'Expand' : 'Compact'}
               </button>
-            )}
-            {agentFilter && (
-              <button
-                onClick={onClearAgentFilter}
-                className="chip inline-flex min-w-0 items-center gap-2"
-                style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
-                aria-label="Clear agent filter"
-              >
-                <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
-                <span className="min-w-0 truncate">Agent: {agentFilter}</span>
-                <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
-                  ×
-                </span>
-              </button>
-            )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-              className="control-pill px-3 text-[11px] font-medium"
-              aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
-            >
-              {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCollapsed((prev) => !prev)}
-              data-state={collapsed ? 'active' : 'idle'}
-              className="control-pill px-3 text-[11px] font-medium"
-              aria-pressed={collapsed}
-            >
-              {collapsed ? 'Expand' : 'Compact'}
-            </button>
-          </div>
+          {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {hasSessionFilter && (
+                <button
+                  onClick={onClearSelection}
+                  className="chip inline-flex min-w-0 items-center gap-2"
+                  aria-label="Clear session filter"
+                >
+                  <AgentAvatar
+                    name={filteredSession?.agentName ?? 'OrgX'}
+                    hint={selectedSessionLabel ?? null}
+                    size="xs"
+                  />
+                  <span className="min-w-0 truncate">
+                    Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+                  </span>
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                    ×
+                  </span>
+                </button>
+              )}
+              {selectedWorkstreamId && (
+                <button
+                  onClick={onClearWorkstreamFilter}
+                  className="chip inline-flex min-w-0 items-center gap-2"
+                  style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
+                  aria-label="Clear workstream filter"
+                >
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px]">
+                    ↳
+                  </span>
+                  <span className="min-w-0 truncate">
+                    Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
+                  </span>
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                    ×
+                  </span>
+                </button>
+              )}
+              {agentFilter && (
+                <button
+                  onClick={onClearAgentFilter}
+                  className="chip inline-flex min-w-0 items-center gap-2"
+                  style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
+                  aria-label="Clear agent filter"
+                >
+                  <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                  <span className="min-w-0 truncate">Agent: {agentFilter}</span>
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.04] text-[10px] text-white/60">
+                    ×
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {typeSummary.length > 0 && (
