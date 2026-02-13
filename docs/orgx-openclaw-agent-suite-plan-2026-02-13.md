@@ -99,6 +99,7 @@ Define a strict, versioned agent profile contract. At minimum:
    - tool scope policy: allowlist per domain (default deny)
    - reporting contract (two-tool contract: append-only activity + transactional changesets)
    - decision escalation rules (when to block vs continue)
+   - implementation note (this repo): local MCP supports scoped endpoints `/orgx/mcp/<domain>` which filter tools by allowlist; `mcp-client-setup.ts` auto-config installs `orgx-openclaw-<domain>` server keys.
 
 5. **Models + budgets**
    - model tier routing (opus/sonnet/local) driven by OrgX spawn guard

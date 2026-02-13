@@ -66,6 +66,30 @@ export const ThreadView = memo(function ThreadView({
     return `${(diffMs / 3600_000).toFixed(1)}h`;
   }, [sorted]);
 
+  const provenance = useMemo(() => {
+    let domain: string | null = null;
+    let provider: string | null = null;
+    let model: string | null = null;
+    let modelTier: string | null = null;
+    let kickoffContextHash: string | null = null;
+
+    for (const item of sorted) {
+      const md = item.metadata as Record<string, unknown> | undefined;
+      if (!md) continue;
+      if (!domain && typeof md.domain === 'string') domain = md.domain;
+      if (!provider && typeof md.provider === 'string') provider = md.provider;
+      if (!model && typeof md.model === 'string') model = md.model;
+      if (!modelTier && typeof md.spawn_guard_model_tier === 'string') modelTier = md.spawn_guard_model_tier;
+      if (!kickoffContextHash && typeof md.kickoff_context_hash === 'string') kickoffContextHash = md.kickoff_context_hash;
+      if (domain && (provider || model) && modelTier && kickoffContextHash) break;
+    }
+
+    const hasAny = Boolean(domain || provider || model || modelTier || kickoffContextHash);
+    if (!hasAny) return null;
+
+    return { domain, provider, model, modelTier, kickoffContextHash };
+  }, [sorted]);
+
   const sessionTitle = session?.title ?? agentName ?? 'Session';
 
   return (
@@ -115,6 +139,27 @@ export const ThreadView = memo(function ThreadView({
           {duration && <span>{duration}</span>}
           {cost && (
             <span className="text-white/35">{cost}</span>
+          )}
+          {provenance?.domain && (
+            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+              {humanizeText(provenance.domain)}
+            </span>
+          )}
+          {(provenance?.provider || provenance?.model) && (
+            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+              {provenance.provider ? `${humanizeText(provenance.provider)} · ` : ''}
+              {provenance.model ? humanizeModel(provenance.model) : '—'}
+            </span>
+          )}
+          {provenance?.modelTier && (
+            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-white/65">
+              tier: {humanizeText(provenance.modelTier)}
+            </span>
+          )}
+          {provenance?.kickoffContextHash && (
+            <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 font-mono text-white/55">
+              kickoff {provenance.kickoffContextHash.slice(0, 8)}…
+            </span>
           )}
           {session?.status && (
             <span

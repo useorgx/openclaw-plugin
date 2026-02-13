@@ -421,6 +421,83 @@ type ArtifactPayload = {
   value: unknown;
 };
 
+type ProvenanceDetail = {
+  pluginVersion: string | null;
+  skillPack: { name: string | null; version: string | null; checksum: string | null; source: string | null } | null;
+  kickoffContextHash: string | null;
+  kickoffContextSource: string | null;
+  modelTier: string | null;
+  provider: string | null;
+  model: string | null;
+  domain: string | null;
+  requiredSkills: string[];
+};
+
+function extractProvenance(metadata: Record<string, unknown> | undefined): ProvenanceDetail | null {
+  if (!metadata) return null;
+  const nested = metadata.orgx_provenance;
+  const nestedRecord =
+    nested && typeof nested === 'object' && !Array.isArray(nested) ? (nested as Record<string, unknown>) : null;
+  const nestedSkill =
+    nestedRecord?.skill_pack && typeof nestedRecord.skill_pack === 'object' && !Array.isArray(nestedRecord.skill_pack)
+      ? (nestedRecord.skill_pack as Record<string, unknown>)
+      : null;
+
+  const pluginVersion =
+    (typeof metadata.orgx_plugin_version === 'string' ? metadata.orgx_plugin_version : null) ??
+    (typeof nestedRecord?.plugin_version === 'string' ? (nestedRecord.plugin_version as string) : null);
+
+  const skillPackName =
+    (typeof metadata.skill_pack_name === 'string' ? metadata.skill_pack_name : null) ??
+    (typeof nestedSkill?.name === 'string' ? (nestedSkill.name as string) : null);
+  const skillPackVersion =
+    (typeof metadata.skill_pack_version === 'string' ? metadata.skill_pack_version : null) ??
+    (typeof nestedSkill?.version === 'string' ? (nestedSkill.version as string) : null);
+  const skillPackChecksum =
+    (typeof metadata.skill_pack_checksum === 'string' ? metadata.skill_pack_checksum : null) ??
+    (typeof nestedSkill?.checksum === 'string' ? (nestedSkill.checksum as string) : null);
+  const skillPackSource =
+    (typeof metadata.skill_pack_source === 'string' ? metadata.skill_pack_source : null) ??
+    (typeof nestedSkill?.source === 'string' ? (nestedSkill.source as string) : null);
+
+  const kickoffContextHash =
+    typeof metadata.kickoff_context_hash === 'string' ? metadata.kickoff_context_hash : null;
+  const kickoffContextSource =
+    typeof metadata.kickoff_context_source === 'string' ? metadata.kickoff_context_source : null;
+  const modelTier = typeof metadata.spawn_guard_model_tier === 'string' ? metadata.spawn_guard_model_tier : null;
+  const provider = typeof metadata.provider === 'string' ? metadata.provider : null;
+  const model = typeof metadata.model === 'string' ? metadata.model : null;
+  const domain = typeof metadata.domain === 'string' ? metadata.domain : null;
+
+  const requiredSkillsRaw = metadata.required_skills ?? metadata.requiredSkills;
+  const requiredSkills = Array.isArray(requiredSkillsRaw)
+    ? requiredSkillsRaw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+
+  const hasAny =
+    Boolean(pluginVersion) ||
+    Boolean(skillPackName || skillPackVersion || skillPackChecksum) ||
+    Boolean(kickoffContextHash) ||
+    Boolean(modelTier || provider || model || domain) ||
+    requiredSkills.length > 0;
+
+  if (!hasAny) return null;
+
+  return {
+    pluginVersion,
+    skillPack: skillPackName || skillPackVersion || skillPackChecksum || skillPackSource
+      ? { name: skillPackName, version: skillPackVersion, checksum: skillPackChecksum, source: skillPackSource }
+      : null,
+    kickoffContextHash,
+    kickoffContextSource,
+    modelTier,
+    provider,
+    model,
+    domain,
+    requiredSkills,
+  };
+}
+
 function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload | null {
   if (!item) return null;
   const metadata = item.metadata as Record<string, unknown> | undefined;
@@ -936,6 +1013,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
   const activeAutopilotSlice = useMemo(
     () => extractAutopilotSliceDetail(activeDecorated?.item ?? null),
+    [activeDecorated]
+  );
+  const activeProvenance = useMemo(
+    () => extractProvenance((activeDecorated?.item.metadata as Record<string, unknown> | undefined) ?? undefined),
     [activeDecorated]
   );
   const activeMetadataJson = useMemo(
@@ -1896,6 +1977,97 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             {activeAutopilotSlice.error}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {activeProvenance && (
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                        <p className="text-[11px] uppercase tracking-[0.11em] text-white/45">
+                          Provenance
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {activeProvenance.domain && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Domain</div>
+                              <div className="mt-1 text-[13px] text-white/80">{humanizeText(activeProvenance.domain)}</div>
+                            </div>
+                          )}
+                          {(activeProvenance.provider || activeProvenance.model) && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Model</div>
+                              <div className="mt-1 text-[13px] text-white/80">
+                                {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
+                                {activeProvenance.model ? humanizeModel(activeProvenance.model) : '—'}
+                              </div>
+                            </div>
+                          )}
+                          {activeProvenance.modelTier && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Model tier</div>
+                              <div className="mt-1 text-[13px] text-white/80">{humanizeText(activeProvenance.modelTier)}</div>
+                            </div>
+                          )}
+                          {activeProvenance.pluginVersion && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Plugin</div>
+                              <div className="mt-1 text-[13px] text-white/80">v{activeProvenance.pluginVersion}</div>
+                            </div>
+                          )}
+                          {activeProvenance.skillPack && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Skill pack</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-white/80">
+                                <span>
+                                  {activeProvenance.skillPack.name ?? '—'}
+                                  {activeProvenance.skillPack.version ? `@${activeProvenance.skillPack.version}` : ''}
+                                  {activeProvenance.skillPack.source ? ` · ${activeProvenance.skillPack.source}` : ''}
+                                </span>
+                                {activeProvenance.skillPack.checksum && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText('Skill pack checksum', activeProvenance.skillPack?.checksum ?? '')}
+                                    className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                  >
+                                    sha {activeProvenance.skillPack.checksum.slice(0, 12)}…
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {activeProvenance.kickoffContextHash && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Kickoff context</div>
+                                <button
+                                  type="button"
+                                  onClick={() => void copyText('Kickoff context hash', activeProvenance.kickoffContextHash ?? '')}
+                                  className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.1]"
+                                >
+                                  Copy hash
+                                </button>
+                              </div>
+                              <div className="mt-1 text-[13px] text-white/80">
+                                {activeProvenance.kickoffContextSource ? `${activeProvenance.kickoffContextSource} · ` : ''}
+                                <span className="font-mono text-[12px] text-white/70">{activeProvenance.kickoffContextHash}</span>
+                              </div>
+                            </div>
+                          )}
+                          {activeProvenance.requiredSkills.length > 0 && (
+                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
+                              <div className="text-[10px] uppercase tracking-[0.1em] text-white/45">Required skills</div>
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                {activeProvenance.requiredSkills.map((skill) => (
+                                  <span
+                                    key={skill}
+                                    className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/65"
+                                  >
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
