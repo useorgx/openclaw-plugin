@@ -22,6 +22,7 @@ import {
   mkdirSync,
   chmodSync,
   createWriteStream,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
@@ -3003,8 +3004,66 @@ export function createHttpHandler(
           },
         ],
       });
-    } catch {
-      // best effort
+    } catch (err: unknown) {
+      const timestamp = new Date().toISOString();
+      const correlationId = input.correlationId?.trim() || undefined;
+      const operations = [
+        {
+          op: "decision.create",
+          title,
+          summary: input.summary ?? undefined,
+          urgency: input.urgency ?? "high",
+          options: input.options ?? [],
+          blocking: input.blocking ?? true,
+        },
+      ];
+
+      const activityItem: LiveActivityItem = {
+        id: randomUUID(),
+        type: "decision_requested",
+        title,
+        description: input.summary ?? null,
+        agentId: null,
+        agentName: null,
+        runId: correlationId ?? null,
+        initiativeId,
+        timestamp,
+        phase: "review",
+        summary: input.summary ?? null,
+        metadata: {
+          source: "openclaw_local_fallback",
+          event: "decision_buffered",
+          urgency: input.urgency ?? "high",
+          blocking: input.blocking ?? true,
+          options: input.options ?? [],
+          error: safeErrorMessage(err),
+        },
+      };
+
+      try {
+        await appendToOutbox(initiativeId, {
+          id: randomUUID(),
+          type: "changeset",
+          timestamp,
+          payload: {
+            initiative_id: initiativeId,
+            correlation_id: correlationId,
+            source_client: "openclaw",
+            idempotency_key: idempotencyKey([
+              "openclaw",
+              "decision",
+              initiativeId,
+              title,
+              input.correlationId ?? null,
+              "outbox",
+            ]),
+            operations,
+          },
+          activityItem,
+        });
+      } catch {
+        // best effort
+      }
     }
   }
 
@@ -3488,41 +3547,32 @@ export function createHttpHandler(
   // Important: we do NOT auto-mark OrgX tasks/initiatives as done.
   // ---------------------------------------------------------------------------
 
-  type AutoContinueSliceEngine = "codex" | "claude-code";
   type AutoContinueSliceStatus = "running" | "completed" | "blocked" | "error";
-
+  type AutoContinueSliceDecision = {
+    question: string;
+    summary?: string | null;
+    options?: string[] | null;
+    urgency?: "low" | "medium" | "high" | "urgent";
+    blocking?: boolean | null;
+  };
   type AutoContinueSliceArtifact = {
     name: string;
-    artifact_type: "pr" | "commit" | "document" | "config" | "report" | "design" | "other";
+    artifact_type?: string | null;
     description?: string | null;
     url?: string | null;
     verification_steps?: string[] | null;
     milestone_id?: string | null;
     task_ids?: string[] | null;
   };
-
-  type AutoContinueSliceDecision = {
-    question: string;
-    urgency?: "low" | "medium" | "high" | "urgent";
-    options?: string[] | null;
-    blocking?: boolean | null;
-    summary?: string | null;
-  };
-
   type AutoContinueSliceResult = {
     status: "completed" | "blocked" | "needs_decision" | "error";
     summary: string;
-    workstream_id: string;
-    workstream_title?: string | null;
-    slice_id?: string | null;
     artifacts?: AutoContinueSliceArtifact[] | null;
     decisions_needed?: AutoContinueSliceDecision[] | null;
-    // Agent-driven state transitions (optional). The system only mutates status if the agent requests it.
     task_updates?: Array<{ task_id: string; status: string; reason?: string | null }> | null;
     milestone_updates?: Array<{ milestone_id: string; status: string; reason?: string | null }> | null;
     next_actions?: string[] | null;
   };
-
   type AutoContinueSliceRun = {
     runId: string;
     initiativeId: string;
@@ -3530,7 +3580,9 @@ export function createHttpHandler(
     workstreamId: string;
     workstreamTitle: string | null;
     agentId: string;
-    engine: AutoContinueSliceEngine;
+    agentName: string | null;
+    domain: string;
+    requiredSkills: string[];
     pid: number | null;
     status: AutoContinueSliceStatus;
     startedAt: string;
@@ -3546,271 +3598,11 @@ export function createHttpHandler(
 
   const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
   const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
-  const AUTO_CONTINUE_SLICE_MAX_TASKS = 4;
-  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 10 * 60_000; // 10 minutes per slice hard cap
+  const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
+  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 55 * 60_000;
+  const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
-
-  function ensurePrivateDir(pathname: string): void {
-    const dir = dirname(pathname);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    try {
-      chmodSync(dir, 0o700);
-    } catch {
-      // best effort
-    }
-  }
-
-  function autopilotSliceSchema(): Record<string, unknown> {
-    return {
-      type: "object",
-      additionalProperties: false,
-      required: ["status", "summary", "workstream_id"],
-      properties: {
-        status: {
-          type: "string",
-          enum: ["completed", "blocked", "needs_decision", "error"],
-        },
-        summary: { type: "string", minLength: 1 },
-        workstream_id: { type: "string", minLength: 1 },
-        workstream_title: { type: ["string", "null"] },
-        slice_id: { type: ["string", "null"] },
-        artifacts: {
-          type: ["array", "null"],
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["name", "artifact_type"],
-            properties: {
-              name: { type: "string", minLength: 1 },
-              artifact_type: {
-                type: "string",
-                enum: ["pr", "commit", "document", "config", "report", "design", "other"],
-              },
-              description: { type: ["string", "null"] },
-              url: { type: ["string", "null"] },
-              verification_steps: { type: ["array", "null"], items: { type: "string" } },
-              milestone_id: { type: ["string", "null"] },
-              task_ids: { type: ["array", "null"], items: { type: "string" } },
-            },
-          },
-        },
-        decisions_needed: {
-          type: ["array", "null"],
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["question"],
-            properties: {
-              question: { type: "string", minLength: 1 },
-              urgency: { type: ["string", "null"], enum: ["low", "medium", "high", "urgent", null] },
-              options: { type: ["array", "null"], items: { type: "string" } },
-              blocking: { type: ["boolean", "null"] },
-              summary: { type: ["string", "null"] },
-            },
-          },
-        },
-        task_updates: {
-          type: ["array", "null"],
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["task_id", "status"],
-            properties: {
-              task_id: { type: "string", minLength: 1 },
-              status: { type: "string", minLength: 1 },
-              reason: { type: ["string", "null"] },
-            },
-          },
-        },
-        milestone_updates: {
-          type: ["array", "null"],
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["milestone_id", "status"],
-            properties: {
-              milestone_id: { type: "string", minLength: 1 },
-              status: { type: "string", minLength: 1 },
-              reason: { type: ["string", "null"] },
-            },
-          },
-        },
-        next_actions: { type: ["array", "null"], items: { type: "string" } },
-      },
-    };
-  }
-
-  function ensureAutopilotSliceSchemaPath(): string {
-    const file = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
-    try {
-      if (existsSync(file)) return file;
-      ensurePrivateDir(file);
-      writeFileAtomicSync(file, JSON.stringify(autopilotSliceSchema(), null, 2), { mode: 0o600 });
-      return file;
-    } catch {
-      return file;
-    }
-  }
-
-  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
-    if (direct && typeof direct === "object") return direct;
-    const first = trimmed.indexOf("{");
-    const last = trimmed.lastIndexOf("}");
-    if (first >= 0 && last > first) {
-      const candidate = trimmed.slice(first, last + 1);
-      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
-      if (parsed && typeof parsed === "object") return parsed;
-    }
-    return null;
-  }
-
-  function readSliceOutputFile(pathname: string): string | null {
-    try {
-      if (!existsSync(pathname)) return null;
-      const raw = readFileSync(pathname, "utf8");
-      return raw.trim().length > 0 ? raw : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function writeRuntimeEvent(input: {
-    sourceClient: RuntimeSourceClient;
-    event: RuntimeHookPayload["event"];
-    runId: string;
-    initiativeId: string;
-    workstreamId: string | null;
-    agentId: string | null;
-    agentName: string | null;
-    phase: string | null;
-    message?: string | null;
-    progressPct?: number | null;
-    metadata?: Record<string, unknown> | null;
-    timestamp?: string | null;
-  }): RuntimeInstanceRecord {
-    return upsertRuntimeInstanceFromHook({
-      source_client: input.sourceClient,
-      event: input.event ?? null,
-      run_id: input.runId,
-      correlation_id: input.runId,
-      initiative_id: input.initiativeId,
-      workstream_id: input.workstreamId,
-      agent_id: input.agentId,
-      agent_name: input.agentName,
-      phase: input.phase,
-      progress_pct: input.progressPct ?? null,
-      message: input.message ?? null,
-      metadata: input.metadata ?? null,
-      timestamp: input.timestamp ?? new Date().toISOString(),
-    });
-  }
-
-  function buildWorkstreamSlicePrompt(input: {
-    initiativeTitle: string;
-    initiativeId: string;
-    workstreamId: string;
-    workstreamTitle: string;
-    milestoneSummaries: Array<{ id: string; title: string; status: string }>;
-    taskSummaries: Array<{ id: string; title: string; status: string; milestoneId: string | null }>;
-    executionPolicy: { domain: string; requiredSkills: string[] };
-    runId: string;
-  }): string {
-    const milestones = input.milestoneSummaries
-      .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
-      .slice(0, 10)
-      .join("\n");
-    const tasks = input.taskSummaries
-      .map((t) => {
-        const milestone = t.milestoneId ? ` milestone=${t.milestoneId}` : "";
-        return `- ${t.title} (${t.status}) [${t.id}]${milestone}`;
-      })
-      .slice(0, 18)
-      .join("\n");
-
-    return [
-      `You are an OrgX execution agent running a single workstream slice.`,
-      ``,
-      `Execution policy: ${input.executionPolicy.domain}`,
-      `Required skills: ${formatRequiredSkills(input.executionPolicy.requiredSkills)}`,
-      ``,
-      `Initiative: ${input.initiativeTitle} [${input.initiativeId}]`,
-      `Workstream: ${input.workstreamTitle} [${input.workstreamId}]`,
-      `Slice run: ${input.runId}`,
-      ``,
-      `Milestones (context):`,
-      milestones || "- (none found)",
-      ``,
-      `Candidate tasks (context only; do NOT auto-mark task status in OrgX):`,
-      tasks || "- (none found)",
-      ``,
-      `What to do:`,
-      `- Choose a coherent slice of work you can complete in one run.`,
-      `- Execute the work (code/docs/config) and produce verifiable outcomes.`,
-      `- If blocked, be explicit about what decision/info is required.`,
-      ``,
-      `Output requirements:`,
-      `- Return ONLY a single JSON object that matches the provided schema.`,
-      `- Artifacts must be verifiable: include URLs or local paths when possible, plus verification steps.`,
-      `- If you need a human decision, include it in decisions_needed.`,
-      `- If you are confident certain OrgX statuses should change, include task_updates and/or milestone_updates with a short reason.`,
-    ].join("\n");
-  }
-
-  function spawnCodexSliceWorker(input: {
-    runId: string;
-    prompt: string;
-    cwd: string;
-    schemaPath: string;
-    logPath: string;
-    outputPath: string;
-    env?: Record<string, string | undefined>;
-  }): { pid: number | null } {
-    ensurePrivateDir(input.logPath);
-    ensurePrivateDir(input.outputPath);
-
-    const stream = createWriteStream(input.logPath, { flags: "a", mode: 0o600 });
-    stream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
-
-    const child = spawn(
-      "codex",
-      [
-        "exec",
-        "--full-auto",
-        "--cd",
-        input.cwd,
-        "--output-schema",
-        input.schemaPath,
-        "--output-last-message",
-        input.outputPath,
-        input.prompt,
-      ],
-      {
-        cwd: input.cwd,
-        env: { ...process.env, ...(input.env ?? {}) },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      }
-    );
-
-    child.stdout?.on("data", (chunk) => stream.write(chunk));
-    child.stderr?.on("data", (chunk) => stream.write(chunk));
-    child.on("close", (code, signal) => {
-      stream.write(
-        `\n==== ${new Date().toISOString()} :: exit code=${String(code)} signal=${String(signal)} ====\n`
-      );
-      stream.end();
-    });
-    child.on("error", (err) => {
-      stream.write(`\nspawn error: ${safeErrorMessage(err)}\n`);
-      stream.end();
-    });
-
-    child.unref();
-    return { pid: typeof child.pid === "number" ? child.pid : null };
-  }
+  const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
 
   const setLocalInitiativeStatusOverride = (
     initiativeId: string,
@@ -4012,6 +3804,537 @@ export function createHttpHandler(
     }
   }
 
+  function ensurePrivateDirForFile(pathname: string): void {
+    const dir = dirname(pathname);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      // best effort
+    }
+  }
+
+  function autopilotSliceSchema(): Record<string, unknown> {
+    // Strict enough to keep outputs predictable, but tolerant of older agents.
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "summary", "workstream_id"],
+      properties: {
+        status: {
+          type: "string",
+          enum: ["completed", "blocked", "needs_decision", "error"],
+        },
+        summary: { type: "string", minLength: 1 },
+        workstream_id: { type: "string", minLength: 1 },
+        workstream_title: { type: ["string", "null"] },
+        slice_id: { type: ["string", "null"] },
+        artifacts: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "artifact_type"],
+            properties: {
+              name: { type: "string", minLength: 1 },
+              artifact_type: {
+                type: "string",
+                enum: ["pr", "commit", "document", "config", "report", "design", "other"],
+              },
+              description: { type: ["string", "null"] },
+              url: { type: ["string", "null"] },
+              verification_steps: { type: ["array", "null"], items: { type: "string" } },
+              milestone_id: { type: ["string", "null"] },
+              task_ids: { type: ["array", "null"], items: { type: "string" } },
+            },
+          },
+        },
+        decisions_needed: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["question"],
+            properties: {
+              question: { type: "string", minLength: 1 },
+              summary: { type: ["string", "null"] },
+              options: { type: ["array", "null"], items: { type: "string" } },
+              urgency: {
+                type: ["string", "null"],
+                enum: ["low", "medium", "high", "urgent", null],
+              },
+              blocking: { type: ["boolean", "null"] },
+            },
+          },
+        },
+        task_updates: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["task_id", "status"],
+            properties: {
+              task_id: { type: "string", minLength: 1 },
+              status: { type: "string", minLength: 1 },
+              reason: { type: ["string", "null"] },
+            },
+          },
+        },
+        milestone_updates: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["milestone_id", "status"],
+            properties: {
+              milestone_id: { type: "string", minLength: 1 },
+              status: { type: "string", minLength: 1 },
+              reason: { type: ["string", "null"] },
+            },
+          },
+        },
+        next_actions: { type: ["array", "null"], items: { type: "string" } },
+      },
+    };
+  }
+
+  function ensureAutopilotSliceSchemaPath(): string {
+    const file = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
+    try {
+      if (existsSync(file)) return file;
+      ensurePrivateDirForFile(file);
+      writeFileAtomicSync(file, JSON.stringify(autopilotSliceSchema(), null, 2), { mode: 0o600 });
+      return file;
+    } catch {
+      // Fall back to best-effort write.
+      try {
+        ensurePrivateDirForFile(file);
+        writeFileSync(file, `${JSON.stringify(autopilotSliceSchema(), null, 2)}\n`, {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+      } catch {
+        // ignore
+      }
+      return file;
+    }
+  }
+
+  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
+    if (direct && typeof direct === "object") return direct;
+
+    // Tolerant parse: grab the last JSON object-looking blob.
+    const first = trimmed.lastIndexOf("{");
+    const last = trimmed.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      const candidate = trimmed.slice(first, last + 1);
+      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
+      if (parsed && typeof parsed === "object") return parsed;
+    }
+    return null;
+  }
+
+  function readSliceOutputFile(pathname: string): string | null {
+    try {
+      if (!existsSync(pathname)) return null;
+      const raw = readFileSync(pathname, "utf8");
+      return raw.trim().length > 0 ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeCodexArgs(args: string[]): string[] {
+    const normalized = Array.isArray(args) ? [...args] : [];
+    const first = normalized[0];
+    const looksLikeFlag = typeof first === "string" && first.startsWith("-");
+    const looksLikeCommand =
+      first === "exec" ||
+      first === "e" ||
+      first === "review" ||
+      first === "resume" ||
+      first === "help" ||
+      first === "features" ||
+      first === "mcp" ||
+      first === "mcp-server" ||
+      first === "app" ||
+      first === "app-server" ||
+      first === "debug" ||
+      first === "cloud";
+
+    // `codex` without a subcommand expects a TTY; autopilot is headless.
+    if (!looksLikeCommand || looksLikeFlag) {
+      normalized.unshift("exec");
+    }
+
+    if (!normalized.includes("--skip-git-repo-check")) {
+      normalized.push("--skip-git-repo-check");
+    }
+    if (!normalized.some((arg) => String(arg).includes("model_reasoning_effort"))) {
+      normalized.push("-c", 'model_reasoning_effort="high"');
+    }
+
+    return normalized;
+  }
+
+  function spawnCodexSliceWorker(input: {
+    runId: string;
+    prompt: string;
+    cwd: string;
+    logPath: string;
+    outputPath: string;
+    env: Record<string, string | undefined>;
+  }): { pid: number | null } {
+    ensurePrivateDirForFile(input.logPath);
+    ensurePrivateDirForFile(input.outputPath);
+
+    const codexBin = (process.env.ORGX_CODEX_BIN ?? "").trim() || "codex";
+    const rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
+    const args = normalizeCodexArgs(
+      rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : ["--full-auto"]
+    );
+
+    const logStream = createWriteStream(input.logPath, { flags: "a" });
+    const outStream = createWriteStream(input.outputPath, { flags: "a" });
+    logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
+
+    const child = spawn(codexBin, [...args, input.prompt], {
+      cwd: input.cwd,
+      env: {
+        ...process.env,
+        ...resolveByokEnvOverrides(),
+        ...input.env,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
+
+    child.stdout?.on("data", (chunk) => {
+      try {
+        logStream.write(chunk);
+      } catch {
+        // ignore
+      }
+      try {
+        outStream.write(chunk);
+      } catch {
+        // ignore
+      }
+    });
+    child.stderr?.on("data", (chunk) => {
+      try {
+        logStream.write(chunk);
+      } catch {
+        // ignore
+      }
+    });
+
+    child.on("close", (code, signal) => {
+      const stamp = new Date().toISOString();
+      try {
+        logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+      } catch {
+        // ignore
+      }
+      try {
+        logStream.end();
+      } catch {
+        // ignore
+      }
+      try {
+        outStream.end();
+      } catch {
+        // ignore
+      }
+    });
+    child.on("error", (error) => {
+      try {
+        logStream.write(`\nworker error: ${safeErrorMessage(error)}\n`);
+      } catch {
+        // ignore
+      }
+    });
+
+    child.unref();
+    return { pid: child.pid ?? null };
+  }
+
+  function writeRuntimeEvent(input: {
+    sourceClient: RuntimeSourceClient;
+    event: RuntimeHookPayload["event"];
+    runId: string;
+    initiativeId: string;
+    workstreamId: string | null;
+    taskId: string | null;
+    agentId: string | null;
+    agentName: string | null;
+    phase: string | null;
+    message?: string | null;
+    progressPct?: number | null;
+    metadata?: Record<string, unknown> | null;
+    timestamp?: string | null;
+  }): RuntimeInstanceRecord {
+    const instance = upsertRuntimeInstanceFromHook({
+      source_client: input.sourceClient,
+      event: input.event ?? null,
+      run_id: input.runId,
+      correlation_id: input.runId,
+      initiative_id: input.initiativeId,
+      workstream_id: input.workstreamId,
+      task_id: input.taskId,
+      agent_id: input.agentId,
+      agent_name: input.agentName,
+      phase: input.phase,
+      progress_pct: input.progressPct ?? null,
+      message: input.message ?? null,
+      metadata: input.metadata ?? null,
+      timestamp: input.timestamp ?? new Date().toISOString(),
+    });
+    // Make runtime updates feel instantaneous (don't wait for the 15s staleness timer).
+    broadcastRuntimeSse("runtime.updated", instance);
+    return instance;
+  }
+
+  function buildWorkstreamSlicePrompt(input: {
+    initiativeTitle: string;
+    initiativeId: string;
+    workstreamId: string;
+    workstreamTitle: string;
+    milestoneSummaries: Array<{ id: string; title: string; status: string }>;
+    taskSummaries: Array<{ id: string; title: string; status: string; milestoneId: string | null }>;
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    runId: string;
+    schemaPath: string;
+  }): string {
+    const milestones = input.milestoneSummaries
+      .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
+      .slice(0, 10)
+      .join("\n");
+    const tasks = input.taskSummaries
+      .map((t) => {
+        const milestone = t.milestoneId ? ` milestone=${t.milestoneId}` : "";
+        return `- ${t.title} (${t.status}) [${t.id}]${milestone}`;
+      })
+      .slice(0, 18)
+      .join("\n");
+
+    return [
+      `You are an OrgX execution agent running ONE workstream slice in a background codex session.`,
+      ``,
+      `Execution policy: ${input.executionPolicy.domain}`,
+      `Required skills: ${input.executionPolicy.requiredSkills.map((s) => (s.startsWith("$") ? s : `$${s}`)).join(", ")}`,
+      ``,
+      `Initiative: ${input.initiativeTitle} [${input.initiativeId}]`,
+      `Workstream: ${input.workstreamTitle} [${input.workstreamId}]`,
+      `Slice run: ${input.runId}`,
+      ``,
+      `Milestones (context):`,
+      milestones || "- (none found)",
+      ``,
+      `Candidate tasks (context only; do NOT assume status is updated unless you explicitly request it in output):`,
+      tasks || "- (none found)",
+      ``,
+      `Reporting:`,
+      `- You MAY post runtime events for a buttery UX using:`,
+      `  node templates/hooks/scripts/post-reporting-event.mjs --event=task_update --phase=execution --message=\"...\"`,
+      `  (ORGX_RUNTIME_HOOK_URL and ORGX_HOOK_TOKEN are already set in env.)`,
+      ``,
+      `What to do:`,
+      `- Choose a coherent slice of work you can complete end-to-end in this run.`,
+      `- Execute the work (code/docs/config) and produce verifiable outcomes.`,
+      `- If blocked, be explicit about what decision/info is required.`,
+      ``,
+      `Output requirements:`,
+      `- Print ONLY a single JSON object as the final output.`,
+      `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
+      `- Artifacts must be verifiable: include URLs or local paths, plus verification steps.`,
+      `- If you need a human decision, include it in decisions_needed.`,
+      `- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).`,
+    ].join("\n");
+  }
+
+  async function registerArtifactSafe(input: {
+    initiativeId: string;
+    runId: string;
+    agentId: string;
+    agentName?: string | null;
+    workstreamId: string;
+    artifact: AutoContinueSliceArtifact;
+  }): Promise<{ ok: boolean; id: string | null }> {
+    const now = new Date().toISOString();
+    const name = (input.artifact.name ?? "").trim();
+    if (!name) return { ok: false, id: null };
+    const artifactType = (input.artifact.artifact_type ?? "other").trim() || "other";
+
+    const verificationSteps = Array.isArray(input.artifact.verification_steps)
+      ? input.artifact.verification_steps
+          .filter((step) => typeof step === "string")
+          .map((step) => step.trim())
+          .filter(Boolean)
+      : [];
+
+    const descriptionParts: string[] = [];
+    if (typeof input.artifact.description === "string" && input.artifact.description.trim()) {
+      descriptionParts.push(input.artifact.description.trim());
+    }
+    if (verificationSteps.length > 0) {
+      descriptionParts.push(
+        `Verification:\n${verificationSteps.map((step) => `- ${step}`).join("\n")}`
+      );
+    }
+    const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
+
+    try {
+      const entity = await client.createEntity("artifact", {
+        initiative_id: input.initiativeId,
+        workstream_id: input.workstreamId,
+        name,
+        artifact_type: artifactType,
+        description,
+        artifact_url: input.artifact.url ?? undefined,
+        status: "active",
+        metadata: {
+          source: "autopilot_slice",
+          run_id: input.runId,
+          milestone_id: input.artifact.milestone_id ?? null,
+          task_ids: input.artifact.task_ids ?? null,
+        },
+      });
+      return { ok: true, id: pickString(entity as any, ["id"]) ?? null };
+    } catch (err: unknown) {
+      try {
+        await appendToOutbox(input.initiativeId, {
+          id: randomUUID(),
+          type: "artifact",
+          timestamp: now,
+          payload: {
+            initiative_id: input.initiativeId,
+            workstream_id: input.workstreamId,
+            name,
+            artifact_type: artifactType,
+            description,
+            url: input.artifact.url ?? undefined,
+            run_id: input.runId,
+          },
+          activityItem: {
+            id: randomUUID(),
+            type: "artifact_created",
+            title: name,
+            description: description ?? null,
+            agentId: input.agentId,
+            agentName: input.agentName ?? null,
+            runId: input.runId,
+            initiativeId: input.initiativeId,
+            timestamp: now,
+            phase: "handoff",
+            summary: input.artifact.url ?? null,
+            metadata: {
+              source: "openclaw_local_fallback",
+              event: "autopilot_slice_artifact_buffered",
+              artifact_type: artifactType,
+              url: input.artifact.url ?? null,
+              error: safeErrorMessage(err),
+            },
+          },
+        });
+      } catch {
+        // best effort
+      }
+      return { ok: false, id: null };
+    }
+  }
+
+  async function applyAgentStatusUpdatesSafe(input: {
+    initiativeId: string;
+    runId: string;
+    correlationId: string;
+    taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
+    milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
+  }): Promise<{ applied: number; buffered: boolean }> {
+    const operations: Array<Record<string, unknown>> = [];
+
+    for (const update of input.taskUpdates) {
+      const taskId = (update?.task_id ?? "").trim();
+      const status = (update?.status ?? "").trim();
+      if (!taskId || !status) continue;
+      operations.push({ op: "task.update", task_id: taskId, status });
+    }
+    for (const update of input.milestoneUpdates) {
+      const milestoneId = (update?.milestone_id ?? "").trim();
+      const status = (update?.status ?? "").trim();
+      if (!milestoneId || !status) continue;
+      operations.push({ op: "milestone.update", milestone_id: milestoneId, status });
+    }
+
+    if (operations.length === 0) return { applied: 0, buffered: false };
+
+    try {
+      await client.applyChangeset({
+        initiative_id: input.initiativeId,
+        run_id: input.runId,
+        correlation_id: input.correlationId,
+        source_client: "openclaw",
+        idempotency_key: idempotencyKey([
+          "openclaw",
+          "autopilot",
+          "slice_status",
+          input.initiativeId,
+          input.runId,
+        ]),
+        operations: operations as any,
+      });
+      return { applied: operations.length, buffered: false };
+    } catch (err: unknown) {
+      const timestamp = new Date().toISOString();
+      try {
+        await appendToOutbox(input.initiativeId, {
+          id: randomUUID(),
+          type: "changeset",
+          timestamp,
+          payload: {
+            initiative_id: input.initiativeId,
+            run_id: input.runId,
+            correlation_id: input.correlationId,
+            source_client: "openclaw",
+            idempotency_key: idempotencyKey([
+              "openclaw",
+              "autopilot",
+              "slice_status",
+              input.initiativeId,
+              input.runId,
+              "outbox",
+            ]),
+            operations,
+          },
+          activityItem: {
+            id: randomUUID(),
+            type: "run_started",
+            title: `Buffered status updates for slice ${input.runId}`,
+            description: null,
+            agentId: null,
+            agentName: null,
+            runId: input.runId,
+            initiativeId: input.initiativeId,
+            timestamp,
+            phase: "review",
+            summary: `Will apply ${operations.length} status update(s) when connected.`,
+            metadata: {
+              source: "openclaw_local_fallback",
+              event: "autopilot_slice_status_updates_buffered",
+              error: safeErrorMessage(err),
+            },
+          },
+        });
+      } catch {
+        // best effort
+      }
+      return { applied: operations.length, buffered: true };
+    }
+  }
+
   async function dispatchFallbackWorkstreamTurn(input: {
     initiativeId: string;
     initiativeTitle: string;
@@ -4131,200 +4454,6 @@ export function createHttpHandler(
     };
   }
 
-  async function registerArtifactSafe(input: {
-    initiativeId: string;
-    runId: string;
-    agentId: string;
-    workstreamId: string;
-    artifact: AutoContinueSliceArtifact;
-  }): Promise<{ ok: boolean; id: string | null }> {
-    const now = new Date().toISOString();
-    const name = (input.artifact.name ?? "").trim();
-    if (!name) return { ok: false, id: null };
-    const artifactType = (input.artifact.artifact_type ?? "other").trim();
-
-    const verificationSteps = Array.isArray(input.artifact.verification_steps)
-      ? input.artifact.verification_steps.filter(
-          (step: string) => typeof step === "string" && step.trim().length > 0
-        )
-      : [];
-
-    const descriptionParts: string[] = [];
-    if (typeof input.artifact.description === "string" && input.artifact.description.trim()) {
-      descriptionParts.push(input.artifact.description.trim());
-    }
-    if (verificationSteps.length > 0) {
-      descriptionParts.push(
-        `Verification:\n${verificationSteps.map((step) => `- ${step}`).join("\n")}`
-      );
-    }
-    const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
-
-    const activityItem: LiveActivityItem = {
-      id: `artifact:${randomUUID().slice(0, 8)}`,
-      type: "artifact_created",
-      title: name,
-      description: description ?? null,
-      agentId: input.agentId,
-      agentName: null,
-      runId: input.runId,
-      initiativeId: input.initiativeId,
-      timestamp: now,
-      summary: input.artifact.url ?? null,
-      metadata: {
-        source: "autopilot_slice",
-        artifact_type: artifactType,
-        url: input.artifact.url ?? null,
-        workstream_id: input.workstreamId,
-        milestone_id: input.artifact.milestone_id ?? null,
-        task_ids: input.artifact.task_ids ?? null,
-      },
-    };
-
-    try {
-      const entity = await client.createEntity("artifact", {
-        initiative_id: input.initiativeId,
-        workstream_id: input.workstreamId,
-        name,
-        artifact_type: artifactType,
-        description,
-        artifact_url: input.artifact.url ?? undefined,
-        status: "active",
-        metadata: {
-          source: "autopilot_slice",
-          run_id: input.runId,
-          milestone_id: input.artifact.milestone_id ?? null,
-          task_ids: input.artifact.task_ids ?? null,
-        },
-      });
-
-      return { ok: true, id: pickString(entity as any, ["id"]) ?? null };
-    } catch (err: unknown) {
-      try {
-        await appendToOutbox("artifacts", {
-          id: randomUUID(),
-          type: "artifact",
-          timestamp: now,
-          payload: {
-            name,
-            artifact_type: artifactType,
-            description,
-            url: input.artifact.url ?? undefined,
-            initiative_id: input.initiativeId,
-            workstream_id: input.workstreamId,
-            milestone_id: input.artifact.milestone_id ?? null,
-            task_ids: input.artifact.task_ids ?? null,
-            run_id: input.runId,
-            source: "autopilot_slice",
-          },
-          activityItem: {
-            ...activityItem,
-            metadata: {
-              ...(activityItem.metadata ?? {}),
-              error: safeErrorMessage(err),
-              buffered: true,
-            },
-          },
-        });
-      } catch {
-        // best effort
-      }
-      return { ok: false, id: null };
-    }
-  }
-
-  async function applyAgentStatusUpdatesSafe(input: {
-    initiativeId: string;
-    runId: string;
-    correlationId: string;
-    taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
-    milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
-  }): Promise<{ applied: number; buffered: boolean }> {
-    const operations: Array<Record<string, unknown>> = [];
-
-    for (const update of input.taskUpdates) {
-      const taskId = (update?.task_id ?? "").trim();
-      const status = (update?.status ?? "").trim();
-      if (!taskId || !status) continue;
-      operations.push({ op: "task.update", task_id: taskId, status });
-    }
-
-    for (const update of input.milestoneUpdates) {
-      const milestoneId = (update?.milestone_id ?? "").trim();
-      const status = (update?.status ?? "").trim();
-      if (!milestoneId || !status) continue;
-      operations.push({ op: "milestone.update", milestone_id: milestoneId, status });
-    }
-
-    if (operations.length === 0) return { applied: 0, buffered: false };
-
-    try {
-      await client.applyChangeset({
-        initiative_id: input.initiativeId,
-        run_id: input.runId,
-        correlation_id: input.correlationId,
-        source_client: "openclaw",
-        idempotency_key: idempotencyKey([
-          "openclaw",
-          "autopilot",
-          "slice_status",
-          input.initiativeId,
-          input.runId,
-        ]),
-        operations: operations as any,
-      });
-      return { applied: operations.length, buffered: false };
-    } catch (err: unknown) {
-      const timestamp = new Date().toISOString();
-      const activityItem: LiveActivityItem = {
-        id: randomUUID(),
-        type: "run_started",
-        title: `Buffered status updates for slice ${input.runId}`,
-        description: null,
-        agentId: null,
-        agentName: null,
-        runId: input.runId,
-        initiativeId: input.initiativeId,
-        timestamp,
-        phase: "review",
-        summary: `Will apply ${operations.length} status update(s) when connected.`,
-        metadata: {
-          source: "openclaw_local_fallback",
-          event: "autopilot_slice_status_updates_buffered",
-          error: safeErrorMessage(err),
-        },
-      };
-
-      try {
-        await appendToOutbox(input.initiativeId, {
-          id: randomUUID(),
-          type: "changeset",
-          timestamp,
-          payload: {
-            initiative_id: input.initiativeId,
-            run_id: input.runId,
-            correlation_id: input.correlationId,
-            source_client: "openclaw",
-            idempotency_key: idempotencyKey([
-              "openclaw",
-              "autopilot",
-              "slice_status",
-              input.initiativeId,
-              input.runId,
-              "outbox",
-            ]),
-            operations,
-          },
-          activityItem,
-        });
-      } catch {
-        // best effort
-      }
-
-      return { applied: operations.length, buffered: true };
-    }
-  }
-
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
     if (run.status !== "running" && run.status !== "stopping") return;
 
@@ -4341,6 +4470,39 @@ export function createHttpHandler(
       } else {
         const pid = slice.pid;
         if (pid && pidAlive(pid)) {
+          const nowMs = Date.now();
+          const lastHeartbeat = autoContinueSliceLastHeartbeatMs.get(slice.runId) ?? 0;
+          if (nowMs - lastHeartbeat >= AUTO_CONTINUE_SLICE_HEARTBEAT_MS) {
+            try {
+              writeRuntimeEvent({
+                sourceClient: "codex",
+                event: "heartbeat",
+                runId: slice.runId,
+                initiativeId: slice.initiativeId,
+                workstreamId: slice.workstreamId,
+                taskId: slice.taskIds[0] ?? null,
+                agentId: slice.agentId,
+                agentName: slice.agentName,
+                phase: "execution",
+                message: `Autopilot slice running: ${slice.workstreamTitle ?? slice.workstreamId}`,
+                metadata: {
+                  event: "autopilot_slice_heartbeat",
+                  domain: slice.domain,
+                  required_skills: slice.requiredSkills,
+                  workstream_id: slice.workstreamId,
+                  workstream_title: slice.workstreamTitle ?? null,
+                  task_ids: slice.taskIds,
+                  milestone_ids: slice.milestoneIds,
+                  log_path: slice.logPath,
+                  output_path: slice.outputPath,
+                },
+              });
+            } catch {
+              // best effort
+            }
+            autoContinueSliceLastHeartbeatMs.set(slice.runId, nowMs);
+          }
+
           const ageMs = Date.now() - Date.parse(slice.startedAt);
           const timedOut =
             Number.isFinite(ageMs) && ageMs > AUTO_CONTINUE_SLICE_TIMEOUT_MS;
@@ -4480,6 +4642,7 @@ export function createHttpHandler(
             initiativeId: run.initiativeId,
             runId: slice.runId,
             agentId: slice.agentId,
+            agentName: slice.agentName,
             workstreamId: slice.workstreamId,
             artifact,
           });
@@ -4500,6 +4663,7 @@ export function createHttpHandler(
             runId: slice.runId,
             initiativeId: slice.initiativeId,
             workstreamId: slice.workstreamId,
+            taskId: slice.taskIds[0] ?? null,
             agentId: slice.agentId,
             agentName: null,
             phase: slice.status === "completed" ? "completed" : "blocked",
@@ -4771,6 +4935,7 @@ export function createHttpHandler(
       milestoneId: t.milestoneId ?? null,
     }));
 
+    const schemaPath = ensureAutopilotSliceSchemaPath();
     const prompt = buildWorkstreamSlicePrompt({
       initiativeTitle,
       initiativeId: run.initiativeId,
@@ -4780,10 +4945,10 @@ export function createHttpHandler(
       taskSummaries,
       executionPolicy,
       runId: sliceRunId,
+      schemaPath,
     });
 
-    const schemaPath = ensureAutopilotSliceSchemaPath();
-    const logsDir = join(getOrgxPluginConfigDir(), "autopilot-logs");
+    const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
@@ -4804,7 +4969,6 @@ export function createHttpHandler(
       runId: sliceRunId,
       prompt,
       cwd: workerCwd,
-      schemaPath,
       logPath,
       outputPath,
       env: {
@@ -4828,7 +4992,9 @@ export function createHttpHandler(
       workstreamId: selectedWorkstreamId,
       workstreamTitle,
       agentId: run.agentId || "main",
-      engine: "codex",
+      agentName: agentDisplayName,
+      domain: executionPolicy.domain,
+      requiredSkills: executionPolicy.requiredSkills,
       pid: spawned.pid,
       status: "running",
       startedAt: now,
@@ -4850,6 +5016,7 @@ export function createHttpHandler(
         runId: sliceRunId,
         initiativeId: run.initiativeId,
         workstreamId: selectedWorkstreamId,
+        taskId: primaryTask.id,
         agentId: slice.agentId,
         agentName: agentDisplayName,
         phase: "execution",
