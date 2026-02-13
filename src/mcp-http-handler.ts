@@ -34,6 +34,20 @@ export type RegisteredTool = {
   execute: (callId: string, params?: unknown) => Promise<ToolResult>;
 };
 
+type PromptRole = "system" | "user" | "assistant";
+type PromptMessage = { role: PromptRole; content: string };
+
+export type RegisteredPrompt = {
+  name: string;
+  description?: string;
+  arguments?: Array<{
+    name: string;
+    description?: string;
+    required?: boolean;
+  }>;
+  messages: PromptMessage[];
+};
+
 const DEFAULT_PROTOCOL_VERSION = "2024-11-05";
 
 type JsonRpcId = string | number | null;
@@ -154,6 +168,7 @@ function buildToolsList(tools: Map<string, RegisteredTool>): Array<Record<string
 async function handleRpcMessage(input: {
   message: unknown;
   tools: Map<string, RegisteredTool>;
+  prompts: Map<string, RegisteredPrompt>;
   logger: Logger;
   serverName: string;
   serverVersion: string;
@@ -183,6 +198,7 @@ async function handleRpcMessage(input: {
       protocolVersion,
       capabilities: {
         tools: {},
+        prompts: {},
       },
       serverInfo: {
         name: input.serverName,
@@ -242,7 +258,31 @@ async function handleRpcMessage(input: {
   }
 
   if (method === "prompts/list") {
-    return jsonRpcResult(id, { prompts: [] });
+    const prompts = Array.from(input.prompts.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((prompt) => ({
+        name: prompt.name,
+        description: prompt.description ?? "",
+        arguments: Array.isArray(prompt.arguments) ? prompt.arguments : [],
+      }));
+    return jsonRpcResult(id, { prompts });
+  }
+
+  if (method === "prompts/get") {
+    const promptName = typeof params.name === "string" ? params.name.trim() : "";
+    if (!promptName) {
+      return jsonRpcError(id, -32602, "Missing prompt name");
+    }
+
+    const prompt = input.prompts.get(promptName) ?? null;
+    if (!prompt) {
+      return jsonRpcError(id, -32601, `Prompt not found: ${promptName}`);
+    }
+
+    return jsonRpcResult(id, {
+      description: prompt.description ?? "",
+      messages: prompt.messages,
+    });
   }
 
   if (method.startsWith("notifications/")) {
@@ -254,11 +294,13 @@ async function handleRpcMessage(input: {
 
 export function createMcpHttpHandler(input: {
   tools: Map<string, RegisteredTool>;
+  prompts?: Map<string, RegisteredPrompt>;
   logger?: Logger;
   serverName: string;
   serverVersion: string;
 }): (req: PluginRequest, res: PluginResponse) => Promise<boolean> {
   const logger = input.logger ?? {};
+  const prompts = input.prompts ?? new Map<string, RegisteredPrompt>();
 
   return async function handler(req: PluginRequest, res: PluginResponse): Promise<boolean> {
     const method = (req.method ?? "GET").toUpperCase();
@@ -304,6 +346,7 @@ export function createMcpHttpHandler(input: {
       const response = await handleRpcMessage({
         message,
         tools: input.tools,
+        prompts,
         logger,
         serverName: input.serverName,
         serverVersion: input.serverVersion,
@@ -323,4 +366,3 @@ export function createMcpHttpHandler(input: {
     return true;
   };
 }
-

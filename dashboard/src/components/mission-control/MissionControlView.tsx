@@ -334,6 +334,13 @@ function MissionControlInner({
     message: string;
   } | null>(null);
 
+  useEffect(() => {
+    if (!bulkInitiativeNotice) return;
+    if (bulkInitiativeNotice.tone !== 'success') return;
+    const timeout = window.setTimeout(() => setBulkInitiativeNotice(null), 6500);
+    return () => window.clearTimeout(timeout);
+  }, [bulkInitiativeNotice]);
+
   const filteredInitiatives = useMemo(() => {
     const now = new Date();
     const todayStart = startOfLocalDay(now);
@@ -1114,8 +1121,8 @@ function MissionControlInner({
   );
   const nextUpInlineShellTone = useMemo(
     () => ({
-      backgroundColor: 'rgba(18, 26, 39, 0.9)',
-      borderColor: 'rgba(191, 255, 0, 0.24)',
+      backgroundColor: 'rgba(10, 14, 21, 0.82)',
+      borderColor: 'rgba(255, 255, 255, 0.12)',
     }),
     []
   );
@@ -1398,111 +1405,113 @@ function MissionControlInner({
             {sortedInitiatives.length > 0 && (
               <div
                 data-mc-selection-bar="true"
-                className={`mt-3 flex min-h-12 flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border px-3 py-1 whitespace-nowrap ${
+                className={`mt-3 grid gap-2 rounded-xl border px-3 py-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center ${
                   selectedInitiativeCount > 0
-                    ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+                    ? 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.04]'
                     : 'border-white/[0.08] bg-white/[0.02]'
                 }`}
               >
-                <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleSelectAllVisibleInitiatives}
-                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
-                  />
-                  Select visible
-                </label>
-                <span className="flex-shrink-0 text-[11px] text-white/58">
-                  {selectedInitiativeCount > 0
-                    ? `${selectedInitiativeCount} selected`
-                    : `${sortedInitiatives.length} visible`}
-                </span>
-                {selectedInitiativeCount > 0 && (
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runBulkInitiativeStatusUpdate('active');
-                      }}
-                      disabled={isBulkInitiativeMutating}
-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                      data-state="active"
-                    >
-                      Mark active
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runBulkInitiativeStatusUpdate('paused');
-                      }}
-                      disabled={isBulkInitiativeMutating}
-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                    >
-                      Pause
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runBulkInitiativeStatusUpdate('blocked');
-                      }}
-                      disabled={isBulkInitiativeMutating}
-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                    >
-                      Block
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void runBulkInitiativeStatusUpdate('completed');
-                      }}
-                      disabled={isBulkInitiativeMutating}
-                      className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
-                    >
-                      Complete
-                    </button>
-                    {confirmBulkInitiativeDelete ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-white/58">Delete selected?</span>
+                <div className="min-w-0 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex flex-shrink-0 items-center gap-2 text-[11px] text-white/75">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisibleInitiatives}
+                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                    />
+                    Select visible
+                  </label>
+                  <span className="flex-shrink-0 text-[11px] text-white/58">
+                    {selectedInitiativeCount > 0
+                      ? `${selectedInitiativeCount} selected`
+                      : `${sortedInitiatives.length} visible`}
+                  </span>
+                  {selectedInitiativeCount > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runBulkInitiativeStatusUpdate('active');
+                        }}
+                        disabled={isBulkInitiativeMutating}
+                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                        data-state="active"
+                      >
+                        Mark active
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runBulkInitiativeStatusUpdate('paused');
+                        }}
+                        disabled={isBulkInitiativeMutating}
+                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                      >
+                        Pause
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runBulkInitiativeStatusUpdate('blocked');
+                        }}
+                        disabled={isBulkInitiativeMutating}
+                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                      >
+                        Block
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runBulkInitiativeStatusUpdate('completed');
+                        }}
+                        disabled={isBulkInitiativeMutating}
+                        className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
+                      >
+                        Complete
+                      </button>
+                      {confirmBulkInitiativeDelete ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-white/58">Delete selected?</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void runBulkInitiativeDelete();
+                            }}
+                            disabled={isBulkInitiativeMutating}
+                            className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmBulkInitiativeDelete(false)}
+                            disabled={isBulkInitiativeMutating}
+                            className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
+                          >
+                            Keep
+                          </button>
+                        </div>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            void runBulkInitiativeDelete();
-                          }}
+                          onClick={() => setConfirmBulkInitiativeDelete(true)}
                           disabled={isBulkInitiativeMutating}
-                          className="control-pill h-8 flex-shrink-0 border-red-400/35 bg-red-500/14 px-3 text-[11px] font-semibold text-red-100 disabled:opacity-45"
+                          className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
                         >
                           Delete
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmBulkInitiativeDelete(false)}
-                          disabled={isBulkInitiativeMutating}
-                          className="control-pill h-8 flex-shrink-0 px-2.5 text-[11px] disabled:opacity-45"
-                        >
-                          Keep
-                        </button>
-                      </div>
-                    ) : (
+                      )}
                       <button
                         type="button"
-                        onClick={() => setConfirmBulkInitiativeDelete(true)}
+                        onClick={clearInitiativeSelection}
                         disabled={isBulkInitiativeMutating}
-                        className="control-pill h-8 flex-shrink-0 border-red-400/24 bg-red-500/[0.08] px-3 text-[11px] font-semibold text-red-100/85 disabled:opacity-45"
+                        className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
                       >
-                        Delete
+                        Clear
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={clearInitiativeSelection}
-                      disabled={isBulkInitiativeMutating}
-                      className="text-[11px] text-white/55 transition-colors hover:text-white/80 disabled:opacity-45"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
                 <AnimatePresence initial={false} mode="popLayout">
                   {!nextUpRailOpen && !nextUpDrawerOpen && (
                     <motion.div
@@ -1517,7 +1526,7 @@ function MissionControlInner({
                         duration: 0.2,
                         ease: [0.22, 1, 0.36, 1],
                       }}
-                      className="ml-auto flex min-w-[320px] max-w-[640px] flex-shrink-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 py-2 shadow-[0_14px_30px_rgba(0,0,0,0.32)] backdrop-blur-[10px]"
+                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-white/[0.12] px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:w-[520px] xl:justify-self-end"
                     >
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         {nextActionQueue.isLoading ? (
@@ -1554,10 +1563,10 @@ function MissionControlInner({
                             </div>
                           ) : (
                             <>
-                              <p className="truncate text-[11px] font-semibold text-white/92" title={nextUpInlineSummary}>
+                              <p className="truncate text-[12px] font-semibold leading-snug text-white/90" title={nextUpInlineSummary}>
                                 {nextUpInlineSummary}
                               </p>
-                              <p className="truncate text-[9px] text-white/56" title={nextUpInlineSubline}>
+                              <p className="truncate text-[11px] leading-snug text-white/45" title={nextUpInlineSubline}>
                                 {nextUpInlineContextLabel}
                                 {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
                               </p>
@@ -1565,24 +1574,24 @@ function MissionControlInner({
                           )}
                         </div>
                       </div>
-                      <div className="ml-auto flex items-center gap-1.5">
+                      <div className="ml-auto flex items-center gap-2">
                         <button
                           type="button"
                           onClick={startNextAction}
                           disabled={!nextActionQueueItem || nextActionBusy}
-                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold disabled:opacity-45"
+                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold disabled:opacity-45"
                           title={
                             nextActionQueueItem
                               ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
                               : 'No queued workstream to dispatch'
                           }
                         >
-                          ▶ Play
+                          Play
                         </button>
                         <button
                           type="button"
                           onClick={toggleNextUpSurface}
-                          className="control-pill h-7 flex-shrink-0 px-2 text-[10px] font-semibold"
+                          className="control-pill h-8 flex-shrink-0 px-3 text-[11px] font-semibold"
                           title="Expand Next Up rail"
                         >
                           Open
@@ -1595,13 +1604,32 @@ function MissionControlInner({
             )}
             {bulkInitiativeNotice && (
               <div
-                className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${
+                className={`mt-2 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-[11px] ${
                   bulkInitiativeNotice.tone === 'success'
-                    ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
-                    : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
+                    ? 'border-emerald-400/18 bg-white/[0.02] text-white/75'
+                    : 'border-amber-400/18 bg-white/[0.02] text-white/75'
                 }`}
               >
-                {bulkInitiativeNotice.message}
+                <div className="flex min-w-0 items-start gap-2">
+                  <span
+                    aria-hidden
+                    className={`mt-[3px] h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                      bulkInitiativeNotice.tone === 'success'
+                        ? 'bg-emerald-300/90'
+                        : 'bg-amber-300/90'
+                    }`}
+                  />
+                  <span className="min-w-0 leading-snug">{bulkInitiativeNotice.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBulkInitiativeNotice(null)}
+                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.10] bg-white/[0.02] text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/80"
+                  aria-label="Dismiss notice"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -1619,15 +1647,23 @@ function MissionControlInner({
                     initial={{ opacity: 0, y: 6, scale: 0.995 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: 'spring', stiffness: 280, damping: 30 }}
-                    className="surface-hero mb-3.5 rounded-2xl p-3.5"
+                    className="surface-tier-2 relative mb-3.5 overflow-hidden rounded-2xl p-4"
                   >
+                    <div
+                      aria-hidden
+                      className="absolute inset-x-0 top-0 h-px"
+                      style={{
+                        background:
+                          'linear-gradient(90deg, rgba(191,255,0,0.18), rgba(10,212,196,0.16), transparent 72%)',
+                      }}
+                    />
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-[240px]">
                         <p className="section-kicker">Next action</p>
-                        <p className="mt-1 text-[14px] font-semibold text-white">
+                        <p className="mt-1 text-[15px] font-semibold leading-snug tracking-tight text-white/92">
                           {nextActionSummary.headline}
                         </p>
-                        <p className="mt-1 text-[12px] text-white/65">
+                        <p className="mt-1 text-[12px] leading-relaxed text-white/55">
                           {nextActionSummary.detail}
                         </p>
                         {nextActionNotice && (
@@ -1642,7 +1678,7 @@ function MissionControlInner({
                           </div>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2.5">
                         {(nextActionMode === 'queued' || nextActionMode === 'running') && nextActionQueueItem ? (
                           <button
                             type="button"
@@ -1652,7 +1688,7 @@ function MissionControlInner({
                                 : startNextAction
                             }
                             disabled={nextActionBusy}
-                            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
+                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
                             data-state="active"
                           >
                             {nextActionMode === 'running' ? 'Follow workstream' : 'Play next workstream'}
@@ -1662,7 +1698,7 @@ function MissionControlInner({
                             type="button"
                             onClick={startInitiativeFromNextAction}
                             disabled={nextActionBusy}
-                            className="control-pill px-3 text-[11px] font-semibold disabled:opacity-45"
+                            className="control-pill h-9 px-4 text-[12px] font-semibold disabled:opacity-45"
                             data-state="active"
                           >
                             Start initiative
@@ -1671,7 +1707,7 @@ function MissionControlInner({
                           <button
                             type="button"
                             onClick={openNextActionInitiative}
-                            className="control-pill px-3 text-[11px] font-semibold"
+                            className="control-pill h-9 px-4 text-[12px] font-semibold"
                             data-state={nextActionMode === 'blocked' ? 'active' : 'idle'}
                           >
                             {nextActionFallbackLabel}
@@ -1680,7 +1716,7 @@ function MissionControlInner({
                         <button
                           type="button"
                           onClick={toggleNextUpSurface}
-                          className="control-pill px-3 text-[11px] font-semibold"
+                          className="control-pill h-9 px-4 text-[12px] font-semibold"
                         >
                           {nextUpRailOpen ? 'Hide Next Up' : 'Open Next Up'}
                         </button>

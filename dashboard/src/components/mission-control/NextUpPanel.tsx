@@ -63,9 +63,29 @@ function AutoGlyph({ className = '' }: ActionGlyphProps) {
       aria-hidden
       className={className}
     >
-      {/* Infinity mark for auto-continue (cleaner than the previous "loop arrow"). */}
       <path
-        d="M18 10c0-1.66-1.34-3-3-3-2.4 0-4 4-5 4S7.4 7 5 7c-1.66 0-3 1.34-3 3s1.34 3 3 3c2.4 0 4-4 5-4s2.6 4 5 4c1.66 0 3-1.34 3-3Z"
+        d="M5.3 10A4.7 4.7 0 0 1 14.1 6.3"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M16.5 6.3h-2.4V3.9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.7 10A4.7 4.7 0 0 1 5.9 13.7"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.5 13.7h2.4v2.4"
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinecap="round"

@@ -16,7 +16,13 @@
  *   /orgx/api/runs/:id/actions/:action → run control action
  */
 
-import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  chmodSync,
+  createWriteStream,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -3382,6 +3388,307 @@ export function createHttpHandler(
   let autoContinueTickInFlight = false;
   const AUTO_CONTINUE_TICK_MS = 2_500;
 
+  // ---------------------------------------------------------------------------
+  // Auto-continue v2 (Workstream Slices)
+  //
+  // Dispatches sets of work (a "slice") for a workstream and expects verifiable
+  // outcomes that can be registered as OrgX artifacts + decisions.
+  //
+  // Important: we do NOT auto-mark OrgX tasks/initiatives as done.
+  // ---------------------------------------------------------------------------
+
+  type AutoContinueSliceEngine = "codex" | "claude-code";
+  type AutoContinueSliceStatus = "running" | "completed" | "blocked" | "error";
+
+  type AutoContinueSliceArtifact = {
+    name: string;
+    artifact_type: "pr" | "commit" | "document" | "config" | "report" | "design" | "other";
+    description?: string | null;
+    url?: string | null;
+    verification_steps?: string[] | null;
+    milestone_id?: string | null;
+    task_ids?: string[] | null;
+  };
+
+  type AutoContinueSliceDecision = {
+    question: string;
+    urgency?: "low" | "medium" | "high" | "urgent";
+    options?: string[] | null;
+    blocking?: boolean | null;
+    summary?: string | null;
+  };
+
+  type AutoContinueSliceResult = {
+    status: "completed" | "blocked" | "needs_decision" | "error";
+    summary: string;
+    workstream_id: string;
+    workstream_title?: string | null;
+    slice_id?: string | null;
+    artifacts?: AutoContinueSliceArtifact[] | null;
+    decisions_needed?: AutoContinueSliceDecision[] | null;
+    next_actions?: string[] | null;
+  };
+
+  type AutoContinueSliceRun = {
+    runId: string;
+    initiativeId: string;
+    initiativeTitle: string | null;
+    workstreamId: string;
+    workstreamTitle: string | null;
+    agentId: string;
+    engine: AutoContinueSliceEngine;
+    pid: number | null;
+    status: AutoContinueSliceStatus;
+    startedAt: string;
+    finishedAt: string | null;
+    updatedAt: string;
+    tokenEstimate: number | null;
+    outputPath: string;
+    logPath: string;
+    taskIds: string[];
+    milestoneIds: string[];
+    lastError: string | null;
+  };
+
+  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
+  const AUTO_CONTINUE_SLICE_MAX_TASKS = 4;
+  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 10 * 60_000; // 10 minutes per slice hard cap
+  const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
+
+  function ensurePrivateDir(pathname: string): void {
+    const dir = dirname(pathname);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      // best effort
+    }
+  }
+
+  function autopilotSliceSchema(): Record<string, unknown> {
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "summary", "workstream_id"],
+      properties: {
+        status: {
+          type: "string",
+          enum: ["completed", "blocked", "needs_decision", "error"],
+        },
+        summary: { type: "string", minLength: 1 },
+        workstream_id: { type: "string", minLength: 1 },
+        workstream_title: { type: ["string", "null"] },
+        slice_id: { type: ["string", "null"] },
+        artifacts: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "artifact_type"],
+            properties: {
+              name: { type: "string", minLength: 1 },
+              artifact_type: {
+                type: "string",
+                enum: ["pr", "commit", "document", "config", "report", "design", "other"],
+              },
+              description: { type: ["string", "null"] },
+              url: { type: ["string", "null"] },
+              verification_steps: { type: ["array", "null"], items: { type: "string" } },
+              milestone_id: { type: ["string", "null"] },
+              task_ids: { type: ["array", "null"], items: { type: "string" } },
+            },
+          },
+        },
+        decisions_needed: {
+          type: ["array", "null"],
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["question"],
+            properties: {
+              question: { type: "string", minLength: 1 },
+              urgency: { type: ["string", "null"], enum: ["low", "medium", "high", "urgent", null] },
+              options: { type: ["array", "null"], items: { type: "string" } },
+              blocking: { type: ["boolean", "null"] },
+              summary: { type: ["string", "null"] },
+            },
+          },
+        },
+        next_actions: { type: ["array", "null"], items: { type: "string" } },
+      },
+    };
+  }
+
+  function ensureAutopilotSliceSchemaPath(): string {
+    const file = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
+    try {
+      if (existsSync(file)) return file;
+      ensurePrivateDir(file);
+      writeFileAtomicSync(file, JSON.stringify(autopilotSliceSchema(), null, 2), { mode: 0o600 });
+      return file;
+    } catch {
+      return file;
+    }
+  }
+
+  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
+    if (direct && typeof direct === "object") return direct;
+    const first = trimmed.indexOf("{");
+    const last = trimmed.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      const candidate = trimmed.slice(first, last + 1);
+      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
+      if (parsed && typeof parsed === "object") return parsed;
+    }
+    return null;
+  }
+
+  function readSliceOutputFile(pathname: string): string | null {
+    try {
+      if (!existsSync(pathname)) return null;
+      const raw = readFileSync(pathname, "utf8");
+      return raw.trim().length > 0 ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeRuntimeEvent(input: {
+    sourceClient: RuntimeSourceClient;
+    event: RuntimeHookPayload["event"];
+    runId: string;
+    initiativeId: string;
+    workstreamId: string | null;
+    agentId: string | null;
+    agentName: string | null;
+    phase: string | null;
+    message?: string | null;
+    progressPct?: number | null;
+    metadata?: Record<string, unknown> | null;
+    timestamp?: string | null;
+  }): RuntimeInstanceRecord {
+    return upsertRuntimeInstanceFromHook({
+      source_client: input.sourceClient,
+      event: input.event ?? null,
+      run_id: input.runId,
+      correlation_id: input.runId,
+      initiative_id: input.initiativeId,
+      workstream_id: input.workstreamId,
+      agent_id: input.agentId,
+      agent_name: input.agentName,
+      phase: input.phase,
+      progress_pct: input.progressPct ?? null,
+      message: input.message ?? null,
+      metadata: input.metadata ?? null,
+      timestamp: input.timestamp ?? new Date().toISOString(),
+    });
+  }
+
+  function buildWorkstreamSlicePrompt(input: {
+    initiativeTitle: string;
+    initiativeId: string;
+    workstreamId: string;
+    workstreamTitle: string;
+    milestoneSummaries: Array<{ id: string; title: string; status: string }>;
+    taskSummaries: Array<{ id: string; title: string; status: string; milestoneId: string | null }>;
+    executionPolicy: { domain: string; requiredSkills: string[] };
+    runId: string;
+  }): string {
+    const milestones = input.milestoneSummaries
+      .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
+      .slice(0, 10)
+      .join("\n");
+    const tasks = input.taskSummaries
+      .map((t) => {
+        const milestone = t.milestoneId ? ` milestone=${t.milestoneId}` : "";
+        return `- ${t.title} (${t.status}) [${t.id}]${milestone}`;
+      })
+      .slice(0, 18)
+      .join("\n");
+
+    return [
+      `You are an OrgX execution agent running a single workstream slice.`,
+      ``,
+      `Execution policy: ${input.executionPolicy.domain}`,
+      `Required skills: ${formatRequiredSkills(input.executionPolicy.requiredSkills)}`,
+      ``,
+      `Initiative: ${input.initiativeTitle} [${input.initiativeId}]`,
+      `Workstream: ${input.workstreamTitle} [${input.workstreamId}]`,
+      `Slice run: ${input.runId}`,
+      ``,
+      `Milestones (context):`,
+      milestones || "- (none found)",
+      ``,
+      `Candidate tasks (context only; do NOT auto-mark task status in OrgX):`,
+      tasks || "- (none found)",
+      ``,
+      `What to do:`,
+      `- Choose a coherent slice of work you can complete in one run.`,
+      `- Execute the work (code/docs/config) and produce verifiable outcomes.`,
+      `- If blocked, be explicit about what decision/info is required.`,
+      ``,
+      `Output requirements:`,
+      `- Return ONLY a single JSON object that matches the provided schema.`,
+      `- Artifacts must be verifiable: include URLs or local paths when possible, plus verification steps.`,
+      `- If you need a human decision, include it in decisions_needed.`,
+    ].join("\n");
+  }
+
+  function spawnCodexSliceWorker(input: {
+    runId: string;
+    prompt: string;
+    cwd: string;
+    schemaPath: string;
+    logPath: string;
+    outputPath: string;
+  }): { pid: number | null } {
+    ensurePrivateDir(input.logPath);
+    ensurePrivateDir(input.outputPath);
+
+    const stream = createWriteStream(input.logPath, { flags: "a", mode: 0o600 });
+    stream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
+
+    const child = spawn(
+      "codex",
+      [
+        "exec",
+        "--full-auto",
+        "--cd",
+        input.cwd,
+        "--output-schema",
+        input.schemaPath,
+        "--output-last-message",
+        input.outputPath,
+        input.prompt,
+      ],
+      {
+        cwd: input.cwd,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      }
+    );
+
+    child.stdout?.on("data", (chunk) => stream.write(chunk));
+    child.stderr?.on("data", (chunk) => stream.write(chunk));
+    child.on("close", (code, signal) => {
+      stream.write(
+        `\n==== ${new Date().toISOString()} :: exit code=${String(code)} signal=${String(signal)} ====\n`
+      );
+      stream.end();
+    });
+    child.on("error", (err) => {
+      stream.write(`\nspawn error: ${safeErrorMessage(err)}\n`);
+      stream.end();
+    });
+
+    child.unref();
+    return { pid: typeof child.pid === "number" ? child.pid : null };
+  }
+
   const setLocalInitiativeStatusOverride = (
     initiativeId: string,
     status: string
@@ -3494,123 +3801,10 @@ export function createHttpHandler(
     return Math.max(0, Math.round(raw));
   }
 
-  function isSafePathSegment(value: string): boolean {
-    const normalized = value.trim();
-    if (!normalized || normalized === "." || normalized === "..") return false;
-    if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("\0")) {
-      return false;
-    }
-    if (normalized.includes("..")) return false;
-    return true;
-  }
+  // Helpers used by previous task-level auto-continue implementation were removed in v2.
 
-  function toFiniteNumber(value: unknown): number | null {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
-  }
-
-  function readOpenClawSessionSummary(input: {
-    agentId: string;
-    sessionId: string;
-  }): {
-    tokens: number;
-    costUsd: number;
-    hadError: boolean;
-    errorMessage: string | null;
-  } {
-    const agentId = input.agentId.trim();
-    const sessionId = input.sessionId.trim();
-    if (!agentId || !sessionId) {
-      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
-    }
-    if (!isSafePathSegment(agentId) || !isSafePathSegment(sessionId)) {
-      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
-    }
-
-    const jsonlPath = join(
-      homedir(),
-      ".openclaw",
-      "agents",
-      agentId,
-      "sessions",
-      `${sessionId}.jsonl`
-    );
-
-    try {
-      if (!existsSync(jsonlPath)) {
-        return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
-      }
-      const raw = readFileSync(jsonlPath, "utf8");
-      const lines = raw.split("\n");
-
-      let tokens = 0;
-      let costUsd = 0;
-      let hadError = false;
-      let errorMessage: string | null = null;
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const evt = JSON.parse(trimmed) as Record<string, unknown>;
-          if (evt.type !== "message") continue;
-          const msg = evt.message as Record<string, unknown> | undefined;
-          if (!msg || typeof msg !== "object") continue;
-
-          const usage = msg.usage as Record<string, unknown> | undefined;
-          if (usage && typeof usage === "object") {
-            const totalTokens =
-              toFiniteNumber(usage.totalTokens) ??
-              toFiniteNumber(usage.total_tokens) ??
-              null;
-            const inputTokens = toFiniteNumber(usage.input) ?? 0;
-            const outputTokens = toFiniteNumber(usage.output) ?? 0;
-            const cacheReadTokens = toFiniteNumber(usage.cacheRead) ?? 0;
-            const cacheWriteTokens = toFiniteNumber(usage.cacheWrite) ?? 0;
-
-            tokens += Math.max(
-              0,
-              Math.round(
-                totalTokens ??
-                  inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens
-              )
-            );
-
-            const cost = usage.cost as Record<string, unknown> | undefined;
-            const costTotal = cost ? toFiniteNumber(cost.total) : null;
-            if (costTotal !== null) {
-              costUsd += Math.max(0, costTotal);
-            }
-          }
-
-          const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : "";
-          const msgError =
-            typeof msg.errorMessage === "string" && msg.errorMessage.trim().length > 0
-              ? msg.errorMessage.trim()
-              : null;
-          if (stopReason === "error" || msgError) {
-            hadError = true;
-            errorMessage = msgError ?? errorMessage;
-          }
-        } catch {
-          // Ignore malformed lines.
-        }
-      }
-
-      return {
-        tokens,
-        costUsd: Math.round(costUsd * 10_000) / 10_000,
-        hadError,
-        errorMessage,
-      };
-    } catch {
-      return { tokens: 0, costUsd: 0, hadError: false, errorMessage: null };
-    }
-  }
+  // readOpenClawSessionSummary was used by the previous task-level auto-continue implementation.
+  // Autopilot v2 dispatches workstream slices via codex and does not rely on OpenClaw session JSONL.
 
   async function fetchInitiativeEntity(initiativeId: string): Promise<Entity | null> {
     try {
@@ -3676,18 +3870,13 @@ export function createHttpHandler(
     input.run.activeTaskId = null;
     if (input.error) input.run.lastError = input.error;
 
+    // Autopilot should not auto-complete initiatives; keep status changes conservative.
     try {
-      if (input.reason === "completed") {
-        await client.updateEntity("initiative", input.run.initiativeId, {
-          status: "completed",
-        });
-      } else {
-        await client.updateEntity("initiative", input.run.initiativeId, {
-          status: "paused",
-        });
-      }
+      await client.updateEntity("initiative", input.run.initiativeId, {
+        status: "paused",
+      });
     } catch {
-      // best effort; UI still derives paused state locally
+      // best effort
     }
 
     try {
@@ -3819,263 +4008,311 @@ export function createHttpHandler(
     };
   }
 
+  async function registerArtifactSafe(input: {
+    initiativeId: string;
+    runId: string;
+    agentId: string;
+    workstreamId: string;
+    artifact: AutoContinueSliceArtifact;
+  }): Promise<{ ok: boolean; id: string | null }> {
+    const now = new Date().toISOString();
+    const name = (input.artifact.name ?? "").trim();
+    if (!name) return { ok: false, id: null };
+    const artifactType = (input.artifact.artifact_type ?? "other").trim();
+
+    const verificationSteps = Array.isArray(input.artifact.verification_steps)
+      ? input.artifact.verification_steps.filter(
+          (step: string) => typeof step === "string" && step.trim().length > 0
+        )
+      : [];
+
+    const descriptionParts: string[] = [];
+    if (typeof input.artifact.description === "string" && input.artifact.description.trim()) {
+      descriptionParts.push(input.artifact.description.trim());
+    }
+    if (verificationSteps.length > 0) {
+      descriptionParts.push(
+        `Verification:\n${verificationSteps.map((step) => `- ${step}`).join("\n")}`
+      );
+    }
+    const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
+
+    const activityItem: LiveActivityItem = {
+      id: `artifact:${randomUUID().slice(0, 8)}`,
+      type: "artifact_created",
+      title: name,
+      description: description ?? null,
+      agentId: input.agentId,
+      agentName: null,
+      runId: input.runId,
+      initiativeId: input.initiativeId,
+      timestamp: now,
+      summary: input.artifact.url ?? null,
+      metadata: {
+        source: "autopilot_slice",
+        artifact_type: artifactType,
+        url: input.artifact.url ?? null,
+        workstream_id: input.workstreamId,
+        milestone_id: input.artifact.milestone_id ?? null,
+        task_ids: input.artifact.task_ids ?? null,
+      },
+    };
+
+    try {
+      const entity = await client.createEntity("artifact", {
+        initiative_id: input.initiativeId,
+        workstream_id: input.workstreamId,
+        name,
+        artifact_type: artifactType,
+        description,
+        artifact_url: input.artifact.url ?? undefined,
+        status: "active",
+        metadata: {
+          source: "autopilot_slice",
+          run_id: input.runId,
+          milestone_id: input.artifact.milestone_id ?? null,
+          task_ids: input.artifact.task_ids ?? null,
+        },
+      });
+
+      return { ok: true, id: pickString(entity as any, ["id"]) ?? null };
+    } catch (err: unknown) {
+      try {
+        await appendToOutbox("artifacts", {
+          id: randomUUID(),
+          type: "artifact",
+          timestamp: now,
+          payload: {
+            name,
+            artifact_type: artifactType,
+            description,
+            url: input.artifact.url ?? undefined,
+            initiative_id: input.initiativeId,
+            workstream_id: input.workstreamId,
+            milestone_id: input.artifact.milestone_id ?? null,
+            task_ids: input.artifact.task_ids ?? null,
+            run_id: input.runId,
+            source: "autopilot_slice",
+          },
+          activityItem: {
+            ...activityItem,
+            metadata: {
+              ...(activityItem.metadata ?? {}),
+              error: safeErrorMessage(err),
+              buffered: true,
+            },
+          },
+        });
+      } catch {
+        // best effort
+      }
+      return { ok: false, id: null };
+    }
+  }
+
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
     if (run.status !== "running" && run.status !== "stopping") return;
 
     const now = new Date().toISOString();
 
-    // 1) If we have an active run, wait for it to finish.
+    // 1) If we have an active slice, wait for it to finish and then register outcomes.
     if (run.activeRunId) {
-      const record = getAgentRun(run.activeRunId);
-      const pid = record?.pid ?? null;
-      if (pid && pidAlive(pid)) {
-        return;
-      }
+      const slice = autoContinueSliceRuns.get(run.activeRunId) ?? null;
+      if (!slice) {
+        // Legacy/unknown pointer; clear so we can continue.
+        run.activeRunId = null;
+        run.activeTaskId = null;
+        run.updatedAt = now;
+      } else {
+        const pid = slice.pid;
+        if (pid && pidAlive(pid)) {
+          const ageMs = Date.now() - Date.parse(slice.startedAt);
+          const timedOut =
+            Number.isFinite(ageMs) && ageMs > AUTO_CONTINUE_SLICE_TIMEOUT_MS;
 
-      // Run finished (or pid missing). Mark stopped and auto-complete the task.
-      if (record) {
-        try {
-          markAgentRunStopped(record.runId);
-        } catch {
-          // ignore
-        }
-
-      const summary = readOpenClawSessionSummary({
-          agentId: record.agentId,
-          sessionId: record.runId,
-        });
-
-        const modeledTokens = run.activeTaskTokenEstimate ?? 0;
-        const consumedTokens = summary.tokens > 0 ? summary.tokens : modeledTokens;
-        run.tokensUsed += Math.max(0, consumedTokens);
-        run.activeTaskTokenEstimate = null;
-
-        // Best-effort: persist retro + outcome to OrgX so learning aggregator can consume local runs.
-        // If the server is unreachable, buffer to outbox for later replay.
-        try {
-          const initiativeId = run.initiativeId;
-          if (initiativeId) {
-            const completedAt = new Date().toISOString();
-            const success = !summary.hadError;
-            const correlationId = record.runId;
-
-            const outcomePayload = {
-              initiative_id: initiativeId,
-              correlation_id: correlationId,
-              source_client: "openclaw" as const,
-              execution_id: `openclaw:${record.runId}`,
-              execution_type: "openclaw.session",
-              agent_id: record.agentId,
-              task_type: record.taskId ?? undefined,
-              started_at: record.startedAt,
-              completed_at: completedAt,
-              inputs: {
-                message: record.message,
-                workstream_id: record.workstreamId,
-                task_id: record.taskId,
-              },
-              outputs: {
-                had_error: summary.hadError,
-                error_message: summary.errorMessage,
-              },
-              steps: [],
-              success,
-              human_interventions: 0,
-              errors: summary.errorMessage ? [summary.errorMessage] : [],
-              metadata: {
-                provider: record.provider,
-                model: record.model,
-                tokens: summary.tokens,
-                cost_usd: summary.costUsd,
-                source: "openclaw_auto_continue",
-              },
-            };
-
+          if (timedOut) {
             try {
-              await client.recordRunOutcome(outcomePayload as any);
-            } catch (err: unknown) {
-              const timestamp = new Date().toISOString();
-              await appendToOutbox(initiativeId, {
-                id: randomUUID(),
-                type: "outcome",
-                timestamp,
-                payload: outcomePayload as any,
-                activityItem: {
-                  id: randomUUID(),
-                  type: "run_completed",
-                  title: `Buffered outcome for session ${record.runId}`,
-                  description: null,
-                  agentId: record.agentId,
-                  agentName: null,
-                  runId: record.runId,
-                  initiativeId,
-                  timestamp,
-                  phase: success ? "completed" : "blocked",
-                  summary:
-                    record.taskId
-                      ? `OpenClaw ${success ? "completed" : "blocked"} task ${record.taskId}.`
-                      : `OpenClaw run ${success ? "completed" : "blocked"} (session ${record.runId}).`,
-                  metadata: {
-                    source: "openclaw_local_fallback",
-                    error: safeErrorMessage(err),
-                  },
-                },
-              });
+              await stopProcess(pid);
+            } catch {
+              // best effort
             }
 
-            const retroEntityType = record.taskId
-              ? ("task" as const)
-              : record.workstreamId
-                ? ("workstream" as const)
-                : ("initiative" as const);
-            const retroEntityId =
-              record.taskId ?? record.workstreamId ?? initiativeId;
-            const retroSummary = record.taskId
-              ? `OpenClaw ${success ? "completed" : "blocked"} task ${record.taskId}.`
-              : `OpenClaw run ${success ? "completed" : "blocked"} (session ${record.runId}).`;
+            slice.status = "error";
+            slice.finishedAt = now;
+            slice.updatedAt = now;
+            slice.lastError = `Autopilot slice timed out after ${Math.round(
+              AUTO_CONTINUE_SLICE_TIMEOUT_MS / 60_000
+            )} minutes.`;
+            autoContinueSliceRuns.set(slice.runId, slice);
 
-            const retroPayload = {
-              initiative_id: initiativeId,
-              correlation_id: correlationId,
-              source_client: "openclaw" as const,
-              entity_type: retroEntityType,
-              entity_id: retroEntityId,
-              title: record.taskId ?? record.runId,
-              idempotency_key: `retro:${record.runId}`,
-              retro: {
-                summary: retroSummary,
-                what_went_well: success ? ["Completed without runtime error."] : [],
-                what_went_wrong: success
-                  ? []
-                  : [summary.errorMessage ?? "Session ended with error."],
-                decisions: [],
-                follow_ups: success
-                  ? []
-                  : [
-                      {
-                        title: "Investigate OpenClaw session failure and unblock task",
-                        priority: "p0" as const,
-                        reason: summary.errorMessage ?? "Session ended with error.",
-                      },
-                    ],
-                signals: {
-                  tokens: summary.tokens,
-                  cost_usd: summary.costUsd,
-                  had_error: summary.hadError,
-                  error_message: summary.errorMessage,
-                  session_id: record.runId,
-                  task_id: record.taskId,
-                  workstream_id: record.workstreamId,
-                  provider: record.provider,
-                  model: record.model,
-                  source: "openclaw_auto_continue",
-                },
+            run.lastError = slice.lastError;
+            run.updatedAt = now;
+
+            await emitActivitySafe({
+              initiativeId: run.initiativeId,
+              runId: slice.runId,
+              correlationId: slice.runId,
+              phase: "blocked",
+              level: "error",
+              message: `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}.`,
+              metadata: {
+                event: "autopilot_slice_timeout",
+                workstream_id: slice.workstreamId,
+                task_ids: slice.taskIds,
+                milestone_ids: slice.milestoneIds,
+                log_path: slice.logPath,
+                output_path: slice.outputPath,
               },
-            };
+            });
 
+            await requestDecisionSafe({
+              initiativeId: run.initiativeId,
+              correlationId: slice.runId,
+              title: `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}`,
+              summary:
+                "The slice exceeded its execution timeout and was terminated. Review logs/output and decide whether to retry or pause autopilot.",
+              urgency: "high",
+              options: [
+                "Retry this workstream slice",
+                "Pause autopilot and investigate",
+                "Skip this workstream for now",
+              ],
+              blocking: true,
+            });
+
+            await stopAutoContinueRun({
+              run,
+              reason: "blocked",
+              error: slice.lastError,
+            });
+            return;
+          }
+
+          if (run.stopRequested) {
             try {
-              await client.recordRunRetro(retroPayload as any);
-            } catch (err: unknown) {
-              const timestamp = new Date().toISOString();
-              await appendToOutbox(initiativeId, {
-                id: randomUUID(),
-                type: "retro",
-                timestamp,
-                payload: retroPayload as any,
-                activityItem: {
-                  id: randomUUID(),
-                  type: "artifact_created",
-                  title: `Buffered retro for session ${record.runId}`,
-                  description: null,
-                  agentId: record.agentId,
-                  agentName: null,
-                  runId: record.runId,
-                  initiativeId,
-                  timestamp,
-                  phase: success ? "completed" : "blocked",
-                  summary: retroSummary,
-                  metadata: {
-                    source: "openclaw_local_fallback",
-                    error: safeErrorMessage(err),
-                  },
-                },
-              });
+              await stopProcess(pid);
+            } catch {
+              // best effort
             }
           }
+
+          return;
+        }
+
+        // Slice finished.
+        const raw = readSliceOutputFile(slice.outputPath);
+        const parsed = raw ? parseSliceResult(raw) : null;
+        const parsedStatus = parsed?.status ?? "error";
+
+        slice.status =
+          parsedStatus === "completed"
+            ? "completed"
+            : parsedStatus === "blocked" || parsedStatus === "needs_decision"
+              ? "blocked"
+              : "error";
+        slice.finishedAt = now;
+        slice.updatedAt = now;
+        slice.lastError =
+          slice.status === "error"
+            ? slice.lastError ?? "Autopilot slice failed or returned invalid output."
+            : null;
+        autoContinueSliceRuns.set(slice.runId, slice);
+
+        // Token accounting: codex CLI doesn't provide tokens here; use the modeled estimate.
+        const modeledTokens = slice.tokenEstimate ?? run.activeTaskTokenEstimate ?? 0;
+        run.tokensUsed += Math.max(0, modeledTokens);
+        run.activeTaskTokenEstimate = null;
+
+        const decisions = Array.isArray(parsed?.decisions_needed)
+          ? (parsed?.decisions_needed ?? [])
+              .filter(
+                (item: AutoContinueSliceDecision): item is AutoContinueSliceDecision =>
+                  Boolean(item && typeof item.question === "string" && item.question.trim())
+              )
+          : [];
+
+        const artifacts = Array.isArray(parsed?.artifacts)
+          ? (parsed?.artifacts ?? [])
+              .filter(
+                (item: AutoContinueSliceArtifact): item is AutoContinueSliceArtifact =>
+                  Boolean(item && typeof item.name === "string" && item.name.trim())
+              )
+          : [];
+
+        for (const decision of decisions) {
+          await requestDecisionSafe({
+            initiativeId: run.initiativeId,
+            correlationId: slice.runId,
+            title: decision.question.trim(),
+            summary: decision.summary ?? parsed?.summary ?? null,
+            urgency: decision.urgency ?? "high",
+            options: Array.isArray(decision.options)
+              ? decision.options.filter((opt: string) => typeof opt === "string" && opt.trim())
+              : [],
+            blocking: typeof decision.blocking === "boolean" ? decision.blocking : true,
+          });
+        }
+
+        for (const artifact of artifacts) {
+          await registerArtifactSafe({
+            initiativeId: run.initiativeId,
+            runId: slice.runId,
+            agentId: slice.agentId,
+            workstreamId: slice.workstreamId,
+            artifact,
+          });
+        }
+
+        try {
+          writeRuntimeEvent({
+            sourceClient: "codex",
+            event: slice.status === "error" ? "error" : "session_stop",
+            runId: slice.runId,
+            initiativeId: slice.initiativeId,
+            workstreamId: slice.workstreamId,
+            agentId: slice.agentId,
+            agentName: null,
+            phase: slice.status === "completed" ? "completed" : "blocked",
+            message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
+            metadata: {
+              event: "autopilot_slice_finished",
+              status: parsedStatus,
+              artifacts: artifacts.length,
+              decisions: decisions.length,
+            },
+          });
         } catch {
           // best effort
         }
 
-        if (record.taskId) {
-          try {
-            await client.updateEntity("task", record.taskId, {
-              status: summary.hadError ? "blocked" : "done",
-            });
-          } catch (err: unknown) {
-            run.lastError = safeErrorMessage(err);
-          }
-        }
-
-        if (record.taskId) {
-          await syncParentRollupsForTask({
-            initiativeId: run.initiativeId,
-            taskId: record.taskId,
-            workstreamId: record.workstreamId,
-            correlationId: record.runId,
-          });
-        }
-
         await emitActivitySafe({
           initiativeId: run.initiativeId,
-          correlationId: record.runId,
-          phase: summary.hadError ? "blocked" : "completed",
-          level: summary.hadError ? "warn" : "info",
-          message: record.taskId
-            ? `Auto-continue ${summary.hadError ? "blocked" : "completed"} task ${record.taskId}.`
-            : `Auto-continue run finished (${summary.hadError ? "blocked" : "completed"}).`,
+          runId: slice.runId,
+          correlationId: slice.runId,
+          phase: slice.status === "completed" ? "completed" : "blocked",
+          level: slice.status === "completed" ? "info" : "warn",
+          message:
+            slice.status === "completed"
+              ? `Autopilot slice completed: ${slice.workstreamTitle ?? slice.workstreamId}.`
+              : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
           metadata: {
-            event: "auto_continue_task_finished",
-            agent_id: record.agentId,
-            session_id: record.runId,
-            task_id: record.taskId,
-            workstream_id: record.workstreamId,
-            tokens: summary.tokens,
-            cost_usd: summary.costUsd,
-            had_error: summary.hadError,
-            error_message: summary.errorMessage,
+            event: "autopilot_slice_result",
+            workstream_id: slice.workstreamId,
+            task_ids: slice.taskIds,
+            milestone_ids: slice.milestoneIds,
+            parsed_status: parsedStatus,
+            has_output: Boolean(parsed),
+            output_path: slice.outputPath,
+            log_path: slice.logPath,
+            error: slice.lastError,
           },
         });
 
-        if (summary.hadError && record.taskId) {
-          await requestDecisionSafe({
-            initiativeId: run.initiativeId,
-            correlationId: record.runId,
-            title: `Unblock auto-continue task ${record.taskId}`,
-            summary: [
-              `Task ${record.taskId} finished with runtime error in session ${record.runId}.`,
-              summary.errorMessage ? `Error: ${summary.errorMessage}` : null,
-              `Workstream: ${record.workstreamId ?? "unknown"}.`,
-            ]
-              .filter((line): line is string => Boolean(line))
-              .join(" "),
-            urgency: "high",
-            options: [
-              "Retry task in auto-continue",
-              "Assign manual recovery owner",
-              "Pause initiative until fixed",
-            ],
-            blocking: true,
-          });
-        }
-
-        run.lastRunId = record.runId;
-        run.lastTaskId = record.taskId ?? run.lastTaskId;
+        run.lastRunId = slice.runId;
+        run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
         run.activeRunId = null;
         run.activeTaskId = null;
         run.updatedAt = now;
-        if (summary.hadError && summary.errorMessage) {
-          run.lastError = summary.errorMessage;
-        }
 
         try {
           await updateInitiativeAutoContinueState({
@@ -4085,16 +4322,11 @@ export function createHttpHandler(
         } catch {
           // best effort
         }
-      } else {
-        // No record; clear active pointers so we can continue.
-        run.activeRunId = null;
-        run.activeTaskId = null;
-      }
 
-      // If a stop was requested, finalize after the active run completes.
-      if (run.stopRequested) {
-        await stopAutoContinueRun({ run, reason: "stopped" });
-        return;
+        if (run.stopRequested) {
+          await stopAutoContinueRun({ run, reason: "stopped" });
+          return;
+        }
       }
     }
 
@@ -4105,13 +4337,13 @@ export function createHttpHandler(
       return;
     }
 
-    // 2) Enforce token guardrail before starting a new task.
+    // 2) Enforce token guardrail before starting a new slice.
     if (run.tokensUsed >= run.tokenBudget) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
       return;
     }
 
-    // 3) Pick next-up task and dispatch.
+    // 3) Pick next workstream slice and dispatch.
     let graph: Awaited<ReturnType<typeof buildMissionControlGraph>>;
     try {
       graph = applyLocalInitiativeOverrideToGraph(
@@ -4130,7 +4362,6 @@ export function createHttpHandler(
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const taskNodes = nodes.filter((node) => node.type === "task");
     const todoTasks = taskNodes.filter((node) => isTodoStatus(node.status));
-
     if (todoTasks.length === 0) {
       await stopAutoContinueRun({ run, reason: "completed" });
       return;
@@ -4153,7 +4384,8 @@ export function createHttpHandler(
       );
     };
 
-    let nextTaskNode: MissionControlNode | null = null;
+    // Select the next eligible workstream by scanning ordered todos.
+    let selectedWorkstreamId: string | null = null;
     for (const taskId of graph.recentTodos) {
       const node = nodeById.get(taskId);
       if (!node || node.type !== "task") continue;
@@ -4161,133 +4393,120 @@ export function createHttpHandler(
       if (
         !run.includeVerification &&
         typeof node.title === "string" &&
-        /^verification\s+scenario/i.test(node.title)
+        /^verification\\s+scenario/i.test(node.title)
       ) {
         continue;
       }
-      if (
-        run.allowedWorkstreamIds &&
-        node.workstreamId &&
-        !run.allowedWorkstreamIds.includes(node.workstreamId)
-      ) {
-        continue;
+      if (run.allowedWorkstreamIds && node.workstreamId) {
+        if (!run.allowedWorkstreamIds.includes(node.workstreamId)) continue;
       }
-      if (node.workstreamId) {
-        const ws = nodeById.get(node.workstreamId);
-        if (ws && !isDispatchableWorkstreamStatus(ws.status)) {
-          continue;
-        }
-      }
+      if (!node.workstreamId) continue;
+      const ws = nodeById.get(node.workstreamId);
+      if (ws && !isDispatchableWorkstreamStatus(ws.status)) continue;
       if (!taskIsReady(node)) continue;
       if (taskHasBlockedParent(node)) continue;
-      nextTaskNode = node;
+      selectedWorkstreamId = node.workstreamId;
       break;
     }
 
-    if (!nextTaskNode) {
+    if (!selectedWorkstreamId) {
       await stopAutoContinueRun({ run, reason: "blocked" });
       return;
     }
 
-    const nextTaskTokenEstimate = estimateTokensForDurationHours(
-      typeof nextTaskNode.expectedDurationHours === "number"
-        ? nextTaskNode.expectedDurationHours
-        : 0
+    const workstreamNode =
+      (nodeById.get(selectedWorkstreamId) as MissionControlNode | undefined) ?? null;
+    const workstreamTitle = workstreamNode?.title ?? null;
+    const initiativeNode = nodes.find((node) => node.type === "initiative") ?? null;
+    const initiativeTitle =
+      initiativeNode?.title ?? `Initiative ${run.initiativeId.slice(0, 8)}`;
+
+    const sliceTaskNodes = graph.recentTodos
+      .map((taskId) => nodeById.get(taskId))
+      .filter(
+        (node): node is MissionControlNode =>
+          Boolean(
+            node &&
+              node.type === "task" &&
+              node.workstreamId === selectedWorkstreamId &&
+              isTodoStatus(node.status) &&
+              taskIsReady(node) &&
+              !taskHasBlockedParent(node) &&
+              (run.includeVerification ||
+                !/^verification\\s+scenario/i.test(String(node.title ?? "")))
+          )
+      )
+      .slice(0, AUTO_CONTINUE_SLICE_MAX_TASKS);
+
+    const primaryTask = sliceTaskNodes[0] ?? null;
+    if (!primaryTask) {
+      await stopAutoContinueRun({ run, reason: "blocked" });
+      return;
+    }
+
+    const expectedDurationHours = sliceTaskNodes.reduce(
+      (acc, t) => acc + (typeof t.expectedDurationHours === "number" ? t.expectedDurationHours : 0),
+      0
     );
-    if (
-      nextTaskTokenEstimate > 0 &&
-      run.tokensUsed + nextTaskTokenEstimate > run.tokenBudget
-    ) {
+    const tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
+    if (tokenEstimate > 0 && run.tokensUsed + tokenEstimate > run.tokenBudget) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
       return;
     }
 
-    const agentId = run.agentId || "main";
-    const sessionId = randomUUID();
-    const initiativeNode = nodes.find((node) => node.type === "initiative") ?? null;
-    const workstreamTitle =
-      nextTaskNode.workstreamId
-        ? nodeById.get(nextTaskNode.workstreamId)?.title ?? null
-        : null;
-    const milestoneTitle =
-      nextTaskNode.milestoneId
-        ? nodeById.get(nextTaskNode.milestoneId)?.title ?? null
-        : null;
-    const workstreamNode =
-      nextTaskNode.workstreamId
-        ? nodeById.get(nextTaskNode.workstreamId) ?? null
-        : null;
-    const executionPolicy = deriveExecutionPolicy(nextTaskNode, workstreamNode);
+    const executionPolicy = deriveExecutionPolicy(primaryTask, workstreamNode);
+    const sliceRunId = randomUUID();
+
     const spawnGuardResult = await checkSpawnGuardSafe({
       domain: executionPolicy.domain,
-      taskId: nextTaskNode.id,
+      taskId: primaryTask.id,
       initiativeId: run.initiativeId,
-      correlationId: sessionId,
+      correlationId: sliceRunId,
+      targetLabel: "autopilot slice",
     });
     if (spawnGuardResult && typeof spawnGuardResult === "object") {
       const allowed = (spawnGuardResult as Record<string, unknown>).allowed;
       if (allowed === false) {
         const blockedReason = summarizeSpawnGuardBlockReason(spawnGuardResult);
-        if (spawnGuardIsRateLimited(spawnGuardResult)) {
-          run.lastError = blockedReason;
-          run.updatedAt = now;
-          await emitActivitySafe({
-            initiativeId: run.initiativeId,
-            correlationId: sessionId,
-            phase: "blocked",
-            level: "warn",
-            message: `Spawn guard rate-limited task ${nextTaskNode.id}; waiting to retry.`,
-            metadata: {
-              event: "auto_continue_spawn_guard_rate_limited",
-              task_id: nextTaskNode.id,
-              task_title: nextTaskNode.title,
-              domain: executionPolicy.domain,
-              required_skills: executionPolicy.requiredSkills,
-              spawn_guard: spawnGuardResult,
-            },
-          });
-          return;
+        // Maintain existing behavior: mark the primary task blocked when a quality gate denies dispatch.
+        try {
+          await client.updateEntity("task", primaryTask.id, { status: "blocked" });
+        } catch {
+          // best effort
         }
 
         try {
-          await client.updateEntity("task", nextTaskNode.id, {
-            status: "blocked",
+          await syncParentRollupsForTask({
+            initiativeId: run.initiativeId,
+            taskId: primaryTask.id,
+            workstreamId: selectedWorkstreamId,
+            milestoneId: primaryTask.milestoneId,
+            correlationId: sliceRunId,
           });
         } catch {
           // best effort
         }
 
-        await syncParentRollupsForTask({
-          initiativeId: run.initiativeId,
-          taskId: nextTaskNode.id,
-          workstreamId: nextTaskNode.workstreamId,
-          milestoneId: nextTaskNode.milestoneId,
-          correlationId: sessionId,
-        });
-
         await emitActivitySafe({
           initiativeId: run.initiativeId,
-          correlationId: sessionId,
+          correlationId: sliceRunId,
           phase: "blocked",
           level: "error",
-          message: `Auto-continue blocked by spawn guard on task ${nextTaskNode.id}.`,
+          message: `Autopilot blocked by spawn guard for ${workstreamTitle ?? selectedWorkstreamId}.`,
           metadata: {
             event: "auto_continue_spawn_guard_blocked",
-            task_id: nextTaskNode.id,
-            task_title: nextTaskNode.title,
-            domain: executionPolicy.domain,
-            required_skills: executionPolicy.requiredSkills,
+            task_id: primaryTask.id,
+            workstream_id: selectedWorkstreamId,
             blocked_reason: blockedReason,
             spawn_guard: spawnGuardResult,
           },
         });
-
         await requestDecisionSafe({
           initiativeId: run.initiativeId,
-          correlationId: sessionId,
-          title: `Unblock auto-continue task ${nextTaskNode.title}`,
+          correlationId: sliceRunId,
+          title: `Unblock autopilot for ${workstreamTitle ?? selectedWorkstreamId}`,
           summary: [
-            `Task ${nextTaskNode.id} failed spawn guard checks.`,
+            `Spawn guard denied dispatch for primary task ${primaryTask.id}.`,
             `Reason: ${blockedReason}`,
             `Domain: ${executionPolicy.domain}`,
             `Required skills: ${executionPolicy.requiredSkills.join(", ")}`,
@@ -4295,132 +4514,133 @@ export function createHttpHandler(
           urgency: "high",
           options: [
             "Approve exception and continue",
-            "Reassign task/domain",
+            "Reassign slice/domain",
             "Pause and investigate quality gate",
           ],
           blocking: true,
         });
-
-        await stopAutoContinueRun({
-          run,
-          reason: "blocked",
-          error: blockedReason,
-        });
+        await stopAutoContinueRun({ run, reason: "blocked", error: blockedReason });
         return;
       }
     }
 
-    const message = [
-      initiativeNode ? `Initiative: ${initiativeNode.title}` : null,
-      workstreamTitle ? `Workstream: ${workstreamTitle}` : null,
-      milestoneTitle ? `Milestone: ${milestoneTitle}` : null,
-      "",
-      `Task: ${nextTaskNode.title}`,
-      `Execution policy: ${executionPolicy.domain}`,
-      `Required skills: ${executionPolicy.requiredSkills.map((skill) => `$${skill}`).join(", ")}`,
-      "",
-      "Execute this task. When finished, provide a concise completion summary and any relevant commands/notes.",
-    ]
-      .filter((line): line is string => typeof line === "string")
-      .join("\n");
+    const milestoneIds = dedupeStrings(
+      sliceTaskNodes.map((t) => (t.milestoneId ?? "").trim()).filter(Boolean)
+    );
+    const milestoneSummaries = milestoneIds
+      .map((id) => nodeById.get(id))
+      .filter((node): node is MissionControlNode => Boolean(node && node.type === "milestone"))
+      .map((m) => ({ id: m.id, title: m.title, status: m.status }));
 
-    if (
-      workstreamNode &&
-      !isInProgressStatus(workstreamNode.status) &&
-      isDispatchableWorkstreamStatus(workstreamNode.status)
-    ) {
-      try {
-        await client.updateEntity("workstream", workstreamNode.id, {
-          status: "active",
-        });
-      } catch {
-        // best effort
-      }
-    }
+    const taskSummaries = sliceTaskNodes.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      milestoneId: t.milestoneId ?? null,
+    }));
+
+    const prompt = buildWorkstreamSlicePrompt({
+      initiativeTitle,
+      initiativeId: run.initiativeId,
+      workstreamId: selectedWorkstreamId,
+      workstreamTitle: workstreamTitle ?? `Workstream ${selectedWorkstreamId.slice(0, 8)}`,
+      milestoneSummaries,
+      taskSummaries,
+      executionPolicy,
+      runId: sliceRunId,
+    });
+
+    const schemaPath = ensureAutopilotSliceSchemaPath();
+    const logsDir = join(getOrgxPluginConfigDir(), "autopilot-logs");
+    const logPath = join(logsDir, `${sliceRunId}.log`);
+    const outputPath = join(logsDir, `${sliceRunId}.output.json`);
+
+    const workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+    const spawned = spawnCodexSliceWorker({
+      runId: sliceRunId,
+      prompt,
+      cwd: workerCwd,
+      schemaPath,
+      logPath,
+      outputPath,
+    });
+
+    const slice: AutoContinueSliceRun = {
+      runId: sliceRunId,
+      initiativeId: run.initiativeId,
+      initiativeTitle: initiativeTitle ?? null,
+      workstreamId: selectedWorkstreamId,
+      workstreamTitle,
+      agentId: run.agentId || "main",
+      engine: "codex",
+      pid: spawned.pid,
+      status: "running",
+      startedAt: now,
+      finishedAt: null,
+      updatedAt: now,
+      tokenEstimate: tokenEstimate > 0 ? tokenEstimate : null,
+      outputPath,
+      logPath,
+      taskIds: sliceTaskNodes.map((t) => t.id),
+      milestoneIds,
+      lastError: null,
+    };
+    autoContinueSliceRuns.set(sliceRunId, slice);
 
     try {
-      await client.updateEntity("task", nextTaskNode.id, {
-        status: "in_progress",
+      writeRuntimeEvent({
+        sourceClient: "codex",
+        event: "session_start",
+        runId: sliceRunId,
+        initiativeId: run.initiativeId,
+        workstreamId: selectedWorkstreamId,
+        agentId: slice.agentId,
+        agentName: null,
+        phase: "execution",
+        message: `Autopilot slice started: ${workstreamTitle ?? selectedWorkstreamId}`,
+        metadata: {
+          event: "autopilot_slice_started",
+          domain: executionPolicy.domain,
+          required_skills: executionPolicy.requiredSkills,
+          task_ids: slice.taskIds,
+        },
       });
-    } catch (err: unknown) {
-      await stopAutoContinueRun({
-        run,
-        reason: "error",
-        error: safeErrorMessage(err),
-      });
-      return;
+    } catch {
+      // best effort
     }
-
-    await syncParentRollupsForTask({
-      initiativeId: run.initiativeId,
-      taskId: nextTaskNode.id,
-      workstreamId: nextTaskNode.workstreamId,
-      milestoneId: nextTaskNode.milestoneId,
-      correlationId: sessionId,
-    });
 
     await emitActivitySafe({
       initiativeId: run.initiativeId,
-      correlationId: sessionId,
+      runId: sliceRunId,
+      correlationId: sliceRunId,
       phase: "execution",
       level: "info",
-      message: `Auto-continue started task ${nextTaskNode.id}.`,
+      message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
       metadata: {
-        event: "auto_continue_task_started",
-        agent_id: agentId,
-        session_id: sessionId,
-        task_id: nextTaskNode.id,
-        task_title: nextTaskNode.title,
-        workstream_id: nextTaskNode.workstreamId,
-        workstream_title: workstreamTitle,
-        milestone_id: nextTaskNode.milestoneId,
-        milestone_title: milestoneTitle,
+        event: "autopilot_slice_dispatched",
         domain: executionPolicy.domain,
         required_skills: executionPolicy.requiredSkills,
-        spawn_guard_model_tier:
-          spawnGuardResult && typeof spawnGuardResult === "object"
-            ? pickString(
-                spawnGuardResult as Record<string, unknown>,
-                ["modelTier", "model_tier"]
-              ) ?? null
-            : null,
+        workstream_id: selectedWorkstreamId,
+        task_ids: slice.taskIds,
+        milestone_ids: milestoneIds,
+        log_path: logPath,
+        output_path: outputPath,
       },
     });
 
     upsertAgentContext({
-      agentId,
+      agentId: slice.agentId,
       initiativeId: run.initiativeId,
-      initiativeTitle: initiativeNode?.title ?? null,
-      workstreamId: nextTaskNode.workstreamId,
-      taskId: nextTaskNode.id,
+      initiativeTitle: initiativeTitle ?? null,
+      workstreamId: selectedWorkstreamId,
+      taskId: primaryTask.id,
     });
 
-    const spawned = spawnAgentTurn({
-      agentId,
-      sessionId,
-      message,
-    });
-
-    upsertAgentRun({
-      runId: sessionId,
-      agentId,
-      pid: spawned.pid,
-      message,
-      provider: null,
-      model: null,
-      initiativeId: run.initiativeId,
-      initiativeTitle: initiativeNode?.title ?? null,
-      workstreamId: nextTaskNode.workstreamId,
-      taskId: nextTaskNode.id,
-      startedAt: now,
-      status: "running",
-    });
-
-    run.lastTaskId = nextTaskNode.id;
-    run.lastRunId = sessionId;
-    run.activeTaskId = nextTaskNode.id;
-    run.activeRunId = sessionId;
-    run.activeTaskTokenEstimate = nextTaskTokenEstimate > 0 ? nextTaskTokenEstimate : null;
+    run.lastTaskId = primaryTask.id;
+    run.lastRunId = sliceRunId;
+    run.activeTaskId = primaryTask.id;
+    run.activeRunId = sliceRunId;
+    run.activeTaskTokenEstimate = tokenEstimate > 0 ? tokenEstimate : null;
     run.updatedAt = now;
 
     try {
@@ -4481,50 +4701,6 @@ export function createHttpHandler(
       return run;
     }
     return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
-  }
-
-  async function resolveAutoContinueUpgradeGate(
-    agentId: string
-  ): Promise<{
-    error: string;
-    code: "upgrade_required";
-    currentPlan: string;
-    requiredPlan: "starter";
-    actions: { checkout: string; portal: string; pricing: string };
-  } | null> {
-    let requiresPremiumAutoContinue = false;
-    try {
-      const agents = await listAgents();
-      const agentEntry =
-        agents.find((entry) => String(entry.id ?? "").trim() === agentId) ??
-        null;
-      const agentModel =
-        agentEntry && typeof agentEntry.model === "string"
-          ? agentEntry.model
-          : null;
-      requiresPremiumAutoContinue = modelImpliesByok(agentModel);
-    } catch {
-      // ignore
-    }
-
-    if (!requiresPremiumAutoContinue) return null;
-
-    const billingStatus = await fetchBillingStatusSafe(client);
-    if (!billingStatus || billingStatus.plan !== "free") return null;
-
-    const pricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
-    return {
-      code: "upgrade_required",
-      error:
-        "Auto-continue for BYOK agents requires a paid OrgX plan. Upgrade, then retry.",
-      currentPlan: billingStatus.plan,
-      requiredPlan: "starter",
-      actions: {
-        checkout: "/orgx/api/billing/checkout",
-        portal: "/orgx/api/billing/portal",
-        pricing: pricingUrl,
-      },
-    };
   }
 
   async function startAutoContinueRun(input: {
@@ -5936,14 +6112,7 @@ export function createHttpHandler(
             return true;
           }
 
-          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
-          if (upgradeGate) {
-            sendJson(res, 402, {
-              ok: false,
-              ...upgradeGate,
-            });
-            return true;
-          }
+          // Autopilot v2 runs slices via local codex dispatch, so BYOK plan gating does not apply here.
 
           const tokenBudget =
             pickNumber(payload, [
@@ -6015,7 +6184,7 @@ export function createHttpHandler(
 
           const fallbackStarted = Boolean(fallbackDispatch?.sessionId);
           const dispatchMode = run.activeRunId
-            ? "task"
+            ? "slice"
             : fallbackStarted
               ? "fallback"
               : "none";
@@ -6195,14 +6364,7 @@ export function createHttpHandler(
             return true;
           }
 
-          const upgradeGate = await resolveAutoContinueUpgradeGate(agentId);
-          if (upgradeGate) {
-            sendJson(res, 402, {
-              ok: false,
-              ...upgradeGate,
-            });
-            return true;
-          }
+          // Autopilot v2 runs slices via local codex dispatch, so BYOK plan gating does not apply here.
 
           const tokenBudget =
             pickNumber(payload, [
@@ -8355,17 +8517,56 @@ export function createHttpHandler(
               since,
               limit: Number.isFinite(limit) ? limit : undefined,
             });
+            let activities = Array.isArray(data.activities) ? data.activities : [];
+            let total =
+              typeof (data as any)?.total === "number" && Number.isFinite((data as any).total)
+                ? Number((data as any).total)
+                : activities.length;
+
+            // Include locally buffered outbox events so "Replay: error" still shows progress.
             try {
-              const items = Array.isArray(data.activities) ? data.activities : [];
-              if (items.length > 0) {
-                appendActivityItems(
-                  applyAgentContextsToActivity(items, readAgentContexts().agents)
-                );
+              const buffered = await outboxAdapter.readAllItems();
+              if (buffered.length > 0) {
+                let merged = [...activities, ...buffered];
+
+                if (run && run.trim().length > 0) {
+                  merged = merged.filter((item) => item.runId === run);
+                }
+                if (since && since.trim().length > 0) {
+                  const sinceEpoch = Date.parse(since);
+                  if (Number.isFinite(sinceEpoch)) {
+                    merged = merged.filter((item) => Date.parse(item.timestamp) >= sinceEpoch);
+                  }
+                }
+
+                merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+                const deduped: LiveActivityItem[] = [];
+                const seen = new Set<string>();
+                for (const item of merged) {
+                  if (seen.has(item.id)) continue;
+                  seen.add(item.id);
+                  deduped.push(item);
+                }
+
+                total = deduped.length;
+                if (Number.isFinite(limit)) {
+                  const cap = Math.max(1, Math.floor(Number(limit)));
+                  activities = deduped.slice(0, cap);
+                } else {
+                  activities = deduped;
+                }
               }
             } catch {
               // best effort
             }
-            sendJson(res, 200, data);
+
+            try {
+              const withContexts = applyAgentContextsToActivity(activities, readAgentContexts().agents);
+              if (withContexts.length > 0) appendActivityItems(withContexts);
+              sendJson(res, 200, { ...(data as any), activities: withContexts, total });
+            } catch {
+              sendJson(res, 200, { ...(data as any), activities, total });
+            }
           } catch (err: unknown) {
             try {
               const run = searchParams.get("run");
@@ -8402,14 +8603,30 @@ export function createHttpHandler(
                 local.activities,
                 readAgentContexts().agents
               );
+              let merged = activitiesWithContexts;
               try {
-                appendActivityItems(activitiesWithContexts);
+                const buffered = await outboxAdapter.readAllItems();
+                if (buffered.length > 0) {
+                  const byId = new Map<string, LiveActivityItem>();
+                  for (const item of [...merged, ...buffered]) {
+                    if (!item || typeof item.id !== "string") continue;
+                    byId.set(item.id, item);
+                  }
+                  merged = Array.from(byId.values()).sort(
+                    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
+                  );
+                }
+              } catch {
+                // best effort
+              }
+              try {
+                appendActivityItems(merged);
               } catch {
                 // best effort
               }
               sendJson(res, 200, {
-                activities: activitiesWithContexts.slice(0, limit),
-                total: local.total,
+                activities: merged.slice(0, limit),
+                total: merged.length,
               });
             } catch (localErr: unknown) {
               sendJson(res, 500, {
