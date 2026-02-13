@@ -286,7 +286,7 @@ export interface AgentSuiteWorkspaceFile {
   managedPath: string;
   localPath: string;
   compositePath: string;
-  action: 'create' | 'update' | 'noop';
+  action: 'create' | 'update' | 'noop' | 'conflict';
 }
 
 export interface AgentSuitePlan {

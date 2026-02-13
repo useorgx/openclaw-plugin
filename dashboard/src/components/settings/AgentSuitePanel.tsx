@@ -51,17 +51,22 @@ export function AgentSuitePanel({
     () => changedFileItems.filter((f) => f.action === 'update').length,
     [changedFileItems]
   );
+  const conflictFiles = useMemo(
+    () => changedFileItems.filter((f) => f.action === 'conflict').length,
+    [changedFileItems]
+  );
 
   const summary = useMemo(() => {
     if (suite.isLoading) return 'Loading agent suite status...';
     if (suite.error) return 'Unable to read suite status.';
     if (!plan) return 'Suite status unavailable.';
+    if (conflictFiles > 0) return `Conflicts detected: ${pluralize(conflictFiles, 'file')} need attention.`;
     if (missingAgents === 0 && changedFiles === 0) return 'Suite is installed and up to date.';
     const parts = [];
     if (missingAgents > 0) parts.push(`will add ${pluralize(missingAgents, 'agent')}`);
     if (changedFiles > 0) parts.push(`will ${changedFiles === 1 ? 'update' : 'update'} ${pluralize(changedFiles, 'file')}`);
     return `Preview: ${parts.join(', ')}.`;
-  }, [changedFiles, missingAgents, plan, suite.error, suite.isLoading]);
+  }, [changedFiles, conflictFiles, missingAgents, plan, suite.error, suite.isLoading]);
 
   const lastInstall = suite.installResult?.ok ? suite.installResult : null;
   const isDryRun = Boolean(lastInstall?.dryRun);
@@ -126,6 +131,7 @@ export function AgentSuitePanel({
             </Tag>
             <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
             <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>{changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}</Tag>
+            {conflictFiles > 0 && <Tag tone="warn">{pluralize(conflictFiles, 'conflict')}</Tag>}
           </>
         )}
       </div>
