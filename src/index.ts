@@ -46,6 +46,7 @@ import {
   replaceOutbox,
 } from "./outbox.js";
 import type { OutboxEvent } from "./outbox.js";
+import { getAgentContext, readAgentContexts } from "./agent-context-store.js";
 import { readAgentRuns, markAgentRunStopped } from "./agent-run-store.js";
 import { extractProgressOutboxMessage } from "./reporting/outbox-replay.js";
 import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
@@ -503,6 +504,31 @@ function isUuid(value: string | undefined): value is string {
   );
 }
 
+function inferReportingInitiativeId(input: Record<string, unknown>): string | undefined {
+  const env = pickNonEmptyString(process.env.ORGX_INITIATIVE_ID);
+  if (isUuid(env)) return env;
+
+  const agentId = pickNonEmptyString(input.agent_id, input.agentId);
+  if (agentId) {
+    const ctx = getAgentContext(agentId);
+    const ctxInit = ctx?.initiativeId ?? undefined;
+    if (isUuid(ctxInit ?? undefined)) return ctxInit ?? undefined;
+  }
+
+  // Fall back to the most recently updated agent context with a UUID initiative id.
+  try {
+    const store = readAgentContexts();
+    const candidates = Object.values(store.agents ?? {}).filter((ctx) =>
+      isUuid(ctx?.initiativeId ?? undefined)
+    );
+    candidates.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    const picked = candidates[0]?.initiativeId ?? undefined;
+    return isUuid(picked) ? picked : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toReportingPhase(phase: string, progressPct?: number): ReportingPhase {
   if (progressPct === 100) return "completed";
   switch (phase) {
@@ -692,11 +718,15 @@ export default function register(api: PluginAPI): void {
   function resolveReportingContext(
     input: ReportingContextInput
   ): { ok: true; value: ResolvedReportingContext } | { ok: false; error: string } {
-    const initiativeId = pickNonEmptyString(
+    let initiativeId = pickNonEmptyString(
       input.initiative_id,
       input.initiativeId,
       process.env.ORGX_INITIATIVE_ID
     );
+
+    if (!isUuid(initiativeId)) {
+      initiativeId = inferReportingInitiativeId(input as unknown as Record<string, unknown>);
+    }
 
     if (!initiativeId || !isUuid(initiativeId)) {
       return {
@@ -1508,10 +1538,8 @@ export default function register(api: PluginAPI): void {
 
         const retroEntityType = stopped.taskId
           ? ("task" as const)
-          : stopped.workstreamId
-            ? ("workstream" as const)
-            : ("initiative" as const);
-        const retroEntityId = stopped.taskId ?? stopped.workstreamId ?? initiativeId;
+          : ("initiative" as const);
+        const retroEntityId = stopped.taskId ?? initiativeId;
         const retroSummary = stopped.taskId
           ? `OpenClaw ${success ? "completed" : "blocked"} task ${stopped.taskId}.`
           : `OpenClaw run ${success ? "completed" : "blocked"} (session ${stopped.runId}).`;
@@ -1942,7 +1970,13 @@ export default function register(api: PluginAPI): void {
       const entityTypeRaw =
         pickStringField(payload, "entity_type") ??
         pickStringField(payload, "entityType");
-      const entityType = parseRetroEntityType(entityTypeRaw) ?? null;
+      const parsedEntityType = parseRetroEntityType(entityTypeRaw) ?? null;
+      // Server-side enum parity can lag behind local clients. Only attach to the
+      // entity types that are guaranteed to exist today.
+      const entityType =
+        parsedEntityType === "initiative" || parsedEntityType === "task"
+          ? parsedEntityType
+          : null;
 
       const entityIdRaw =
         pickStringField(payload, "entity_id") ??
