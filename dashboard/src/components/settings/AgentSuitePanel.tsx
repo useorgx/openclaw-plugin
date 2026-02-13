@@ -98,6 +98,15 @@ export function AgentSuitePanel({
           </button>
           <button
             type="button"
+            onClick={() => { void suite.install({ dryRun: false, forceSkillPack: true }); }}
+            disabled={suite.isInstalling}
+            className="rounded-full border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-[12px] font-semibold text-white/70 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+            title="Forces a check for the latest OrgX skill pack and applies it (managed/local overlay preserves local edits)"
+          >
+            Refresh skills
+          </button>
+          <button
+            type="button"
             onClick={() => { void suite.install({ dryRun: false }); }}
             disabled={suite.isInstalling}
             className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-[12px] font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
@@ -163,6 +172,14 @@ export function AgentSuitePanel({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Pack</span>
                     <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">{plan.packId}@{plan.packVersion}</code>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>Skill pack</span>
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-[11px] text-white/70">
+                      {plan.skillPack
+                        ? `${plan.skillPack.name}@${plan.skillPack.version} (${plan.skillPack.source})`
+                        : 'builtin'}
+                    </code>
                   </div>
                 </div>
               </div>

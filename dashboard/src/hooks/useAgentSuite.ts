@@ -52,12 +52,19 @@ export function useAgentSuite({
     staleTime: 10_000,
   });
 
-  const installMutation = useMutation<AgentSuiteInstallResponse, Error, { dryRun?: boolean }>({
-    mutationFn: async ({ dryRun } = {}) => {
+  const installMutation = useMutation<
+    AgentSuiteInstallResponse,
+    Error,
+    { dryRun?: boolean; forceSkillPack?: boolean }
+  >({
+    mutationFn: async ({ dryRun, forceSkillPack } = {}) => {
       const response = await fetch('/orgx/api/agent-suite/install', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify({ dryRun: Boolean(dryRun) }),
+        body: JSON.stringify({
+          dryRun: Boolean(dryRun),
+          forceSkillPack: Boolean(forceSkillPack),
+        }),
       });
       const body = (await response.json().catch(() => null)) as AgentSuiteInstallResponse | { error?: string } | null;
       if (!response.ok) {
@@ -83,4 +90,3 @@ export function useAgentSuite({
     isInstalling: installMutation.isPending,
   };
 }
-

@@ -55,16 +55,35 @@ const SUITE_FILES = [
   "AGENTS.md",
   "TOOLS.md",
   "IDENTITY.md",
+  "SKILL.md",
   "SOUL.md",
   "USER.md",
   "HEARTBEAT.md",
 ] as const;
+
+export type OrgxSkillPackOverrides = {
+  source: "builtin" | "server";
+  name: string;
+  version: string;
+  checksum: string;
+  etag?: string | null;
+  updated_at?: string | null;
+  openclaw_skills: Partial<Record<OrgxSuiteDomain, string>>;
+};
 
 export type OrgxAgentSuiteStatus = {
   packId: string;
   packVersion: string;
   openclawConfigPath: string;
   suiteWorkspaceRoot: string;
+  skillPack?: {
+    source: "builtin" | "server";
+    name: string;
+    version: string;
+    checksum: string;
+    etag?: string | null;
+    updated_at?: string | null;
+  } | null;
   agents: Array<{
     id: string;
     name: string;
@@ -264,6 +283,7 @@ function buildManagedFileContent(input: {
   file: typeof SUITE_FILES[number];
   packId: string;
   packVersion: string;
+  skillPack?: OrgxSkillPackOverrides | null;
 }): string {
   const persona = domainPersona(input.agent.domain);
   const baseBody = (() => {
@@ -368,6 +388,58 @@ function buildManagedFileContent(input: {
       ].join("\n");
     }
 
+    if (input.file === "SKILL.md") {
+      const override = input.skillPack?.openclaw_skills?.[input.agent.domain] ?? null;
+      const provenance = input.skillPack
+        ? `SkillPack: ${input.skillPack.name}@${input.skillPack.version} (${input.skillPack.source}, sha256:${input.skillPack.checksum.slice(0, 12)}...)`
+        : "SkillPack: builtin (no server pack applied)";
+
+      const generated = [
+        `# ${input.agent.name} — Skill`,
+        "",
+        `Domain: ${input.agent.domain}`,
+        "",
+        "## Purpose",
+        `- ${persona.headline}`,
+        "",
+        "## Persona",
+        "Voice:",
+        ...persona.voice.map((line) => `- ${line}`),
+        "",
+        "Autonomy:",
+        ...persona.autonomy.map((line) => `- ${line}`),
+        "",
+        "Consideration:",
+        ...persona.care.map((line) => `- ${line}`),
+        "",
+        "Defaults:",
+        ...persona.defaults.map((line) => `- ${line}`),
+        "",
+        "## Operating Loop",
+        "- Clarify the goal and constraints (one sentence each).",
+        "- Propose the next 1-3 steps with an explicit recommendation.",
+        "- Execute with proof: commands run, files changed, tests/evidence captured.",
+        "- When blocked: show the exact error, then offer options with tradeoffs.",
+        "",
+        "## Reporting",
+        "- Post progress at natural checkpoints: intent, execution, review, completed.",
+        "- Prefer concrete updates over vibes (what changed, where, how verified).",
+        "- If you made a decision, record it as a decision request/result upstream (OrgX).",
+        "",
+        "## Boundaries",
+        "- Do not print secrets. Mask keys as `oxk_...abcd`.",
+        "- Avoid destructive git ops unless explicitly requested.",
+        "- Keep scope tight: do the asked work, then stop.",
+        "",
+        "## Provenance",
+        `- ${provenance}`,
+        "",
+      ].join("\n");
+
+      // If a server pack provides a SKILL.md, prefer it; otherwise use the generated baseline.
+      return override ? String(override).trimEnd() + "\n" : generated + "\n";
+    }
+
     if (input.file === "SOUL.md") {
       return [
         "# Soul",
@@ -442,6 +514,7 @@ function upsertSuiteAgentsIntoConfig(input: {
 export function computeOrgxAgentSuitePlan(input: {
   packVersion: string;
   openclawDir?: string;
+  skillPack?: OrgxSkillPackOverrides | null;
 }): OrgxAgentSuitePlan {
   const packVersion = input.packVersion.trim() || "0.0.0";
   const openclawDir = input.openclawDir ?? getOpenClawDir();
@@ -474,6 +547,7 @@ export function computeOrgxAgentSuitePlan(input: {
         file,
         packId: ORGX_AGENT_SUITE_PACK_ID,
         packVersion,
+        skillPack: input.skillPack ?? null,
       });
       const localOverride = loadTextFile(localPath);
       const compositeContent = buildCompositeFile({ managed: managedContent, localOverride });
@@ -502,6 +576,16 @@ export function computeOrgxAgentSuitePlan(input: {
     packVersion,
     openclawConfigPath: cfgPath,
     suiteWorkspaceRoot,
+    skillPack: input.skillPack
+      ? {
+          source: input.skillPack.source,
+          name: input.skillPack.name,
+          version: input.skillPack.version,
+          checksum: input.skillPack.checksum,
+          etag: input.skillPack.etag ?? null,
+          updated_at: input.skillPack.updated_at ?? null,
+        }
+      : null,
     agents,
     openclawConfigWouldUpdate: upsert.updated,
     openclawConfigAddedAgents: upsert.addedAgentIds,
@@ -513,6 +597,7 @@ export function applyOrgxAgentSuitePlan(input: {
   plan: OrgxAgentSuitePlan;
   dryRun?: boolean;
   openclawDir?: string;
+  skillPack?: OrgxSkillPackOverrides | null;
 }): { ok: true; applied: boolean; plan: OrgxAgentSuitePlan } {
   const dryRun = input.dryRun ?? false;
   if (dryRun) return { ok: true, applied: false, plan: input.plan };
@@ -551,6 +636,7 @@ export function applyOrgxAgentSuitePlan(input: {
         file,
         packId: ORGX_AGENT_SUITE_PACK_ID,
         packVersion: input.plan.packVersion,
+        skillPack: input.skillPack ?? null,
       });
       const localOverride = loadTextFile(localPath);
       const composite = buildCompositeFile({ managed, localOverride });

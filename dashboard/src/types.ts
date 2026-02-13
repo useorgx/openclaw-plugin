@@ -294,6 +294,14 @@ export interface AgentSuitePlan {
   packVersion: string;
   openclawConfigPath: string;
   suiteWorkspaceRoot: string;
+  skillPack?: {
+    source: 'builtin' | 'server';
+    name: string;
+    version: string;
+    checksum: string;
+    etag?: string | null;
+    updated_at?: string | null;
+  } | null;
   agents: AgentSuiteAgent[];
   openclawConfigWouldUpdate: boolean;
   openclawConfigAddedAgents: string[];

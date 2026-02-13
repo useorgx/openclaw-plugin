@@ -34,6 +34,8 @@ import type {
   BillingUrlResult,
   KickoffContextRequest,
   KickoffContextResponse,
+  SkillPack,
+  SkillPackResponse,
 } from "./types.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -278,6 +280,81 @@ export class OrgXClient {
 
   async getKickoffContext(payload: KickoffContextRequest): Promise<KickoffContextResponse> {
     return await this.post<KickoffContextResponse>("/api/client/kickoff-context", payload ?? {});
+  }
+
+  // ===========================================================================
+  // Skill Packs (ETag-aware)
+  // ===========================================================================
+
+  async getSkillPack(input?: {
+    name?: string;
+    ifNoneMatch?: string | null;
+  }): Promise<
+    | { ok: true; notModified: true; etag: string | null; pack: null }
+    | { ok: true; notModified: false; etag: string | null; pack: SkillPack }
+    | { ok: false; status: number; error: string }
+  > {
+    const name = (input?.name ?? "").trim() || "orgx-agent-suite";
+    const url = `${this.baseUrl}/api/client/skill-pack?name=${encodeURIComponent(name)}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        Authorization: `Bearer ${this.apiKey}`,
+      };
+      if (this.userId && !isUserScopedApiKey(this.apiKey)) {
+        headers["X-Orgx-User-Id"] = this.userId;
+      }
+      const ifNoneMatch = (input?.ifNoneMatch ?? "").trim();
+      if (ifNoneMatch) {
+        headers["If-None-Match"] = ifNoneMatch;
+      }
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+
+      const etag = response.headers.get("etag");
+      if (response.status === 304) {
+        return { ok: true, notModified: true, etag, pack: null };
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      const payload = contentType.includes("application/json")
+        ? ((await response.json().catch(() => null)) as SkillPackResponse | null)
+        : null;
+
+      if (!response.ok) {
+        const detail =
+          payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : `${response.status} ${response.statusText}`;
+        return { ok: false, status: response.status, error: detail };
+      }
+
+      if (payload && typeof payload === "object" && (payload as any).ok === true && (payload as any).data) {
+        return { ok: true, notModified: false, etag, pack: (payload as any).data as SkillPack };
+      }
+
+      return { ok: false, status: 502, error: "SkillPack response was invalid" };
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return {
+          ok: false,
+          status: 504,
+          error: `OrgX API GET /api/client/skill-pack timed out after ${REQUEST_TIMEOUT_MS}ms`,
+        };
+      }
+      return { ok: false, status: 502, error: err instanceof Error ? err.message : "SkillPack request failed" };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async delegationPreflight(payload: {

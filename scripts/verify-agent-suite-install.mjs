@@ -52,7 +52,9 @@ async function main() {
   const engineering = join(plan.suiteWorkspaceRoot, "orgx-engineering");
   assert.ok(existsSync(engineering), "expected orgx-engineering workspace created");
   assert.ok(existsSync(join(engineering, "AGENTS.md")), "expected composite AGENTS.md created");
+  assert.ok(existsSync(join(engineering, "SKILL.md")), "expected composite SKILL.md created");
   assert.ok(existsSync(join(engineering, ".orgx", "managed", "AGENTS.md")), "expected managed AGENTS.md created");
+  assert.ok(existsSync(join(engineering, ".orgx", "managed", "SKILL.md")), "expected managed SKILL.md created");
   assert.ok(existsSync(join(engineering, ".orgx", "local")), "expected local overlay directory created");
 
   console.log("[verify] ok: agent suite plan + apply succeeded");
@@ -64,4 +66,3 @@ main().catch((err) => {
   console.error(`[verify] failed: ${message}`);
   process.exit(1);
 });
-
