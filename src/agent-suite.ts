@@ -103,7 +103,7 @@ export type OrgxAgentSuitePlan = OrgxAgentSuiteStatus & {
     managedPath: string;
     localPath: string;
     compositePath: string;
-    action: "create" | "update" | "noop";
+    action: "create" | "update" | "noop" | "conflict";
   }>;
 };
 
@@ -185,9 +185,21 @@ function localHeader(): string {
   ].join("\n");
 }
 
+const LOCAL_OVERRIDE_MARKER = "# === ORGX LOCAL OVERRIDES";
+
 function buildCompositeFile(input: { managed: string; localOverride: string | null }): string {
   if (!input.localOverride) return input.managed;
   return `${input.managed}${localHeader()}${input.localOverride.trimEnd()}\n`;
+}
+
+function extractLocalOverridesFromComposite(composite: string): string | null {
+  const idx = composite.indexOf(LOCAL_OVERRIDE_MARKER);
+  if (idx < 0) return null;
+  const after = composite.slice(idx);
+  const markerEnd = after.indexOf("\n\n");
+  const start = markerEnd >= 0 ? idx + markerEnd + 2 : idx;
+  const candidate = composite.slice(start).trim();
+  return candidate ? `${candidate}\n` : null;
 }
 
 function loadTextFile(path: string): string | null {
@@ -549,15 +561,18 @@ export function computeOrgxAgentSuitePlan(input: {
         packVersion,
         skillPack: input.skillPack ?? null,
       });
-      const localOverride = loadTextFile(localPath);
+      const existingComposite = loadTextFile(compositePath);
+      const embeddedOverride = existingComposite ? extractLocalOverridesFromComposite(existingComposite) : null;
+      const localOverride = loadTextFile(localPath) ?? embeddedOverride;
       const compositeContent = buildCompositeFile({ managed: managedContent, localOverride });
 
-      const existingComposite = loadTextFile(compositePath);
       const action =
         !existsSync(compositePath)
           ? "create"
           : normalizeNewlines(existingComposite ?? "") !== normalizeNewlines(compositeContent)
-            ? "update"
+            ? localOverride
+              ? "update"
+              : "conflict"
             : "noop";
 
       workspaceFiles.push({
@@ -621,12 +636,23 @@ export function applyOrgxAgentSuitePlan(input: {
   }
 
   // Workspaces + files
+  const actionByFileKey = new Map<string, OrgxAgentSuitePlan["workspaceFiles"][number]["action"]>();
+  for (const entry of input.plan.workspaceFiles ?? []) {
+    actionByFileKey.set(`${entry.agentId}:${entry.file}`, entry.action);
+  }
+
   for (const agent of input.plan.agents) {
     ensureDir(agent.workspace, 0o700);
     ensureDir(join(agent.workspace, SUITE_MANAGED_DIR), 0o700);
     ensureDir(join(agent.workspace, SUITE_LOCAL_DIR), 0o700);
 
     for (const file of SUITE_FILES) {
+      const action = actionByFileKey.get(`${agent.id}:${file}`) ?? "update";
+      if (action === "conflict") {
+        // Do not clobber files that appear to have out-of-band edits.
+        continue;
+      }
+
       const managedPath = join(agent.workspace, SUITE_MANAGED_DIR, file);
       const localPath = join(agent.workspace, SUITE_LOCAL_DIR, file);
       const compositePath = join(agent.workspace, file);
@@ -638,7 +664,19 @@ export function applyOrgxAgentSuitePlan(input: {
         packVersion: input.plan.packVersion,
         skillPack: input.skillPack ?? null,
       });
-      const localOverride = loadTextFile(localPath);
+      let localOverride = loadTextFile(localPath);
+      if (!localOverride) {
+        const existingComposite = loadTextFile(compositePath);
+        const embedded = existingComposite
+          ? extractLocalOverridesFromComposite(existingComposite)
+          : null;
+        if (embedded) {
+          // Preserve user edits that were appended to the composite but never moved into `.orgx/local/*`.
+          ensureDir(dirname(localPath), 0o700);
+          writeFileAtomicSync(localPath, embedded, { mode: 0o600, encoding: "utf8" });
+          localOverride = embedded;
+        }
+      }
       const composite = buildCompositeFile({ managed, localOverride });
 
       // Managed file always updated to match current pack content.
