@@ -980,11 +980,15 @@ export default function register(api: PluginAPI): void {
   async function fetchOrgxJson<T>(
     method: "GET" | "POST",
     path: string,
-    body?: unknown
+    body?: unknown,
+    options?: { timeoutMs?: number }
   ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
     try {
       const controller = new AbortController();
-      const timeoutMs = 12_000;
+      const timeoutMs =
+        typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+          ? Math.max(1_000, Math.floor(options.timeoutMs))
+          : 12_000;
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       let response: Response;
@@ -1232,7 +1236,9 @@ export default function register(api: PluginAPI): void {
       } else {
         const startedAt = Date.now();
         try {
-          await client.getOrgSnapshot();
+          // Avoid probing with /api/client/sync: it's heavier than necessary and can
+          // create false negatives during transient server slowness.
+          await client.getBillingStatus();
           remoteReachable = true;
           remoteLatencyMs = Date.now() - startedAt;
           checks.push({
@@ -2112,7 +2118,18 @@ export default function register(api: PluginAPI): void {
 
       try {
         await reconcileStoppedAgentRuns();
-        updateCachedSnapshot(await client.getOrgSnapshot());
+        let snapshotError: string | null = null;
+        try {
+          updateCachedSnapshot(await client.getOrgSnapshot());
+        } catch (err: unknown) {
+          if (isAuthFailure(err)) {
+            throw err;
+          }
+          snapshotError = toErrorMessage(err);
+          api.log?.warn?.("[orgx] Snapshot sync failed (continuing)", {
+            error: snapshotError,
+          });
+        }
 
         // Best-effort: poll the canonical OrgX SkillPack so the dashboard/install path
         // can apply it without blocking on an on-demand fetch.
@@ -2191,8 +2208,8 @@ export default function register(api: PluginAPI): void {
         updateOnboardingState({
           status: "connected",
           hasApiKey: true,
-          connectionVerified: true,
-          lastError: null,
+          connectionVerified: snapshotError === null,
+          lastError: snapshotError,
           nextAction: "open_dashboard",
         });
         await flushOutboxQueues();
@@ -2267,13 +2284,20 @@ export default function register(api: PluginAPI): void {
       connectUrl: string;
       expiresAt: string;
       pollIntervalMs: number;
-    }>("POST", "/api/plugin/openclaw/pairings", {
-      installationId: config.installationId,
-      pluginVersion: config.pluginVersion,
-      openclawVersion: input.openclawVersion,
-      platform: input.platform || process.platform,
-      deviceName: input.deviceName,
-    });
+    }>(
+      "POST",
+      "/api/plugin/openclaw/pairings",
+      {
+        installationId: config.installationId,
+        pluginVersion: config.pluginVersion,
+        openclawVersion: input.openclawVersion,
+        platform: input.platform || process.platform,
+        deviceName: input.deviceName,
+      },
+      // Pairing can hit a cold serverless boot + supabase insert + rate-limit checks.
+      // Give it more headroom than typical lightweight API calls.
+      { timeoutMs: 30_000 }
+    );
 
     if (!started.ok) {
       if (isAuthRequiredError(started)) {
