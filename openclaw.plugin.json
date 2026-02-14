@@ -1,7 +1,7 @@
 {
   "id": "orgx",
   "name": "OrgX Integration",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Connects Clawdbot to OrgX for agent orchestration, quality gates, and model routing",
   "entry": "./dist/index.js",
   "author": "OrgX Team",

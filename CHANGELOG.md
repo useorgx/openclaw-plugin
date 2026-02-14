@@ -2,6 +2,16 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.6 - 2026-02-14
+
+### Runtime + Reliability
+- Hardened outbox replay and status updates: normalize common status synonyms and improve replay/compatibility for status-only updates.
+- Improved `/orgx/api/live/stream` SSE proxy reliability with upstream reconnect/backoff while keeping the client connection stable.
+
+### Activity + UX
+- Made activity timeline labels human-readable.
+- Updated autopilot instructions to prefer `orgx_report_progress` for progress updates (when available).
+
 ## 0.4.5 - 2026-02-12
 
 ### Plugin Runtime
