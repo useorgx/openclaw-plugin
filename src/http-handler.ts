@@ -817,6 +817,16 @@ function getScopedAgentIds(contexts: Record<string, AgentLaunchContext>): Set<st
   return scoped;
 }
 
+function isUuidLike(value: string | null | undefined): boolean {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return false;
+  // Accept any RFC 4122 UUID (v1-v5). We use this to distinguish real OrgX
+  // initiative ids from local placeholder group ids like "agent:main".
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    trimmed
+  );
+}
+
 function applyAgentContextsToSessionTree(
   input: SessionTreeResponse,
   contexts: { agents: Record<string, AgentLaunchContext>; runs: Record<string, RunLaunchContext> }
@@ -833,14 +843,14 @@ function applyAgentContextsToSessionTree(
     });
   }
 
-	  const nodes = input.nodes.map((node) => {
-	    const existingInitiativeId = (node.initiativeId ?? "").trim();
-	    if (existingInitiativeId) return node;
+		  const nodes = input.nodes.map((node) => {
+		    const existingInitiativeId = (node.initiativeId ?? "").trim();
+		    if (isUuidLike(existingInitiativeId)) return node;
 
-	    const runCtx = node.runId ? contexts.runs[node.runId] : null;
-	    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
-	      const initiativeId = runCtx.initiativeId.trim();
-	      const groupId = initiativeId;
+		    const runCtx = node.runId ? contexts.runs[node.runId] : null;
+		    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
+		      const initiativeId = runCtx.initiativeId.trim();
+		      const groupId = initiativeId;
 	      const ctxTitle = (runCtx.initiativeTitle ?? "").trim();
       const groupLabel = ctxTitle || node.groupLabel || initiativeId;
 
@@ -916,15 +926,15 @@ function applyAgentContextsToActivity(
   input: LiveActivityItem[],
   contexts: { agents: Record<string, AgentLaunchContext>; runs: Record<string, RunLaunchContext> }
 ): LiveActivityItem[] {
-	  if (!Array.isArray(input)) return [];
-	  return input.map((item) => {
-	    const existingInitiativeId = (item.initiativeId ?? "").trim();
-	    if (existingInitiativeId) return item;
+		  if (!Array.isArray(input)) return [];
+		  return input.map((item) => {
+		    const existingInitiativeId = (item.initiativeId ?? "").trim();
+		    if (isUuidLike(existingInitiativeId)) return item;
 
-	    const runCtx = item.runId ? contexts.runs[item.runId] : null;
-	    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
-	      const initiativeId = runCtx.initiativeId.trim();
-	      const metadata =
+		    const runCtx = item.runId ? contexts.runs[item.runId] : null;
+		    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
+		      const initiativeId = runCtx.initiativeId.trim();
+		      const metadata =
         item.metadata && typeof item.metadata === "object"
           ? { ...(item.metadata as Record<string, unknown>) }
           : {};
@@ -3093,7 +3103,6 @@ async function resolveAutoAssignments(input: {
   const updatePayload = normalizeEntityMutationPayload({
     assigned_agent_ids: assignedAgents.map((agent) => agent.id),
     assigned_agent_names: assignedAgents.map((agent) => agent.name),
-    assignment_source: assignmentSource,
   });
 
   let updatedEntity: Entity | undefined;
@@ -4945,8 +4954,9 @@ export function createHttpHandler(
       ``,
       `Reporting:`,
       `- You MAY post runtime events for a buttery UX using:`,
-      `  node templates/hooks/scripts/post-reporting-event.mjs --event=task_update --phase=execution --message=\"...\"`,
+      `  node ~/.config/useorgx/openclaw-plugin/hooks/post-reporting-event.mjs --event=task_update --phase=execution --message=\"...\"`,
       `  (ORGX_RUNTIME_HOOK_URL and ORGX_HOOK_TOKEN are already set in env.)`,
+      `- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.`,
       ``,
       `What to do:`,
       `- Choose a coherent slice of work you can complete end-to-end in this run.`,
@@ -6026,7 +6036,12 @@ export function createHttpHandler(
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-    const workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+    let workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+    // LaunchAgents often start with cwd="/". Prefer a stable, user-owned directory
+    // so relative paths and codex sandboxing behave consistently.
+    if (!workerCwd || workerCwd === "/") {
+      workerCwd = homedir();
+    }
     const sliceAgent = resolveOrgxAgentForDomain(executionPolicy.domain);
     const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
     const inferredExecutor =

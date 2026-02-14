@@ -23,6 +23,7 @@ import type {
 } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
 import { applyOrgxAgentSuitePlan, computeOrgxAgentSuitePlan } from "./agent-suite.js";
+import { appendActivityItems } from "./activity-store.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -2025,33 +2026,16 @@ export default function register(api: PluginAPI): void {
     }
 
     if (event.type === "artifact") {
-      const name = pickStringField(payload, "name");
-      if (!name) {
-        api.log?.warn?.("[orgx] Dropping invalid artifact outbox event", {
-          eventId: event.id,
-        });
-        return;
+      // Artifacts are UI-level breadcrumbs and may not be supported by every
+      // OrgX deployment's `/api/entities` schema. Persist locally and drop from
+      // the outbox so progress reporting doesn't wedge on irreplayable items.
+      try {
+        if (event.activityItem) {
+          appendActivityItems([event.activityItem]);
+        }
+      } catch {
+        // best effort
       }
-      const initiativeIdCandidate =
-        pickStringField(payload, "initiative_id") ??
-        pickStringField(payload, "initiativeId") ??
-        null;
-      const initiativeId = isUuid(initiativeIdCandidate ?? undefined)
-        ? initiativeIdCandidate
-        : inferReportingInitiativeId(payload) ?? null;
-      await client.createEntity("artifact", {
-        title: name,
-        artifact_type: pickStringField(payload, "artifact_type") ?? "other",
-        summary:
-          pickStringField(payload, "summary") ??
-          pickStringField(payload, "description") ??
-          undefined,
-        initiative_id: initiativeId ?? undefined,
-        artifact_url:
-          pickStringField(payload, "artifact_url") ??
-          pickStringField(payload, "url"),
-        status: "active",
-      });
       return;
     }
   }
