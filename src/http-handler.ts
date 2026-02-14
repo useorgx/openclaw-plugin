@@ -3212,7 +3212,39 @@ export function createHttpHandler(
         next_step: input.nextStep,
         metadata: enrichedMetadata,
       });
-    } catch {
+    } catch (err: unknown) {
+      const msg = safeErrorMessage(err);
+      const runId = input.runId?.trim() || "";
+
+      // If OrgX rejects an unknown run_id, retry by treating the local run_id as a
+      // correlation key (non-UUID) so OrgX can create/attach a run deterministically.
+      if (runId && /^404\\b/.test(msg) && /\\brun\\b/i.test(msg) && /not found/i.test(msg)) {
+        const retryCorrelationId = `openclaw_run_${stableHash(runId).slice(0, 24)}`;
+        try {
+          await client.emitActivity({
+            initiative_id: initiativeId,
+            run_id: undefined,
+            correlation_id: retryCorrelationId,
+            source_client: "openclaw",
+            message,
+            phase: input.phase,
+            progress_pct:
+              typeof input.progressPct === "number" && Number.isFinite(input.progressPct)
+                ? Math.max(0, Math.min(100, Math.round(input.progressPct)))
+                : undefined,
+            level: input.level,
+            next_step: input.nextStep,
+            metadata: {
+              ...(enrichedMetadata ?? {}),
+              replay_run_id_as_correlation: true,
+            },
+          });
+          return;
+        } catch {
+          // Fall through to local outbox.
+        }
+      }
+
       // Fall back to local outbox so activity is still visible in Mission Control/Activity.
       try {
         const timestamp = new Date().toISOString();
