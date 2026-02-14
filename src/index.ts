@@ -1658,6 +1658,24 @@ export default function register(api: PluginAPI): void {
   async function replayOutboxEvent(event: OutboxEvent): Promise<void> {
     const payload = event.payload ?? {};
 
+    function normalizeRunFields(context: { runId?: string | null; correlationId?: string | null }): {
+      run_id: string | undefined;
+      correlation_id: string | undefined;
+    } {
+      // We prefer correlation IDs for replay because many local adapters use UUID-like
+      // session IDs that do *not* exist as server-side run IDs.
+      if (context.correlationId) {
+        return { run_id: undefined, correlation_id: context.correlationId };
+      }
+      if (context.runId) {
+        return {
+          run_id: undefined,
+          correlation_id: `openclaw_run_${stableHash(context.runId).slice(0, 24)}`,
+        };
+      }
+      return { run_id: undefined, correlation_id: undefined };
+    }
+
     if (event.type === "progress") {
       const message = extractProgressOutboxMessage(payload);
       if (!message) {
@@ -1773,6 +1791,10 @@ export default function register(api: PluginAPI): void {
       if (!context.ok) {
         throw new Error(context.error);
       }
+      const runFields = normalizeRunFields({
+        runId: context.value.runId,
+        correlationId: context.value.correlationId,
+      });
 
       // Payloads should include a stable idempotency_key when enqueued, but older
       // events may not. Derive a deterministic fallback so outbox replay won't
@@ -1794,8 +1816,8 @@ export default function register(api: PluginAPI): void {
 
       await client.applyChangeset({
         initiative_id: context.value.initiativeId,
-        run_id: context.value.runId,
-        correlation_id: context.value.correlationId,
+        run_id: runFields.run_id,
+        correlation_id: runFields.correlation_id,
         source_client: context.value.sourceClient,
         idempotency_key: resolvedIdempotencyKey,
         operations: [
@@ -1824,6 +1846,10 @@ export default function register(api: PluginAPI): void {
       if (!context.ok) {
         throw new Error(context.error);
       }
+      const runFields = normalizeRunFields({
+        runId: context.value.runId,
+        correlationId: context.value.correlationId,
+      });
       const operations = Array.isArray(payload.operations)
         ? (payload.operations as ChangesetOperation[])
         : [];
@@ -1831,6 +1857,58 @@ export default function register(api: PluginAPI): void {
         api.log?.warn?.("[orgx] Dropping invalid changeset outbox event", {
           eventId: event.id,
         });
+        return;
+      }
+
+      // Status updates are the most common offline replay payload, and `updateEntity`
+      // is the most widely supported primitive across OrgX deployments. Prefer it
+      // when the changeset contains only simple status mutations.
+      const statusOps = operations
+        .map((op) => {
+          if (!op || typeof op !== "object") return null;
+          const record = op as Record<string, unknown>;
+          const kind = typeof record.op === "string" ? record.op.trim() : "";
+          if (kind === "task.update") {
+            const taskId = typeof record.task_id === "string" ? record.task_id.trim() : "";
+            const statusRaw = typeof record.status === "string" ? record.status.trim() : "";
+            const normalized = statusRaw.toLowerCase().replace(/\s+/g, "_");
+            const status =
+              normalized === "completed" || normalized === "complete" || normalized === "finished"
+                ? "done"
+                : normalized === "inprogress"
+                  ? "in_progress"
+                  : normalized;
+            if (!taskId || !status) return null;
+            return { type: "task" as const, id: taskId, status };
+          }
+          if (kind === "milestone.update") {
+            const milestoneId =
+              typeof record.milestone_id === "string" ? record.milestone_id.trim() : "";
+            const statusRaw = typeof record.status === "string" ? record.status.trim() : "";
+            const normalized = statusRaw.toLowerCase().replace(/\s+/g, "_");
+            const status =
+              normalized === "done" || normalized === "complete" || normalized === "finished"
+                ? "completed"
+                : normalized === "inprogress"
+                  ? "in_progress"
+                  : normalized === "todo" || normalized === "not_started" || normalized === "pending"
+                    ? "planned"
+                    : normalized === "blocked" || normalized === "stuck"
+                      ? "at_risk"
+                      : normalized;
+            if (!milestoneId || !status) return null;
+            return { type: "milestone" as const, id: milestoneId, status };
+          }
+          return null;
+        })
+        .filter((item): item is { type: "task" | "milestone"; id: string; status: string } =>
+          Boolean(item)
+        );
+
+      if (statusOps.length === operations.length) {
+        for (const op of statusOps) {
+          await client.updateEntity(op.type, op.id, { status: op.status });
+        }
         return;
       }
 
@@ -1854,8 +1932,8 @@ export default function register(api: PluginAPI): void {
 
       await client.applyChangeset({
         initiative_id: context.value.initiativeId,
-        run_id: context.value.runId,
-        correlation_id: context.value.correlationId,
+        run_id: runFields.run_id,
+        correlation_id: runFields.correlation_id,
         source_client: context.value.sourceClient,
         idempotency_key: resolvedIdempotencyKey,
         operations,
@@ -1868,6 +1946,10 @@ export default function register(api: PluginAPI): void {
       if (!context.ok) {
         throw new Error(context.error);
       }
+      const runFields = normalizeRunFields({
+        runId: context.value.runId,
+        correlationId: context.value.correlationId,
+      });
 
       const executionId =
         pickStringField(payload, "execution_id") ??
@@ -1898,8 +1980,8 @@ export default function register(api: PluginAPI): void {
 
       await client.recordRunOutcome({
         initiative_id: context.value.initiativeId,
-        run_id: context.value.runId,
-        correlation_id: context.value.correlationId,
+        run_id: runFields.run_id,
+        correlation_id: runFields.correlation_id,
         source_client: context.value.sourceClient,
         execution_id: executionId,
         execution_type: executionType,
@@ -1976,6 +2058,10 @@ export default function register(api: PluginAPI): void {
       if (!context.ok) {
         throw new Error(context.error);
       }
+      const runFields = normalizeRunFields({
+        runId: context.value.runId,
+        correlationId: context.value.correlationId,
+      });
 
       const retro =
         payload.retro && typeof payload.retro === "object" && !Array.isArray(payload.retro)
@@ -2009,8 +2095,8 @@ export default function register(api: PluginAPI): void {
 
       await client.recordRunRetro({
         initiative_id: context.value.initiativeId,
-        run_id: context.value.runId,
-        correlation_id: context.value.correlationId,
+        run_id: runFields.run_id,
+        correlation_id: runFields.correlation_id,
         source_client: context.value.sourceClient,
         entity_type: entityType && entityId ? entityType : undefined,
         entity_id: entityType && entityId ? entityId : undefined,
