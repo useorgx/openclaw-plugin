@@ -156,6 +156,13 @@ export function HierarchyTreeTable({
   const [controlsHeightPx, setControlsHeightPx] = useState(0);
   const [selectionHeightPx, setSelectionHeightPx] = useState(0);
 
+  useEffect(() => {
+    if (!bulkNotice) return;
+    const durationMs = bulkNotice.tone === 'success' ? 6500 : 9000;
+    const timeout = window.setTimeout(() => setBulkNotice(null), durationMs);
+    return () => window.clearTimeout(timeout);
+  }, [bulkNotice?.message, bulkNotice?.tone]);
+
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const allNodeHints = useMemo(
     () => nodes.map((node) => ({ id: node.id, title: node.title })),
@@ -974,13 +981,40 @@ export function HierarchyTreeTable({
 
       {bulkNotice && (
         <div
-          className={`rounded-lg border px-3 py-2 text-caption ${
-            bulkNotice.tone === 'success'
-              ? 'border-emerald-400/24 bg-emerald-500/[0.1] text-emerald-100'
-              : 'border-amber-400/24 bg-amber-500/[0.1] text-amber-100'
-          }`}
+          role="status"
+          aria-live="polite"
+          className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-caption text-white/72"
         >
-          {bulkNotice.message}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <span
+                aria-hidden
+                className={`mt-[3px] h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                  bulkNotice.tone === 'success' ? 'bg-emerald-300/90' : 'bg-amber-300/90'
+                }`}
+              />
+              <span className="min-w-0 leading-snug">{bulkNotice.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBulkNotice(null)}
+              className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+              aria-label="Dismiss notice"
+              title="Dismiss"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 

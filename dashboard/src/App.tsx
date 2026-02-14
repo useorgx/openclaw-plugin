@@ -1726,6 +1726,7 @@ function DashboardShell({
               onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={() => setAgentFilter(null)}
 	            onFocusRunId={focusActivityRunId}
+	            onOpenNextUp={() => setExpandedRightPanel('initiatives')}
 	          />
 	        </section>
 

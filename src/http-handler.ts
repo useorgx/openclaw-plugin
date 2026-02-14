@@ -24,6 +24,7 @@ import {
   mkdirSync,
   chmodSync,
   createWriteStream,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -72,6 +73,7 @@ import {
   toLocalLiveInitiatives,
   toLocalSessionTree,
 } from "./local-openclaw.js";
+import { detectMcpHandshakeFailure, shouldKillWorker } from "./worker-supervisor.js";
 import { appendToOutbox } from "./outbox.js";
 import { defaultOutboxAdapter, type OutboxAdapter } from "./adapters/outbox.js";
 import { readAgentContexts, upsertAgentContext, upsertRunContext } from "./agent-context-store.js";
@@ -3381,6 +3383,7 @@ export function createHttpHandler(
     taskId?: string | null;
     initiativeId: string | null;
     correlationId: string;
+    runId?: string | null;
     targetLabel?: string | null;
   }): Promise<unknown | null> {
     const scopedClient = client as OrgXClient & {
@@ -3403,6 +3406,7 @@ export function createHttpHandler(
     } catch (err: unknown) {
       await emitActivitySafe({
         initiativeId: input.initiativeId,
+        runId: input.runId ?? null,
         correlationId: input.correlationId,
         phase: "blocked",
         level: "warn",
@@ -3552,6 +3556,7 @@ export function createHttpHandler(
     sourceEventPrefix: string;
     initiativeId: string | null;
     correlationId: string;
+    runId?: string | null;
     executionPolicy: { domain: string; requiredSkills: string[] };
     agentId?: string | null;
     taskId?: string | null;
@@ -3582,6 +3587,7 @@ export function createHttpHandler(
       taskId: taskId || null,
       initiativeId: input.initiativeId,
       correlationId: input.correlationId,
+      runId: input.runId ?? null,
       targetLabel,
     });
 
@@ -3612,6 +3618,7 @@ export function createHttpHandler(
 
     await emitActivitySafe({
       initiativeId: input.initiativeId,
+      runId: input.runId ?? null,
       correlationId: input.correlationId,
       phase: "blocked",
       level: retryable ? "warn" : "error",
@@ -3793,15 +3800,17 @@ export function createHttpHandler(
   type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
   type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
 
-  type AutoContinueRun = {
-    initiativeId: string;
-    agentId: string;
-    includeVerification: boolean;
-    allowedWorkstreamIds: string[] | null;
-    tokenBudget: number;
-    tokensUsed: number;
-    status: AutoContinueStatus;
-    stopReason: AutoContinueStopReason | null;
+	  type AutoContinueRun = {
+	    initiativeId: string;
+	    agentId: string;
+	    includeVerification: boolean;
+	    allowedWorkstreamIds: string[] | null;
+	    // When true, stop the run after the next slice completes (used for one-shot "Play").
+	    stopAfterSlice: boolean;
+	    tokenBudget: number;
+	    tokensUsed: number;
+	    status: AutoContinueStatus;
+	    stopReason: AutoContinueStopReason | null;
     stopRequested: boolean;
     startedAt: string;
     stoppedAt: string | null;
@@ -3894,6 +3903,7 @@ export function createHttpHandler(
     agentName: string | null;
     domain: string;
     requiredSkills: string[];
+    sourceClient: RuntimeSourceClient;
     pid: number | null;
     status: AutoContinueSliceStatus;
     startedAt: string;
@@ -3910,7 +3920,18 @@ export function createHttpHandler(
   const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
   const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
   const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
-  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = 55 * 60_000;
+  const AUTO_CONTINUE_SLICE_TIMEOUT_MS = readBudgetEnvNumber(
+    "ORGX_AUTOPILOT_SLICE_TIMEOUT_MS",
+    55 * 60_000,
+    // Keep test runs fast; real-world defaults are still ~1h unless overridden.
+    { min: 250, max: 6 * 60 * 60_000 }
+  );
+  const AUTO_CONTINUE_SLICE_LOG_STALL_MS = readBudgetEnvNumber(
+    "ORGX_AUTOPILOT_SLICE_LOG_STALL_MS",
+    6 * 60_000,
+    // Stall detection is only enforced when explicitly overridden; keep lower bound permissive for tests.
+    { min: 20, max: 60 * 60_000 }
+  );
   const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
   const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
@@ -4258,6 +4279,27 @@ export function createHttpHandler(
     }
   }
 
+  function readFileTailSafe(pathname: string, maxChars = 64_000): string {
+    try {
+      if (!existsSync(pathname)) return "";
+      const raw = readFileSync(pathname, "utf8");
+      if (raw.length <= maxChars) return raw;
+      return raw.slice(raw.length - maxChars);
+    } catch {
+      return "";
+    }
+  }
+
+  function fileUpdatedAtEpochMs(pathname: string, fallbackEpochMs: number): number {
+    try {
+      const st = statSync(pathname);
+      const mtimeMs = (st.mtimeMs as number) ?? 0;
+      return Number.isFinite(mtimeMs) && mtimeMs > 0 ? mtimeMs : fallbackEpochMs;
+    } catch {
+      return fallbackEpochMs;
+    }
+  }
+
   function normalizeCodexArgs(args: string[]): string[] {
     const normalized = Array.isArray(args) ? [...args] : [];
     const first = normalized[0];
@@ -4284,9 +4326,6 @@ export function createHttpHandler(
     if (!normalized.includes("--skip-git-repo-check")) {
       normalized.push("--skip-git-repo-check");
     }
-    if (!normalized.some((arg) => String(arg).includes("model_reasoning_effort"))) {
-      normalized.push("-c", 'model_reasoning_effort="high"');
-    }
 
     return normalized;
   }
@@ -4301,6 +4340,182 @@ export function createHttpHandler(
   }): { pid: number | null } {
     ensurePrivateDirForFile(input.logPath);
     ensurePrivateDirForFile(input.outputPath);
+
+    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
+    if (workerKind === "mock") {
+      const scriptPath = resolve(join(__filename, "..", "..", "scripts", "mock-autopilot-slice-worker.mjs"));
+      const logStream = createWriteStream(input.logPath, { flags: "a" });
+      const outStream = createWriteStream(input.outputPath, { flags: "a" });
+      logStream.write(`\n==== ${new Date().toISOString()} :: mock slice ${input.runId} ====\n`);
+
+      const child = spawn("node", [scriptPath], {
+        cwd: input.cwd,
+        env: {
+          ...process.env,
+          ...input.env,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+
+      child.stdout?.on("data", (chunk) => {
+        try {
+          logStream.write(chunk);
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.write(chunk);
+        } catch {
+          // ignore
+        }
+      });
+      child.stderr?.on("data", (chunk) => {
+        try {
+          logStream.write(chunk);
+        } catch {
+          // ignore
+        }
+      });
+
+      child.on("close", (code, signal) => {
+        const stamp = new Date().toISOString();
+        try {
+          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+        } catch {
+          // ignore
+        }
+        try {
+          logStream.end();
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.end();
+        } catch {
+          // ignore
+        }
+      });
+      child.on("error", (error) => {
+        const msg = safeErrorMessage(error);
+        try {
+          logStream.write(`\nworker error: ${msg}\n`);
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.write(
+            `${JSON.stringify(
+              {
+                status: "error",
+                summary: `Worker spawn error: ${msg}`,
+                workstream_id: input.env.ORGX_WORKSTREAM_ID ?? "unknown",
+                workstream_title: input.env.ORGX_WORKSTREAM_TITLE ?? null,
+                slice_id: input.runId,
+              },
+              null,
+              2
+            )}\n`
+          );
+        } catch {
+          // ignore
+        }
+      });
+
+      child.unref();
+      return { pid: child.pid ?? null };
+    }
+
+    if (workerKind === "claude-code" || workerKind === "claude_code") {
+      const claudeBin = (process.env.ORGX_CLAUDE_CODE_BIN ?? "").trim() || "claude";
+      const rawArgs = (process.env.ORGX_CLAUDE_CODE_ARGS ?? "").trim();
+      const args = rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : [];
+
+      const logStream = createWriteStream(input.logPath, { flags: "a" });
+      const outStream = createWriteStream(input.outputPath, { flags: "a" });
+      logStream.write(`\n==== ${new Date().toISOString()} :: claude slice ${input.runId} ====\n`);
+
+      // Claude Code invocation is environment-specific; ORGX_CLAUDE_CODE_ARGS should be set to
+      // a headless-compatible command shape. We pass the prompt as the final argument.
+      const child = spawn(claudeBin, [...args, input.prompt], {
+        cwd: input.cwd,
+        env: {
+          ...process.env,
+          ...resolveByokEnvOverrides(),
+          ...input.env,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+
+      child.stdout?.on("data", (chunk) => {
+        try {
+          logStream.write(chunk);
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.write(chunk);
+        } catch {
+          // ignore
+        }
+      });
+      child.stderr?.on("data", (chunk) => {
+        try {
+          logStream.write(chunk);
+        } catch {
+          // ignore
+        }
+      });
+
+      child.on("close", (code, signal) => {
+        const stamp = new Date().toISOString();
+        try {
+          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+        } catch {
+          // ignore
+        }
+        try {
+          logStream.end();
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.end();
+        } catch {
+          // ignore
+        }
+      });
+
+      child.on("error", (error) => {
+        const msg = safeErrorMessage(error);
+        try {
+          logStream.write(`\nworker error: ${msg}\n`);
+        } catch {
+          // ignore
+        }
+        try {
+          outStream.write(
+            `${JSON.stringify(
+              {
+                status: "error",
+                summary: `Worker spawn error: ${msg}`,
+                workstream_id: input.env.ORGX_WORKSTREAM_ID ?? "unknown",
+                workstream_title: input.env.ORGX_WORKSTREAM_TITLE ?? null,
+                slice_id: input.runId,
+              },
+              null,
+              2
+            )}\n`
+          );
+        } catch {
+          // ignore
+        }
+      });
+
+      child.unref();
+      return { pid: child.pid ?? null };
+    }
 
     const codexBin = (process.env.ORGX_CODEX_BIN ?? "").trim() || "codex";
     const rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
@@ -4362,8 +4577,26 @@ export function createHttpHandler(
       }
     });
     child.on("error", (error) => {
+      const msg = safeErrorMessage(error);
       try {
-        logStream.write(`\nworker error: ${safeErrorMessage(error)}\n`);
+        logStream.write(`\nworker error: ${msg}\n`);
+      } catch {
+        // ignore
+      }
+      try {
+        outStream.write(
+          `${JSON.stringify(
+            {
+              status: "error",
+              summary: `Worker spawn error: ${msg}`,
+              workstream_id: input.env.ORGX_WORKSTREAM_ID ?? "unknown",
+              workstream_title: input.env.ORGX_WORKSTREAM_TITLE ?? null,
+              slice_id: input.runId,
+            },
+            null,
+            2
+          )}\n`
+        );
       } catch {
         // ignore
       }
@@ -4652,6 +4885,8 @@ export function createHttpHandler(
     workstreamId: string;
     workstreamTitle: string;
     agentId: string;
+    taskId?: string | null;
+    taskTitle?: string | null;
   }): Promise<{
     sessionId: string | null;
     pid: number | null;
@@ -4662,24 +4897,33 @@ export function createHttpHandler(
   }> {
     const now = new Date().toISOString();
     const sessionId = randomUUID();
+    const taskId = input.taskId?.trim() || null;
+    const taskTitle = input.taskTitle?.trim() || null;
+
     const policyResolution = await resolveDispatchExecutionPolicy({
       initiativeId: input.initiativeId,
       initiativeTitle: input.initiativeTitle,
       workstreamId: input.workstreamId,
       workstreamTitle: input.workstreamTitle,
+      taskId,
+      taskTitle,
       message:
         "Continue this workstream from the latest context. Identify and execute the next concrete task.",
     });
     const executionPolicy = policyResolution.executionPolicy;
     const resolvedWorkstreamTitle =
       policyResolution.workstreamTitle ?? input.workstreamTitle;
+    const resolvedTaskTitle = policyResolution.taskTitle ?? taskTitle;
 
     const guard = await enforceSpawnGuardForDispatch({
       sourceEventPrefix: "next_up_fallback",
       initiativeId: input.initiativeId,
       correlationId: sessionId,
+      runId: sessionId,
       executionPolicy,
       agentId: input.agentId,
+      taskId,
+      taskTitle: resolvedTaskTitle,
       workstreamId: input.workstreamId,
       workstreamTitle: resolvedWorkstreamTitle,
     });
@@ -4697,18 +4941,40 @@ export function createHttpHandler(
     const baseMessage = [
       `Initiative: ${input.initiativeTitle}`,
       `Workstream: ${resolvedWorkstreamTitle}`,
+      taskId ? `Task: ${resolvedTaskTitle ?? taskId}` : null,
       "",
       "Continue this workstream from the latest context.",
       "Identify and execute the next concrete task, then provide a concise progress summary.",
-    ].join("\n");
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
     const message = buildPolicyEnforcedMessage({
       baseMessage,
       executionPolicy,
       spawnGuardResult: guard.spawnGuardResult,
     });
 
+    if (taskId) {
+      try {
+        await client.updateEntity("task", taskId, { status: "in_progress" });
+      } catch {
+        // best effort
+      }
+      try {
+        await syncParentRollupsForTask({
+          initiativeId: input.initiativeId,
+          taskId,
+          workstreamId: input.workstreamId,
+          correlationId: sessionId,
+        });
+      } catch {
+        // best effort
+      }
+    }
+
     await emitActivitySafe({
       initiativeId: input.initiativeId,
+      runId: sessionId,
       correlationId: sessionId,
       phase: "execution",
       level: "info",
@@ -4719,6 +4985,8 @@ export function createHttpHandler(
         session_id: sessionId,
         workstream_id: input.workstreamId,
         workstream_title: resolvedWorkstreamTitle,
+        task_id: taskId,
+        task_title: resolvedTaskTitle,
         domain: executionPolicy.domain,
         required_skills: executionPolicy.requiredSkills,
         spawn_guard_model_tier: extractSpawnGuardModelTier(guard.spawnGuardResult),
@@ -4731,7 +4999,7 @@ export function createHttpHandler(
       initiativeId: input.initiativeId,
       initiativeTitle: input.initiativeTitle,
       workstreamId: input.workstreamId,
-      taskId: null,
+      taskId,
     });
     upsertRunContext({
       runId: sessionId,
@@ -4739,7 +5007,7 @@ export function createHttpHandler(
       initiativeId: input.initiativeId,
       initiativeTitle: input.initiativeTitle,
       workstreamId: input.workstreamId,
-      taskId: null,
+      taskId,
     });
 
     const spawned = spawnAgentTurn({
@@ -4758,7 +5026,7 @@ export function createHttpHandler(
       initiativeId: input.initiativeId,
       initiativeTitle: input.initiativeTitle,
       workstreamId: input.workstreamId,
-      taskId: null,
+      taskId,
       startedAt: now,
       status: "running",
     });
@@ -4787,116 +5055,213 @@ export function createHttpHandler(
         run.activeTaskId = null;
         run.updatedAt = now;
       } else {
-        const pid = slice.pid;
-        if (pid && pidAlive(pid)) {
-          const nowMs = Date.now();
-          const lastHeartbeat = autoContinueSliceLastHeartbeatMs.get(slice.runId) ?? 0;
-          if (nowMs - lastHeartbeat >= AUTO_CONTINUE_SLICE_HEARTBEAT_MS) {
-            try {
-              writeRuntimeEvent({
-                sourceClient: "codex",
-                event: "heartbeat",
-                runId: slice.runId,
-                initiativeId: slice.initiativeId,
-                workstreamId: slice.workstreamId,
-                taskId: slice.taskIds[0] ?? null,
-                agentId: slice.agentId,
-                agentName: slice.agentName,
-                phase: "execution",
-                message: `Autopilot slice running: ${slice.workstreamTitle ?? slice.workstreamId}`,
-                metadata: {
-                  event: "autopilot_slice_heartbeat",
-                  domain: slice.domain,
-                  required_skills: slice.requiredSkills,
-                  workstream_id: slice.workstreamId,
-                  workstream_title: slice.workstreamTitle ?? null,
-                  task_ids: slice.taskIds,
-                  milestone_ids: slice.milestoneIds,
-                  log_path: slice.logPath,
-                  output_path: slice.outputPath,
-                },
-              });
-            } catch {
-              // best effort
-            }
-            autoContinueSliceLastHeartbeatMs.set(slice.runId, nowMs);
-          }
+	        const pid = slice.pid;
+	        if (pid && pidAlive(pid)) {
+	          const nowMs = Date.now();
+	          const outputTail = readFileTailSafe(slice.outputPath, 240_000);
+	          const outputParsed = outputTail ? parseSliceResult(outputTail) : null;
+	          const outputComplete = Boolean(
+	            outputParsed &&
+	              typeof outputParsed.status === "string" &&
+	              typeof outputParsed.summary === "string"
+	          );
 
-          const ageMs = Date.now() - Date.parse(slice.startedAt);
-          const timedOut =
-            Number.isFinite(ageMs) && ageMs > AUTO_CONTINUE_SLICE_TIMEOUT_MS;
+	          if (outputComplete) {
+	            // Some platforms can report a just-finished detached process as still "alive" (zombie).
+	            // Best-effort stop so we can proceed to parse the output contract below.
+	            try {
+	              await stopProcess(pid);
+	            } catch {
+	              // best effort
+	            }
+	          } else {
+	            const lastHeartbeat = autoContinueSliceLastHeartbeatMs.get(slice.runId) ?? 0;
+	            if (nowMs - lastHeartbeat >= AUTO_CONTINUE_SLICE_HEARTBEAT_MS) {
+	              try {
+	                writeRuntimeEvent({
+	                  sourceClient: slice.sourceClient,
+	                  event: "heartbeat",
+	                  runId: slice.runId,
+	                  initiativeId: slice.initiativeId,
+	                  workstreamId: slice.workstreamId,
+	                  taskId: slice.taskIds[0] ?? null,
+	                  agentId: slice.agentId,
+	                  agentName: slice.agentName,
+	                  phase: "execution",
+	                  message: `Autopilot slice running: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                  metadata: {
+	                    event: "autopilot_slice_heartbeat",
+	                    domain: slice.domain,
+	                    required_skills: slice.requiredSkills,
+	                    workstream_id: slice.workstreamId,
+	                    workstream_title: slice.workstreamTitle ?? null,
+	                    task_ids: slice.taskIds,
+	                    milestone_ids: slice.milestoneIds,
+	                    log_path: slice.logPath,
+	                    output_path: slice.outputPath,
+	                  },
+	                });
+	              } catch {
+	                // best effort
+	              }
+	              autoContinueSliceLastHeartbeatMs.set(slice.runId, nowMs);
+	            }
 
-          if (timedOut) {
-            try {
-              await stopProcess(pid);
-            } catch {
-              // best effort
-            }
+	          const startedAtEpochMs = Date.parse(slice.startedAt);
+	          const fallbackEpochMs = Number.isFinite(startedAtEpochMs) ? startedAtEpochMs : nowMs;
+	          const outputUpdatedAtEpochMs = fileUpdatedAtEpochMs(slice.outputPath, fallbackEpochMs);
+	          // Treat stdout/output freshness as progress; stderr noise should not prevent stall detection.
+	          const stallUpdatedAtEpochMs = outputUpdatedAtEpochMs;
 
-            slice.status = "error";
-            slice.finishedAt = now;
-            slice.updatedAt = now;
-            slice.lastError = `Autopilot slice timed out after ${Math.round(
-              AUTO_CONTINUE_SLICE_TIMEOUT_MS / 60_000
-            )} minutes.`;
-            autoContinueSliceRuns.set(slice.runId, slice);
+	            const logTail = readFileTailSafe(slice.logPath, 64_000);
+	            const mcpHandshake = detectMcpHandshakeFailure(logTail);
+	            if (mcpHandshake) {
+	              try {
+	                await stopProcess(pid);
+	              } catch {
+	                // best effort
+	              }
 
-            run.lastError = slice.lastError;
-            run.updatedAt = now;
+	              slice.status = "error";
+	              slice.finishedAt = now;
+	              slice.updatedAt = now;
+	              slice.lastError = `Autopilot slice failed to initialize MCP server${mcpHandshake.server ? ` (${mcpHandshake.server})` : ""}.`;
+	              autoContinueSliceRuns.set(slice.runId, slice);
 
-            await emitActivitySafe({
-              initiativeId: run.initiativeId,
-              runId: slice.runId,
-              correlationId: slice.runId,
-              phase: "blocked",
-              level: "error",
-              message: `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}.`,
-              metadata: {
-                event: "autopilot_slice_timeout",
-                workstream_id: slice.workstreamId,
-                task_ids: slice.taskIds,
-                milestone_ids: slice.milestoneIds,
-                log_path: slice.logPath,
-                output_path: slice.outputPath,
-              },
-            });
+	              run.lastError = slice.lastError;
+	              run.updatedAt = now;
 
-            await requestDecisionSafe({
-              initiativeId: run.initiativeId,
-              correlationId: slice.runId,
-              title: `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}`,
-              summary:
-                "The slice exceeded its execution timeout and was terminated. Review logs/output and decide whether to retry or pause autopilot.",
-              urgency: "high",
-              options: [
-                "Retry this workstream slice",
-                "Pause autopilot and investigate",
-                "Skip this workstream for now",
-              ],
-              blocking: true,
-            });
+	              await emitActivitySafe({
+	                initiativeId: run.initiativeId,
+	                runId: slice.runId,
+	                correlationId: slice.runId,
+	                phase: "blocked",
+	                level: "error",
+	                message: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}.`,
+	                metadata: {
+	                  event: "autopilot_slice_mcp_handshake_failed",
+	                  mcp_server: mcpHandshake.server,
+	                  mcp_line: mcpHandshake.line,
+	                  workstream_id: slice.workstreamId,
+	                  task_ids: slice.taskIds,
+	                  milestone_ids: slice.milestoneIds,
+	                  log_path: slice.logPath,
+	                  output_path: slice.outputPath,
+	                },
+	              });
 
-            await stopAutoContinueRun({
-              run,
-              reason: "blocked",
-              error: slice.lastError,
-            });
-            return;
-          }
+	              await requestDecisionSafe({
+	                initiativeId: run.initiativeId,
+	                correlationId: slice.runId,
+	                title: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                summary:
+	                  `MCP handshake failed${mcpHandshake.server ? ` for ${mcpHandshake.server}` : ""}. Review logs/output and decide whether to retry or pause autopilot.`,
+	                urgency: "high",
+	                options: [
+	                  "Retry this workstream slice",
+	                  "Pause autopilot and investigate",
+	                  "Skip this workstream for now",
+	                ],
+	                blocking: true,
+	              });
 
-          if (run.stopRequested) {
-            try {
-              await stopProcess(pid);
-            } catch {
-              // best effort
-            }
-          }
+	              await stopAutoContinueRun({
+	                run,
+	                reason: "blocked",
+	                error: slice.lastError,
+	              });
+	              return;
+	            }
 
-          return;
-        }
+	          const killDecision = shouldKillWorker(
+	            {
+	              nowEpochMs: nowMs,
+	              startedAtEpochMs: fallbackEpochMs,
+	              logUpdatedAtEpochMs: stallUpdatedAtEpochMs,
+	            },
+	            { timeoutMs: AUTO_CONTINUE_SLICE_TIMEOUT_MS, stallMs: AUTO_CONTINUE_SLICE_LOG_STALL_MS }
+	          );
 
-        // Slice finished.
-        const raw = readSliceOutputFile(slice.outputPath);
+	            if (killDecision.kill) {
+	              try {
+	                await stopProcess(pid);
+	              } catch {
+	                // best effort
+	              }
+
+	              slice.status = "error";
+	              slice.finishedAt = now;
+	              slice.updatedAt = now;
+	              slice.lastError =
+	                killDecision.kind === "timeout"
+	                  ? `Autopilot slice timed out after ${Math.round(AUTO_CONTINUE_SLICE_TIMEOUT_MS / 60_000)} minutes.`
+	                  : `Autopilot slice stalled (no output) for ${Math.round(AUTO_CONTINUE_SLICE_LOG_STALL_MS / 60_000)} minutes.`;
+	              autoContinueSliceRuns.set(slice.runId, slice);
+
+	              run.lastError = slice.lastError;
+	              run.updatedAt = now;
+
+	              const event =
+	                killDecision.kind === "timeout" ? "autopilot_slice_timeout" : "autopilot_slice_log_stall";
+	              const humanLabel = killDecision.kind === "timeout" ? "timed out" : "stalled";
+
+	              await emitActivitySafe({
+	                initiativeId: run.initiativeId,
+	                runId: slice.runId,
+	                correlationId: slice.runId,
+	                phase: "blocked",
+	                level: "error",
+	                message: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}.`,
+	                metadata: {
+	                  event,
+	                  workstream_id: slice.workstreamId,
+	                  task_ids: slice.taskIds,
+	                  milestone_ids: slice.milestoneIds,
+	                  log_path: slice.logPath,
+	                  output_path: slice.outputPath,
+	                  reason: killDecision.reason,
+	                  elapsed_ms: killDecision.elapsedMs,
+	                  idle_ms: killDecision.idleMs,
+	                },
+	              });
+
+	              await requestDecisionSafe({
+	                initiativeId: run.initiativeId,
+	                correlationId: slice.runId,
+	                title: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                summary:
+	                  "The slice was terminated because it stopped making progress. Review logs/output and decide whether to retry or pause autopilot.",
+	                urgency: "high",
+	                options: [
+	                  "Retry this workstream slice",
+	                  "Pause autopilot and investigate",
+	                  "Skip this workstream for now",
+	                ],
+	                blocking: true,
+	              });
+
+	              await stopAutoContinueRun({
+	                run,
+	                reason: "blocked",
+	                error: slice.lastError,
+	              });
+	              return;
+	            }
+
+	            if (run.stopRequested) {
+	              try {
+	                await stopProcess(pid);
+	              } catch {
+	                // best effort
+	              }
+	            }
+
+	            return;
+	          }
+	        }
+
+	        // Slice finished.
+	        const raw = readSliceOutputFile(slice.outputPath);
         const parsed = raw ? parseSliceResult(raw) : null;
         const parsedStatus = parsed?.status ?? "error";
 
@@ -4977,14 +5342,14 @@ export function createHttpHandler(
 
         try {
           writeRuntimeEvent({
-            sourceClient: "codex",
+            sourceClient: slice.sourceClient,
             event: slice.status === "error" ? "error" : "session_stop",
             runId: slice.runId,
             initiativeId: slice.initiativeId,
             workstreamId: slice.workstreamId,
             taskId: slice.taskIds[0] ?? null,
             agentId: slice.agentId,
-            agentName: null,
+            agentName: slice.agentName ?? null,
             phase: slice.status === "completed" ? "completed" : "blocked",
             message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
             metadata: {
@@ -5000,12 +5365,12 @@ export function createHttpHandler(
           // best effort
         }
 
-        await emitActivitySafe({
-          initiativeId: run.initiativeId,
-          runId: slice.runId,
-          correlationId: slice.runId,
-          phase: slice.status === "completed" ? "completed" : "blocked",
-          level: slice.status === "completed" ? "info" : "warn",
+	        await emitActivitySafe({
+	          initiativeId: run.initiativeId,
+	          runId: slice.runId,
+	          correlationId: slice.runId,
+	          phase: slice.status === "completed" ? "completed" : "blocked",
+	          level: slice.status === "completed" ? "info" : "warn",
           message:
             slice.status === "completed"
               ? `Autopilot slice completed: ${slice.workstreamTitle ?? slice.workstreamId}.`
@@ -5029,7 +5394,79 @@ export function createHttpHandler(
             log_path: slice.logPath,
             error: slice.lastError,
           },
-        });
+	        });
+
+	        if (slice.status !== "completed") {
+	          if (slice.status === "error" && decisions.length === 0) {
+	            await requestDecisionSafe({
+	              initiativeId: run.initiativeId,
+	              correlationId: slice.runId,
+	              title: `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	              summary:
+	                parsed?.summary ??
+	                slice.lastError ??
+	                "The slice failed without producing a valid output contract. Review logs/output and decide whether to retry or pause autopilot.",
+	              urgency: "high",
+	              options: [
+	                "Retry this workstream slice",
+	                "Pause autopilot and investigate",
+	                "Skip this workstream for now",
+	              ],
+	              blocking: true,
+	            });
+	          }
+
+	          await stopAutoContinueRun({
+	            run,
+	            reason: slice.status === "error" ? "error" : "blocked",
+	            error:
+	              parsed?.summary ??
+              slice.lastError ??
+              `Slice returned status: ${parsedStatus}`,
+          });
+          return;
+        }
+
+        const completionHadNoOutcome =
+          parsedStatus === "completed" &&
+          artifacts.length === 0 &&
+          decisions.length === 0 &&
+          statusUpdateResult.applied === 0;
+
+        if (!parsed || parsedStatus === "error" || completionHadNoOutcome) {
+          const attentionTitle =
+            completionHadNoOutcome
+              ? `Autopilot slice needs verification: ${slice.workstreamTitle ?? slice.workstreamId}`
+              : `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`;
+          const attentionSummary = completionHadNoOutcome
+            ? "The slice reported completion but did not produce artifacts or status updates. Decide whether to retry, request stronger output, or mark tasks manually."
+            : "The slice exited without a valid output contract. Review logs/output and decide whether to retry or pause autopilot.";
+
+          await requestDecisionSafe({
+            initiativeId: run.initiativeId,
+            correlationId: slice.runId,
+            title: attentionTitle,
+            summary: attentionSummary,
+            urgency: "high",
+            options: [
+              "Retry this workstream slice",
+              "Pause autopilot and investigate",
+              "Skip this workstream for now",
+            ],
+            blocking: true,
+          });
+
+          await stopAutoContinueRun({
+            run,
+            reason: completionHadNoOutcome ? "blocked" : "error",
+            error:
+              slice.lastError ??
+              (completionHadNoOutcome
+                ? "Slice completed without verifiable outcomes."
+                : "Slice failed or returned invalid output."),
+          });
+          return;
+        }
 
         run.lastRunId = slice.runId;
         run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
@@ -5037,19 +5474,25 @@ export function createHttpHandler(
         run.activeTaskId = null;
         run.updatedAt = now;
 
-        try {
-          await updateInitiativeAutoContinueState({
-            initiativeId: run.initiativeId,
-            run,
-          });
-        } catch {
-          // best effort
-        }
+	        try {
+	          await updateInitiativeAutoContinueState({
+	            initiativeId: run.initiativeId,
+	            run,
+	          });
+	        } catch {
+	          // best effort
+	        }
 
-        if (run.stopRequested) {
-          await stopAutoContinueRun({ run, reason: "stopped" });
-          return;
-        }
+	        if (run.stopAfterSlice) {
+	          run.stopAfterSlice = false;
+	          await stopAutoContinueRun({ run, reason: "completed" });
+	          return;
+	        }
+
+	        if (run.stopRequested) {
+	          await stopAutoContinueRun({ run, reason: "stopped" });
+	          return;
+	        }
       }
     }
 
@@ -5167,12 +5610,52 @@ export function createHttpHandler(
       return;
     }
 
-    const expectedDurationHours = sliceTaskNodes.reduce(
-      (acc, t) => acc + (typeof t.expectedDurationHours === "number" ? t.expectedDurationHours : 0),
+    let cappedSliceTaskNodes = sliceTaskNodes;
+    let expectedDurationHours = cappedSliceTaskNodes.reduce(
+      (acc, t) =>
+        acc +
+        (typeof t.expectedDurationHours === "number" && Number.isFinite(t.expectedDurationHours)
+          ? Math.max(0, t.expectedDurationHours)
+          : 0),
       0
     );
-    const tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
-    if (tokenEstimate > 0 && run.tokensUsed + tokenEstimate > run.tokenBudget) {
+    let tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
+    const remainingTokens = run.tokenBudget - run.tokensUsed;
+    if (remainingTokens <= 0) {
+      await stopAutoContinueRun({ run, reason: "budget_exhausted" });
+      return;
+    }
+
+    // If the modeled slice exceeds the remaining budget, shrink the slice to fit rather than
+    // stopping immediately (Play should still dispatch at least the primary task when possible).
+    if (tokenEstimate > 0 && tokenEstimate > remainingTokens) {
+      const nextSlice: MissionControlNode[] = [];
+      let hours = 0;
+
+      for (const task of sliceTaskNodes) {
+        const taskHours =
+          typeof task.expectedDurationHours === "number" && Number.isFinite(task.expectedDurationHours)
+            ? Math.max(0, task.expectedDurationHours)
+            : 0;
+
+        if (nextSlice.length === 0) {
+          nextSlice.push(task);
+          hours += taskHours;
+          continue;
+        }
+
+        const nextEstimate = estimateTokensForDurationHours(hours + taskHours);
+        if (nextEstimate > remainingTokens) continue;
+        nextSlice.push(task);
+        hours += taskHours;
+      }
+
+      cappedSliceTaskNodes = nextSlice;
+      expectedDurationHours = hours;
+      tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
+    }
+
+    if (tokenEstimate > 0 && tokenEstimate > remainingTokens) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
       return;
     }
@@ -5180,13 +5663,14 @@ export function createHttpHandler(
     const executionPolicy = deriveExecutionPolicy(primaryTask, workstreamNode);
     const sliceRunId = randomUUID();
 
-    const spawnGuardResult = await checkSpawnGuardSafe({
-      domain: executionPolicy.domain,
-      taskId: primaryTask.id,
-      initiativeId: run.initiativeId,
-      correlationId: sliceRunId,
-      targetLabel: "autopilot slice",
-    });
+	    const spawnGuardResult = await checkSpawnGuardSafe({
+	      domain: executionPolicy.domain,
+	      taskId: primaryTask.id,
+	      initiativeId: run.initiativeId,
+	      correlationId: sliceRunId,
+	      runId: sliceRunId,
+	      targetLabel: "autopilot slice",
+	    });
     if (spawnGuardResult && typeof spawnGuardResult === "object") {
       const allowed = (spawnGuardResult as Record<string, unknown>).allowed;
       if (allowed === false) {
@@ -5210,14 +5694,15 @@ export function createHttpHandler(
           // best effort
         }
 
-        await emitActivitySafe({
-          initiativeId: run.initiativeId,
-          correlationId: sliceRunId,
-          phase: "blocked",
-          level: "error",
-          message: `Autopilot blocked by spawn guard for ${workstreamTitle ?? selectedWorkstreamId}.`,
-          metadata: {
-            event: "auto_continue_spawn_guard_blocked",
+	        await emitActivitySafe({
+	          initiativeId: run.initiativeId,
+	          runId: sliceRunId,
+	          correlationId: sliceRunId,
+	          phase: "blocked",
+	          level: "error",
+	          message: `Autopilot blocked by spawn guard for ${workstreamTitle ?? selectedWorkstreamId}.`,
+	          metadata: {
+	            event: "auto_continue_spawn_guard_blocked",
             task_id: primaryTask.id,
             workstream_id: selectedWorkstreamId,
             blocked_reason: blockedReason,
@@ -5248,14 +5733,14 @@ export function createHttpHandler(
     }
 
     const milestoneIds = dedupeStrings(
-      sliceTaskNodes.map((t) => (t.milestoneId ?? "").trim()).filter(Boolean)
+      cappedSliceTaskNodes.map((t) => (t.milestoneId ?? "").trim()).filter(Boolean)
     );
     const milestoneSummaries = milestoneIds
       .map((id) => nodeById.get(id))
       .filter((node): node is MissionControlNode => Boolean(node && node.type === "milestone"))
       .map((m) => ({ id: m.id, title: m.title, status: m.status }));
 
-    const taskSummaries = sliceTaskNodes.map((t) => ({
+    const taskSummaries = cappedSliceTaskNodes.map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
@@ -5279,9 +5764,18 @@ export function createHttpHandler(
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-    const workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
-    const agentDisplayName =
-      `${executionPolicy.domain[0]?.toUpperCase() ?? "A"}${executionPolicy.domain.slice(1)} Agent`;
+	    const workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+	    const agentDisplayName =
+	      `${executionPolicy.domain[0]?.toUpperCase() ?? "A"}${executionPolicy.domain.slice(1)} Agent`;
+	    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
+	    const inferredExecutor =
+	      workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
+	    const executorRaw =
+	      (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim().toLowerCase() || inferredExecutor;
+	    const executorSourceClient: RuntimeSourceClient =
+	      executorRaw === "claude-code" || executorRaw === "claude_code"
+	        ? "claude-code"
+	        : "codex";
     let runtimeHookUrl: string | null = null;
     let runtimeHookToken: string | null = null;
     try {
@@ -5299,11 +5793,12 @@ export function createHttpHandler(
       logPath,
       outputPath,
       env: {
-        ORGX_SOURCE_CLIENT: "codex",
+        ORGX_SOURCE_CLIENT: executorSourceClient,
         ORGX_RUN_ID: sliceRunId,
         ORGX_CORRELATION_ID: sliceRunId,
         ORGX_INITIATIVE_ID: run.initiativeId,
         ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+        ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
         ORGX_TASK_ID: primaryTask.id,
         ORGX_AGENT_ID: run.agentId || "main",
         ORGX_AGENT_NAME: agentDisplayName,
@@ -5322,6 +5817,7 @@ export function createHttpHandler(
       agentName: agentDisplayName,
       domain: executionPolicy.domain,
       requiredSkills: executionPolicy.requiredSkills,
+      sourceClient: executorSourceClient,
       pid: spawned.pid,
       status: "running",
       startedAt: now,
@@ -5330,7 +5826,7 @@ export function createHttpHandler(
       tokenEstimate: tokenEstimate > 0 ? tokenEstimate : null,
       outputPath,
       logPath,
-      taskIds: sliceTaskNodes.map((t) => t.id),
+      taskIds: cappedSliceTaskNodes.map((t) => t.id),
       milestoneIds,
       lastError: null,
     };
@@ -5338,7 +5834,7 @@ export function createHttpHandler(
 
     try {
       writeRuntimeEvent({
-        sourceClient: "codex",
+        sourceClient: executorSourceClient,
         event: "session_start",
         runId: sliceRunId,
         initiativeId: run.initiativeId,
@@ -5463,27 +5959,29 @@ export function createHttpHandler(
     return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
   }
 
-  async function startAutoContinueRun(input: {
-    initiativeId: string;
-    agentId: string;
-    tokenBudget: unknown;
-    includeVerification: boolean;
-    allowedWorkstreamIds: string[] | null;
-  }): Promise<AutoContinueRun> {
+	  async function startAutoContinueRun(input: {
+	    initiativeId: string;
+	    agentId: string;
+	    tokenBudget: unknown;
+	    includeVerification: boolean;
+	    allowedWorkstreamIds: string[] | null;
+	    stopAfterSlice?: boolean;
+	  }): Promise<AutoContinueRun> {
     const now = new Date().toISOString();
     const existing = autoContinueRuns.get(input.initiativeId) ?? null;
 
     const run: AutoContinueRun =
       existing ??
-      ({
-        initiativeId: input.initiativeId,
-        agentId: input.agentId,
-        includeVerification: false,
-        allowedWorkstreamIds: null,
-        tokenBudget: defaultAutoContinueTokenBudget(),
-        tokensUsed: 0,
-        status: "running",
-        stopReason: null,
+	      ({
+	        initiativeId: input.initiativeId,
+	        agentId: input.agentId,
+	        includeVerification: false,
+	        allowedWorkstreamIds: null,
+	        stopAfterSlice: false,
+	        tokenBudget: defaultAutoContinueTokenBudget(),
+	        tokensUsed: 0,
+	        status: "running",
+	        stopReason: null,
         stopRequested: false,
         startedAt: now,
         stoppedAt: null,
@@ -5496,13 +5994,14 @@ export function createHttpHandler(
         activeTaskTokenEstimate: null,
       } as AutoContinueRun);
 
-    run.agentId = input.agentId;
-    run.includeVerification = input.includeVerification;
-    run.allowedWorkstreamIds = input.allowedWorkstreamIds;
-    run.tokenBudget = normalizeTokenBudget(
-      input.tokenBudget,
-      run.tokenBudget || defaultAutoContinueTokenBudget()
-    );
+	    run.agentId = input.agentId;
+	    run.includeVerification = input.includeVerification;
+	    run.allowedWorkstreamIds = input.allowedWorkstreamIds;
+	    run.stopAfterSlice = Boolean(input.stopAfterSlice);
+	    run.tokenBudget = normalizeTokenBudget(
+	      input.tokenBudget,
+	      run.tokenBudget || defaultAutoContinueTokenBudget()
+	    );
     run.status = "running";
     run.stopReason = null;
     run.stopRequested = false;
@@ -6137,6 +6636,8 @@ export function createHttpHandler(
         route === "mission-control/auto-continue/start";
       const isMissionControlAutoContinueStopRoute =
         route === "mission-control/auto-continue/stop";
+      const isMissionControlAutoContinueTickRoute =
+        route === "mission-control/auto-continue/tick";
       const isEntitiesRoute = route === "entities";
       const entityCommentsMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/comments$/
@@ -6475,17 +6976,18 @@ export function createHttpHandler(
             return true;
           }
 
-          const guard = await enforceSpawnGuardForDispatch({
-            sourceEventPrefix: "agent_launch",
-            initiativeId,
-            correlationId: sessionId,
-            executionPolicy,
-            agentId,
-            taskId,
-            taskTitle: resolvedTaskTitle,
-            workstreamId,
-            workstreamTitle: resolvedWorkstreamTitle,
-          });
+	          const guard = await enforceSpawnGuardForDispatch({
+	            sourceEventPrefix: "agent_launch",
+	            initiativeId,
+	            correlationId: sessionId,
+	            runId: sessionId,
+	            executionPolicy,
+	            agentId,
+	            taskId,
+	            taskTitle: resolvedTaskTitle,
+	            workstreamId,
+	            workstreamTitle: resolvedWorkstreamTitle,
+	          });
           if (!guard.allowed) {
             void posthogCapture({
               event: "openclaw_agent_launch_blocked",
@@ -6551,15 +7053,16 @@ export function createHttpHandler(
             });
           }
 
-          await emitActivitySafe({
-            initiativeId,
-            correlationId: sessionId,
-            phase: "execution",
-            message: taskId
-              ? `Launched agent ${agentId} for task ${taskId}.`
-              : `Launched agent ${agentId}.`,
-            level: "info",
-            metadata: {
+	          await emitActivitySafe({
+	            initiativeId,
+	            runId: sessionId,
+	            correlationId: sessionId,
+	            phase: "execution",
+	            message: taskId
+	              ? `Launched agent ${agentId} for task ${taskId}.`
+	              : `Launched agent ${agentId}.`,
+	            level: "info",
+	            metadata: {
               event: "agent_launch",
               agent_id: agentId,
               session_id: sessionId,
@@ -6575,8 +7078,8 @@ export function createHttpHandler(
               spawn_guard_model_tier: extractSpawnGuardModelTier(
                 guard.spawnGuardResult
               ),
-            },
-          });
+	            },
+	          });
 
           let routedProvider: string | null = null;
           let routedModel: string | null = null;
@@ -6856,17 +7359,18 @@ export function createHttpHandler(
             message: baseMessage,
           });
           const executionPolicy = policyResolution.executionPolicy;
-          const guard = await enforceSpawnGuardForDispatch({
-            sourceEventPrefix: "agent_restart",
-            initiativeId: record.initiativeId,
-            correlationId: sessionId,
-            executionPolicy,
-            agentId: record.agentId,
-            taskId: record.taskId,
-            taskTitle: policyResolution.taskTitle,
-            workstreamId: record.workstreamId,
-            workstreamTitle: policyResolution.workstreamTitle,
-          });
+	          const guard = await enforceSpawnGuardForDispatch({
+	            sourceEventPrefix: "agent_restart",
+	            initiativeId: record.initiativeId,
+	            correlationId: sessionId,
+	            runId: sessionId,
+	            executionPolicy,
+	            agentId: record.agentId,
+	            taskId: record.taskId,
+	            taskTitle: policyResolution.taskTitle,
+	            workstreamId: record.workstreamId,
+	            workstreamTitle: policyResolution.workstreamTitle,
+	          });
           if (!guard.allowed) {
             sendJson(res, guard.retryable ? 429 : 409, {
               ok: false,
@@ -7046,55 +7550,109 @@ export function createHttpHandler(
             searchParams.get("includeVerification") ??
             searchParams.get("include_verification") ??
             null;
-          const includeVerification =
-            typeof includeVerificationRaw === "boolean"
-              ? includeVerificationRaw
-              : parseBooleanQuery(
-                  typeof includeVerificationRaw === "string"
-                    ? includeVerificationRaw
-                    : null
-                );
+	          const includeVerification =
+	            typeof includeVerificationRaw === "boolean"
+	              ? includeVerificationRaw
+	              : parseBooleanQuery(
+	                  typeof includeVerificationRaw === "string"
+	                    ? includeVerificationRaw
+	                    : null
+	                );
 
-          const run = await startAutoContinueRun({
-            initiativeId,
-            agentId,
-            tokenBudget,
-            includeVerification,
-            allowedWorkstreamIds: [workstreamId],
-          });
+	          const fastAckRaw =
+	            (payload as Record<string, unknown>).fastAck ??
+	            (payload as Record<string, unknown>).fast_ack ??
+	            searchParams.get("fastAck") ??
+	            searchParams.get("fast_ack") ??
+	            null;
+	          const fastAck =
+	            typeof fastAckRaw === "boolean"
+	              ? fastAckRaw
+	              : parseBooleanQuery(
+	                  typeof fastAckRaw === "string" ? fastAckRaw : null
+	                );
 
-          // Play should feel immediate. Run one dispatch tick synchronously so the
-          // user gets an actual launch (or a concrete error) in this response.
-          await tickAutoContinueRun(run);
+	          const run = await startAutoContinueRun({
+	            initiativeId,
+	            agentId,
+	            tokenBudget,
+	            includeVerification,
+	            allowedWorkstreamIds: [workstreamId],
+	            stopAfterSlice: true,
+	          });
 
-          let fallbackDispatch:
-            | {
-                sessionId: string | null;
-                pid: number | null;
+	          let fallbackDispatch:
+	            | {
+	                sessionId: string | null;
+	                pid: number | null;
                 blockedReason: string | null;
                 retryable: boolean;
                 executionPolicy: { domain: string; requiredSkills: string[] };
-                spawnGuardResult: unknown | null;
-              }
-            | null = null;
-          if (
-            !run.activeRunId &&
-            matchedQueueItem &&
-            matchedQueueItem.runnerSource === "fallback"
-          ) {
-            fallbackDispatch = await dispatchFallbackWorkstreamTurn({
-              initiativeId,
-              initiativeTitle: matchedQueueItem.initiativeTitle,
-              workstreamId,
-              workstreamTitle: matchedQueueItem.workstreamTitle,
-              agentId,
-            });
-          }
+	                spawnGuardResult: unknown | null;
+	              }
+	            | null = null;
+	          const maybeDispatchFallback = async () => {
+	            if (
+	              !run.activeRunId &&
+	              matchedQueueItem &&
+	              matchedQueueItem.runnerSource === "fallback"
+	            ) {
+	              return await dispatchFallbackWorkstreamTurn({
+	                initiativeId,
+	                initiativeTitle: matchedQueueItem.initiativeTitle,
+	                workstreamId,
+	                workstreamTitle: matchedQueueItem.workstreamTitle,
+	                agentId,
+	                taskId: matchedQueueItem.nextTaskId ?? null,
+	                taskTitle: matchedQueueItem.nextTaskTitle ?? null,
+	              });
+	            }
+	            return null;
+	          };
 
-          const fallbackStarted = Boolean(fallbackDispatch?.sessionId);
-          const dispatchMode = run.activeRunId
-            ? "slice"
-            : fallbackStarted
+	          if (!fastAck) {
+	            // Preserve legacy semantics for API callers/tests: play blocks until one tick completes.
+	            await tickAutoContinueRun(run);
+	            fallbackDispatch = await maybeDispatchFallback();
+	          } else {
+	            // UI callers can opt into a faster ack: start one dispatch tick, but avoid holding
+	            // the HTTP response open indefinitely. If the tick is slow, ack quickly and finish
+	            // dispatch in the background.
+	            const tickPromise = tickAutoContinueRun(run);
+	            const tickCompleted = await Promise.race([
+	              tickPromise.then(() => true),
+	              new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1100)),
+	            ]);
+
+	            if (!tickCompleted) {
+	              void tickPromise
+	                .then(async () => {
+	                  await maybeDispatchFallback().catch(() => null);
+	                })
+	                .catch(() => {
+	                  // best effort; errors will surface via activity feed/polling
+	                });
+
+	              sendJson(res, 202, {
+	                ok: true,
+	                run,
+	                initiativeId,
+	                workstreamId,
+	                agentId,
+	                dispatchMode: "pending",
+	                sessionId: null,
+	              });
+	              return true;
+	            }
+
+	            await tickPromise;
+	            fallbackDispatch = await maybeDispatchFallback();
+	          }
+
+	          const fallbackStarted = Boolean(fallbackDispatch?.sessionId);
+	          const dispatchMode = run.activeRunId
+	            ? "slice"
+	            : fallbackStarted
               ? "fallback"
               : "none";
           if (dispatchMode === "none") {
@@ -7378,6 +7936,35 @@ export function createHttpHandler(
           }
 
           sendJson(res, 200, { ok: true, run });
+        } catch (err: unknown) {
+          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      if (method === "POST" && isMissionControlAutoContinueTickRoute) {
+        try {
+          const payload = await parseJsonRequest(req);
+          const initiativeId =
+            (pickString(payload, ["initiativeId", "initiative_id"]) ??
+              searchParams.get("initiativeId") ??
+              searchParams.get("initiative_id") ??
+              "")
+              .trim();
+
+          if (initiativeId) {
+            const run = autoContinueRuns.get(initiativeId) ?? null;
+            if (!run) {
+              sendJson(res, 404, { ok: false, error: "No auto-continue run found" });
+              return true;
+            }
+            await tickAutoContinueRun(run);
+            sendJson(res, 200, { ok: true, initiativeId, run });
+            return true;
+          }
+
+          await tickAllAutoContinue();
+          sendJson(res, 200, { ok: true });
         } catch (err: unknown) {
           sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
         }
