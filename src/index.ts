@@ -1692,7 +1692,13 @@ export default function register(api: PluginAPI): void {
           ? (metaRaw as Record<string, unknown>)
           : {};
 
-      const emitPayload = {
+      const baseMetadata: Record<string, unknown> = {
+        ...meta,
+        source: "orgx_openclaw_outbox_replay",
+        outbox_event_id: event.id,
+      };
+
+      let emitPayload = {
         initiative_id: context.value.initiativeId,
         run_id: context.value.runId,
         correlation_id: context.value.correlationId,
@@ -1705,12 +1711,23 @@ export default function register(api: PluginAPI): void {
           pickStringField(payload, "next_step") ??
           pickStringField(payload, "nextStep") ??
           undefined,
-        metadata: {
-          ...meta,
-          source: "orgx_openclaw_outbox_replay",
-          outbox_event_id: event.id,
-        },
+        metadata: baseMetadata,
       } satisfies Parameters<typeof client.emitActivity>[0];
+
+      // Locally-buffered progress events often store a local UUID in run_id. OrgX may reject
+      // unknown run IDs on replay; prefer a deterministic non-UUID correlation key instead.
+      if (emitPayload.run_id && !emitPayload.correlation_id) {
+        const replayCorrelationId = `openclaw_run_${stableHash(emitPayload.run_id).slice(0, 24)}`;
+        emitPayload = {
+          ...emitPayload,
+          run_id: undefined,
+          correlation_id: replayCorrelationId,
+          metadata: {
+            ...(emitPayload.metadata ?? {}),
+            replay_run_id_as_correlation: true,
+          },
+        };
+      }
 
       try {
         await client.emitActivity(emitPayload);
@@ -1732,7 +1749,7 @@ export default function register(api: PluginAPI): void {
             run_id: undefined,
             correlation_id: replayCorrelationId,
             metadata: {
-              ...emitPayload.metadata,
+              ...(emitPayload.metadata ?? {}),
               replay_run_id_as_correlation: true,
             },
           });
