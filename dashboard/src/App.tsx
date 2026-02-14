@@ -5,7 +5,7 @@ import { useLiveData } from '@/hooks/useLiveData';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
-import { colors } from '@/lib/tokens';
+import { colors, normalizeStatus } from '@/lib/tokens';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type { Agent, Initiative, NextUpQueueItem, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
@@ -249,10 +249,39 @@ function DashboardShell({
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(NEXTUP_SIDEBAR_COMPACT_KEY) === '1';
   });
+  const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
+    'next_up'
+  );
   const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(MC_WELCOME_DISMISS_KEY) === '1';
   });
+
+  const inProgressCount = useMemo(() => {
+    const inProgressStatuses = new Set([
+      'running',
+      'active',
+      'in_progress',
+      'working',
+      'planning',
+      'dispatching',
+      'blocked',
+    ]);
+
+    let count = 0;
+    for (const session of data.sessions.nodes) {
+      const status = normalizeStatus(session.status ?? '');
+      if (status === 'queued' || status === 'pending') continue;
+      if (inProgressStatuses.has(status) || Boolean(session.lastHeartbeatAt)) count += 1;
+    }
+    return count;
+  }, [data.sessions.nodes]);
+
+  useEffect(() => {
+    if (initiativesSidebarTab === 'in_progress' && inProgressCount === 0) {
+      setInitiativesSidebarTab('next_up');
+    }
+  }, [initiativesSidebarTab, inProgressCount]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1753,21 +1782,63 @@ function DashboardShell({
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
               <div className="flex h-full min-h-0 flex-col gap-2">
-                <InProgressPanel
-                  sessions={data.sessions.nodes}
-                  onOpenSession={handleSelectSession}
-                  onFocusRunId={focusActivityRunId}
-                />
-                <div className={`min-h-0 ${nextUpSidebarCompact ? 'flex-shrink-0' : 'flex-1'}`}>
-                  <NextUpPanel
-                    title="Next Up"
-                    className={nextUpSidebarCompact ? '' : 'h-full'}
-                    compact={nextUpSidebarCompact}
-                    allowCompactToggle
-                    onToggleCompact={setNextUpSidebarCompact}
-                    onFollowWorkstream={followQueuedWorkstream}
-                    onOpenInitiative={openInitiativeFromNextUp}
-                  />
+                <div
+                  className="inline-flex items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
+                  role="tablist"
+                  aria-label="Initiatives sidebar"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={initiativesSidebarTab === 'in_progress'}
+                    onClick={() => setInitiativesSidebarTab('in_progress')}
+                    className={cn(
+                      'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
+                      initiativesSidebarTab === 'in_progress'
+                        ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
+                        : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                    )}
+                  >
+                    <span>In Progress</span>
+                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
+                      {inProgressCount}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={initiativesSidebarTab === 'next_up'}
+                    onClick={() => setInitiativesSidebarTab('next_up')}
+                    className={cn(
+                      'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
+                      initiativesSidebarTab === 'next_up'
+                        ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
+                        : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                    )}
+                  >
+                    Next Up
+                  </button>
+                </div>
+
+                <div className="min-h-0 flex-1">
+                  {initiativesSidebarTab === 'in_progress' ? (
+                    <InProgressPanel
+                      className="h-full min-h-0"
+                      sessions={data.sessions.nodes}
+                      onOpenSession={handleSelectSession}
+                      onFocusRunId={focusActivityRunId}
+                    />
+                  ) : (
+                    <NextUpPanel
+                      title="Next Up"
+                      className="h-full"
+                      compact={nextUpSidebarCompact}
+                      allowCompactToggle
+                      onToggleCompact={setNextUpSidebarCompact}
+                      onFollowWorkstream={followQueuedWorkstream}
+                      onOpenInitiative={openInitiativeFromNextUp}
+                    />
+                  )}
                 </div>
               </div>
             ) : (
@@ -1777,7 +1848,7 @@ function DashboardShell({
                   className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="flex items-center gap-2">
-                    <h2 className="text-heading font-semibold text-white">Next Up</h2>
+                    <h2 className="text-heading font-semibold text-white">Initiatives</h2>
                   </div>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-muted">
                     <path d="m6 9 6 6 6-6" />

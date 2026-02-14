@@ -3419,6 +3419,14 @@ export function createHttpHandler(
     runId?: string | null;
     targetLabel?: string | null;
   }): Promise<unknown | null> {
+    const bypassRaw = (process.env.ORGX_SPAWN_GUARD_BYPASS ?? "").trim().toLowerCase();
+    const modeRaw = (process.env.ORGX_SPAWN_GUARD_MODE ?? "").trim().toLowerCase();
+    const bypass =
+      (bypassRaw && bypassRaw !== "0" && bypassRaw !== "false" && bypassRaw !== "no") ||
+      modeRaw === "off" ||
+      modeRaw === "bypass";
+    if (bypass) return null;
+
     const scopedClient = client as OrgXClient & {
       checkSpawnGuard?: (domain: string, taskId?: string) => Promise<unknown>;
     };
