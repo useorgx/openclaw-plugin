@@ -18,6 +18,8 @@ interface NextUpPanelProps {
   compact?: boolean;
   className?: string;
   disableEnterAnimation?: boolean;
+  allowCompactToggle?: boolean;
+  onToggleCompact?: (compact: boolean) => void;
   onFollowWorkstream?: (item: NextUpQueueItem) => void;
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
   onOpenSettings?: () => void;
@@ -208,11 +210,20 @@ export function NextUpPanel({
   compact = false,
   className,
   disableEnterAnimation = false,
+  allowCompactToggle = false,
+  onToggleCompact,
   onFollowWorkstream,
   onOpenInitiative,
   onOpenSettings,
   onUpgradeGate,
 }: NextUpPanelProps) {
+  const [localCompact, setLocalCompact] = useState(compact);
+  useEffect(() => setLocalCompact(compact), [compact]);
+  const isCompact = allowCompactToggle && !onToggleCompact ? localCompact : compact;
+  const setCompact = (next: boolean) => {
+    if (onToggleCompact) onToggleCompact(next);
+    else setLocalCompact(next);
+  };
   const [notice, setNotice] = useState<string | null>(null);
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
@@ -238,8 +249,8 @@ export function NextUpPanel({
   const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
 
   const visibleItems = useMemo(
-    () => (compact ? items.slice(0, 7) : items),
-    [compact, items]
+    () => (isCompact ? items.slice(0, 5) : items),
+    [isCompact, items]
   );
 
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
@@ -257,7 +268,7 @@ export function NextUpPanel({
 
   useEffect(() => {
     setOrderedKeys((previous) => {
-      if (compact) return [];
+      if (isCompact) return [];
       const next: string[] = [];
       const incoming = new Set(visibleKeys);
       for (const key of previous) {
@@ -268,7 +279,7 @@ export function NextUpPanel({
       }
       return next;
     });
-  }, [compact, visibleKeysSignature]);
+  }, [isCompact, visibleKeysSignature]);
 
   useEffect(() => {
     orderedKeysRef.current = orderedKeys;
@@ -336,6 +347,17 @@ export function NextUpPanel({
             <span className="text-micro text-muted">refreshing…</span>
           )}
         </div>
+        {allowCompactToggle ? (
+          <button
+            type="button"
+            onClick={() => setCompact(!isCompact)}
+            className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+            title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
+            aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
+          >
+            {isCompact ? 'Expand' : 'Compact'}
+          </button>
+        ) : null}
       </div>
 
       {showStatusBanner && (
@@ -452,7 +474,7 @@ export function NextUpPanel({
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
         {isLoading ? (
-          <NextUpLoadingSkeleton compact={compact} />
+          <NextUpLoadingSkeleton compact={isCompact} />
         ) : null}
 
         {!isLoading && visibleItems.length === 0 && !error && (
@@ -461,7 +483,7 @@ export function NextUpPanel({
           </div>
         )}
 
-        {!isLoading && compact ? (
+        {!isLoading && isCompact ? (
           <AnimatePresence initial={false}>
             {visibleItems.map((item, index) => {
               const key = itemKey(item);
@@ -482,19 +504,19 @@ export function NextUpPanel({
                     delay: Math.min(index, 7) * 0.018,
                     ease: [0.22, 1, 0.36, 1],
                   }}
-                  className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
+                  className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2"
                 >
                   <div
-                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
+                    className={`pointer-events-none absolute inset-x-2.5 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
                     aria-hidden
                   />
 
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="min-w-0 flex flex-1 items-start gap-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex flex-1 items-center gap-2.5">
                       <AgentAvatar
                         name={item.runnerAgentName}
                         hint={`${item.runnerAgentId} ${item.runnerSource}`}
-                        size="sm"
+                        size="xs"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-1.5">
@@ -510,46 +532,46 @@ export function NextUpPanel({
                             {item.initiativeTitle}
                           </button>
                         </div>
-                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-body font-semibold text-white">
+                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-caption font-semibold leading-snug text-white">
                           <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
                           <span className="truncate">{item.workstreamTitle}</span>
                         </p>
+                        {item.nextTaskTitle ? (
+                          <p className="mt-0.5 line-clamp-1 text-micro leading-snug text-secondary" title={item.nextTaskTitle}>
+                            Next: {item.nextTaskTitle}
+                            {dueText ? ` · ${dueText}` : ''}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
-                    <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
-                      {queueLabel(item.queueState)}
-                    </span>
-                  </div>
-
-                  <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
-                    {item.nextTaskTitle ? (
-                      <div className="space-y-1">
-                        <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
-                          <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
-                          <span>Next</span>
-                          {dueText ? (
-                            <span className="truncate text-micro normal-case tracking-normal text-muted">
-                              · {dueText}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
-                          {item.nextTaskTitle}
-                        </p>
-                      </div>
-                    ) : (
-                      <span className="text-secondary">No task currently queued.</span>
-                    )}
-                  </div>
-
-                  <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
-                    <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
-                      Runner
-                    </span>
-                    <span className="truncate text-white/68">
-                      {item.runnerAgentName}
-                      {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
-                    </span>
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
+                      <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
+                        {queueLabel(item.queueState)}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isRowBusy}
+                        onClick={() =>
+                          void runAction(
+                            key,
+                            () =>
+                              playWorkstream({
+                                initiativeId: item.initiativeId,
+                                workstreamId: item.workstreamId,
+                                agentId: item.runnerAgentId,
+                              }),
+                            `Dispatched ${item.workstreamTitle}.`
+                          )
+                        }
+                        className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold disabled:opacity-40"
+                        title="Dispatch now"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <PlayGlyph className="h-3.5 w-3.5 opacity-85" />
+                          <span>Play</span>
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
                   {item.blockReason && (
@@ -558,39 +580,16 @@ export function NextUpPanel({
                     </div>
                   )}
 
-                  <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
                     <button
                       type="button"
                       onClick={() => onFollowWorkstream?.(item)}
-                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold"
-                      title="Follow this workstream in Activity"
+                      className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold"
+                      title="Follow in Activity"
                     >
                       <span className="inline-flex items-center gap-1.5">
                         <FollowGlyph className="h-3.5 w-3.5 opacity-85" />
                         <span>Follow</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRowBusy}
-                      onClick={() =>
-                        void runAction(
-                          key,
-                          () =>
-                            playWorkstream({
-                              initiativeId: item.initiativeId,
-                              workstreamId: item.workstreamId,
-                              agentId: item.runnerAgentId,
-                            }),
-                          `Dispatched ${item.workstreamTitle}.`
-                        )
-                      }
-                      className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40"
-                      title="Dispatch this workstream now (single run)"
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <PlayGlyph className="h-3.5 w-3.5 opacity-85" />
-                        <span>Play</span>
                       </span>
                     </button>
                     <button
@@ -612,14 +611,10 @@ export function NextUpPanel({
                             : `Auto-continue started for ${item.workstreamTitle}.`
                         )
                       }
-                      className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40 sm:col-span-1"
+                      className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold disabled:opacity-40"
                       data-state={isAutoRunning ? 'active' : 'idle'}
                       data-tone="teal"
-                      title={
-                        isAutoRunning
-                          ? 'Stop auto-continue for this initiative'
-                          : 'Auto-continue this workstream'
-                      }
+                      title={isAutoRunning ? 'Stop auto-continue' : 'Auto-continue'}
                     >
                       <span className="inline-flex items-center gap-1.5">
                         <AutoGlyph className="h-3.5 w-3.5 opacity-85" />

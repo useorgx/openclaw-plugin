@@ -58,6 +58,7 @@ const CONNECTION_COLOR: Record<string, string> = {
 const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
 const DEMO_MODE_KEY = 'orgx.demo_mode';
 const FIRST_RUN_GUIDE_SESSION_KEY = 'orgx.first_run_guide.shown_session';
+const NEXTUP_SIDEBAR_COMPACT_KEY = 'orgx.dashboard.sidebar.nextup.compact';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -244,10 +245,27 @@ function DashboardShell({
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('decisions');
+  const [nextUpSidebarCompact, setNextUpSidebarCompact] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(NEXTUP_SIDEBAR_COMPACT_KEY) === '1';
+  });
   const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(MC_WELCOME_DISMISS_KEY) === '1';
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (nextUpSidebarCompact) {
+        window.localStorage.setItem(NEXTUP_SIDEBAR_COMPACT_KEY, '1');
+      } else {
+        window.localStorage.removeItem(NEXTUP_SIDEBAR_COMPACT_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  }, [nextUpSidebarCompact]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1740,10 +1758,13 @@ function DashboardShell({
                   onOpenSession={handleSelectSession}
                   onFocusRunId={focusActivityRunId}
                 />
-                <div className="min-h-0 flex-1">
+                <div className={`min-h-0 ${nextUpSidebarCompact ? 'flex-shrink-0' : 'flex-1'}`}>
                   <NextUpPanel
                     title="Next Up"
-                    className="h-full"
+                    className={nextUpSidebarCompact ? '' : 'h-full'}
+                    compact={nextUpSidebarCompact}
+                    allowCompactToggle
+                    onToggleCompact={setNextUpSidebarCompact}
                     onFollowWorkstream={followQueuedWorkstream}
                     onOpenInitiative={openInitiativeFromNextUp}
                   />
