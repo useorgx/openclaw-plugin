@@ -4953,9 +4953,7 @@ export function createHttpHandler(
       tasks || "- (none found)",
       ``,
       `Reporting:`,
-      `- You MAY post runtime events for a buttery UX using:`,
-      `  node ~/.config/useorgx/openclaw-plugin/hooks/post-reporting-event.mjs --event=task_update --phase=execution --message=\"...\"`,
-      `  (ORGX_RUNTIME_HOOK_URL and ORGX_HOOK_TOKEN are already set in env.)`,
+      `- Prefer using the MCP tool orgx_report_progress for progress updates (if it is available in your tool list).`,
       `- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.`,
       ``,
       `What to do:`,
@@ -4969,6 +4967,8 @@ export function createHttpHandler(
       `- Artifacts must be verifiable: include URLs or local paths, plus verification steps.`,
       `- If you need a human decision, include it in decisions_needed.`,
       `- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).`,
+      `  - task_updates.status must be one of: todo, in_progress, done, blocked`,
+      `  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled`,
     ].join("\n");
   }
 
@@ -5070,17 +5070,61 @@ export function createHttpHandler(
     taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
     milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
   }): Promise<{ applied: number; buffered: boolean }> {
+    const normalizeTaskStatus = (raw: string): string | null => {
+      const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_");
+      if (!normalized) return null;
+      if (normalized === "done") return "done";
+      if (normalized === "todo") return "todo";
+      if (normalized === "blocked") return "blocked";
+      if (normalized === "in_progress") return "in_progress";
+      // Common synonyms from LMs.
+      if (normalized === "completed" || normalized === "complete" || normalized === "finished") {
+        return "done";
+      }
+      if (normalized === "inprogress" || normalized === "running" || normalized === "working") {
+        return "in_progress";
+      }
+      if (normalized === "not_started" || normalized === "planned" || normalized === "pending") {
+        return "todo";
+      }
+      return null;
+    };
+
+    const normalizeMilestoneStatus = (raw: string): string | null => {
+      const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_");
+      if (!normalized) return null;
+      if (normalized === "planned") return "planned";
+      if (normalized === "in_progress") return "in_progress";
+      if (normalized === "completed") return "completed";
+      if (normalized === "at_risk") return "at_risk";
+      if (normalized === "cancelled") return "cancelled";
+      // Common synonyms from LMs.
+      if (normalized === "done" || normalized === "complete" || normalized === "finished") {
+        return "completed";
+      }
+      if (normalized === "inprogress" || normalized === "running" || normalized === "working") {
+        return "in_progress";
+      }
+      if (normalized === "todo" || normalized === "not_started" || normalized === "pending") {
+        return "planned";
+      }
+      if (normalized === "blocked" || normalized === "stuck") {
+        return "at_risk";
+      }
+      return null;
+    };
+
     const operations: Array<Record<string, unknown>> = [];
 
     for (const update of input.taskUpdates) {
       const taskId = (update?.task_id ?? "").trim();
-      const status = (update?.status ?? "").trim();
+      const status = normalizeTaskStatus(update?.status ?? "");
       if (!taskId || !status) continue;
       operations.push({ op: "task.update", task_id: taskId, status });
     }
     for (const update of input.milestoneUpdates) {
       const milestoneId = (update?.milestone_id ?? "").trim();
-      const status = (update?.status ?? "").trim();
+      const status = normalizeMilestoneStatus(update?.status ?? "");
       if (!milestoneId || !status) continue;
       operations.push({ op: "milestone.update", milestone_id: milestoneId, status });
     }
@@ -5088,21 +5132,37 @@ export function createHttpHandler(
     if (operations.length === 0) return { applied: 0, buffered: false };
 
     try {
-      await client.applyChangeset({
-        initiative_id: input.initiativeId,
-        run_id: input.runId,
-        correlation_id: input.correlationId,
-        source_client: "openclaw",
-        idempotency_key: idempotencyKey([
-          "openclaw",
-          "autopilot",
-          "slice_status",
-          input.initiativeId,
-          input.runId,
-        ]),
-        operations: operations as any,
-      });
-      return { applied: operations.length, buffered: false };
+      // Prefer direct entity mutations here: they are the most broadly supported API
+      // contract across OrgX deployments, and avoid coupling status updates to a
+      // run/session identifier.
+      let applied = 0;
+      const taskSettled = await Promise.allSettled(
+        input.taskUpdates.map(async (update) => {
+          const taskId = (update?.task_id ?? "").trim();
+          const status = normalizeTaskStatus(update?.status ?? "");
+          if (!taskId || !status) return;
+          await client.updateEntity("task", taskId, { status });
+          applied += 1;
+        })
+      );
+      const milestoneSettled = await Promise.allSettled(
+        input.milestoneUpdates.map(async (update) => {
+          const milestoneId = (update?.milestone_id ?? "").trim();
+          const status = normalizeMilestoneStatus(update?.status ?? "");
+          if (!milestoneId || !status) return;
+          await client.updateEntity("milestone", milestoneId, { status });
+          applied += 1;
+        })
+      );
+
+      const hadFailure =
+        taskSettled.some((r) => r.status === "rejected") ||
+        milestoneSettled.some((r) => r.status === "rejected");
+      if (hadFailure) {
+        throw new Error("One or more status updates failed.");
+      }
+
+      return { applied: Math.max(0, applied), buffered: false };
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       try {
@@ -5112,7 +5172,6 @@ export function createHttpHandler(
           timestamp,
           payload: {
             initiative_id: input.initiativeId,
-            run_id: input.runId,
             correlation_id: input.correlationId,
             source_client: "openclaw",
             idempotency_key: idempotencyKey([
@@ -5120,7 +5179,7 @@ export function createHttpHandler(
               "autopilot",
               "slice_status",
               input.initiativeId,
-              input.runId,
+              input.correlationId,
               "outbox",
             ]),
             operations,
@@ -10923,14 +10982,14 @@ export function createHttpHandler(
             sendJson(res, 501, { error: "Streaming not supported" });
             return true;
           }
-	          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
-	          const streamAbortController = new AbortController();
-	          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-	          let closed = false;
-	          let streamOpened = false;
-	          let idleTimer: ReturnType<typeof setTimeout> | null = null;
-	          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-	          let heartbeatBackpressure = false;
+          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
+          let upstreamAbortController: AbortController | null = null;
+          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+          let closed = false;
+          let streamOpened = false;
+          let idleTimer: ReturnType<typeof setTimeout> | null = null;
+          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+          let heartbeatBackpressure = false;
             const sseDecoder = new TextDecoder("utf-8");
             let sseBuffer = "";
 
@@ -11013,12 +11072,21 @@ export function createHttpHandler(
 	            }
 	          };
 
+            const abortUpstream = () => {
+              try {
+                upstreamAbortController?.abort();
+              } catch {
+                // best effort
+              }
+              upstreamAbortController = null;
+            };
+
 	          const closeStream = () => {
 	            if (closed) return;
 	            closed = true;
 	            clearIdleTimer();
 	            clearHeartbeatTimer();
-	            streamAbortController.abort();
+              abortUpstream();
 	            if (reader) {
 	              void reader.cancel().catch(() => undefined);
 	            }
@@ -11038,45 +11106,18 @@ export function createHttpHandler(
             const includeUserHeader =
               Boolean(config.userId && config.userId.trim().length > 0) &&
               !isUserScopedApiKey(config.apiKey);
-            const upstream = await fetch(target, {
-              method: "GET",
-              headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-                Accept: "text/event-stream",
-                ...(includeUserHeader
-                  ? { "X-Orgx-User-Id": config.userId }
-                  : {}),
-              },
-              signal: streamAbortController.signal,
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+              ...SECURITY_HEADERS,
+              ...CORS_HEADERS,
             });
-
-            const contentType =
-              upstream.headers.get("content-type")?.toLowerCase() ?? "";
-            if (!upstream.ok || !contentType.includes("text/event-stream")) {
-              const bodyPreview = (await upstream.text().catch(() => ""))
-                .replace(/\s+/g, " ")
-                .slice(0, 300);
-              sendJson(res, upstream.ok ? 502 : upstream.status, {
-                error: "Live stream endpoint unavailable",
-                status: upstream.status,
-                contentType,
-                preview: bodyPreview || null,
-              });
-              return true;
-            }
-
-	            res.writeHead(200, {
-	              "Content-Type": "text/event-stream; charset=utf-8",
-	              "Cache-Control": "no-cache, no-transform",
-	              Connection: "keep-alive",
-	              ...SECURITY_HEADERS,
-	              ...CORS_HEADERS,
-	            });
-	            streamOpened = true;
+            streamOpened = true;
 
 	            // Heartbeat comments keep intermediary proxies from timing out idle SSE.
 	            // They also prevent the dashboard from flickering into reconnect mode
-	            // during long quiet periods.
+	            // during long quiet periods and upstream reconnect loops.
 	            heartbeatTimer = setInterval(() => {
 	              if (closed || heartbeatBackpressure) return;
 	              try {
@@ -11098,19 +11139,10 @@ export function createHttpHandler(
 	            }, 20_000);
 	            heartbeatTimer.unref?.();
 
-	            if (!upstream.body) {
-	              closeStream();
-	              return true;
-	            }
-
             req.on?.("close", closeStream);
             req.on?.("aborted", closeStream);
             res.on?.("close", closeStream);
             res.on?.("finish", closeStream);
-
-            reader = upstream.body.getReader();
-            const streamReader = reader;
-            resetIdleTimer();
 
             const waitForDrain = async (): Promise<void> => {
               if (typeof res.once === "function") {
@@ -11120,32 +11152,99 @@ export function createHttpHandler(
               }
             };
 
-            const pump = async () => {
-              try {
-                while (!closed) {
-                  const { done, value } = await streamReader.read();
-                  if (done) break;
-                  if (!value || value.byteLength === 0) continue;
+            const sleep = async (ms: number): Promise<void> => {
+              await new Promise<void>((resolve) => setTimeout(resolve, ms));
+            };
+
+            const connectAndPump = async () => {
+              let attempt = 0;
+              while (!closed) {
+                abortUpstream();
+                upstreamAbortController = new AbortController();
+
+                let upstream: Response | null = null;
+                try {
+                  upstream = await fetch(target, {
+                    method: "GET",
+                    headers: {
+                      Authorization: `Bearer ${config.apiKey}`,
+                      Accept: "text/event-stream",
+                      ...(includeUserHeader ? { "X-Orgx-User-Id": config.userId } : {}),
+                    },
+                    signal: upstreamAbortController.signal,
+                  });
+                } catch {
+                  upstream = null;
+                }
+
+                const contentType = upstream?.headers.get("content-type")?.toLowerCase() ?? "";
+                if (!upstream || !upstream.ok || !contentType.includes("text/event-stream") || !upstream.body) {
+                  const status = upstream?.status ?? null;
+                  const preview = upstream
+                    ? (await upstream.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)
+                    : null;
+                  try {
+                    write(
+                      Buffer.from(
+                        `: upstream unavailable status=${status ?? "error"} ${preview ? `preview=${JSON.stringify(preview)}` : ""}\n`,
+                        "utf8"
+                      )
+                    );
+                  } catch {
+                    closeStream();
+                    return;
+                  }
 
                   resetIdleTimer();
-                  try {
-                    consumeSseText(sseDecoder.decode(value, { stream: true }));
-                  } catch {
-                    // best effort
+                  attempt += 1;
+                  const backoffMs = Math.min(15_000, 750 * Math.pow(1.6, Math.min(attempt, 10)));
+                  await sleep(backoffMs);
+                  continue;
+                }
+
+                attempt = 0;
+                reader = upstream.body.getReader();
+                const streamReader = reader;
+                resetIdleTimer();
+
+                try {
+                  while (!closed) {
+                    const { done, value } = await streamReader.read();
+                    if (done) break;
+                    if (!value || value.byteLength === 0) continue;
+
+                    resetIdleTimer();
+                    try {
+                      consumeSseText(sseDecoder.decode(value, { stream: true }));
+                    } catch {
+                      // best effort
+                    }
+                    const accepted = write(Buffer.from(value));
+                    if (accepted === false) {
+                      await waitForDrain();
+                    }
                   }
-                  const accepted = write(Buffer.from(value));
-                  if (accepted === false) {
-                    await waitForDrain();
+                } catch {
+                  // swallow; we'll reconnect unless the client is gone
+                } finally {
+                  try {
+                    await streamReader.cancel();
+                  } catch {
+                    // ignore
+                  }
+                  if (reader === streamReader) {
+                    reader = null;
                   }
                 }
-              } catch {
-                // Swallow pump errors; client disconnects are expected.
-              } finally {
-                closeStream();
+
+                if (!closed) {
+                  // Avoid hot-looping on immediate upstream closes.
+                  await sleep(300);
+                }
               }
             };
 
-            void pump();
+            void connectAndPump();
           } catch (err: unknown) {
             closeStream();
             if (!streamOpened && !res.writableEnded) {
