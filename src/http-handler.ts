@@ -24,13 +24,14 @@ import {
   mkdirSync,
   chmodSync,
   createWriteStream,
+  readdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
 import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
@@ -4362,6 +4363,183 @@ export function createHttpHandler(
     return normalized;
   }
 
+  type CodexBinInfo = {
+    bin: string;
+    version: [number, number, number] | null;
+    versionString: string | null;
+  };
+
+  let cachedCodexBinInfo: CodexBinInfo | null = null;
+  let cachedCodexProbeSummary: string | null = null;
+  let cachedNvmCodexScanSummary: string | null = null;
+
+  function parseCodexVersion(text: string): { version: [number, number, number] | null; raw: string | null } {
+    const raw = (text ?? "").trim();
+    if (!raw) return { version: null, raw: null };
+    const match = raw.match(/codex-cli\s+(\d+)\.(\d+)\.(\d+)/i);
+    if (!match) return { version: null, raw };
+    return {
+      version: [Number(match[1]), Number(match[2]), Number(match[3])],
+      raw,
+    };
+  }
+
+  function compareSemver(a: [number, number, number], b: [number, number, number]): number {
+    if (a[0] !== b[0]) return a[0] - b[0];
+    if (a[1] !== b[1]) return a[1] - b[1];
+    return a[2] - b[2];
+  }
+
+  function probeCodexBin(bin: string): CodexBinInfo | null {
+    const trimmed = (bin ?? "").trim();
+    if (!trimmed) return null;
+    try {
+      const env = { ...process.env };
+      // NVM-installed codex scripts commonly use `#!/usr/bin/env node`. LaunchAgent PATH may not
+      // include the corresponding node binary, so prefer the sibling bin dir for resolution.
+      if (trimmed.includes(sep)) {
+        const binDir = dirname(trimmed);
+        env.PATH = env.PATH ? `${binDir}:${env.PATH}` : binDir;
+      }
+      const result = spawnSync(trimmed, ["--version"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env,
+      });
+      const combined = `${result.stdout ?? ""}\\n${result.stderr ?? ""}`.trim();
+      const parsed = parseCodexVersion(combined || String(result.stdout ?? "").trim());
+      return {
+        bin: trimmed,
+        version: parsed.version,
+        versionString: parsed.raw,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function listNvmCodexCandidates(): string[] {
+    try {
+      const bases = new Set<string>();
+      bases.add(join(homedir(), ".nvm", "versions", "node"));
+      if (process.env.HOME && process.env.HOME.trim()) {
+        bases.add(join(process.env.HOME.trim(), ".nvm", "versions", "node"));
+      }
+
+      for (const base of bases) {
+        if (!existsSync(base)) continue;
+        const raw = readdirSync(base);
+        const versionNames = raw.filter((name) => /^v\d+\.\d+\.\d+$/.test(name));
+        const entries: string[] = [];
+        for (const name of versionNames) {
+          try {
+            if (statSync(join(base, name)).isDirectory()) entries.push(name);
+          } catch {
+            // ignore
+          }
+        }
+        cachedNvmCodexScanSummary = `base=${base} raw=${raw.length} versions=${versionNames.length} dirs=${entries.length}`;
+        if (entries.length === 0) continue;
+
+        const parsed = entries
+          .map((name) => {
+            const m = name.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+            if (!m) return null;
+            return {
+              name,
+              ver: [Number(m[1]), Number(m[2]), Number(m[3])] as [number, number, number],
+            };
+          })
+          .filter((x): x is { name: string; ver: [number, number, number] } => Boolean(x));
+
+        parsed.sort((a, b) => compareSemver(b.ver, a.ver));
+        return parsed
+          .slice(0, 8)
+          .map((entry) => join(base, entry.name, "bin", "codex"));
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  function resolveCodexBinInfo(): CodexBinInfo {
+    if (cachedCodexBinInfo) return cachedCodexBinInfo;
+
+    const candidates: string[] = [];
+
+    const explicit = (process.env.ORGX_CODEX_BIN ?? "").trim();
+    if (explicit) candidates.push(explicit);
+
+    const nvmBin = (process.env.NVM_BIN ?? "").trim();
+    if (nvmBin) candidates.push(join(nvmBin, "codex"));
+
+    // Whatever is on PATH for the gateway process.
+    candidates.push("codex");
+
+    // LaunchAgents often miss shell init (nvm), so check common per-user installs.
+    const nvmCandidates = listNvmCodexCandidates();
+    candidates.push(...nvmCandidates);
+
+    // Homebrew / legacy paths.
+    candidates.push("/opt/homebrew/bin/codex");
+    candidates.push("/usr/local/bin/codex");
+
+    const seen = new Set<string>();
+    const unique = candidates.filter((candidate) => {
+      const key = (candidate ?? "").trim();
+      if (!key) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const probeSummary: string[] = [];
+    try {
+      const nvmBase = join(homedir(), ".nvm", "versions", "node");
+      const nvmExists = existsSync(nvmBase);
+      let nvmEntries = "";
+      if (nvmExists) {
+        try {
+          nvmEntries = readdirSync(nvmBase).slice(0, 6).join(",");
+        } catch {
+          nvmEntries = "(readdir_failed)";
+        }
+      }
+      probeSummary.push(`nvm_base=${nvmBase} exists=${nvmExists}${nvmEntries ? ` entries=${nvmEntries}` : ""}`);
+    } catch {
+      // best effort
+    }
+    probeSummary.push(
+      `nvm_codex_candidates=${nvmCandidates.length}${nvmCandidates.length > 0 ? ` first=${nvmCandidates[0]}` : ""}`
+    );
+    if (cachedNvmCodexScanSummary) {
+      probeSummary.push(`nvm_scan=${cachedNvmCodexScanSummary}`);
+    }
+    let best: CodexBinInfo | null = null;
+    for (const candidate of unique) {
+      const probed = probeCodexBin(candidate);
+      probeSummary.push(
+        `${candidate} => ${probed?.versionString ? probed.versionString.replace(/\s+/g, " ") : "unavailable"}`
+      );
+      if (!probed) continue;
+      if (!best) {
+        best = probed;
+        continue;
+      }
+      if (probed.version && !best.version) {
+        best = probed;
+        continue;
+      }
+      if (!probed.version || !best.version) continue;
+      if (compareSemver(probed.version, best.version) > 0) best = probed;
+    }
+
+    cachedCodexBinInfo = best ?? { bin: explicit || "codex", version: null, versionString: null };
+    cachedCodexProbeSummary = probeSummary.slice(0, 14).join(" | ");
+    return cachedCodexBinInfo;
+  }
+
   function spawnCodexSliceWorker(input: {
     runId: string;
     prompt: string;
@@ -4549,7 +4727,8 @@ export function createHttpHandler(
       return { pid: child.pid ?? null };
     }
 
-    const codexBin = (process.env.ORGX_CODEX_BIN ?? "").trim() || "codex";
+    const codexInfo = resolveCodexBinInfo();
+    const codexBin = codexInfo.bin;
     const rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
     const args = normalizeCodexArgs(
       rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : ["--full-auto"]
@@ -4558,14 +4737,23 @@ export function createHttpHandler(
     const logStream = createWriteStream(input.logPath, { flags: "a" });
     const outStream = createWriteStream(input.outputPath, { flags: "a" });
     logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
+    logStream.write(
+      `codex_bin: ${codexBin}${codexInfo.versionString ? ` (${codexInfo.versionString})` : ""}\n`
+    );
+
+    const childEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ...resolveByokEnvOverrides(),
+      ...input.env,
+    };
+    if (codexBin.includes(sep)) {
+      const binDir = dirname(codexBin);
+      childEnv.PATH = childEnv.PATH ? `${binDir}:${childEnv.PATH}` : binDir;
+    }
 
     const child = spawn(codexBin, [...args, input.prompt], {
       cwd: input.cwd,
-      env: {
-        ...process.env,
-        ...resolveByokEnvOverrides(),
-        ...input.env,
-      },
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     });
@@ -8672,6 +8860,28 @@ export function createHttpHandler(
             sendJson(res, 500, {
               error: safeErrorMessage(err),
             });
+          }
+          return true;
+        }
+
+        case "debug/codex-bin": {
+          if (method !== "GET") {
+            sendJson(res, 405, { ok: false, error: "Method not allowed" });
+            return true;
+          }
+          try {
+            const codex = resolveCodexBinInfo();
+            sendJson(res, 200, {
+              ok: true,
+              codex: {
+                bin: codex.bin,
+                version: codex.version,
+                versionString: codex.versionString,
+              },
+              probe: cachedCodexProbeSummary,
+            });
+          } catch (err: unknown) {
+            sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
           }
           return true;
         }
