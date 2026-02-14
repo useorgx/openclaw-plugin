@@ -692,7 +692,7 @@ export interface RuntimeInstance {
   id: string;
   sourceClient: RuntimeSourceClient;
   displayName: string;
-  providerLogo: 'openai' | 'anthropic' | 'openclaw' | 'orgx' | 'unknown';
+  providerLogo: 'codex' | 'openai' | 'anthropic' | 'openclaw' | 'orgx' | 'unknown';
   state: RuntimeInstanceState;
   runId: string | null;
   correlationId: string | null;

@@ -113,6 +113,7 @@ function isRuntimeActive(runtime: RuntimeInstance | null | undefined): boolean {
 function runtimeProviderIdFromLogo(
   provider: RuntimeInstance['providerLogo'] | SessionTreeNode['runtimeProvider'] | null | undefined
 ): ProviderId {
+  if (provider === 'codex') return 'codex';
   if (provider === 'openai') return 'openai';
   if (provider === 'anthropic') return 'anthropic';
   if (provider === 'openclaw') return 'openclaw';
@@ -631,7 +632,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="min-w-0 truncate text-heading font-semibold text-white">
-              Agents / Chats
+              Agents
             </h2>
             <span className="chip flex-shrink-0 text-caption tabular-nums">
               {visibleSessionCount}/{sessions.nodes.length}
@@ -647,7 +648,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 collapseAllState.allCollapsed ? 'Expand all agent groups' : 'Collapse all agent groups'
               }
             >
-              {collapseAllState.allCollapsed ? 'Expand all' : 'Collapse all'}
+              {collapseAllState.allCollapsed ? 'Expand' : 'Collapse'}
             </button>
             <button
               type="button"

@@ -255,7 +255,7 @@ export const DecisionQueue = memo(function DecisionQueue({
               <>
                 <span className="hidden sm:inline">Approve all</span>
                 <span className="sm:hidden">Approve</span>
-                <span className="inline-flex h-5 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
+                <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
                   {sorted.length}
                 </span>
               </>
@@ -283,7 +283,7 @@ export const DecisionQueue = memo(function DecisionQueue({
               <>
                 <span className="hidden sm:inline">Approve selected</span>
                 <span className="sm:hidden">Approve sel.</span>
-                <span className="inline-flex h-5 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
+                <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
                   {selectedCount}
                 </span>
               </>

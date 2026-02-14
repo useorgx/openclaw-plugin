@@ -19,14 +19,14 @@ const providerInfo: Record<ProviderId, ProviderInfo> = {
   codex: {
     id: 'codex',
     label: 'Codex',
-    accent: '#10B981',
-    tint: 'rgba(16, 185, 129, 0.18)',
+    accent: '#9F7AEA',
+    tint: 'rgba(159, 122, 234, 0.2)',
   },
   openai: {
     id: 'openai',
     label: 'OpenAI',
-    accent: '#9F7AEA',
-    tint: 'rgba(159, 122, 234, 0.2)',
+    accent: '#10B981',
+    tint: 'rgba(16, 185, 129, 0.18)',
   },
   anthropic: {
     id: 'anthropic',

@@ -49,7 +49,7 @@ export type RuntimeInstanceRecord = {
   id: string;
   sourceClient: RuntimeSourceClient;
   displayName: string;
-  providerLogo: "openai" | "anthropic" | "openclaw" | "orgx" | "unknown";
+  providerLogo: "codex" | "openai" | "anthropic" | "openclaw" | "orgx" | "unknown";
   state: RuntimeInstanceState;
   event: RuntimeHookEvent;
   runId: string | null;
@@ -154,11 +154,25 @@ function normalizeHookEvent(value: unknown): RuntimeHookEvent {
 function toProviderLogo(
   sourceClient: RuntimeSourceClient
 ): RuntimeInstanceRecord["providerLogo"] {
-  if (sourceClient === "codex") return "openai";
+  if (sourceClient === "codex") return "codex";
   if (sourceClient === "claude-code") return "anthropic";
   if (sourceClient === "openclaw") return "openclaw";
   if (sourceClient === "api") return "orgx";
   return "unknown";
+}
+
+function normalizeProviderLogo(
+  value: unknown,
+  sourceClient: RuntimeSourceClient
+): RuntimeInstanceRecord["providerLogo"] {
+  const normalized = normalizeNullableString(value)?.toLowerCase();
+  if (normalized === "codex") return "codex";
+  if (normalized === "openai") return sourceClient === "codex" ? "codex" : "openai";
+  if (normalized === "anthropic") return "anthropic";
+  if (normalized === "openclaw") return "openclaw";
+  if (normalized === "orgx") return "orgx";
+  if (normalized === "unknown") return "unknown";
+  return toProviderLogo(sourceClient);
 }
 
 function toDisplayName(sourceClient: RuntimeSourceClient): string {
@@ -219,11 +233,12 @@ function normalizeProgress(value: unknown): number | null {
 }
 
 function normalizeRecord(input: RuntimeInstanceRecord): RuntimeInstanceRecord {
+  const sourceClient = normalizeSourceClient(input.sourceClient);
   return {
     id: normalizeNullableString(input.id) ?? input.id,
-    sourceClient: normalizeSourceClient(input.sourceClient),
+    sourceClient,
     displayName: normalizeNullableString(input.displayName) ?? "Runtime",
-    providerLogo: input.providerLogo,
+    providerLogo: normalizeProviderLogo(input.providerLogo, sourceClient),
     state: normalizeState(input.state),
     event: normalizeHookEvent(input.event),
     runId: normalizeNullableString(input.runId),
