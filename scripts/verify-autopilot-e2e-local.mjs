@@ -22,7 +22,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -406,6 +406,15 @@ async function main() {
   });
 
   try {
+    const runDir = String(process.env.ORGX_AUTOPILOT_CWD || "").trim();
+    assert.ok(runDir, "expected ORGX_AUTOPILOT_CWD to be set");
+    const workerKind = String(process.env.ORGX_AUTOPILOT_WORKER_KIND || "").trim().toLowerCase();
+    const verifyFilesRaw = String(process.env.ORGX_E2E_VERIFY_FILES ?? "").trim().toLowerCase();
+    const verifyFiles =
+      verifyFilesRaw
+        ? !(verifyFilesRaw === "0" || verifyFilesRaw === "false" || verifyFilesRaw === "no")
+        : workerKind !== "mock";
+
     // 1) Create minimal Mission Control graph: initiative -> workstream -> milestone -> tasks.
     const initiative = await fetchJson(`${baseUrl}/orgx/api/entities`, {
       method: "POST",
@@ -448,7 +457,10 @@ async function main() {
     assert.ok(milestoneId, "expected milestone id");
 
     const taskIds = [];
+    const expectedFiles = [];
     for (let i = 1; i <= TASKS; i += 1) {
+      const expectedFile = join(runDir, `orgx-autopilot-e2e-hello-${String(i).padStart(2, "0")}.txt`);
+      const expectedContent = `hello-${i}`;
       const created = await fetchJson(`${baseUrl}/orgx/api/entities`, {
         method: "POST",
         body: {
@@ -456,16 +468,17 @@ async function main() {
           initiative_id: initiativeId,
           workstream_id: workstreamId,
           milestone_id: milestoneId,
-          title: `[E2E] Task ${i}: produce a verifiable artifact + mark done`,
+          title: `[E2E] ${i}/${TASKS}: Write ${expectedFile} = "${expectedContent}" then report artifact url=file://${expectedFile} and task_updates done`,
           status: "todo",
           priority: "high",
           // Keep modeled token estimates small so the verification focuses on completion semantics.
-          expected_duration_hours: 0.05,
+          expected_duration_hours: 0.01,
         },
       });
       const id = String(created?.entity?.id ?? "");
       assert.ok(id, `expected task id for task ${i}`);
       taskIds.push(id);
+      expectedFiles.push({ taskId: id, expectedFile, expectedContent });
     }
 
     // 2) Start auto-continue loop for just this workstream.
@@ -483,7 +496,13 @@ async function main() {
 
     // 3) Tick until completed; inject progress updates for each slice run.
     const postedProgressForRun = new Set();
-    const deadlineMs = Date.now() + Math.max(45_000, TASKS * 18_000);
+    const timeoutRaw = String(process.env.ORGX_E2E_TIMEOUT_MS ?? "").trim();
+    const timeoutFromEnv = timeoutRaw ? Number(timeoutRaw) : Number.NaN;
+    const defaultTimeoutMs =
+      workerKind === "mock" ? Math.max(45_000, TASKS * 18_000) : Math.max(240_000, TASKS * 120_000);
+    const timeoutMs =
+      Number.isFinite(timeoutFromEnv) && timeoutFromEnv > 0 ? Math.floor(timeoutFromEnv) : defaultTimeoutMs;
+    const deadlineMs = Date.now() + timeoutMs;
 
     while (Date.now() < deadlineMs) {
       const status = await fetchJson(
@@ -548,7 +567,11 @@ async function main() {
       `${baseUrl}/orgx/api/mission-control/auto-continue/status?initiative_id=${encodeURIComponent(initiativeId)}`
     );
     assert.ok(final?.run, "expected final run");
-    assert.equal(final.run.status, "stopped");
+    if (final.run.status !== "stopped") {
+      throw new Error(
+        `E2E timeout: expected run to stop within ${timeoutMs}ms (status=${String(final.run.status)} activeRunId=${String(final.run.activeRunId ?? "")} lastError=${String(final.run.lastError ?? "")})`
+      );
+    }
     assert.equal(final.run.stopReason, "completed");
 
     // 4) Verify tasks are done.
@@ -569,6 +592,16 @@ async function main() {
     );
     const artifactRows = Array.isArray(artifacts?.data) ? artifacts.data : [];
     assert.ok(artifactRows.length >= TASKS, `expected >=${TASKS} artifacts, got ${artifactRows.length}`);
+
+    // 5b) Verify the "hello-worldy" deliverables exist on disk and match expected content.
+    // Note: mock worker doesn't write files; this check is primarily for real Codex/Claude execution.
+    if (verifyFiles) {
+      for (const expected of expectedFiles) {
+        assert.ok(existsSync(expected.expectedFile), `expected file exists: ${expected.expectedFile}`);
+        const raw = readFileSync(expected.expectedFile, "utf8");
+        assert.equal(raw.trim(), expected.expectedContent, `expected file content for ${expected.expectedFile}`);
+      }
+    }
 
     // 6) Verify runtime stream saw updates and snapshot contains progress.
     const sawSessionStart = runtimeEvents.some((e) => e.event === "runtime.updated");
