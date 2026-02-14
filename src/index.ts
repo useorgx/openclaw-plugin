@@ -1726,12 +1726,11 @@ export default function register(api: PluginAPI): void {
           /\\brun\\b/i.test(msg) &&
           /not found/i.test(msg)
         ) {
+          const replayCorrelationId = `openclaw_run_${stableHash(emitPayload.run_id).slice(0, 24)}`;
           await client.emitActivity({
             ...emitPayload,
             run_id: undefined,
-            // Avoid passing a bare UUID as correlation_id since some server
-            // paths may interpret UUIDs as run_id lookups.
-            correlation_id: `openclaw:${emitPayload.run_id}`,
+            correlation_id: replayCorrelationId,
             metadata: {
               ...emitPayload.metadata,
               replay_run_id_as_correlation: true,
