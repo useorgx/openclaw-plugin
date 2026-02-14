@@ -44,6 +44,7 @@
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",
     "qa:capture": "node ./scripts/capture-qa-evidence.mjs",
+    "ship": "node ./scripts/ship.mjs",
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
     "seo:plan": "node ./scripts/apply-seo-plan-v1.mjs",
     "seo:run": "node ./scripts/seo/run.mjs",

@@ -149,6 +149,31 @@ function safeErrorMessage(err: unknown): string {
   return "Unexpected error";
 }
 
+function titleCaseFromSlug(value: string): string {
+  const parts = value
+    .split(/[^a-z0-9]+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return value;
+  return parts
+    .map((part) => `${part[0]!.toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function resolveOrgxAgentForDomain(domain: string): { id: string; name: string } {
+  const normalized = domain.trim().toLowerCase();
+  if (!normalized) return { id: "orgx", name: "OrgX" };
+
+  // Execution policies sometimes call this "orchestration" but the agent id is "orgx-orchestrator".
+  const slug = normalized === "orchestration" ? "orchestrator" : normalized;
+
+  // If the domain already looks like an OrgX agent id, keep it stable.
+  if (slug === "orgx") return { id: "orgx", name: "OrgX" };
+  if (slug.startsWith("orgx-")) return { id: slug, name: `OrgX ${titleCaseFromSlug(slug.slice(5))}` };
+
+  return { id: `orgx-${slug}`, name: `OrgX ${titleCaseFromSlug(slug)}` };
+}
+
 function isUnauthorizedOrgxError(err: unknown): boolean {
   const message = safeErrorMessage(err).toLowerCase();
   return message.includes("401") || message.includes("unauthorized");
@@ -6011,23 +6036,20 @@ export function createHttpHandler(
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-	    let workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
-	    // LaunchAgents often start with cwd="/". Prefer a stable, user-owned directory
-	    // so relative paths and codex sandboxing behave consistently.
-	    if (!workerCwd || workerCwd === "/") {
-	      workerCwd = homedir();
-	    }
-	    const agentDisplayName =
-	      `${executionPolicy.domain[0]?.toUpperCase() ?? "A"}${executionPolicy.domain.slice(1)} Agent`;
-	    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
-	    const inferredExecutor =
-	      workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
-	    const executorRaw =
-	      (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim().toLowerCase() || inferredExecutor;
-	    const executorSourceClient: RuntimeSourceClient =
-	      executorRaw === "claude-code" || executorRaw === "claude_code"
-	        ? "claude-code"
-	        : "codex";
+    let workerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || process.cwd();
+    // LaunchAgents often start with cwd="/". Prefer a stable, user-owned directory
+    // so relative paths and codex sandboxing behave consistently.
+    if (!workerCwd || workerCwd === "/") {
+      workerCwd = homedir();
+    }
+    const sliceAgent = resolveOrgxAgentForDomain(executionPolicy.domain);
+    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
+    const inferredExecutor =
+      workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
+    const executorRaw =
+      (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim().toLowerCase() || inferredExecutor;
+    const executorSourceClient: RuntimeSourceClient =
+      executorRaw === "claude-code" || executorRaw === "claude_code" ? "claude-code" : "codex";
     let runtimeHookUrl: string | null = null;
     let runtimeHookToken: string | null = null;
     try {
@@ -6038,40 +6060,40 @@ export function createHttpHandler(
     } catch {
       // best effort
     }
-    const spawned = spawnCodexSliceWorker({
-      runId: sliceRunId,
-      prompt,
-      cwd: workerCwd,
-      logPath,
-      outputPath,
-      env: {
-        ORGX_SOURCE_CLIENT: executorSourceClient,
-        ORGX_RUN_ID: sliceRunId,
-        ORGX_CORRELATION_ID: sliceRunId,
-        ORGX_INITIATIVE_ID: run.initiativeId,
-        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
-        ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
-        ORGX_TASK_ID: primaryTask.id,
-        ORGX_AGENT_ID: run.agentId || "main",
-        ORGX_AGENT_NAME: agentDisplayName,
-        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
-        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
-      },
-    });
+	    const spawned = spawnCodexSliceWorker({
+	      runId: sliceRunId,
+	      prompt,
+	      cwd: workerCwd,
+	      logPath,
+	      outputPath,
+	      env: {
+	        ORGX_SOURCE_CLIENT: executorSourceClient,
+	        ORGX_RUN_ID: sliceRunId,
+	        ORGX_CORRELATION_ID: sliceRunId,
+	        ORGX_INITIATIVE_ID: run.initiativeId,
+	        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+	        ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
+	        ORGX_TASK_ID: primaryTask.id,
+	        ORGX_AGENT_ID: sliceAgent.id,
+	        ORGX_AGENT_NAME: sliceAgent.name,
+	        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
+	        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
+	      },
+	    });
 
-    const slice: AutoContinueSliceRun = {
-      runId: sliceRunId,
-      initiativeId: run.initiativeId,
-      initiativeTitle: initiativeTitle ?? null,
-      workstreamId: selectedWorkstreamId,
-      workstreamTitle,
-      agentId: run.agentId || "main",
-      agentName: agentDisplayName,
-      domain: executionPolicy.domain,
-      requiredSkills: executionPolicy.requiredSkills,
-      sourceClient: executorSourceClient,
-      pid: spawned.pid,
-      status: "running",
+	    const slice: AutoContinueSliceRun = {
+	      runId: sliceRunId,
+	      initiativeId: run.initiativeId,
+	      initiativeTitle: initiativeTitle ?? null,
+	      workstreamId: selectedWorkstreamId,
+	      workstreamTitle,
+	      agentId: sliceAgent.id,
+	      agentName: sliceAgent.name,
+	      domain: executionPolicy.domain,
+	      requiredSkills: executionPolicy.requiredSkills,
+	      sourceClient: executorSourceClient,
+	      pid: spawned.pid,
+	      status: "running",
       startedAt: now,
       finishedAt: null,
       updatedAt: now,
@@ -6084,21 +6106,21 @@ export function createHttpHandler(
     };
     autoContinueSliceRuns.set(sliceRunId, slice);
 
-    try {
-      writeRuntimeEvent({
-        sourceClient: executorSourceClient,
-        event: "session_start",
-        runId: sliceRunId,
-        initiativeId: run.initiativeId,
-        workstreamId: selectedWorkstreamId,
-        taskId: primaryTask.id,
-        agentId: slice.agentId,
-        agentName: agentDisplayName,
-        phase: "execution",
-        message: `Autopilot slice started: ${workstreamTitle ?? selectedWorkstreamId}`,
-        metadata: {
-          event: "autopilot_slice_started",
-          domain: executionPolicy.domain,
+	    try {
+	      writeRuntimeEvent({
+	        sourceClient: executorSourceClient,
+	        event: "session_start",
+	        runId: sliceRunId,
+	        initiativeId: run.initiativeId,
+	        workstreamId: selectedWorkstreamId,
+	        taskId: primaryTask.id,
+	        agentId: slice.agentId,
+	        agentName: sliceAgent.name,
+	        phase: "execution",
+	        message: `Autopilot slice started: ${workstreamTitle ?? selectedWorkstreamId}`,
+	        metadata: {
+	          event: "autopilot_slice_started",
+	          domain: executionPolicy.domain,
           required_skills: executionPolicy.requiredSkills,
           task_ids: slice.taskIds,
           initiative_title: initiativeTitle ?? null,
@@ -6113,21 +6135,21 @@ export function createHttpHandler(
 
     autoContinueSliceLastHeartbeatMs.set(sliceRunId, Date.now());
 
-    await emitActivitySafe({
-      initiativeId: run.initiativeId,
-      runId: sliceRunId,
-      correlationId: sliceRunId,
-      phase: "execution",
-      level: "info",
-      message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
-      metadata: {
-        event: "autopilot_slice_dispatched",
-        agent_id: slice.agentId,
-        agent_name: agentDisplayName,
-        domain: executionPolicy.domain,
-        required_skills: executionPolicy.requiredSkills,
-        initiative_title: initiativeTitle ?? null,
-        workstream_id: selectedWorkstreamId,
+	    await emitActivitySafe({
+	      initiativeId: run.initiativeId,
+	      runId: sliceRunId,
+	      correlationId: sliceRunId,
+	      phase: "execution",
+	      level: "info",
+	      message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
+	      metadata: {
+	        event: "autopilot_slice_dispatched",
+	        agent_id: slice.agentId,
+	        agent_name: sliceAgent.name,
+	        domain: executionPolicy.domain,
+	        required_skills: executionPolicy.requiredSkills,
+	        initiative_title: initiativeTitle ?? null,
+	        workstream_id: selectedWorkstreamId,
         workstream_title: workstreamTitle ?? null,
         task_ids: slice.taskIds,
         milestone_ids: milestoneIds,
@@ -8905,6 +8927,12 @@ export function createHttpHandler(
             const codex = resolveCodexBinInfo();
             sendJson(res, 200, {
               ok: true,
+              spawnGuardBypassEnv: Boolean(
+                (process.env.ORGX_SPAWN_GUARD_BYPASS ?? "").trim() ||
+                  ["off", "bypass"].includes(
+                    (process.env.ORGX_SPAWN_GUARD_MODE ?? "").trim().toLowerCase()
+                  )
+              ),
               codex: {
                 bin: codex.bin,
                 version: codex.version,
