@@ -22,6 +22,19 @@ interface StartAutoContinueInput extends NextUpActionInput {
   tokenBudgetTokens?: number;
 }
 
+interface NextUpPlayResponse {
+  ok: boolean;
+  initiativeId?: string;
+  workstreamId?: string;
+  agentId?: string;
+  dispatchMode?: 'slice' | 'fallback' | 'none' | 'pending' | string;
+  sessionId?: string | null;
+  run?: unknown;
+  error?: string;
+  message?: string;
+  code?: string;
+}
+
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
 }
@@ -114,14 +127,40 @@ export function useNextUpQueue({
           initiativeId: input.initiativeId,
           workstreamId: input.workstreamId,
           agentId: input.agentId ?? undefined,
+          fastAck: true,
         }),
       });
 
-      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      const body = await readResponseJson<NextUpPlayResponse>(response);
       if (!response.ok) {
         throw new Error(
           normalizeErrorMessage(response, body, 'Failed to dispatch queued workstream')
         );
+      }
+      return body;
+    },
+    onMutate: async (input: NextUpActionInput) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<NextUpQueueResponse>(queryKey);
+      if (!previous) return { previous };
+
+      queryClient.setQueryData<NextUpQueueResponse>(queryKey, {
+        ...previous,
+        items: previous.items.map((item) => {
+          if (item.initiativeId === input.initiativeId && item.workstreamId === input.workstreamId) {
+            return { ...item, queueState: 'running' };
+          }
+          // Only one workstream can be "running" in the queue UI.
+          if (item.queueState === 'running') return { ...item, queueState: 'idle' };
+          return item;
+        }),
+      });
+
+      return { previous };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKey, ctx.previous);
       }
     },
     onSuccess: () => {
