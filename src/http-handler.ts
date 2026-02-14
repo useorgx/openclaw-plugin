@@ -5132,37 +5132,21 @@ export function createHttpHandler(
     if (operations.length === 0) return { applied: 0, buffered: false };
 
     try {
-      // Prefer direct entity mutations here: they are the most broadly supported API
-      // contract across OrgX deployments, and avoid coupling status updates to a
-      // run/session identifier.
-      let applied = 0;
-      const taskSettled = await Promise.allSettled(
-        input.taskUpdates.map(async (update) => {
-          const taskId = (update?.task_id ?? "").trim();
-          const status = normalizeTaskStatus(update?.status ?? "");
-          if (!taskId || !status) return;
-          await client.updateEntity("task", taskId, { status });
-          applied += 1;
-        })
-      );
-      const milestoneSettled = await Promise.allSettled(
-        input.milestoneUpdates.map(async (update) => {
-          const milestoneId = (update?.milestone_id ?? "").trim();
-          const status = normalizeMilestoneStatus(update?.status ?? "");
-          if (!milestoneId || !status) return;
-          await client.updateEntity("milestone", milestoneId, { status });
-          applied += 1;
-        })
-      );
-
-      const hadFailure =
-        taskSettled.some((r) => r.status === "rejected") ||
-        milestoneSettled.some((r) => r.status === "rejected");
-      if (hadFailure) {
-        throw new Error("One or more status updates failed.");
-      }
-
-      return { applied: Math.max(0, applied), buffered: false };
+      await client.applyChangeset({
+        initiative_id: input.initiativeId,
+        run_id: input.runId,
+        correlation_id: input.correlationId,
+        source_client: "openclaw",
+        idempotency_key: idempotencyKey([
+          "openclaw",
+          "autopilot",
+          "slice_status",
+          input.initiativeId,
+          input.correlationId,
+        ]),
+        operations: operations as any,
+      });
+      return { applied: operations.length, buffered: false };
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       try {
