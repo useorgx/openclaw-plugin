@@ -4734,8 +4734,18 @@ export function createHttpHandler(
       rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : ["--full-auto"]
     );
 
+    // Autopilot slices should not fail just because an unrelated MCP server is flaky.
+    // Default: disable firecrawl unless explicitly re-enabled.
+    const disableFirecrawlRaw = (process.env.ORGX_AUTOPILOT_DISABLE_FIRECRAWL ?? "").trim().toLowerCase();
+    const disableFirecrawl =
+      disableFirecrawlRaw !== "false" && disableFirecrawlRaw !== "0" && disableFirecrawlRaw !== "no";
+    const hasFirecrawlOverride = args.some((arg) => String(arg).includes("mcp_servers.firecrawl"));
+    const extraArgs: string[] = [];
+    if (disableFirecrawl && !hasFirecrawlOverride) {
+      extraArgs.push("-c", "mcp_servers.firecrawl.enabled=false");
+    }
+
     const logStream = createWriteStream(input.logPath, { flags: "a" });
-    const outStream = createWriteStream(input.outputPath, { flags: "a" });
     logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
     logStream.write(
       `codex_bin: ${codexBin}${codexInfo.versionString ? ` (${codexInfo.versionString})` : ""}\n`
@@ -4751,7 +4761,14 @@ export function createHttpHandler(
       childEnv.PATH = childEnv.PATH ? `${binDir}:${childEnv.PATH}` : binDir;
     }
 
-    const child = spawn(codexBin, [...args, input.prompt], {
+    const hasOutputLastMessage =
+      args.includes("--output-last-message") ||
+      args.some((arg) => typeof arg === "string" && arg.startsWith("--output-last-message="));
+    const outputArgs = hasOutputLastMessage
+      ? []
+      : ["--output-last-message", input.outputPath];
+
+    const child = spawn(codexBin, [...args, ...extraArgs, ...outputArgs, input.prompt], {
       cwd: input.cwd,
       env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -4761,11 +4778,6 @@ export function createHttpHandler(
     child.stdout?.on("data", (chunk) => {
       try {
         logStream.write(chunk);
-      } catch {
-        // ignore
-      }
-      try {
-        outStream.write(chunk);
       } catch {
         // ignore
       }
@@ -4790,11 +4802,6 @@ export function createHttpHandler(
       } catch {
         // ignore
       }
-      try {
-        outStream.end();
-      } catch {
-        // ignore
-      }
     });
     child.on("error", (error) => {
       const msg = safeErrorMessage(error);
@@ -4804,7 +4811,8 @@ export function createHttpHandler(
         // ignore
       }
       try {
-        outStream.write(
+        writeFileSync(
+          input.outputPath,
           `${JSON.stringify(
             {
               status: "error",
@@ -4815,7 +4823,8 @@ export function createHttpHandler(
             },
             null,
             2
-          )}\n`
+          )}\n`,
+          { encoding: "utf8" }
         );
       } catch {
         // ignore
