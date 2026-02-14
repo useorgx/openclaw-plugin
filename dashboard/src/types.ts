@@ -59,6 +59,7 @@ export type RuntimeSourceClient =
   | 'unknown';
 
 export type RuntimeProviderLogo =
+  | 'codex'
   | 'openai'
   | 'anthropic'
   | 'openclaw'

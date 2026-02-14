@@ -165,11 +165,15 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    flex: 0 0 auto;
+    min-inline-size: max-content;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.11);
     background: rgba(255, 255, 255, 0.035);
     color: rgba(242, 247, 255, 0.66);
     white-space: nowrap;
+    text-wrap: nowrap;
+    overflow-wrap: normal;
     line-height: 1;
     transition:
       background-color 160ms var(--orgx-ease-standard),

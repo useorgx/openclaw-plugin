@@ -50,7 +50,14 @@ npm run build           # Build core + dashboard (must succeed before commit)
 npm run build:core      # TypeScript -> dist/, copy manifest
 npm run build:dashboard # Vite build for React SPA
 npm run qa:capture      # Playwright QA evidence screenshots
+npm run ship            # Commit all changes, open PR, and auto-merge (requires gh auth)
 ```
+
+## Codex Slash Commands
+
+When working with Codex/Claude/Cursor chat in this repo, treat the following as "slash commands":
+
+- `/ship [message]`: Run `npm run ship -- "<message>"`. This stages all changes, commits, pushes a branch, opens a PR, and attempts an auto-merge.
 
 ## Key Patterns
 
