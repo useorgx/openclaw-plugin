@@ -6,8 +6,6 @@ import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel } from '@/lib/humanize';
 import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
-import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
-import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -39,7 +37,6 @@ interface ActivityTimelineProps {
   onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
-  onOpenNextUp?: () => void;
 }
 
 const INITIAL_RENDER_COUNT = 240;
@@ -696,7 +693,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearWorkstreamFilter,
   onClearAgentFilter,
   onFocusRunId,
-  onOpenNextUp,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
@@ -715,11 +711,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
-  const [dispatchingKey, setDispatchingKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  const nextUpQueue = useNextUpQueue({ enabled: true });
 
   const timeWindow = useMemo(() => resolveActivityTimeFilter(timeFilterId), [timeFilterId]);
 
@@ -770,57 +763,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return map;
   }, [initiatives]);
-
-  const runningSessions = useMemo(
-    () => sessions.filter((s) => s.status === 'running'),
-    [sessions]
-  );
-
-  const queueItemKey = useCallback(
-    (item: Pick<NextUpQueueItem, 'initiativeId' | 'workstreamId'>) =>
-      `${item.initiativeId}:${item.workstreamId}`,
-    []
-  );
-
-  const nowQueueItem = useMemo(() => {
-    const running = nextUpQueue.items.find((item) => item.queueState === 'running') ?? null;
-    return running;
-  }, [nextUpQueue.items]);
-
-  const upNextQueueItem = useMemo(() => {
-    const queued = nextUpQueue.items.find((item) => item.queueState === 'queued') ?? null;
-    return queued;
-  }, [nextUpQueue.items]);
-
-  const nowFallbackSession = useMemo(
-    () => (nowQueueItem ? null : runningSessions[0] ?? null),
-    [nowQueueItem, runningSessions]
-  );
-
-	  const playQueuedWorkstream = useCallback(
-	    async (item: NextUpQueueItem) => {
-	      const key = queueItemKey(item);
-	      setDispatchingKey(key);
-	      try {
-	        const result = await nextUpQueue.playWorkstream({
-	          initiativeId: item.initiativeId,
-	          workstreamId: item.workstreamId,
-	          agentId: item.runnerAgentId,
-	        });
-	        const sessionId =
-	          result && typeof result === 'object' && 'sessionId' in result
-	            ? ((result as { sessionId?: string | null }).sessionId ?? null)
-	            : null;
-	        if (sessionId) onFocusRunId?.(sessionId);
-	        onOpenNextUp?.();
-	      } catch (err) {
-	        setCopyNotice(err instanceof Error ? err.message : 'Dispatch failed');
-	      } finally {
-	        setDispatchingKey(null);
-	      }
-	    },
-	    [nextUpQueue, onFocusRunId, onOpenNextUp, queueItemKey]
-	  );
+  // "Next Up" queue controls live in the right sidebar, not in the Activity feed.
 
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
@@ -854,25 +797,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     if (newest <= 0) return false;
     return Date.now() - newest < 60_000;
-  }, [decoratedActivity]);
-
-  const typeSummary = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const decorated of decoratedActivity) {
-      counts[decorated.item.type] = (counts[decorated.item.type] ?? 0) + 1;
-    }
-    const buckets: Array<{ id: string; label: string; count: number; color: string; types: string[] }> = [];
-    const errorCount = (counts['run_failed'] ?? 0) + (counts['blocker_created'] ?? 0);
-    if (errorCount > 0) buckets.push({ id: 'errors', label: 'errors', count: errorCount, color: colors.red, types: ['run_failed', 'blocker_created'] });
-    const completionCount = (counts['run_completed'] ?? 0) + (counts['milestone_completed'] ?? 0);
-    if (completionCount > 0) buckets.push({ id: 'completions', label: 'completions', count: completionCount, color: colors.lime, types: ['run_completed', 'milestone_completed'] });
-    const artifactCount = counts['artifact_created'] ?? 0;
-    if (artifactCount > 0) buckets.push({ id: 'artifacts', label: 'artifacts', count: artifactCount, color: colors.cyan, types: ['artifact_created'] });
-    const decisionCount = (counts['decision_requested'] ?? 0) + (counts['decision_resolved'] ?? 0);
-    if (decisionCount > 0) buckets.push({ id: 'decisions', label: 'decisions', count: decisionCount, color: colors.amber, types: ['decision_requested', 'decision_resolved'] });
-    const handoffCount = (counts['handoff_requested'] ?? 0) + (counts['handoff_claimed'] ?? 0) + (counts['handoff_fulfilled'] ?? 0);
-    if (handoffCount > 0) buckets.push({ id: 'handoffs', label: 'handoffs', count: handoffCount, color: colors.iris, types: ['handoff_requested', 'handoff_claimed', 'handoff_fulfilled'] });
-    return buckets;
   }, [decoratedActivity]);
 
   const selectedRunIdSet = useMemo(
@@ -1439,7 +1363,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   };
 
   return (
-    <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Thread view for single-session selection */}
       {isSingleSession && singleSessionItems.length > 0 ? (
         <ThreadView
@@ -1449,174 +1373,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           onBack={onClearSelection}
         />
       ) : (
-      <>
-	      {(nowQueueItem || upNextQueueItem || nowFallbackSession) && (
-	        <div className="border-b border-subtle px-4 py-3">
-	          <div className="grid gap-2.5 lg:grid-cols-2">
-	            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
-	              <div
-	                aria-hidden
-	                className="pointer-events-none absolute inset-x-0 top-0 h-px"
-	                style={{
-	                  background:
-	                    'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(191,255,0,0.10), transparent 70%)',
-	                }}
-	              />
-	              <div className="flex items-start gap-3">
-	                <div className="mt-0.5">
-	                  <AgentAvatar
-	                    name={
-	                      nowQueueItem?.runnerAgentName ??
-	                      nowFallbackSession?.agentName ??
-	                      'OrgX'
-	                    }
-	                    hint={
-	                      nowQueueItem
-	                        ? `${nowQueueItem.runnerAgentId} ${nowQueueItem.runnerSource}`
-	                        : nowFallbackSession?.agentId ?? null
-	                    }
-	                    size="xs"
-	                  />
-	                </div>
-	                <div className="min-w-0 flex-1">
-	                  <div className="flex flex-wrap items-center gap-2">
-	                    <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
-	                      Now
-	                    </span>
-	                    <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
-	                      Running
-	                    </span>
-	                  </div>
-	                  <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
-	                    {nowQueueItem?.workstreamTitle ??
-	                      nowFallbackSession?.title ??
-	                      'Nothing running'}
-	                  </p>
-	                  <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
-	                    {nowQueueItem
-	                      ? `${nowQueueItem.initiativeTitle}${
-	                          nowQueueItem.nextTaskTitle
-	                            ? ` · ${nowQueueItem.nextTaskTitle}`
-	                            : ''
-	                        }`
-	                      : nowFallbackSession
-	                        ? 'Session is running. Focus it to watch progress.'
-	                        : 'Queue a workstream to start execution.'}
-	                  </p>
-	                </div>
-	              </div>
-	              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-	                <button
-	                  type="button"
-	                  onClick={() => {
-	                    const runId =
-	                      nowQueueItem?.autoContinue?.activeRunId ??
-	                      nowFallbackSession?.runId ??
-	                      null;
-	                    if (runId) onFocusRunId?.(runId);
-	                  }}
-	                  disabled={
-	                    !(nowQueueItem?.autoContinue?.activeRunId ?? nowFallbackSession?.runId)
-	                  }
-	                  className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
-	                >
-	                  Focus
-	                </button>
-	                <button
-	                  type="button"
-	                  onClick={onOpenNextUp}
-	                  className="control-pill h-8 px-3 text-caption font-semibold"
-	                  title="Open Next Up queue"
-	                >
-	                  Queue
-	                </button>
-	              </div>
-	            </div>
-
-	            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
-	              <div
-	                aria-hidden
-	                className="pointer-events-none absolute inset-x-0 top-0 h-px"
-	                style={{
-	                  background:
-	                    'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(10,212,196,0.12), transparent 70%)',
-	                }}
-	              />
-	              <div className="flex items-start gap-3">
-	                <div className="mt-0.5">
-	                  <AgentAvatar
-	                    name={upNextQueueItem?.runnerAgentName ?? 'OrgX'}
-	                    hint={
-	                      upNextQueueItem
-	                        ? `${upNextQueueItem.runnerAgentId} ${upNextQueueItem.runnerSource}`
-	                        : null
-	                    }
-	                    size="xs"
-	                  />
-	                </div>
-	                <div className="min-w-0 flex-1">
-	                  <div className="flex flex-wrap items-center gap-2">
-	                    <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
-	                      Up Next
-	                    </span>
-	                    <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
-	                      Queued
-	                    </span>
-	                  </div>
-	                  <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
-	                    {upNextQueueItem?.workstreamTitle ?? 'Queue the next workstream'}
-	                  </p>
-	                  <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
-	                    {upNextQueueItem
-	                      ? `${upNextQueueItem.initiativeTitle}${
-	                          upNextQueueItem.nextTaskTitle
-	                            ? ` · ${upNextQueueItem.nextTaskTitle}`
-	                            : ''
-	                        }`
-	                      : 'Open the queue to choose what should run next.'}
-	                  </p>
-	                </div>
-	              </div>
-	              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-	                <button
-	                  type="button"
-	                  onClick={() => {
-	                    if (!upNextQueueItem) return;
-	                    void playQueuedWorkstream(upNextQueueItem);
-	                  }}
-	                  disabled={
-	                    !upNextQueueItem ||
-	                    nextUpQueue.isPlaying ||
-	                    dispatchingKey ===
-	                      (upNextQueueItem ? queueItemKey(upNextQueueItem) : null)
-	                  }
-	                  className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
-	                  data-state="active"
-	                  title={
-	                    upNextQueueItem ? 'Dispatch queued workstream' : 'No queued workstream'
-	                  }
-	                >
-	                  {dispatchingKey &&
-	                  upNextQueueItem &&
-	                  dispatchingKey === queueItemKey(upNextQueueItem)
-	                    ? 'Dispatching…'
-	                    : 'Play'}
-	                </button>
-	                <button
-	                  type="button"
-	                  onClick={onOpenNextUp}
-	                  className="control-pill h-8 px-3 text-caption font-semibold"
-	                  title="Open Next Up queue"
-	                >
-	                  Queue
-	                </button>
-	              </div>
-	            </div>
-	          </div>
-	        </div>
-	      )}
-      <div className="border-b border-subtle px-4 py-3.5">
-        <div className="toolbar-shell flex flex-col gap-2">
+        <>
+          <div className="border-b border-subtle px-4 py-3.5">
+            <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="text-heading font-semibold text-white">Activity</h2>
@@ -1718,29 +1477,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   )}
                 </>
               )}
-
-              {typeSummary.length > 0 &&
-                typeSummary.map((bucket) => (
-                  <button
-                    key={bucket.id}
-                    type="button"
-                    onClick={() => {
-                      if (bucket.id === 'errors') setActiveFilter('messages');
-                      else if (bucket.id === 'completions') setActiveFilter('messages');
-                      else if (bucket.id === 'artifacts') setActiveFilter('artifacts');
-                      else if (bucket.id === 'decisions') setActiveFilter('decisions');
-                      else setActiveFilter('all');
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
-                    title={`${bucket.count} ${bucket.label}`}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: bucket.color }} />
-                    <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {bucket.count}
-                    </span>
-                    <span className="text-secondary">{bucket.label}</span>
-                  </button>
-                ))}
             </div>
 
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end">
@@ -1761,13 +1497,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search activity..."
-                  className="w-full rounded-lg border border-strong bg-black/25 py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/35 focus:outline-none"
+                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
                   aria-label="Search activity"
                 />
               </div>
 
               <div
-                className="inline-flex items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
+                className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
                 role="group"
                 aria-label="Activity filters"
               >
@@ -1782,7 +1518,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       className={cn(
                         'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
                         active
-                          ? 'border border-lime/25 bg-lime/[0.13] text-lime'
+                          ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
                           : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
                       )}
                     >
@@ -1935,8 +1671,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             )}
           </div>
         )}
-      </div>
-      </>
+          </div>
+        </>
       )}
 
       <Modal open={activeDecorated !== null} onClose={closeDetail} maxWidth="max-w-3xl">
@@ -2385,6 +2121,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
         )}
       </Modal>
-    </PremiumCard>
+    </div>
   );
 });

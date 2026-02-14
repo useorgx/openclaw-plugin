@@ -17,6 +17,7 @@ import type { MobileTab } from '@/components/shared/MobileTabBar';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
+import { InProgressPanel } from '@/components/mission-control/InProgressPanel';
 import { NextUpPanel } from '@/components/mission-control/NextUpPanel';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
@@ -1723,10 +1724,9 @@ function DashboardShell({
               isLoadingMore={activityFeed.isLoadingMore}
               onLoadMore={activityFeed.loadMore}
 	            onClearSelection={clearActivitySessionFilter}
-              onClearWorkstreamFilter={clearActivityWorkstreamFilter}
+	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={() => setAgentFilter(null)}
 	            onFocusRunId={focusActivityRunId}
-	            onOpenNextUp={() => setExpandedRightPanel('initiatives')}
 	          />
 	        </section>
 
@@ -1734,11 +1734,21 @@ function DashboardShell({
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
-              <NextUpPanel
-                title="Next Up"
-                onFollowWorkstream={followQueuedWorkstream}
-                onOpenInitiative={openInitiativeFromNextUp}
-              />
+              <div className="flex h-full min-h-0 flex-col gap-2">
+                <InProgressPanel
+                  sessions={data.sessions.nodes}
+                  onOpenSession={handleSelectSession}
+                  onFocusRunId={focusActivityRunId}
+                />
+                <div className="min-h-0 flex-1">
+                  <NextUpPanel
+                    title="Next Up"
+                    className="h-full"
+                    onFollowWorkstream={followQueuedWorkstream}
+                    onOpenInitiative={openInitiativeFromNextUp}
+                  />
+                </div>
+              </div>
             ) : (
               <PremiumCard className="card-enter">
                 <button
