@@ -72,3 +72,10 @@ artifacts/**/*.webp
 
 # Local Codex dispatch scratch
 .orgx-codex-jobs/
+
+# Local launch/presentation scratch (never commit)
+/launch-post.md
+/presentation.html
+/screenshot-slides.mjs
+/screenshots/
+/scripts/e2e-autopilot-10runs.mjs
