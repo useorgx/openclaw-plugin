@@ -625,6 +625,7 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     await page.getByRole('dialog').waitFor();
     await page.screenshot({ path: path.join(mcDir, 'desktop-03-modal-workstream.png') });
     await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
 
     // Capture a task modal.
     // Tasks can be nested initiative -> workstream -> milestone -> task, so expand progressively.
@@ -662,10 +663,12 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
     }
 
     await taskBtn.scrollIntoViewIfNeeded();
-    await taskBtn.click();
+    await taskBtn.focus();
+    await page.keyboard.press('Enter');
     await page.getByRole('dialog').waitFor();
     await page.screenshot({ path: path.join(mcDir, 'desktop-04-modal-task.png') });
     await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'detached' });
 
     // Lightweight flow recording frames.
     const flowFrames = path.join(mcDir, 'flow-desktop-frames');

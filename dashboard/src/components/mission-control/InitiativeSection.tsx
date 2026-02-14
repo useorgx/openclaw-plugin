@@ -914,8 +914,6 @@ export function InitiativeSection({
                       title="Hierarchy"
                       storageKey={`hierarchy.${initiative.id}`}
                       defaultOpen
-                      sticky={!isBodyAnimating}
-                      stickyTop="calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px))"
                       contentOverflowVisible
                     >
                       <HierarchyTreeTable
