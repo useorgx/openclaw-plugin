@@ -145,16 +145,8 @@ export function HierarchyTreeTable({
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  const [suppressStickyControls, setSuppressStickyControls] = useState(false);
   const selectAllRef = useRef<HTMLInputElement | null>(null);
   const hierarchyFilterRef = useRef<HTMLDivElement | null>(null);
-  const stickyAnchorRef = useRef<HTMLDivElement | null>(null);
-  const controlsStickyRef = useRef<HTMLDivElement | null>(null);
-  const selectionStickyRef = useRef<HTMLDivElement | null>(null);
-  const stickyHeaderProbeRef = useRef<HTMLTableCellElement | null>(null);
-  const lastControlsHeightRef = useRef(0);
-  const [controlsHeightPx, setControlsHeightPx] = useState(0);
-  const [selectionHeightPx, setSelectionHeightPx] = useState(0);
 
   useEffect(() => {
     if (!bulkNotice) return;
@@ -616,259 +608,160 @@ export function HierarchyTreeTable({
     return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const stickyTop = 'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px) + var(--mc-collapsible-header-offset, 40px))';
-  const selectionStickyTop = suppressStickyControls
-    ? stickyTop
-    : `calc(${stickyTop} + ${controlsHeightPx}px)`;
-  const tableHeaderStickyTop = suppressStickyControls
-    ? `calc(${stickyTop} + ${selectionHeightPx}px)`
-    : `calc(${stickyTop} + ${controlsHeightPx}px + ${selectionHeightPx}px)`;
-
-  useEffect(() => {
-    const selection = selectionStickyRef.current;
-    if (!selection) return;
-    const update = () => {
-      const next = Math.max(0, Math.round(selection.getBoundingClientRect().height));
-      setSelectionHeightPx(next);
-    };
-
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => update());
-    ro.observe(selection);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (suppressStickyControls) {
-      setControlsHeightPx(0);
-      return;
-    }
-    const controls = controlsStickyRef.current;
-    if (!controls) {
-      setControlsHeightPx(0);
-      return;
-    }
-    const update = () => {
-      const next = Math.max(0, Math.round(controls.getBoundingClientRect().height));
-      setControlsHeightPx(next);
-      if (next > 0) lastControlsHeightRef.current = next;
-    };
-
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => update());
-    ro.observe(controls);
-    return () => ro.disconnect();
-  }, [suppressStickyControls]);
-
-  useEffect(() => {
-    const anchor = stickyAnchorRef.current;
-    const headerCell = stickyHeaderProbeRef.current;
-    if (!anchor || !headerCell) return;
-
-    const scrollHost =
-      (anchor.closest('[data-mc-scroll-host="true"]') as HTMLElement | null) ??
-      (anchor.closest('.h-full.overflow-y-auto.overflow-x-hidden') as HTMLElement | null);
-    const eventTarget: EventTarget = scrollHost ?? window;
-    let frame = 0;
-
-    const update = () => {
-      frame = 0;
-      const topPx = Number.parseFloat(getComputedStyle(anchor).top || '0');
-      const hostTopPx = scrollHost?.getBoundingClientRect().top ?? 0;
-      const headerTopPx = headerCell.getBoundingClientRect().top;
-      const controlsHeightForThreshold =
-        suppressStickyControls ? lastControlsHeightRef.current : controlsHeightPx;
-      const threshold = hostTopPx + topPx + controlsHeightForThreshold;
-      // Add hysteresis so the controls bar doesn't jitter at the handoff point.
-      // Collapse once the header is effectively "stuck", and only re-open once the header
-      // has moved noticeably below the sticky line.
-      setSuppressStickyControls((previous) => {
-        if (previous) {
-          return headerTopPx <= threshold + 36;
-        }
-        return headerTopPx <= threshold + 1;
-      });
-    };
-
-    const queueUpdate = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(update);
-    };
-
-    update();
-    eventTarget.addEventListener('scroll', queueUpdate, { passive: true });
-    window.addEventListener('resize', queueUpdate);
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      eventTarget.removeEventListener('scroll', queueUpdate);
-      window.removeEventListener('resize', queueUpdate);
-    };
-  }, [controlsHeightPx, suppressStickyControls]);
+  // Only the table header should stick. The Hierarchy section header, search/filter row,
+  // and bulk selection bar scroll normally with the table content.
+  const tableHeaderStickyTop =
+    'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px))';
 
   return (
     <section className="space-y-2.5">
-      <div ref={stickyAnchorRef} className="sticky h-0 z-20" style={{ top: stickyTop }} aria-hidden="true" />
-
-      {!suppressStickyControls && (
-        <div ref={controlsStickyRef} className="sticky z-20 mb-1.5" style={{ top: stickyTop }}>
-          <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="w-full xl:max-w-[380px]">
-              <SearchInput
-                value={searchQuery}
-                onChange={setSearchQuery}
-                placeholder="Search items or agents..."
-              />
-            </div>
-            <div className="flex min-h-[40px] min-w-0 flex-wrap items-center gap-2.5">
-              {onToggleEditMode && (
-                <button
-                  type="button"
-                  onClick={onToggleEditMode}
-                  data-state={editMode ? 'active' : 'idle'}
-                  className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold ${
-                    editMode
-                      ? 'text-[#D8FFA1]'
-                      : 'text-secondary hover:text-bright'
-                  }`}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                  </svg>
-                  {editMode ? 'Editing' : 'Edit'}
-                </button>
-              )}
-              <div ref={hierarchyFilterRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedStatusFilters((prev) => !prev)}
-                  data-state={showAdvancedStatusFilters || hierarchyFilterCount > 0 ? 'active' : 'idle'}
-                  className="control-pill flex items-center gap-1.5 px-3.5 text-caption font-semibold"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
-                  </svg>
-                  <span>Filters</span>
-                  {hierarchyFilterCount > 0 && (
-                    <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-micro leading-4">
-                      {hierarchyFilterCount}
-                    </span>
-                  )}
-                </button>
-                <AnimatePresence>
-                  {showAdvancedStatusFilters && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                      transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                      className="surface-tier-2 absolute left-0 top-10 z-30 w-[360px] max-w-[86vw] rounded-xl p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
-                    >
-                      <div className="mb-2">
-                        <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
-                          Scope
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {([
-                            { id: 'all', label: 'All', count: statusScopeCounts.all },
-                            { id: 'open', label: 'Open', count: statusScopeCounts.open },
-                            { id: 'blocked', label: 'Blocked', count: statusScopeCounts.blocked },
-                            { id: 'done', label: 'Done', count: statusScopeCounts.done },
-                          ] as Array<{ id: StatusScope; label: string; count: number }>).map((scope) => {
-                            const active = statusScope === scope.id;
-                            return (
-                              <button
-                                key={scope.id}
-                                type="button"
-                                onClick={() => setStatusScope(scope.id)}
-                                className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors ${
-                                  active
-                                    ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
-                                    : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-white/82'
-                                }`}
-                              >
-                                <span>{scope.label}</span>
-                                <span className="text-micro text-current/80">{scope.count}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="mb-2 border-t border-white/[0.08] pt-2">
-                        <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
-                          Status
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {STATUS_OPTIONS.map((status) => {
-                            const isActive = activeStatusFilters.has(status);
-                            const count = statusKeyCounts.get(status) ?? 0;
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                onClick={() => toggleStatusFilter(status)}
-                                className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro transition-colors ${
-                                  isActive
-                                    ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
-                                    : 'border-strong bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-bright'
-                                }`}
-                              >
-                                <span>{formatEntityStatus(status)}</span>
-                                <span className="text-micro text-current/75">{count}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {(statusScope !== 'all' || activeStatusFilters.size > 0) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStatusScope('all');
-                            setActiveStatusFilters(new Set());
-                          }}
-                          className="text-micro text-secondary transition-colors hover:text-primary"
-                        >
-                          Reset filters
-                        </button>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-              <AnimatePresence initial={false}>
-                {hasToolbarFilters && (
-                  <motion.button
-                    key="hierarchy-clear-filters"
-                    type="button"
-                    onClick={clearAllHierarchyFilters}
-                    initial={{ opacity: 0, x: -4 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -4 }}
-                    transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                    className="control-pill inline-flex h-8 items-center px-2.5 text-caption font-medium text-primary hover:text-bright"
-                  >
-                    Clear
-                  </motion.button>
-                )}
-              </AnimatePresence>
-              <button
-                type="button"
-                onClick={toggleSelectAllVisibleRows}
-                data-state={allVisibleSelected ? 'active' : 'idle'}
-                className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold"
-              >
-                {allVisibleSelected ? 'Clear visible' : 'Select visible'}
-              </button>
-            </div>
-          </div>
+      <div className="mb-3.5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="w-full xl:max-w-[380px]">
+          <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Search items or agents..." />
         </div>
-      )}
+        <div className="flex min-h-[40px] min-w-0 flex-wrap items-center gap-2.5">
+          {onToggleEditMode && (
+            <button
+              type="button"
+              onClick={onToggleEditMode}
+              data-state={editMode ? 'active' : 'idle'}
+              className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold ${
+                editMode ? 'text-[#D8FFA1]' : 'text-secondary hover:text-bright'
+              }`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              {editMode ? 'Editing' : 'Edit'}
+            </button>
+          )}
 
-      <div ref={selectionStickyRef} className="sticky z-20 mb-1.5" style={{ top: selectionStickyTop }}>
+          <div ref={hierarchyFilterRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedStatusFilters((prev) => !prev)}
+              data-state={showAdvancedStatusFilters || hierarchyFilterCount > 0 ? 'active' : 'idle'}
+              className="control-pill flex items-center gap-1.5 px-3.5 text-caption font-semibold"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+              </svg>
+              <span>Filters</span>
+              {hierarchyFilterCount > 0 && (
+                <span className="inline-flex min-w-[16px] items-center justify-center rounded-full border border-current/30 bg-black/25 px-1 text-micro leading-4">
+                  {hierarchyFilterCount}
+                </span>
+              )}
+            </button>
+            <AnimatePresence>
+              {showAdvancedStatusFilters && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  className="surface-tier-2 absolute left-0 top-10 z-30 w-[360px] max-w-[86vw] rounded-xl p-3 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+                >
+                  <div className="mb-2">
+                    <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">Scope</div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {([
+                        { id: 'all', label: 'All', count: statusScopeCounts.all },
+                        { id: 'open', label: 'Open', count: statusScopeCounts.open },
+                        { id: 'blocked', label: 'Blocked', count: statusScopeCounts.blocked },
+                        { id: 'done', label: 'Done', count: statusScopeCounts.done },
+                      ] as Array<{ id: StatusScope; label: string; count: number }>).map((scope) => {
+                        const active = statusScope === scope.id;
+                        return (
+                          <button
+                            key={scope.id}
+                            type="button"
+                            onClick={() => setStatusScope(scope.id)}
+                            className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors ${
+                              active
+                                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
+                                : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-white/82'
+                            }`}
+                          >
+                            <span>{scope.label}</span>
+                            <span className="text-micro text-current/80">{scope.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mb-2 border-t border-white/[0.08] pt-2">
+                    <div className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">Status</div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {STATUS_OPTIONS.map((status) => {
+                        const isActive = activeStatusFilters.has(status);
+                        const count = statusKeyCounts.get(status) ?? 0;
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => toggleStatusFilter(status)}
+                            className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro transition-colors ${
+                              isActive
+                                ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
+                                : 'border-strong bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-bright'
+                            }`}
+                          >
+                            <span>{formatEntityStatus(status)}</span>
+                            <span className="text-micro text-current/75">{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {(statusScope !== 'all' || activeStatusFilters.size > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusScope('all');
+                        setActiveStatusFilters(new Set());
+                      }}
+                      className="text-micro text-secondary transition-colors hover:text-primary"
+                    >
+                      Reset filters
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {hasToolbarFilters && (
+              <motion.button
+                key="hierarchy-clear-filters"
+                type="button"
+                onClick={clearAllHierarchyFilters}
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -4 }}
+                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                className="control-pill inline-flex h-8 items-center px-2.5 text-caption font-medium text-primary hover:text-bright"
+              >
+                Clear
+              </motion.button>
+            )}
+          </AnimatePresence>
+
+          <button
+            type="button"
+            onClick={toggleSelectAllVisibleRows}
+            data-state={allVisibleSelected ? 'active' : 'idle'}
+            className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold"
+          >
+            {allVisibleSelected ? 'Clear visible' : 'Select visible'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-1.5">
         <div
           className={`rounded-xl border px-3 ${
             selectedRowCount > 0
@@ -1029,7 +922,6 @@ export function HierarchyTreeTable({
           <thead>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
               <th
-                ref={stickyHeaderProbeRef}
                 className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
                 style={{ top: tableHeaderStickyTop }}
               >
