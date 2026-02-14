@@ -214,7 +214,21 @@ function classifyActivity(item: LiveActivityItem): ActivityBucket {
 }
 
 function labelForType(type: LiveActivityType): string {
-  return type.split('_').join(' ');
+  const labels: Partial<Record<LiveActivityType, string>> = {
+    run_started: 'Run started',
+    run_completed: 'Run completed',
+    run_failed: 'Run failed',
+    artifact_created: 'Artifact created',
+    decision_requested: 'Decision requested',
+    decision_resolved: 'Decision resolved',
+    handoff_requested: 'Handoff requested',
+    handoff_claimed: 'Handoff claimed',
+    handoff_fulfilled: 'Handoff fulfilled',
+    blocker_created: 'Blocker created',
+    milestone_completed: 'Milestone completed',
+    delegation: 'Delegation',
+  };
+  return labels[type] ?? humanizeText(type.split('_').join(' '));
 }
 
 function toDayKey(value: string): string {
@@ -245,9 +259,9 @@ function dayLabel(dayKey: string): string {
 }
 
 function bucketLabel(bucket: ActivityBucket): string {
-  if (bucket === 'artifact') return 'artifact';
-  if (bucket === 'decision') return 'decision';
-  return 'message';
+  if (bucket === 'artifact') return 'Artifact';
+  if (bucket === 'decision') return 'Decision';
+  return 'Message';
 }
 
 function bucketColor(bucket: ActivityBucket): string {
@@ -542,7 +556,9 @@ function renderArtifactValue(value: unknown): ReactNode {
       <dl className="space-y-1.5">
         {entries.map(([key, entry]) => (
           <div key={key} className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
-            <dt className="text-micro uppercase tracking-[0.1em] text-secondary">{humanizeText(key)}</dt>
+            <dt className="text-micro font-semibold tracking-[0.02em] text-secondary">
+              {humanizeText(key)}
+            </dt>
             <dd className="mt-1 text-body text-primary">
               {typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean'
                 ? String(entry)
@@ -1271,7 +1287,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1">
-              <span className="text-micro uppercase tracking-[0.09em] text-muted">
+              <span className="text-micro font-semibold tracking-[0.02em] text-muted">
                 {kindLabel}
               </span>
               <span className="text-caption text-secondary">{timeLabel}</span>
@@ -1286,7 +1302,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro">
             <span
-              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 uppercase tracking-[0.08em]"
+	              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tracking-[0.01em]"
               style={{
                 borderColor: `${railColor}55`,
                 backgroundColor: `${railColor}1A`,
@@ -1572,9 +1588,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               const visibleClusters = collapsed ? group.clusters.slice(0, 4) : group.clusters;
 	              return (
 	                <section key={group.key}>
-	                  <h3 className="mb-2.5 border-b border-subtle pb-1.5 text-caption uppercase tracking-[0.12em] text-muted">
-	                    {group.label}
-	                  </h3>
+		                  <h3 className="mb-2.5 border-b border-subtle pb-1.5 text-caption font-semibold tracking-[0.01em] text-muted">
+		                    {group.label}
+		                  </h3>
 	                  {enableItemMotion ? (
 	                    <AnimatePresence mode="popLayout">
 	                      <div className="space-y-2">
@@ -1693,9 +1709,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
                 </span>
                 {copyNotice && (
-                  <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.12em] text-secondary">
-                    {copyNotice}
-                  </span>
+	                  <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro font-semibold tracking-[0.02em] text-secondary">
+	                    {copyNotice}
+	                  </span>
                 )}
               </div>
 
@@ -1808,15 +1824,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </div>
 
                     <div className="flex flex-wrap gap-1.5 text-caption">
-                      <span
-                        className="rounded-full border px-2 py-0.5 uppercase tracking-[0.1em]"
-                        style={{
-                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
-                          color: bucketColor(activeDecorated.bucket),
-                        }}
-                      >
-                        {bucketLabel(activeDecorated.bucket)}
-                      </span>
+	                      <span
+	                        className="rounded-full border px-2 py-0.5 font-semibold tracking-[0.02em]"
+	                        style={{
+	                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
+	                          color: bucketColor(activeDecorated.bucket),
+	                        }}
+	                      >
+	                        {bucketLabel(activeDecorated.bucket)}
+	                      </span>
                       <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
                         {labelForType(activeDecorated.item.type)}
                       </span>
@@ -1839,29 +1855,27 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeAutopilotSlice && (
                       <div className="rounded-xl border border-lime/20 bg-lime/10 p-3">
-                        <p className="text-caption uppercase tracking-[0.11em] text-lime/80">
-                          Autopilot Slice
-                        </p>
+	                        <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">Autopilot slice</p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Dispatcher</div>
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatcher</div>
                             <div className="mt-1 text-body text-primary">OpenClaw</div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Executor</div>
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executor</div>
                             <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.agentName ?? 'Codex'}
                               {activeAutopilotSlice.agentId ? ` · ${activeAutopilotSlice.agentId}` : ''}
                             </div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Workstream</div>
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
                             <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.workstreamTitle ?? activeAutopilotSlice.workstreamId ?? '—'}
                             </div>
                           </div>
                           <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro uppercase tracking-[0.1em] text-secondary">Policy</div>
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
                             <div className="mt-1 text-body text-primary">
                               {activeAutopilotSlice.domain ?? '—'}
                               {activeAutopilotSlice.requiredSkills.length > 0 ? ` · ${activeAutopilotSlice.requiredSkills.join(', ')}` : ''}
@@ -1938,19 +1952,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeProvenance && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">
-                          Provenance
-                        </p>
+	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Provenance</p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {activeProvenance.domain && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Domain</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Domain</div>
                               <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.domain)}</div>
                             </div>
                           )}
                           {(activeProvenance.provider || activeProvenance.model) && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Model</div>
                               <div className="mt-1 text-body text-primary">
                                 {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
                                 {activeProvenance.model ? humanizeModel(activeProvenance.model) : '—'}
@@ -1959,19 +1971,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           )}
                           {activeProvenance.modelTier && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Model tier</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Model tier</div>
                               <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.modelTier)}</div>
                             </div>
                           )}
                           {activeProvenance.pluginVersion && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Plugin</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Plugin</div>
                               <div className="mt-1 text-body text-primary">v{activeProvenance.pluginVersion}</div>
                             </div>
                           )}
                           {activeProvenance.skillPack && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Skill pack</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Skill pack</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-body text-primary">
                                 <span>
                                   {activeProvenance.skillPack.name ?? '—'}
@@ -1993,7 +2005,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           {activeProvenance.kickoffContextHash && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
                               <div className="flex items-center justify-between gap-2">
-                                <div className="text-micro uppercase tracking-[0.1em] text-secondary">Kickoff context</div>
+	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Kickoff context</div>
                                 <button
                                   type="button"
                                   onClick={() => void copyText('Kickoff context hash', activeProvenance.kickoffContextHash ?? '')}
@@ -2010,7 +2022,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           )}
                           {activeProvenance.requiredSkills.length > 0 && (
                             <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-                              <div className="text-micro uppercase tracking-[0.1em] text-secondary">Required skills</div>
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Required skills</div>
                               <div className="mt-1 flex flex-wrap gap-1.5">
                                 {activeProvenance.requiredSkills.map((skill) => (
                                   <span
@@ -2028,8 +2040,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {activeSummaryText && (
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">Summary</p>
+	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Summary</p>
                         {detailSummarySource === 'missing' && (
                           <p className="mt-1 text-caption text-amber-200/75">
                             Full local turn transcript was unavailable; showing the event summary payload.
@@ -2044,8 +2056,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {humanizeActivityBody(activeDecorated.item.description) && (
-                      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
-                        <p className="text-caption uppercase tracking-[0.11em] text-secondary">Details</p>
+	                      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
+	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Details</p>
                         <MarkdownText
                           mode="block"
                           text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
@@ -2055,11 +2067,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {activeArtifact && (
-                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-caption uppercase tracking-[0.11em] text-cyan-100/85">
-                            Artifact Output
-                          </p>
+	                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
+	                        <div className="flex items-center justify-between gap-2">
+	                          <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
+	                            Artifact output
+	                          </p>
                           <div className="inline-flex rounded-full border border-strong bg-black/30 p-0.5 text-caption">
                             <button
                               type="button"
@@ -2101,10 +2113,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {activeMetadataJson && (
-                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
-                        <summary className="cursor-pointer select-none text-caption uppercase tracking-[0.11em] text-secondary">
-                          Raw metadata
-                        </summary>
+	                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
+	                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
+	                          Raw metadata
+	                        </summary>
                         <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-secondary">
                           {activeMetadataJson}
                         </pre>
