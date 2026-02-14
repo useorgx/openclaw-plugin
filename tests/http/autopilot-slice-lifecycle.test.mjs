@@ -235,7 +235,7 @@ function createClientHarness() {
   return { client, calls };
 }
 
-async function runPlayTickStatus({ scenario, extraEnv = {} }) {
+async function runPlayTickStatus({ scenario, extraEnv = {}, after = null }) {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-"));
   return await withEnv(
     {
@@ -278,12 +278,15 @@ async function runPlayTickStatus({ scenario, extraEnv = {} }) {
       });
       assert.equal(resStatus.status, 200);
 
+      const afterResult = typeof after === "function" ? await after({ handler, calls }) : null;
+
       return {
         play: JSON.parse(resPlay.body),
         tick: JSON.parse(resTick.body),
         status: JSON.parse(resStatus.body),
         calls,
         handler,
+        afterResult,
       };
     }
   );
@@ -380,16 +383,18 @@ test("autopilot slice lifecycle: claude-code executor surfaces anthropic runtime
     extraEnv: {
       ORGX_AUTOPILOT_EXECUTOR: "claude-code",
     },
+    after: async ({ handler }) => {
+      const resSnapshot = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=20&activityLimit=20&decisionsLimit=10&initiative=init-1",
+        headers: {},
+      });
+      assert.equal(resSnapshot.status, 200);
+      return JSON.parse(resSnapshot.body);
+    },
   });
 
-  const { handler } = result;
-  const resSnapshot = await call(handler, {
-    method: "GET",
-    url: "/orgx/api/live/snapshot?sessionsLimit=20&activityLimit=20&decisionsLimit=10&initiative=init-1",
-    headers: {},
-  });
-  assert.equal(resSnapshot.status, 200);
-  const body = JSON.parse(resSnapshot.body);
+  const body = result.afterResult;
   assert.ok(Array.isArray(body.runtimeInstances));
   const claude = body.runtimeInstances.find((i) => i?.sourceClient === "claude-code");
   assert.ok(claude, "expected claude-code runtime instance");
