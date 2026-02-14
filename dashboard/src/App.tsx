@@ -1777,7 +1777,7 @@ function DashboardShell({
 	          />
 	        </section>
 
-        <section className={`flex min-h-0 flex-col gap-2 lg:col-span-3 lg:gap-2 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
+        <section className={`flex min-h-0 flex-col gap-3 lg:col-span-3 lg:gap-3 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (

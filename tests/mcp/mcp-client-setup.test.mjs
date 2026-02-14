@@ -88,6 +88,31 @@ test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx",
   assert.ok(patched.next.includes(`url = "${local}/engineering"`));
 });
 
+test("patchCodexConfigToml strips stale stdio fields (command, args, startup_timeout_sec)", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = [
+    'model = "gpt-5.3-codex"',
+    "",
+    "[mcp_servers.orgx]",
+    'url = "https://mcp.useorgx.com/mcp"',
+    "",
+    '[mcp_servers."orgx-openclaw"]',
+    `url = "${local}"`,
+    'command = "npx"',
+    'args = ["-y", "mcp-remote", "http://127.0.0.1:18789/orgx/mcp"]',
+    "startup_timeout_sec = 60.0",
+    "",
+  ].join("\n");
+
+  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(patched.next.includes(`url = "${local}"`));
+  assert.ok(!patched.next.includes("command ="), "command field should be stripped");
+  assert.ok(!patched.next.includes("args ="), "args field should be stripped");
+  assert.ok(!patched.next.includes("startup_timeout_sec ="), "startup_timeout_sec field should be stripped");
+});
+
 test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when missing", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";

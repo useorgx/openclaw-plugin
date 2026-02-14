@@ -511,66 +511,36 @@ export function NextUpPanel({
                     aria-hidden
                   />
 
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex flex-1 items-center gap-2.5">
-                      <AgentAvatar
-                        name={item.runnerAgentName}
-                        hint={`${item.runnerAgentId} ${item.runnerSource}`}
-                        size="xs"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <EntityIcon type="initiative" size={11} className="flex-shrink-0 opacity-85" />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
-                            }
-                            className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
-                            title={item.initiativeTitle}
-                          >
-                            {item.initiativeTitle}
-                          </button>
-                        </div>
-                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-caption font-semibold leading-snug text-white">
-                          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-                          <span className="truncate">{item.workstreamTitle}</span>
-                        </p>
-                        {item.nextTaskTitle ? (
-                          <p className="mt-0.5 line-clamp-1 text-micro leading-snug text-secondary" title={item.nextTaskTitle}>
-                            Next: {item.nextTaskTitle}
-                            {dueText ? ` · ${dueText}` : ''}
-                          </p>
-                        ) : null}
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <AgentAvatar
+                      name={item.runnerAgentName}
+                      hint={`${item.runnerAgentId} ${item.runnerSource}`}
+                      size="xs"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <EntityIcon type="initiative" size={11} className="flex-shrink-0 opacity-85" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
+                          }
+                          className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
+                          title={item.initiativeTitle}
+                        >
+                          {item.initiativeTitle}
+                        </button>
                       </div>
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-1.5">
-                      <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
-                        {queueLabel(item.queueState)}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={isRowBusy}
-                        onClick={() =>
-                          void runAction(
-                            key,
-                            () =>
-                              playWorkstream({
-                                initiativeId: item.initiativeId,
-                                workstreamId: item.workstreamId,
-                                agentId: item.runnerAgentId,
-                              }),
-                            `Dispatched ${item.workstreamTitle}.`
-                          )
-                        }
-                        className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold disabled:opacity-40"
-                        title="Dispatch now"
-                      >
-                        <span className="inline-flex items-center gap-1.5">
-                          <PlayGlyph className="h-3.5 w-3.5 opacity-85" />
-                          <span>Play</span>
-                        </span>
-                      </button>
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption font-semibold leading-snug text-white" title={item.workstreamTitle}>
+                        <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
+                        <span className="line-clamp-2">{item.workstreamTitle}</span>
+                      </p>
+                      {item.nextTaskTitle ? (
+                        <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary" title={`Next: ${item.nextTaskTitle}${dueText ? ` · ${dueText}` : ''}`}>
+                          Next: {item.nextTaskTitle}
+                          {dueText ? ` · ${dueText}` : ''}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -580,16 +550,39 @@ export function NextUpPanel({
                     </div>
                   )}
 
-                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <div className="mt-1.5 flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => onFollowWorkstream?.(item)}
-                      className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold"
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold"
                       title="Follow in Activity"
                     >
-                      <span className="inline-flex items-center gap-1.5">
-                        <FollowGlyph className="h-3.5 w-3.5 opacity-85" />
+                      <span className="inline-flex items-center gap-1">
+                        <FollowGlyph className="h-3 w-3 opacity-85" />
                         <span>Follow</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isRowBusy}
+                      onClick={() =>
+                        void runAction(
+                          key,
+                          () =>
+                            playWorkstream({
+                              initiativeId: item.initiativeId,
+                              workstreamId: item.workstreamId,
+                              agentId: item.runnerAgentId,
+                            }),
+                          `Dispatched ${item.workstreamTitle}.`
+                        )
+                      }
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+                      title="Dispatch now"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        <PlayGlyph className="h-3 w-3 opacity-85" />
+                        <span>Play</span>
                       </span>
                     </button>
                     <button
@@ -611,13 +604,13 @@ export function NextUpPanel({
                             : `Auto-continue started for ${item.workstreamTitle}.`
                         )
                       }
-                      className="control-pill flex h-8 items-center justify-center px-3 text-caption font-semibold disabled:opacity-40"
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
                       data-state={isAutoRunning ? 'active' : 'idle'}
                       data-tone="teal"
                       title={isAutoRunning ? 'Stop auto-continue' : 'Auto-continue'}
                     >
-                      <span className="inline-flex items-center gap-1.5">
-                        <AutoGlyph className="h-3.5 w-3.5 opacity-85" />
+                      <span className="inline-flex items-center gap-1">
+                        <AutoGlyph className="h-3 w-3 opacity-85" />
                         <span>{isAutoRunning ? 'Stop auto' : 'Auto'}</span>
                       </span>
                     </button>
@@ -807,41 +800,38 @@ function NextUpReorderRow({
                   {item.initiativeTitle}
                 </button>
               </div>
-              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 line-clamp-1 text-body font-semibold text-white">
-                <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-                <span className="truncate">{item.workstreamTitle}</span>
-              </p>
+              <div className="mt-0.5 flex min-w-0 items-start gap-1.5">
+                <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-95" />
+                <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={item.workstreamTitle}>
+                  {item.workstreamTitle}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setNotice(null);
-                setUpgradeGate(null);
-                onUpgradeGate?.(null);
-                void onPinToggle(!isPinned).catch((err) =>
-                  setNotice(err instanceof Error ? err.message : 'Pin action failed')
-                );
-              }}
-              title={isPinned ? 'Unpin from queue ordering' : 'Pin to queue ordering'}
-              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-micro font-semibold transition-colors ${
-                isPinned
-                  ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12 text-[#E1FFB2]'
-                  : 'border-strong bg-white/[0.04] text-secondary hover:bg-white/[0.08]'
-              }`}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                <path d="M12 17v5" />
-                <path d="M9 3h6l1 7-4 4v3H12v-3l-4-4 1-7Z" />
-              </svg>
-              <span>{isPinned ? 'Pinned' : 'Pin'}</span>
-            </button>
-            <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-micro ${queueTone(item.queueState)}`}>
-              {queueLabel(item.queueState)}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null);
+              setUpgradeGate(null);
+              onUpgradeGate?.(null);
+              void onPinToggle(!isPinned).catch((err) =>
+                setNotice(err instanceof Error ? err.message : 'Pin action failed')
+              );
+            }}
+            title={isPinned ? 'Unpin from queue ordering' : 'Pin to queue ordering'}
+            aria-label={isPinned ? 'Unpin' : 'Pin'}
+            className={`inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
+              isPinned
+                ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12 text-[#E1FFB2]'
+                : 'border-strong bg-white/[0.04] text-secondary hover:bg-white/[0.08]'
+            }`}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M12 17v5" />
+              <path d="M9 3h6l1 7-4 4v3H12v-3l-4-4 1-7Z" />
+            </svg>
+          </button>
         </div>
 
         <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
@@ -856,7 +846,7 @@ function NextUpReorderRow({
                   </span>
                 ) : null}
               </div>
-              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84">
+              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84" title={item.nextTaskTitle}>
                 {item.nextTaskTitle}
               </p>
             </div>
@@ -881,15 +871,15 @@ function NextUpReorderRow({
           </div>
         )}
 
-        <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => onFollowWorkstream?.(item)}
-            className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold"
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold"
             title="Follow this workstream in Activity"
           >
-            <span className="inline-flex items-center gap-1.5">
-              <FollowGlyph className="h-3.5 w-3.5 opacity-85" />
+            <span className="inline-flex items-center gap-1">
+              <FollowGlyph className="h-3 w-3 opacity-85" />
               <span>Follow</span>
             </span>
           </button>
@@ -908,11 +898,11 @@ function NextUpReorderRow({
                 `Dispatched ${item.workstreamTitle}.`
               )
             }
-            className="control-pill flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40"
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
             title="Dispatch this workstream now (single run)"
           >
-            <span className="inline-flex items-center gap-1.5">
-              <PlayGlyph className="h-3.5 w-3.5 opacity-85" />
+            <span className="inline-flex items-center gap-1">
+              <PlayGlyph className="h-3 w-3 opacity-85" />
               <span>Play</span>
             </span>
           </button>
@@ -935,7 +925,7 @@ function NextUpReorderRow({
                   : `Auto-continue started for ${item.workstreamTitle}.`
               )
             }
-            className="control-pill col-span-2 flex h-8 w-full items-center justify-center px-2 text-micro font-semibold disabled:opacity-40 sm:col-span-1"
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
             data-state={isAutoRunning ? 'active' : 'idle'}
             data-tone="teal"
             title={
@@ -944,8 +934,8 @@ function NextUpReorderRow({
                 : 'Auto-continue this workstream'
             }
           >
-            <span className="inline-flex items-center gap-1.5">
-              <AutoGlyph className="h-3.5 w-3.5 opacity-85" />
+            <span className="inline-flex items-center gap-1">
+              <AutoGlyph className="h-3 w-3 opacity-85" />
               <span>{isAutoRunning ? 'Stop auto' : 'Auto'}</span>
             </span>
           </button>
