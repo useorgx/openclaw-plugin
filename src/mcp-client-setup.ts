@@ -246,6 +246,24 @@ function upsertCodexMcpServerSection(input: {
   } else {
     lines.splice(headerIndex + 1, 0, urlLine);
     updated = true;
+    // Recalculate sectionEnd after splice
+    sectionEnd = lines.length;
+    for (let i = headerIndex + 1; i < lines.length; i += 1) {
+      if (lines[i].trim().startsWith("[")) {
+        sectionEnd = i;
+        break;
+      }
+    }
+  }
+
+  // Strip stale stdio-transport fields that conflict with url-only entries.
+  // Codex rejects `url` when `command`/`args` are present (stdio transport).
+  const staleFieldRegex = /^\s*(command|args|startup_timeout_sec)\s*=/;
+  for (let i = sectionEnd - 1; i > headerIndex; i -= 1) {
+    if (staleFieldRegex.test(lines[i])) {
+      lines.splice(i, 1);
+      updated = true;
+    }
   }
 
   return { updated, next: `${lines.join("\n")}\n` };
