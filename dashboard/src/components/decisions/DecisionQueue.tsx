@@ -357,35 +357,34 @@ export const DecisionQueue = memo(function DecisionQueue({
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="inline-flex min-w-0 items-center gap-1.5 text-body font-medium text-white">
-                            <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
-                            <span className="truncate">{decision.title}</span>
+                      <div className="min-w-0">
+                        <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
+                          <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
+                          <span className="line-clamp-2">{decision.title}</span>
+                        </p>
+                        {decision.context && (
+                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
+                            {decision.context}
                           </p>
-                          {decision.context && (
-                            <p className="mt-1 line-clamp-2 text-caption text-secondary">
-                              {decision.context}
-                            </p>
-                          )}
-                          <p className="mt-1.5 text-micro text-muted">
+                        )}
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate text-micro text-muted" title={`${decision.agentName ?? 'System'} · Waiting ${decision.waitingMinutes}m${decision.requestedAt ? ` · ${formatRelativeTime(decision.requestedAt)}` : ''}`}>
                             {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
                             {decision.requestedAt
                               ? ` · ${formatRelativeTime(decision.requestedAt)}`
                               : ''}
                           </p>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleApproveOne(decision.id);
+                            }}
+                            disabled={isApproving || isApprovingAll}
+                            className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
+                          >
+                            {isApproving ? 'Approving…' : 'Approve'}
+                          </button>
                         </div>
-
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleApproveOne(decision.id);
-                          }}
-                          disabled={isApproving || isApprovingAll}
-                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
-                        >
-                          {isApproving ? 'Approving…' : 'Approve'}
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -429,35 +428,34 @@ export const DecisionQueue = memo(function DecisionQueue({
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="inline-flex min-w-0 items-center gap-1.5 text-body font-medium text-white">
-                            <EntityIcon type="decision" size={12} className="flex-shrink-0 opacity-90" />
-                            <span className="truncate">{decision.title}</span>
+                      <div className="min-w-0">
+                        <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
+                          <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
+                          <span className="line-clamp-2">{decision.title}</span>
+                        </p>
+                        {decision.context && (
+                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
+                            {decision.context}
                           </p>
-                          {decision.context && (
-                            <p className="mt-1 line-clamp-2 text-caption text-secondary">
-                              {decision.context}
-                            </p>
-                          )}
-                          <p className="mt-1.5 text-micro text-muted">
+                        )}
+                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate text-micro text-muted" title={`${decision.agentName ?? 'System'} · Waiting ${decision.waitingMinutes}m${decision.requestedAt ? ` · ${formatRelativeTime(decision.requestedAt)}` : ''}`}>
                             {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
                             {decision.requestedAt
                               ? ` · ${formatRelativeTime(decision.requestedAt)}`
                               : ''}
                           </p>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleApproveOne(decision.id);
+                            }}
+                            disabled={isApproving || isApprovingAll}
+                            className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
+                          >
+                            {isApproving ? 'Approving…' : 'Approve'}
+                          </button>
                         </div>
-
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleApproveOne(decision.id);
-                          }}
-                          disabled={isApproving || isApprovingAll}
-                          className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
-                        >
-                          {isApproving ? 'Approving…' : 'Approve'}
-                        </button>
                       </div>
                     </div>
                   </div>
