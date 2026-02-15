@@ -4,7 +4,6 @@ import { colors } from '@/lib/tokens';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { useArtifactViewer } from './ArtifactViewerContext';
-import { useMissionControl } from '@/components/mission-control/MissionControlContext';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Skeleton } from '@/components/shared/Skeleton';
 
@@ -83,7 +82,10 @@ function ArtifactIcon() {
 
 export function ArtifactViewerModal() {
   const { state, close } = useArtifactViewer();
-  const { authToken, embedMode } = useMissionControl();
+  // The artifact viewer is mounted globally (outside MissionControlProvider),
+  // so it must not depend on Mission Control context.
+  const authToken: string | null = null;
+  const embedMode = false;
 
   const { data, isLoading, error } = useQuery<ArtifactDetailResponse>({
     queryKey: queryKeys.artifactDetail({
