@@ -5069,6 +5069,14 @@ export function createHttpHandler(
     }
     const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
 
+    const hasUuidAgent =
+      typeof input.agentId === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.agentId
+      );
+    const createdByType = hasUuidAgent ? "agent" : "human";
+    const createdById = hasUuidAgent ? input.agentId : null;
+
     try {
       const entityType = input.artifact.milestone_id ? "milestone" : "initiative";
       const entityId = input.artifact.milestone_id ? input.artifact.milestone_id : input.initiativeId;
@@ -5078,6 +5086,8 @@ export function createHttpHandler(
         entity_id: entityId,
         name,
         artifact_type: artifactType,
+        created_by_type: createdByType,
+        created_by_id: createdById,
         description,
         external_url: input.artifact.url ?? null,
         preview_markdown: null,
@@ -5108,6 +5118,8 @@ export function createHttpHandler(
             entity_id: input.artifact.milestone_id ?? input.initiativeId,
             name,
             artifact_type: artifactType,
+            created_by_type: createdByType,
+            created_by_id: createdById,
             description,
             url: input.artifact.url ?? undefined,
             run_id: input.runId,

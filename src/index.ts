@@ -153,6 +153,19 @@ function resolveRuntimeUserId(
   candidates: Array<string | null | undefined>
 ): string {
   if (isUserScopedApiKey(apiKey)) {
+    // For oxk_ keys, the OrgX API ignores X-Orgx-User-Id, but we still keep a UUID
+    // around for created_by_id on certain entity writes (e.g., work_artifacts).
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const trimmed = candidate.trim();
+      if (
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          trimmed
+        )
+      ) {
+        return trimmed;
+      }
+    }
     return "";
   }
   for (const candidate of candidates) {
@@ -2567,9 +2580,17 @@ export default function register(api: PluginAPI): void {
         });
       }
 
+      const pairingUserIdRaw =
+        typeof (polled.data as any).supabaseUserId === "string"
+          ? (polled.data as any).supabaseUserId
+          : typeof (polled.data as any).userId === "string"
+            ? (polled.data as any).userId
+            : null;
+
       setRuntimeApiKey({
         apiKey: key,
         source: "browser_pairing",
+        userId: resolveRuntimeUserId(key, [pairingUserIdRaw, config.userId]) || null,
         workspaceName: polled.data.workspaceName ?? null,
         keyPrefix: polled.data.keyPrefix ?? null,
       });

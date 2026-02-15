@@ -37,6 +37,12 @@ function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith('oxk_');
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
 function ensureAuthDir(): void {
   const dir = authDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -72,19 +78,6 @@ export function readPersistedAuth(): PersistedAuthRecord | null {
     if (!parsed || typeof parsed.apiKey !== 'string' || parsed.apiKey.trim().length === 0) {
       return null;
     }
-    if (
-      isUserScopedApiKey(parsed.apiKey) &&
-      typeof parsed.userId === 'string' &&
-      parsed.userId.trim().length > 0
-    ) {
-      const sanitized: PersistedAuthRecord = {
-        ...parsed,
-        userId: null,
-        updatedAt: new Date().toISOString(),
-      };
-      writeJsonFileAtomicSync(file, sanitized, 0o600);
-      return sanitized;
-    }
     return parsed;
   } catch {
     return null;
@@ -97,9 +90,13 @@ export function writePersistedAuth(
   ensureAuthDir();
   const now = new Date().toISOString();
   const existing = readPersistedAuth();
-  const normalizedUserId = isUserScopedApiKey(input.apiKey)
-    ? null
-    : input.userId ?? null;
+  const rawUserId = typeof input.userId === 'string' ? input.userId.trim() : '';
+  const normalizedUserId =
+    rawUserId.length === 0
+      ? null
+      : isUserScopedApiKey(input.apiKey)
+        ? (isUuid(rawUserId) ? rawUserId : null)
+        : rawUserId;
   const next: PersistedAuthRecord = {
     apiKey: input.apiKey,
     source: input.source,
