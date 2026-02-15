@@ -13,6 +13,7 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
+import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 
 const itemVariants = {
   initial: { opacity: 0, y: 8, scale: 0.98 },
@@ -166,6 +167,17 @@ function extractWorkstreamId(item: LiveActivityItem): string | null {
     }
   }
 
+  return null;
+}
+
+function extractArtifactId(item: LiveActivityItem): string | null {
+  const metadata = item.metadata as Record<string, unknown> | undefined;
+  if (!metadata) return null;
+  const candidates = ['artifact_id', 'artifactId', 'work_artifact_id'];
+  for (const key of candidates) {
+    const val = metadata[key];
+    if (typeof val === 'string' && val.length > 0) return val;
+  }
   return null;
 }
 
@@ -711,6 +723,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onFocusRunId,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
+  const { open: openArtifactViewer } = useArtifactViewer();
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -2064,6 +2077,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           className="mt-1.5 text-body leading-relaxed text-primary"
                         />
                       </div>
+                    )}
+
+                    {/* View registered artifact button (loop closure) */}
+                    {activeDecorated && extractArtifactId(activeDecorated.item) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const aid = extractArtifactId(activeDecorated.item);
+                          if (aid) openArtifactViewer(aid);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl border border-cyan-400/25 bg-cyan-500/[0.08] px-3.5 py-2.5 text-left transition-colors hover:bg-cyan-500/[0.14]"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.cyan} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                        </svg>
+                        <span className="text-body font-medium" style={{ color: colors.cyan }}>
+                          View registered artifact
+                        </span>
+                      </button>
                     )}
 
                     {activeArtifact && (

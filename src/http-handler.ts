@@ -6962,6 +6962,8 @@ export function createHttpHandler(
       const entityActionMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/([^/]+)$/
       );
+      const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
+      const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
       const isOnboardingStartRoute = route === "onboarding/start";
       const isOnboardingStatusRoute = route === "onboarding/status";
       const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
@@ -8471,6 +8473,32 @@ export function createHttpHandler(
           sendJson(res, 500, {
             error: safeErrorMessage(err),
           });
+        }
+        return true;
+      }
+
+      // Work artifacts by entity: GET /orgx/api/work-artifacts/by-entity?entity_type=...&entity_id=...&limit=...&status=...
+      if (isArtifactsByEntityRoute && method === "GET") {
+        try {
+          const qs = rawUrl.includes("?") ? rawUrl.split("?")[1] : "";
+          const path = `/api/work-artifacts/by-entity${qs ? `?${qs}` : ""}`;
+          const data = await client.rawRequest("GET", path);
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 502, { error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      // Artifact detail: GET /orgx/api/artifacts/:artifactId
+      if (artifactDetailMatch && method === "GET") {
+        try {
+          const artifactId = decodeURIComponent(artifactDetailMatch[1]);
+          const path = `/api/artifacts/${encodeURIComponent(artifactId)}`;
+          const data = await client.rawRequest("GET", path);
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 502, { error: safeErrorMessage(err) });
         }
         return true;
       }

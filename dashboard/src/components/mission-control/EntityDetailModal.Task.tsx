@@ -11,6 +11,7 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 
 interface TaskDetailProps {
   task: InitiativeTask;
@@ -227,6 +228,14 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
 
         {/* Notes */}
         <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+          {/* Artifacts */}
+          <EntityArtifactsPanel
+            entityType="task"
+            entityId={task.id}
+            authToken={authToken}
+            embedMode={embedMode}
+          />
+
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
