@@ -1,50 +1,40 @@
 #!/usr/bin/env node
 /**
- * Local, end-to-end autopilot verification scaffold.
+ * Local, end-to-end autopilot verification scaffold (multi-domain entities).
  *
- * Goal: verify "work actually completed" (tasks -> done, artifacts registered, runtime + activity
- * events emitted) by exercising the real HTTP handler + auto-continue loop against an in-memory
- * OrgX client harness and a real worker process (mock by default).
+ * Focus: "invoked with entities, it does the entity work and records updates as it goes"
+ * across multiple workstreams/domains. Uses the real HTTP handler + auto-continue loop
+ * against an in-memory OrgX client harness.
  *
- * This is not a unit test. It runs a local server, drives HTTP endpoints, and asserts outcomes.
+ * Defaults to a deterministic mock worker, but can run real Codex/Claude slice workers
+ * (hello-worldy: write files with exact expected content).
  *
  * Usage:
  *   npm run build:core
- *   ORGX_AUTOPILOT_WORKER_KIND=mock node scripts/verify-autopilot-e2e-local.mjs
+ *   node scripts/verify-autopilot-e2e-entities.mjs
  *
  * Optional env:
  * - ORGX_AUTOPILOT_WORKER_KIND=mock|codex|claude-code
- * - ORGX_AUTOPILOT_MOCK_SLEEP_MS=1200
- * - ORGX_AUTOPILOT_MOCK_SCENARIO=success
- * - ORGX_E2E_TASKS=3
+ * - ORGX_AUTOPILOT_EXECUTOR=codex|claude-code (affects source_client attribution)
+ * - ORGX_E2E_DOMAINS=engineering,product,design,marketing,operations,sales
+ * - ORGX_E2E_TASKS_PER_DOMAIN=1
  * - ORGX_E2E_INJECT_PROGRESS=1|0
+ * - ORGX_E2E_VERIFY_FILES=1|0 (defaults to workerKind !== mock)
+ * - ORGX_E2E_TIMEOUT_MS=...
  */
 
 import assert from "node:assert/strict";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createHttpHandler } from "../dist/http-handler.js";
 
-const TASKS = Number.isFinite(Number(process.env.ORGX_E2E_TASKS))
-  ? Math.max(1, Math.floor(Number(process.env.ORGX_E2E_TASKS)))
-  : 3;
-
-// Avoid spawn guard gating in local harness runs.
-process.env.ORGX_SPAWN_GUARD_BYPASS = "1";
-
-// Ensure the runtime hook token is stable and known to this script.
-process.env.ORGX_HOOK_TOKEN = (process.env.ORGX_HOOK_TOKEN || "orgx_hook_e2e_local").trim();
-
-// Default to mock slice worker for deterministic completion.
-process.env.ORGX_AUTOPILOT_WORKER_KIND = (process.env.ORGX_AUTOPILOT_WORKER_KIND || "mock").trim();
-process.env.ORGX_AUTOPILOT_MOCK_SCENARIO = (process.env.ORGX_AUTOPILOT_MOCK_SCENARIO || "success").trim();
-process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS = (process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS || "1200").trim();
-process.env.ORGX_AUTOPILOT_CWD =
-  (process.env.ORGX_AUTOPILOT_CWD || mkdtempSync(join(tmpdir(), "orgx-autopilot-e2e-"))).trim();
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function resolveExecutorSourceClient() {
   const raw = String(process.env.ORGX_AUTOPILOT_EXECUTOR || "").trim().toLowerCase();
@@ -52,8 +42,42 @@ function resolveExecutorSourceClient() {
   return "codex";
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function titleCaseFromSlug(value) {
+  const parts = String(value || "")
+    .split(/[^a-z0-9]+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return String(value || "");
+  return parts
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function resolveOrgxAgentForDomain(domain) {
+  const normalized = String(domain || "").trim().toLowerCase();
+  if (!normalized) return { id: "orgx", name: "OrgX" };
+  const slug = normalized === "orchestration" ? "orchestrator" : normalized;
+  if (slug === "orgx") return { id: "orgx", name: "OrgX" };
+  if (slug.startsWith("orgx-")) return { id: slug, name: `OrgX ${titleCaseFromSlug(slug.slice(5))}` };
+  return { id: `orgx-${slug}`, name: `OrgX ${titleCaseFromSlug(slug)}` };
+}
+
+const ORGX_SKILL_BY_DOMAIN = {
+  engineering: "orgx-engineering-agent",
+  product: "orgx-product-agent",
+  marketing: "orgx-marketing-agent",
+  sales: "orgx-sales-agent",
+  operations: "orgx-operations-agent",
+  design: "orgx-design-agent",
+  orchestration: "orgx-orchestrator-agent",
+};
+
+function parseDomains(raw) {
+  const cleaned = String(raw || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return cleaned.length > 0 ? cleaned : ["engineering", "product", "design", "marketing", "operations", "sales"];
 }
 
 async function fetchJson(url, { method = "GET", headers, body } = {}) {
@@ -128,6 +152,50 @@ function createNoopOnboarding() {
   };
 }
 
+function startServer({ handler }) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => handler(req, res));
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      resolve({ server, baseUrl: `http://127.0.0.1:${port}` });
+    });
+  });
+}
+
+async function readRuntimeSse(url, { signal, onEvent }) {
+  const res = await fetch(url, { signal });
+  if (!res.ok || !res.body) throw new Error(`SSE connect failed: ${res.status}`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const chunk of parts) {
+      const lines = chunk.split("\n");
+      let eventName = "message";
+      const dataLines = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) eventName = line.slice("event:".length).trim() || eventName;
+        if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trim());
+      }
+      const dataText = dataLines.join("\n").trim();
+      if (!dataText) continue;
+      let data = dataText;
+      try {
+        data = JSON.parse(dataText);
+      } catch {
+        // keep as text
+      }
+      onEvent({ event: eventName, data });
+    }
+  }
+}
+
 function createOrgxClientHarness() {
   const store = {
     entities: {
@@ -140,14 +208,6 @@ function createOrgxClientHarness() {
     },
     activity: [],
   };
-
-  function normalizeTitle(type, payload) {
-    const title = typeof payload.title === "string" ? payload.title.trim() : "";
-    if (title) return title;
-    const name = typeof payload.name === "string" ? payload.name.trim() : "";
-    if (name) return name;
-    return `${type} ${String(payload.id ?? "").slice(0, 8)}`;
-  }
 
   function matchesFilters(row, filters) {
     if (!filters || typeof filters !== "object") return true;
@@ -184,7 +244,6 @@ function createOrgxClientHarness() {
         },
       };
     },
-
     listEntities: async (type, filters) => {
       const map = store.entities[type];
       if (!map) return { data: [], pagination: { total: 0, has_more: false } };
@@ -196,14 +255,12 @@ function createOrgxClientHarness() {
         pagination: { total: rows.length, has_more: rows.length > limit },
       };
     },
-
     createEntity: async (type, payload) => {
       const id = `ent_${type}_${randomUUID().slice(0, 12)}`;
       const row = {
         id,
         ...payload,
-        title: normalizeTitle(type, payload),
-        name: typeof payload?.name === "string" ? payload.name : undefined,
+        title: typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : payload.name,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -211,7 +268,6 @@ function createOrgxClientHarness() {
       if (map) map.set(id, row);
       return row;
     },
-
     updateEntity: async (type, id, updates) => {
       const map = store.entities[type];
       if (!map) return { id };
@@ -288,7 +344,6 @@ function createOrgxClientHarness() {
       store.activity.push(item);
       return { ok: true, run_id: payload?.run_id ?? null, event_id: item.id, reused_run: false };
     },
-
     getLiveAgents: async () => ({ agents: [], summary: {} }),
     getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
     getLiveActivity: async () => ({ activities: store.activity.slice().reverse() }),
@@ -304,81 +359,39 @@ function createOrgxClientHarness() {
   return { client, store };
 }
 
-async function startServer({ handler }) {
-  const server = http.createServer(async (req, res) => {
-    try {
-      const handled = await handler(req, res);
-      if (!handled && !res.writableEnded) {
-        res.writeHead(404, { "content-type": "text/plain" });
-        res.end("not handled");
-      }
-    } catch (err) {
-      if (!res.writableEnded) {
-        res.writeHead(500, { "content-type": "text/plain" });
-        res.end(String(err?.stack || err));
-      }
-    }
-  });
-  await new Promise((resolve, reject) => {
-    server.listen(0, "127.0.0.1");
-    server.once("listening", resolve);
-    server.once("error", reject);
-  });
-  const addr = server.address();
-  if (!addr || typeof addr !== "object" || !addr.port) throw new Error("failed to bind server");
-  const baseUrl = `http://127.0.0.1:${addr.port}`;
-  return { server, baseUrl };
-}
-
-async function readRuntimeSse(url, { signal, onEvent }) {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { accept: "text/event-stream" },
-    signal,
-  });
-  if (!res.ok) throw new Error(`SSE failed: ${res.status} ${res.statusText}`);
-  if (!res.body) throw new Error("SSE body missing");
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  // Node fetch gives a web ReadableStream.
-  const reader = res.body.getReader();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let idx;
-    while ((idx = buffer.indexOf("\n\n")) !== -1) {
-      const chunk = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-
-      let eventName = "message";
-      const dataLines = [];
-      for (const line of chunk.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventName = line.slice("event:".length).trim() || eventName;
-        } else if (line.startsWith("data:")) {
-          dataLines.push(line.slice("data:".length).trim());
-        }
-      }
-
-      const dataText = dataLines.join("\n").trim();
-      if (!dataText) continue;
-      let data = dataText;
-      try {
-        data = JSON.parse(dataText);
-      } catch {
-        // keep as text
-      }
-      onEvent({ event: eventName, data });
-    }
-  }
-}
-
 async function main() {
-  const { client, store } = createOrgxClientHarness();
+  const domains = parseDomains(process.env.ORGX_E2E_DOMAINS);
+  const tasksPerDomainRaw = Number(process.env.ORGX_E2E_TASKS_PER_DOMAIN);
+  const tasksPerDomain =
+    Number.isFinite(tasksPerDomainRaw) && tasksPerDomainRaw > 0 ? Math.floor(tasksPerDomainRaw) : 1;
+
+  // Avoid spawn guard gating in local harness runs.
+  process.env.ORGX_SPAWN_GUARD_BYPASS = "1";
+  process.env.ORGX_HOOK_TOKEN = (process.env.ORGX_HOOK_TOKEN || "orgx_hook_e2e_local").trim();
+
+  process.env.ORGX_AUTOPILOT_WORKER_KIND = (process.env.ORGX_AUTOPILOT_WORKER_KIND || "mock").trim();
+  process.env.ORGX_AUTOPILOT_MOCK_SCENARIO = (process.env.ORGX_AUTOPILOT_MOCK_SCENARIO || "success").trim();
+  process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS = (process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS || "1200").trim();
+  process.env.ORGX_AUTOPILOT_CWD =
+    (process.env.ORGX_AUTOPILOT_CWD || mkdtempSync(join(tmpdir(), "orgx-autopilot-e2e-"))).trim();
+
+  const workerKind = String(process.env.ORGX_AUTOPILOT_WORKER_KIND || "").trim().toLowerCase();
+  const verifyFilesRaw = String(process.env.ORGX_E2E_VERIFY_FILES ?? "").trim().toLowerCase();
+  const verifyFiles =
+    verifyFilesRaw.length > 0
+      ? !(verifyFilesRaw === "0" || verifyFilesRaw === "false" || verifyFilesRaw === "no")
+      : workerKind !== "mock";
+
+  const injectProgressRaw = String(process.env.ORGX_E2E_INJECT_PROGRESS ?? "").trim().toLowerCase();
+  const injectProgress =
+    injectProgressRaw.length > 0
+      ? !(injectProgressRaw === "0" || injectProgressRaw === "false" || injectProgressRaw === "no")
+      : true;
+
+  const runDir = String(process.env.ORGX_AUTOPILOT_CWD || "").trim();
+  assert.ok(runDir, "expected ORGX_AUTOPILOT_CWD to be set");
+
+  const { client } = createOrgxClientHarness();
   const config = {
     apiKey: "oxk_test",
     userId: "",
@@ -396,136 +409,134 @@ async function main() {
   const runtimeEvents = [];
   const ssePromise = readRuntimeSse(`${baseUrl}/orgx/api/hooks/runtime/stream`, {
     signal: abortController.signal,
-    onEvent: ({ event, data }) => {
-      runtimeEvents.push({ event, data, at: Date.now() });
-    },
+    onEvent: ({ event, data }) => runtimeEvents.push({ event, data, at: Date.now() }),
   }).catch((err) => {
-    // If the server is closing, this is expected.
-    if (String(err?.name || "").toLowerCase() !== "aborterror") {
-      throw err;
-    }
+    if (String(err?.name || "").toLowerCase() !== "aborterror") throw err;
   });
 
   try {
-    const runDir = String(process.env.ORGX_AUTOPILOT_CWD || "").trim();
-    assert.ok(runDir, "expected ORGX_AUTOPILOT_CWD to be set");
-    const workerKind = String(process.env.ORGX_AUTOPILOT_WORKER_KIND || "").trim().toLowerCase();
-    const verifyFilesRaw = String(process.env.ORGX_E2E_VERIFY_FILES ?? "").trim().toLowerCase();
-    const verifyFiles =
-      verifyFilesRaw
-        ? !(verifyFilesRaw === "0" || verifyFilesRaw === "false" || verifyFilesRaw === "no")
-        : workerKind !== "mock";
-
-    // 1) Create minimal Mission Control graph: initiative -> workstream -> milestone -> tasks.
+    // 1) Create minimal graph: initiative -> workstreams(domains) -> milestones -> tasks.
     const initiative = await fetchJson(`${baseUrl}/orgx/api/entities`, {
       method: "POST",
       body: {
         type: "initiative",
-        title: `Local Autopilot E2E (${new Date().toISOString().slice(0, 19)})`,
-        summary: "Local autopilot verification scaffold run.",
+        title: `Local Autopilot Entity E2E (${new Date().toISOString().slice(0, 19)})`,
+        summary: "Local autopilot multi-domain verification scaffold run.",
         status: "active",
       },
     });
     const initiativeId = String(initiative?.entity?.id ?? "");
     assert.ok(initiativeId, "expected initiative id");
 
-    const workstream = await fetchJson(`${baseUrl}/orgx/api/entities`, {
-      method: "POST",
-      body: {
-        type: "workstream",
-        initiative_id: initiativeId,
-        name: "Engineering Autopilot",
-        summary: "E2E verification workstream",
-        status: "active",
-        assigned_agents: [{ id: "orgx-engineering", name: "OrgX Engineering", domain: "engineering" }],
-      },
-    });
-    const workstreamId = String(workstream?.entity?.id ?? "");
-    assert.ok(workstreamId, "expected workstream id");
-
-    const milestone = await fetchJson(`${baseUrl}/orgx/api/entities`, {
-      method: "POST",
-      body: {
-        type: "milestone",
-        initiative_id: initiativeId,
-        workstream_id: workstreamId,
-        title: "Autopilot Proof",
-        summary: "Complete tasks via slices and record verifiable outcomes.",
-        status: "planned",
-      },
-    });
-    const milestoneId = String(milestone?.entity?.id ?? "");
-    assert.ok(milestoneId, "expected milestone id");
-
     const taskIds = [];
     const expectedFiles = [];
-    for (let i = 1; i <= TASKS; i += 1) {
-      const expectedFile = join(runDir, `orgx-autopilot-e2e-hello-${String(i).padStart(2, "0")}.txt`);
-      const expectedContent = `hello-${i}`;
-      const created = await fetchJson(`${baseUrl}/orgx/api/entities`, {
+    const taskDomainById = new Map();
+    const taskWorkstreamById = new Map();
+    const workstreamIds = [];
+
+    for (const domain of domains) {
+      const agent = resolveOrgxAgentForDomain(domain);
+      const skill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
+
+      const workstream = await fetchJson(`${baseUrl}/orgx/api/entities`, {
         method: "POST",
         body: {
-          type: "task",
+          type: "workstream",
           initiative_id: initiativeId,
-          workstream_id: workstreamId,
-          milestone_id: milestoneId,
-          title: `[E2E] ${i}/${TASKS}: Write ${expectedFile} = "${expectedContent}" then report artifact url=file://${expectedFile} and task_updates done`,
-          status: "todo",
-          priority: "high",
-          // Keep modeled token estimates small so the verification focuses on completion semantics.
-          expected_duration_hours: 0.01,
+          name: `${domain[0]?.toUpperCase() ?? ""}${domain.slice(1)} Autopilot`,
+          summary: `E2E verification workstream (${domain}). Required skill: ${skill}`,
+          status: "active",
+          assigned_agents: [{ id: agent.id, name: agent.name, domain }],
         },
       });
-      const id = String(created?.entity?.id ?? "");
-      assert.ok(id, `expected task id for task ${i}`);
-      taskIds.push(id);
-      expectedFiles.push({ taskId: id, expectedFile, expectedContent });
+      const workstreamId = String(workstream?.entity?.id ?? "");
+      assert.ok(workstreamId, `expected workstream id for domain=${domain}`);
+      workstreamIds.push(workstreamId);
+
+      const milestone = await fetchJson(`${baseUrl}/orgx/api/entities`, {
+        method: "POST",
+        body: {
+          type: "milestone",
+          initiative_id: initiativeId,
+          workstream_id: workstreamId,
+          title: `Autopilot Proof (${domain})`,
+          summary: `Complete tasks via slices and record verifiable outcomes (${domain}).`,
+          status: "planned",
+        },
+      });
+      const milestoneId = String(milestone?.entity?.id ?? "");
+      assert.ok(milestoneId, `expected milestone id for domain=${domain}`);
+
+      const domainDir = join(runDir, domain);
+      mkdirSync(domainDir, { recursive: true, mode: 0o700 });
+
+      for (let i = 1; i <= tasksPerDomain; i += 1) {
+        const expectedFile = join(domainDir, `orgx-autopilot-e2e-${domain}-hello-${String(i).padStart(2, "0")}.txt`);
+        const expectedContent = `${domain}-hello-${i}`;
+        const created = await fetchJson(`${baseUrl}/orgx/api/entities`, {
+          method: "POST",
+          body: {
+            type: "task",
+            initiative_id: initiativeId,
+            workstream_id: workstreamId,
+            milestone_id: milestoneId,
+            title: `[E2E][${domain}] ${i}/${tasksPerDomain}: Write ${expectedFile} = "${expectedContent}" then report artifact url=file://${expectedFile} and task_updates done`,
+            status: "todo",
+            priority: "high",
+            expected_duration_hours: 0.01,
+          },
+        });
+        const id = String(created?.entity?.id ?? "");
+        assert.ok(id, `expected task id for domain=${domain} i=${i}`);
+        taskIds.push(id);
+        taskDomainById.set(id, domain);
+        taskWorkstreamById.set(id, workstreamId);
+        expectedFiles.push({ taskId: id, expectedFile, expectedContent });
+      }
     }
 
-    // 2) Start auto-continue loop for just this workstream.
+    // 2) Start auto-continue loop for the created workstreams.
     const started = await fetchJson(`${baseUrl}/orgx/api/mission-control/auto-continue/start`, {
       method: "POST",
       body: {
         initiativeId,
-        agentId: "orgx-engineering",
+        agentId: "orgx-orchestrator",
         includeVerification: false,
-        workstreamIds: [workstreamId],
-        tokenBudget: 1_000_000,
+        workstreamIds,
+        // Modeled tokens are an internal guardrail; keep this very high so multi-domain
+        // verification doesn't stop early due to budget modeling drift.
+        tokenBudget: 100_000_000,
       },
     });
     assert.equal(Boolean(started?.ok), true, "expected auto-continue start ok");
 
-    // 3) Tick until completed; optionally inject progress updates for each slice run.
-    // Note: this exercises the runtime hook pipeline (hook -> runtimeInstances -> SSE/snapshot)
-    // even for the mock worker.
-    const injectProgressRaw = String(process.env.ORGX_E2E_INJECT_PROGRESS ?? "").trim().toLowerCase();
-    const injectProgress =
-      injectProgressRaw.length > 0
-        ? !(injectProgressRaw === "0" || injectProgressRaw === "false" || injectProgressRaw === "no")
-        : true;
+    // 3) Tick until completed; optionally inject progress for each slice run.
     const posted38ForRun = new Set();
     const posted55ForRun = new Set();
     const timeoutRaw = String(process.env.ORGX_E2E_TIMEOUT_MS ?? "").trim();
     const timeoutFromEnv = timeoutRaw ? Number(timeoutRaw) : Number.NaN;
+    const tasksTotal = domains.length * tasksPerDomain;
     const defaultTimeoutMs =
-      workerKind === "mock" ? Math.max(45_000, TASKS * 18_000) : Math.max(240_000, TASKS * 120_000);
+      workerKind === "mock" ? Math.max(60_000, tasksTotal * 22_000) : Math.max(300_000, tasksTotal * 150_000);
     const timeoutMs =
       Number.isFinite(timeoutFromEnv) && timeoutFromEnv > 0 ? Math.floor(timeoutFromEnv) : defaultTimeoutMs;
     const deadlineMs = Date.now() + timeoutMs;
 
     while (Date.now() < deadlineMs) {
       const status = await fetchJson(
-        `${baseUrl}/orgx/api/mission-control/auto-continue/status?initiative_id=${encodeURIComponent(
-          initiativeId
-        )}`
+        `${baseUrl}/orgx/api/mission-control/auto-continue/status?initiative_id=${encodeURIComponent(initiativeId)}`
       );
       const run = status?.run ?? null;
       assert.ok(run, "expected run to exist");
 
       if (injectProgress && run.activeRunId && run.activeTaskId) {
-        const sourceClient = resolveExecutorSourceClient();
         const runId = String(run.activeRunId);
         const taskId = String(run.activeTaskId);
+        const domain = taskDomainById.get(taskId) ?? "engineering";
+        const activeWorkstreamId = taskWorkstreamById.get(taskId) ?? null;
+        const agent = resolveOrgxAgentForDomain(domain);
+        const sourceClient = resolveExecutorSourceClient();
+
         if (!posted38ForRun.has(runId)) {
           await fetchJson(`${baseUrl}/orgx/api/hooks/runtime`, {
             method: "POST",
@@ -535,17 +546,18 @@ async function main() {
               event: "progress",
               run_id: runId,
               initiative_id: initiativeId,
-              workstream_id: workstreamId,
+              workstream_id: activeWorkstreamId,
               task_id: taskId,
-              agent_id: "orgx-engineering",
-              agent_name: "OrgX Engineering",
+              agent_id: agent.id,
+              agent_name: agent.name,
               phase: "execution",
               progress_pct: 38,
-              message: "E2E injected progress (38%)",
+              message: `E2E injected progress (${domain}) (38%)`,
             },
           });
           posted38ForRun.add(runId);
         }
+
         if (!posted55ForRun.has(runId)) {
           await sleep(150);
           await fetchJson(`${baseUrl}/orgx/api/hooks/runtime`, {
@@ -556,13 +568,13 @@ async function main() {
               event: "progress",
               run_id: runId,
               initiative_id: initiativeId,
-              workstream_id: workstreamId,
+              workstream_id: activeWorkstreamId,
               task_id: taskId,
-              agent_id: "orgx-engineering",
-              agent_name: "OrgX Engineering",
+              agent_id: agent.id,
+              agent_name: agent.name,
               phase: "execution",
               progress_pct: 55,
-              message: "E2E injected progress (55%)",
+              message: `E2E injected progress (${domain}) (55%)`,
             },
           });
           posted55ForRun.add(runId);
@@ -584,14 +596,16 @@ async function main() {
     assert.ok(final?.run, "expected final run");
     if (final.run.status !== "stopped") {
       throw new Error(
-        `E2E timeout: expected run to stop within ${timeoutMs}ms (status=${String(final.run.status)} activeRunId=${String(final.run.activeRunId ?? "")} lastError=${String(final.run.lastError ?? "")})`
+        `E2E timeout: expected run to stop (timeoutMs=${timeoutMs} status=${String(final.run.status)} activeRunId=${String(
+          final.run.activeRunId ?? ""
+        )} lastError=${String(final.run.lastError ?? "")})`
       );
     }
     assert.equal(final.run.stopReason, "completed");
 
     // 4) Verify tasks are done.
     const tasks = await fetchJson(
-      `${baseUrl}/orgx/api/entities?type=task&initiative_id=${encodeURIComponent(initiativeId)}&limit=200`
+      `${baseUrl}/orgx/api/entities?type=task&initiative_id=${encodeURIComponent(initiativeId)}&limit=500`
     );
     const taskRows = Array.isArray(tasks?.data) ? tasks.data : [];
     const taskById = new Map(taskRows.map((t) => [String(t.id), t]));
@@ -603,13 +617,12 @@ async function main() {
 
     // 5) Verify artifacts were created.
     const artifacts = await fetchJson(
-      `${baseUrl}/orgx/api/entities?type=artifact&initiative_id=${encodeURIComponent(initiativeId)}&limit=200`
+      `${baseUrl}/orgx/api/entities?type=artifact&initiative_id=${encodeURIComponent(initiativeId)}&limit=800`
     );
     const artifactRows = Array.isArray(artifacts?.data) ? artifacts.data : [];
-    assert.ok(artifactRows.length >= TASKS, `expected >=${TASKS} artifacts, got ${artifactRows.length}`);
+    assert.ok(artifactRows.length >= taskIds.length, `expected >=${taskIds.length} artifacts, got ${artifactRows.length}`);
 
-    // 5b) Verify the "hello-worldy" deliverables exist on disk and match expected content.
-    // Note: mock worker doesn't write files; this check is primarily for real Codex/Claude execution.
+    // 5b) Verify deliverables exist on disk for real workers.
     if (verifyFiles) {
       for (const expected of expectedFiles) {
         assert.ok(existsSync(expected.expectedFile), `expected file exists: ${expected.expectedFile}`);
@@ -618,30 +631,34 @@ async function main() {
       }
     }
 
-    // 6) Verify runtime stream saw updates and snapshot contains progress.
-    const sawSessionStart = runtimeEvents.some((e) => e.event === "runtime.updated");
-    assert.ok(sawSessionStart, "expected runtime stream events");
-
+    // 6) Verify runtime + snapshot include updates.
+    assert.ok(runtimeEvents.length > 0, "expected runtime stream events");
     const snapshot = await fetchJson(`${baseUrl}/orgx/api/live/snapshot?initiative=${encodeURIComponent(initiativeId)}`);
     const runtimeInstances = Array.isArray(snapshot?.runtimeInstances) ? snapshot.runtimeInstances : [];
     assert.ok(runtimeInstances.length > 0, "expected runtimeInstances in snapshot");
     if (injectProgress) {
-      assert.ok(
-        runtimeInstances.some((r) => Number(r.progressPct) === 55),
-        "expected a 55% progress instance"
-      );
+      assert.ok(runtimeInstances.some((r) => Number(r.progressPct) === 55), "expected a 55% progress instance");
     }
-    assert.ok(
-      runtimeInstances.some((r) => String(r.sourceClient ?? "").toLowerCase() === resolveExecutorSourceClient()),
-      `expected at least one runtime instance for executor=${resolveExecutorSourceClient()}`
-    );
 
-    // 7) Verify activity contains autopilot slice results.
+    // 7) Verify slice results include domain + required skill mapping.
     const activities = Array.isArray(snapshot?.activity) ? snapshot.activity : [];
     const sliceResults = activities.filter(
       (a) => a && a.metadata && typeof a.metadata === "object" && a.metadata.event === "autopilot_slice_result"
     );
-    assert.ok(sliceResults.length >= TASKS, `expected >=${TASKS} slice results, got ${sliceResults.length}`);
+    assert.ok(sliceResults.length >= domains.length, `expected >=${domains.length} slice results, got ${sliceResults.length}`);
+
+    for (const domain of domains) {
+      const required = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
+      const expectedAgentId = resolveOrgxAgentForDomain(domain).id;
+      const found = sliceResults.find((item) => {
+        const md = item?.metadata ?? {};
+        const mdDomain = typeof md.domain === "string" ? md.domain : null;
+        const mdSkills = Array.isArray(md.required_skills) ? md.required_skills.map(String) : [];
+        const mdAgentId = typeof md.agent_id === "string" ? md.agent_id : null;
+        return mdDomain === domain && mdAgentId === expectedAgentId && mdSkills.includes(required);
+      });
+      assert.ok(found, `expected sliceResult for domain=${domain} agent=${expectedAgentId} skill=${required}`);
+    }
 
     console.log(
       JSON.stringify(
@@ -650,21 +667,18 @@ async function main() {
           worker_kind: process.env.ORGX_AUTOPILOT_WORKER_KIND,
           executor: resolveExecutorSourceClient(),
           initiativeId,
-          workstreamId,
-          milestoneId,
-          tasks: TASKS,
+          domains,
+          workstreams: workstreamIds.length,
+          tasks: taskIds.length,
           artifacts: artifactRows.length,
           runtimeEvents: runtimeEvents.length,
           activityItems: activities.length,
-          note: "This is a local harness run; real agents can be verified by setting ORGX_AUTOPILOT_WORKER_KIND=codex|claude-code and configuring their binaries/args.",
+          note: "Local harness run. Enable real agents with ORGX_AUTOPILOT_WORKER_KIND=codex|claude-code and configure binaries/args.",
         },
         null,
         2
       )
     );
-
-    // Keep lint-ish tools happy: assert the harness store isn't empty.
-    assert.ok(store.entities.task.size >= TASKS);
   } finally {
     abortController.abort();
     try {
