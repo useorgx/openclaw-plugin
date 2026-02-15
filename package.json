@@ -42,6 +42,8 @@
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "verify:autopilot-e2e:local": "npm run build:core && node ./scripts/verify-autopilot-e2e-local.mjs",
     "verify:autopilot-e2e:matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-matrix.mjs",
+    "verify:autopilot-e2e:entities": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities.mjs",
+    "verify:autopilot-e2e:entities-matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities-matrix.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",

@@ -17,6 +17,8 @@
  * - ORGX_AUTOPILOT_MOCK_SLEEP_MS (default: 120)
  */
 
+import { writeFileSync } from "node:fs";
+
 const scenario = String(process.env.ORGX_AUTOPILOT_MOCK_SCENARIO || "success").trim();
 const sleepMs = Number(process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS || "120");
 
@@ -24,9 +26,22 @@ const workstreamId = String(process.env.ORGX_WORKSTREAM_ID || "ws_mock").trim() 
 const workstreamTitle = String(process.env.ORGX_WORKSTREAM_TITLE || "Mock Workstream").trim() || null;
 const runId = String(process.env.ORGX_RUN_ID || "").trim() || null;
 const taskId = String(process.env.ORGX_TASK_ID || "").trim() || null;
+const outputPath = String(process.env.ORGX_OUTPUT_PATH || "").trim() || null;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function emitOutput(text) {
+  const payload = text.endsWith("\n") ? text : `${text}\n`;
+  if (outputPath) {
+    try {
+      writeFileSync(outputPath, payload, { encoding: "utf8", mode: 0o600 });
+    } catch {
+      // best effort
+    }
+  }
+  process.stdout.write(payload);
 }
 
 async function main() {
@@ -38,12 +53,12 @@ async function main() {
   await delay(Number.isFinite(sleepMs) ? Math.max(1, sleepMs) : 120);
 
   if (scenario === "invalid_json") {
-    process.stdout.write("this is not json\n");
+    emitOutput("this is not json");
     return;
   }
 
   if (scenario === "error") {
-    process.stdout.write(
+    emitOutput(
       JSON.stringify(
         {
           status: "error",
@@ -63,13 +78,13 @@ async function main() {
         },
         null,
         2
-      ) + "\n"
+      )
     );
     return;
   }
 
   if (scenario === "needs_decision") {
-    process.stdout.write(
+    emitOutput(
       JSON.stringify(
         {
           status: "needs_decision",
@@ -89,13 +104,13 @@ async function main() {
         },
         null,
         2
-      ) + "\n"
+      )
     );
     return;
   }
 
   if (scenario === "no_updates") {
-    process.stdout.write(
+    emitOutput(
       JSON.stringify(
         {
           status: "completed",
@@ -106,13 +121,13 @@ async function main() {
         },
         null,
         2
-      ) + "\n"
+      )
     );
     return;
   }
 
   // success
-  process.stdout.write(
+  emitOutput(
     JSON.stringify(
       {
         status: "completed",
@@ -142,12 +157,12 @@ async function main() {
       },
       null,
       2
-    ) + "\n"
+    )
   );
 }
 
 main().catch((err) => {
-  process.stdout.write(
+  emitOutput(
     JSON.stringify(
       {
         status: "error",
@@ -158,8 +173,7 @@ main().catch((err) => {
       },
       null,
       2
-    ) + "\n"
+    )
   );
   process.exitCode = 1;
 });
-

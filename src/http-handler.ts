@@ -31,7 +31,7 @@ import {
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
 import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
@@ -3993,8 +3993,10 @@ export function createHttpHandler(
     lastError: string | null;
   };
 
-  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
-  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
+	  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
+	  // Keep child handles alive so stdout/stderr capture remains reliable even when the process is detached.
+	  const autoContinueSliceChildren = new Map<string, ChildProcess>();
+	  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
   const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
   const AUTO_CONTINUE_SLICE_TIMEOUT_MS = readBudgetEnvNumber(
     "ORGX_AUTOPILOT_SLICE_TIMEOUT_MS",
@@ -4328,22 +4330,66 @@ export function createHttpHandler(
     }
   }
 
-  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
-    if (direct && typeof direct === "object") return direct;
+	  function parseSliceResult(raw: string): AutoContinueSliceResult | null {
+	    const trimmed = raw.trim();
+	    if (!trimmed) return null;
+	    const direct = parseJsonSafe<AutoContinueSliceResult>(trimmed);
+	    if (direct && typeof direct === "object") return direct;
 
-    // Tolerant parse: grab the last JSON object-looking blob.
-    const first = trimmed.lastIndexOf("{");
-    const last = trimmed.lastIndexOf("}");
-    if (first >= 0 && last > first) {
-      const candidate = trimmed.slice(first, last + 1);
-      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
-      if (parsed && typeof parsed === "object") return parsed;
-    }
-    return null;
-  }
+	    // Tolerant parse: extract the last complete top-level JSON object from mixed logs.
+	    // (Workers sometimes append multiple JSON payloads, or wrap output with extra text.)
+	    const extractLastTopLevelObject = (text: string): string | null => {
+	      let inString = false;
+	      let escaped = false;
+	      let depth = 0;
+	      let start = -1;
+	      let lastObject: string | null = null;
+
+	      for (let i = 0; i < text.length; i += 1) {
+	        const ch = text[i]!;
+	        if (inString) {
+	          if (escaped) {
+	            escaped = false;
+	            continue;
+	          }
+	          if (ch === "\\") {
+	            escaped = true;
+	            continue;
+	          }
+	          if (ch === "\"") {
+	            inString = false;
+	          }
+	          continue;
+	        }
+
+	        if (ch === "\"") {
+	          inString = true;
+	          continue;
+	        }
+	        if (ch === "{") {
+	          if (depth === 0) start = i;
+	          depth += 1;
+	          continue;
+	        }
+	        if (ch === "}") {
+	          if (depth <= 0) continue;
+	          depth -= 1;
+	          if (depth === 0 && start >= 0) {
+	            lastObject = text.slice(start, i + 1);
+	            start = -1;
+	          }
+	        }
+	      }
+	      return lastObject;
+	    };
+
+	    const candidate = extractLastTopLevelObject(trimmed);
+	    if (candidate) {
+	      const parsed = parseJsonSafe<AutoContinueSliceResult>(candidate);
+	      if (parsed && typeof parsed === "object") return parsed;
+	    }
+	    return null;
+	  }
 
   function readSliceOutputFile(pathname: string): string | null {
     try {
@@ -4601,15 +4647,26 @@ export function createHttpHandler(
       const outStream = createWriteStream(input.outputPath, { flags: "a" });
       logStream.write(`\n==== ${new Date().toISOString()} :: mock slice ${input.runId} ====\n`);
 
-      const child = spawn("node", [scriptPath], {
-        cwd: input.cwd,
-        env: {
-          ...process.env,
-          ...input.env,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
+	      const child = spawn("node", [scriptPath], {
+	        cwd: input.cwd,
+	        env: {
+	          ...process.env,
+	          ...input.env,
+	        },
+	        stdio: ["ignore", "pipe", "pipe"],
+	        // Keep the mock worker as a normal child so stdout/stderr capture is deterministic.
+	        detached: false,
+	      });
+	      autoContinueSliceChildren.set(input.runId, child);
+	      try {
+	        logStream.write(
+	          `spawned pid=${String(child.pid ?? "")} stdout=${String(Boolean(child.stdout))} stderr=${String(
+	            Boolean(child.stderr)
+	          )}\n`
+	        );
+	      } catch {
+	        // ignore
+	      }
 
       child.stdout?.on("data", (chunk) => {
         try {
@@ -4631,13 +4688,14 @@ export function createHttpHandler(
         }
       });
 
-      child.on("close", (code, signal) => {
-        const stamp = new Date().toISOString();
-        try {
-          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
-        } catch {
-          // ignore
-        }
+	      child.on("close", (code, signal) => {
+	        autoContinueSliceChildren.delete(input.runId);
+	        const stamp = new Date().toISOString();
+	        try {
+	          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+	        } catch {
+	          // ignore
+	        }
         try {
           logStream.end();
         } catch {
@@ -4649,13 +4707,14 @@ export function createHttpHandler(
           // ignore
         }
       });
-      child.on("error", (error) => {
-        const msg = safeErrorMessage(error);
-        try {
-          logStream.write(`\nworker error: ${msg}\n`);
-        } catch {
-          // ignore
-        }
+	      child.on("error", (error) => {
+	        autoContinueSliceChildren.delete(input.runId);
+	        const msg = safeErrorMessage(error);
+	        try {
+	          logStream.write(`\nworker error: ${msg}\n`);
+	        } catch {
+	          // ignore
+	        }
         try {
           outStream.write(
             `${JSON.stringify(
@@ -4675,9 +4734,8 @@ export function createHttpHandler(
         }
       });
 
-      child.unref();
-      return { pid: child.pid ?? null };
-    }
+	      return { pid: child.pid ?? null };
+	    }
 
     if (workerKind === "claude-code" || workerKind === "claude_code") {
       const claudeBin = (process.env.ORGX_CLAUDE_CODE_BIN ?? "").trim() || "claude";
@@ -4690,16 +4748,17 @@ export function createHttpHandler(
 
       // Claude Code invocation is environment-specific; ORGX_CLAUDE_CODE_ARGS should be set to
       // a headless-compatible command shape. We pass the prompt as the final argument.
-      const child = spawn(claudeBin, [...args, input.prompt], {
-        cwd: input.cwd,
-        env: {
-          ...process.env,
-          ...resolveByokEnvOverrides(),
-          ...input.env,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
+	      const child = spawn(claudeBin, [...args, input.prompt], {
+	        cwd: input.cwd,
+	        env: {
+	          ...process.env,
+	          ...resolveByokEnvOverrides(),
+	          ...input.env,
+	        },
+	        stdio: ["ignore", "pipe", "pipe"],
+	        detached: true,
+	      });
+	      autoContinueSliceChildren.set(input.runId, child);
 
       child.stdout?.on("data", (chunk) => {
         try {
@@ -4721,13 +4780,14 @@ export function createHttpHandler(
         }
       });
 
-      child.on("close", (code, signal) => {
-        const stamp = new Date().toISOString();
-        try {
-          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
-        } catch {
-          // ignore
-        }
+	      child.on("close", (code, signal) => {
+	        autoContinueSliceChildren.delete(input.runId);
+	        const stamp = new Date().toISOString();
+	        try {
+	          logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+	        } catch {
+	          // ignore
+	        }
         try {
           logStream.end();
         } catch {
@@ -4740,13 +4800,14 @@ export function createHttpHandler(
         }
       });
 
-      child.on("error", (error) => {
-        const msg = safeErrorMessage(error);
-        try {
-          logStream.write(`\nworker error: ${msg}\n`);
-        } catch {
-          // ignore
-        }
+	      child.on("error", (error) => {
+	        autoContinueSliceChildren.delete(input.runId);
+	        const msg = safeErrorMessage(error);
+	        try {
+	          logStream.write(`\nworker error: ${msg}\n`);
+	        } catch {
+	          // ignore
+	        }
         try {
           outStream.write(
             `${JSON.stringify(
@@ -4766,9 +4827,9 @@ export function createHttpHandler(
         }
       });
 
-      child.unref();
-      return { pid: child.pid ?? null };
-    }
+	      child.unref();
+	      return { pid: child.pid ?? null };
+	    }
 
     const codexInfo = resolveCodexBinInfo();
     const codexBin = codexInfo.bin;
@@ -4811,12 +4872,13 @@ export function createHttpHandler(
       ? []
       : ["--output-last-message", input.outputPath];
 
-    const child = spawn(codexBin, [...args, ...extraArgs, ...outputArgs, input.prompt], {
-      cwd: input.cwd,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
+	    const child = spawn(codexBin, [...args, ...extraArgs, ...outputArgs, input.prompt], {
+	      cwd: input.cwd,
+	      env: childEnv,
+	      stdio: ["ignore", "pipe", "pipe"],
+	      detached: true,
+	    });
+	    autoContinueSliceChildren.set(input.runId, child);
 
     child.stdout?.on("data", (chunk) => {
       try {
@@ -4833,12 +4895,13 @@ export function createHttpHandler(
       }
     });
 
-    child.on("close", (code, signal) => {
-      const stamp = new Date().toISOString();
-      try {
-        logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
-      } catch {
-        // ignore
+	    child.on("close", (code, signal) => {
+	      autoContinueSliceChildren.delete(input.runId);
+	      const stamp = new Date().toISOString();
+	      try {
+	        logStream.write(`\n==== ${stamp} :: exit code=${String(code)} signal=${String(signal)} ====\n`);
+	      } catch {
+	        // ignore
       }
       try {
         logStream.end();
@@ -4846,12 +4909,13 @@ export function createHttpHandler(
         // ignore
       }
     });
-    child.on("error", (error) => {
-      const msg = safeErrorMessage(error);
-      try {
-        logStream.write(`\nworker error: ${msg}\n`);
-      } catch {
-        // ignore
+	    child.on("error", (error) => {
+	      autoContinueSliceChildren.delete(input.runId);
+	      const msg = safeErrorMessage(error);
+	      try {
+	        logStream.write(`\nworker error: ${msg}\n`);
+	      } catch {
+	        // ignore
       }
       try {
         writeFileSync(
@@ -5395,15 +5459,17 @@ export function createHttpHandler(
 	              typeof outputParsed.summary === "string"
 	          );
 
-	          if (outputComplete) {
-	            // Some platforms can report a just-finished detached process as still "alive" (zombie).
-	            // Best-effort stop so we can proceed to parse the output contract below.
-	            try {
-	              await stopProcess(pid);
-	            } catch {
-	              // best effort
-	            }
-	          } else {
+		          if (outputComplete) {
+		            // Some platforms can report a just-finished detached process as still "alive" (zombie).
+		            // Best-effort stop, then clear pid so we can proceed to parse the output contract below.
+		            try {
+		              await stopProcess(pid);
+		            } catch {
+		              // best effort
+		            }
+		            slice.pid = null;
+		            autoContinueSliceRuns.set(slice.runId, slice);
+		          } else {
 	            const lastHeartbeat = autoContinueSliceLastHeartbeatMs.get(slice.runId) ?? 0;
 	            if (nowMs - lastHeartbeat >= AUTO_CONTINUE_SLICE_HEARTBEAT_MS) {
 	              try {
@@ -5585,7 +5651,7 @@ export function createHttpHandler(
 	              }
 	            }
 
-	            return;
+	            if (!outputComplete) return;
 	          }
 	        }
 
@@ -6117,26 +6183,27 @@ export function createHttpHandler(
     } catch {
       // best effort
     }
-	    const spawned = spawnCodexSliceWorker({
-	      runId: sliceRunId,
-	      prompt,
-	      cwd: workerCwd,
-	      logPath,
-	      outputPath,
-	      env: {
-	        ORGX_SOURCE_CLIENT: executorSourceClient,
-	        ORGX_RUN_ID: sliceRunId,
-	        ORGX_CORRELATION_ID: sliceRunId,
-	        ORGX_INITIATIVE_ID: run.initiativeId,
-	        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
-	        ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
-	        ORGX_TASK_ID: primaryTask.id,
-	        ORGX_AGENT_ID: sliceAgent.id,
-	        ORGX_AGENT_NAME: sliceAgent.name,
-	        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
-	        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
-	      },
-	    });
+	        const spawned = spawnCodexSliceWorker({
+	          runId: sliceRunId,
+	          prompt,
+	          cwd: workerCwd,
+	          logPath,
+	          outputPath,
+	          env: {
+	            ORGX_SOURCE_CLIENT: executorSourceClient,
+	            ORGX_RUN_ID: sliceRunId,
+	            ORGX_CORRELATION_ID: sliceRunId,
+	            ORGX_INITIATIVE_ID: run.initiativeId,
+	            ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+	            ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
+	            ORGX_TASK_ID: primaryTask.id,
+	            ORGX_AGENT_ID: sliceAgent.id,
+	            ORGX_AGENT_NAME: sliceAgent.name,
+	            ORGX_OUTPUT_PATH: outputPath,
+	            ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
+	            ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
+	          },
+	        });
 
 	    const slice: AutoContinueSliceRun = {
 	      runId: sliceRunId,
