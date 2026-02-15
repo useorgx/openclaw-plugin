@@ -297,7 +297,13 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.equal(result.status.ok, true);
   assert.equal(result.status.run?.status, "stopped");
   assert.equal(result.status.run?.stopReason, "completed");
-  assert.ok(result.calls.createEntity.some((c) => c.type === "artifact"), "expected artifact.create");
+  const artifactCreate = result.calls.createEntity.find((c) => c.type === "artifact");
+  assert.ok(artifactCreate, "expected artifact.create");
+  assert.equal(artifactCreate.payload?.entity_type, "initiative");
+  assert.equal(artifactCreate.payload?.entity_id, "init-1");
+  assert.equal(artifactCreate.payload?.name, "Mock deliverable");
+  assert.equal(artifactCreate.payload?.artifact_type, "document");
+  assert.ok(typeof artifactCreate.payload?.artifact_url === "string" && artifactCreate.payload.artifact_url.includes("/artifacts/"));
   assert.ok(
     result.calls.applyChangeset.some((c) =>
       Array.isArray(c.operations) && c.operations.some((op) => op.op === "task.update" && op.task_id === "task-1")
