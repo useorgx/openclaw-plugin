@@ -36,6 +36,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
 import { getOrgxPluginConfigDir } from "./paths.js";
+import { registerArtifact } from "./artifacts/register-artifact.js";
 import {
   readNextUpQueuePins,
   removeNextUpQueuePin,
@@ -4984,6 +4985,7 @@ export function createHttpHandler(
     const name = (input.artifact.name ?? "").trim();
     if (!name) return { ok: false, id: null };
     const artifactType = (input.artifact.artifact_type ?? "other").trim() || "other";
+    const artifactId = randomUUID();
 
     const verificationSteps = Array.isArray(input.artifact.verification_steps)
       ? input.artifact.verification_steps
@@ -5004,22 +5006,32 @@ export function createHttpHandler(
     const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
 
     try {
-      const entity = await client.createEntity("artifact", {
-        initiative_id: input.initiativeId,
-        workstream_id: input.workstreamId,
-        title: name,
+      const entityType = input.artifact.milestone_id ? "milestone" : "initiative";
+      const entityId = input.artifact.milestone_id ? input.artifact.milestone_id : input.initiativeId;
+      const result = await registerArtifact(client as any, client.getBaseUrl(), {
+        artifact_id: artifactId,
+        entity_type: entityType as any,
+        entity_id: entityId,
+        name,
         artifact_type: artifactType,
         description,
-        artifact_url: input.artifact.url ?? undefined,
-        status: "active",
+        external_url: input.artifact.url ?? null,
+        preview_markdown: null,
+        status: "draft",
         metadata: {
           source: "autopilot_slice",
+          artifact_id: artifactId,
           run_id: input.runId,
+          initiative_id: input.initiativeId,
+          workstream_id: input.workstreamId,
           milestone_id: input.artifact.milestone_id ?? null,
           task_ids: input.artifact.task_ids ?? null,
         },
+        // Make persistence validation opt-in to avoid adding latency to every slice by default.
+        validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
       });
-      return { ok: true, id: pickString(entity as any, ["id"]) ?? null };
+
+      return { ok: result.ok, id: result.artifact_id };
     } catch (err: unknown) {
       try {
         await appendToOutbox(input.initiativeId, {
@@ -5027,8 +5039,9 @@ export function createHttpHandler(
           type: "artifact",
           timestamp: now,
           payload: {
-            initiative_id: input.initiativeId,
-            workstream_id: input.workstreamId,
+            artifact_id: artifactId,
+            entity_type: input.artifact.milestone_id ? "milestone" : "initiative",
+            entity_id: input.artifact.milestone_id ?? input.initiativeId,
             name,
             artifact_type: artifactType,
             description,
@@ -5051,6 +5064,7 @@ export function createHttpHandler(
               source: "openclaw_local_fallback",
               event: "autopilot_slice_artifact_buffered",
               artifact_type: artifactType,
+              artifact_id: artifactId,
               url: input.artifact.url ?? null,
               error: safeErrorMessage(err),
             },
