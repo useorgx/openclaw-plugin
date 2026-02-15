@@ -28,6 +28,8 @@ import { BulkSessionsModal, type BulkSessionsMode } from '@/components/bulk/Bulk
 import { BulkDecisionsModal } from '@/components/bulk/BulkDecisionsModal';
 import { BulkOutboxModal } from '@/components/bulk/BulkOutboxModal';
 import { BulkHandoffsModal } from '@/components/bulk/BulkHandoffsModal';
+import { ArtifactViewerProvider } from '@/components/artifacts/ArtifactViewerContext';
+import { ArtifactViewerModal } from '@/components/artifacts/ArtifactViewerModal';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -149,7 +151,9 @@ export function App() {
   }
 
   return (
-    <DashboardShell onboarding={onboarding} />
+    <ArtifactViewerProvider>
+      <DashboardShell onboarding={onboarding} />
+    </ArtifactViewerProvider>
   );
 }
 
@@ -2108,6 +2112,8 @@ function DashboardShell({
         connectionVerified={onboarding.state.connectionVerified}
         hasSessions={data.sessions.nodes.length > 0}
       />
+
+      <ArtifactViewerModal />
     </div>
   );
 }

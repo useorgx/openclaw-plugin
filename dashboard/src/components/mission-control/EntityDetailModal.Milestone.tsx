@@ -12,6 +12,7 @@ import { EntityIcon } from '@/components/shared/EntityIcon';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 
 interface MilestoneDetailProps {
   milestone: InitiativeMilestone;
@@ -234,6 +235,14 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
       )}
 
       {/* Notes */}
+      {/* Artifacts */}
+      <EntityArtifactsPanel
+        entityType="milestone"
+        entityId={milestone.id}
+        authToken={authToken}
+        embedMode={embedMode}
+      />
+
       <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
