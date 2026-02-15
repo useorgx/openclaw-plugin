@@ -14,6 +14,7 @@
  */
 
 import { OrgXClient } from "../dist/api.js";
+import { getAuthFilePath, readPersistedAuth } from "../dist/auth-store.js";
 import { registerArtifact } from "../dist/artifacts/register-artifact.js";
 
 function requiredEnv(name) {
@@ -24,8 +25,25 @@ function requiredEnv(name) {
   return String(value).trim();
 }
 
+function resolveApiKey() {
+  const fromEnv = (process.env.ORGX_E2E_API_KEY || "").trim();
+  if (fromEnv) return fromEnv;
+
+  const persisted = readPersistedAuth();
+  const fromStore = (persisted?.apiKey || "").trim();
+  if (fromStore) return fromStore;
+
+  throw new Error(
+    `Missing ORGX_E2E_API_KEY and no persisted auth found at ${getAuthFilePath()}`
+  );
+}
+
 async function main() {
-  const apiKey = requiredEnv("ORGX_E2E_API_KEY");
+  if (process.env.ORGX_E2E_ALLOW_WRITE !== "1") {
+    throw new Error("Refusing to write: set ORGX_E2E_ALLOW_WRITE=1 to run this verifier.");
+  }
+
+  const apiKey = resolveApiKey();
   const baseUrl = (process.env.ORGX_E2E_BASE_URL || "https://www.useorgx.com").trim();
   const entityType = requiredEnv("ORGX_E2E_ENTITY_TYPE");
   const entityId = requiredEnv("ORGX_E2E_ENTITY_ID");
@@ -57,4 +75,3 @@ main().catch((err) => {
   process.stderr.write(`${err?.stack || err?.message || String(err)}\n`);
   process.exitCode = 1;
 });
-

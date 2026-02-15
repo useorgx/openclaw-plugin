@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { OrgXClient } from "../../dist/api.js";
+import { getAuthFilePath, readPersistedAuth } from "../../dist/auth-store.js";
 import { registerArtifact } from "../../dist/artifacts/register-artifact.js";
 
 function requiredEnv(name) {
@@ -10,6 +11,19 @@ function requiredEnv(name) {
     throw new Error(`Missing required env var: ${name}`);
   }
   return String(value).trim();
+}
+
+function resolveApiKey() {
+  const fromEnv = (process.env.ORGX_E2E_API_KEY || "").trim();
+  if (fromEnv) return fromEnv;
+
+  const persisted = readPersistedAuth();
+  const fromStore = (persisted?.apiKey || "").trim();
+  if (fromStore) return fromStore;
+
+  throw new Error(
+    `Missing ORGX_E2E_API_KEY and no persisted auth found at ${getAuthFilePath()}`
+  );
 }
 
 function isEnabled() {
@@ -22,7 +36,7 @@ test("e2e: registerArtifact persists and links to entity (real OrgX)", { timeout
     return;
   }
 
-  const apiKey = requiredEnv("ORGX_E2E_API_KEY");
+  const apiKey = resolveApiKey();
   const baseUrl = (process.env.ORGX_E2E_BASE_URL || "https://www.useorgx.com").trim();
   const entityType = requiredEnv("ORGX_E2E_ENTITY_TYPE");
   const entityId = requiredEnv("ORGX_E2E_ENTITY_ID");
@@ -55,4 +69,3 @@ test("e2e: registerArtifact persists and links to entity (real OrgX)", { timeout
   assert.equal(result.persistence.artifact_detail_ok, true);
   assert.equal(result.persistence.linked_ok, true);
 });
-

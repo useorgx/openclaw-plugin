@@ -11,6 +11,16 @@ export interface RegisterArtifactInput {
   entity_id: string;
   name: string;
   artifact_type: string;
+  /**
+   * Required by OrgX work_artifacts schema.
+   * If omitted, defaults to "human" (safe default for user-scoped oxk_ keys).
+   */
+  created_by_type?: "human" | "agent" | null;
+  /**
+   * Optional explicit creator id. OrgX can typically infer this from auth context,
+   * but allow callers to supply it when they have a stable UUID.
+   */
+  created_by_id?: string | null;
   description?: string | null;
   external_url?: string | null;
   preview_markdown?: string | null;
@@ -51,6 +61,22 @@ function isUuid(value: string): boolean {
   );
 }
 
+function resolveCreatedById(client: OrgXClient, input: RegisterArtifactInput): string | null {
+  const explicit = normalizeText(input.created_by_id);
+  if (explicit && isUuid(explicit)) return explicit;
+
+  const fromClient =
+    typeof (client as any)?.getUserId === "function"
+      ? normalizeText((client as any).getUserId())
+      : "";
+  if (fromClient && isUuid(fromClient)) return fromClient;
+
+  const fromEnv = normalizeText(process.env.ORGX_CREATED_BY_ID);
+  if (fromEnv && isUuid(fromEnv)) return fromEnv;
+
+  return null;
+}
+
 export function validateRegisterArtifactInput(input: RegisterArtifactInput): string[] {
   const errors: string[] = [];
 
@@ -71,6 +97,11 @@ export function validateRegisterArtifactInput(input: RegisterArtifactInput): str
 
   const artifactType = normalizeText(input.artifact_type);
   if (!artifactType) errors.push("artifact_type is required");
+
+  const createdByType = normalizeText(input.created_by_type);
+  if (createdByType && createdByType !== "human" && createdByType !== "agent") {
+    errors.push("created_by_type must be 'human' or 'agent' when provided");
+  }
 
   const externalUrl = normalizeText(input.external_url);
   const preview = normalizeText(input.preview_markdown);
@@ -107,27 +138,26 @@ async function validateArtifactPersistence(client: OrgXClient, input: {
   entity_type: string;
   entity_id: string;
 }): Promise<{ artifact_detail_ok: boolean; linked_ok: boolean }> {
+  // Use API-key compatible entity CRUD endpoints for validation.
+  // The web UI endpoints (/api/artifacts/*, /api/work-artifacts/*) are session-authenticated (401 for API keys).
   const detail = await client.rawRequest<any>(
     "GET",
-    `/api/artifacts/${encodeURIComponent(input.artifactId)}`
+    `/api/entities?type=artifact&id=${encodeURIComponent(input.artifactId)}`
   );
-  const artifact = detail && typeof detail === "object" ? (detail as any).artifact : null;
-  const artifactOk =
-    artifact &&
-    typeof artifact === "object" &&
-    typeof artifact.id === "string" &&
-    artifact.id === input.artifactId;
 
-  const byEntity = await client.rawRequest<any>(
-    "GET",
-    `/api/work-artifacts/by-entity?entity_type=${encodeURIComponent(
-      input.entity_type
-    )}&entity_id=${encodeURIComponent(input.entity_id)}&limit=50`
-  );
-  const artifacts = byEntity && typeof byEntity === "object" ? (byEntity as any).artifacts : null;
+  const rows = detail && typeof detail === "object" ? (detail as any).data : null;
+  const artifact =
+    Array.isArray(rows) ? rows.find((r) => r && typeof r === "object" && r.id === input.artifactId) : null;
+
+  const artifactOk =
+    artifact && typeof artifact === "object" && typeof artifact.id === "string" && artifact.id === input.artifactId;
+
   const linkedOk =
-    Array.isArray(artifacts) &&
-    artifacts.some((a) => a && typeof a === "object" && a.id === input.artifactId);
+    artifactOk &&
+    typeof (artifact as any).entity_type === "string" &&
+    typeof (artifact as any).entity_id === "string" &&
+    (artifact as any).entity_type === input.entity_type &&
+    (artifact as any).entity_id === input.entity_id;
 
   return { artifact_detail_ok: Boolean(artifactOk), linked_ok: Boolean(linkedOk) };
 }
@@ -160,6 +190,10 @@ export async function registerArtifact(
   const desiredId = requestedId && isUuid(requestedId) ? requestedId : randomUUID();
   const artifactUrl = `${normalizeBaseUrl(baseUrl)}/artifacts/${desiredId}`;
   const status = normalizeText(input.status) || "draft";
+  const createdByType = normalizeText(input.created_by_type) || "human";
+  const createdById = resolveCreatedById(client, input);
+  const createdBy: Record<string, unknown> =
+    createdById ? { created_by_type: createdByType, created_by_id: createdById } : { created_by_type: createdByType };
 
   const metadata: Record<string, unknown> = {
     ...(input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
@@ -192,6 +226,7 @@ export async function registerArtifact(
         artifact_url: artifactUrl,
         status,
         metadata,
+        ...createdBy,
       });
       created = true;
     } catch (err: unknown) {
@@ -210,6 +245,7 @@ export async function registerArtifact(
         artifact_url: artifactUrl,
         status,
         metadata,
+        ...createdBy,
       });
       created = true;
     }
@@ -226,6 +262,7 @@ export async function registerArtifact(
         artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
         status,
         metadata,
+        ...createdBy,
       });
       created = true;
     } catch (inner: unknown) {
@@ -243,6 +280,7 @@ export async function registerArtifact(
         artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
         status,
         metadata,
+        ...createdBy,
       });
       created = true;
     }
