@@ -58,7 +58,6 @@ import type {
   SessionTreeResponse,
   HandoffSummary,
   BillingStatus,
-  BillingCheckoutRequest,
   KickoffContext,
   KickoffContextRequest,
   KickoffContextResponse,
@@ -126,9 +125,17 @@ import {
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
 import { posthogCapture } from "./telemetry/posthog.js";
 import { createRouter } from "./http/router.js";
+import { registerAgentSuiteRoutes } from "./http/routes/agent-suite.js";
+import { registerAgentsCatalogRoutes } from "./http/routes/agents-catalog.js";
+import { registerBillingRoutes } from "./http/routes/billing.js";
+import { registerDelegationRoutes } from "./http/routes/delegation.js";
 import { registerDebugRoutes } from "./http/routes/debug.js";
+import { registerEntitiesRoutes } from "./http/routes/entities.js";
 import { registerHealthRoutes } from "./http/routes/health.js";
+import { registerLiveMiscRoutes } from "./http/routes/live-misc.js";
+import { registerMissionControlReadRoutes } from "./http/routes/mission-control-read.js";
 import { registerOnboardingRoutes } from "./http/routes/onboarding.js";
+import { registerSettingsByokRoutes } from "./http/routes/settings-byok.js";
 import { registerSummaryRoutes } from "./http/routes/summary.js";
 
 // =============================================================================
@@ -7727,11 +7734,109 @@ export function createHttpHandler(
     formatInitiatives,
     getOnboardingState: async () => getOnboardingState(await onboarding.getStatus()),
   });
+  registerAgentSuiteRoutes(apiRouter, {
+    pluginVersion: config.pluginVersion,
+    telemetryDistinctId,
+    parseJsonRequest,
+    resolveSkillPackOverrides: ({ force }) => resolveSkillPackOverrides({ client, force }),
+    readSkillPackState,
+    computeOrgxAgentSuitePlan,
+    applyOrgxAgentSuitePlan,
+    generateAgentSuiteOperationId,
+    updateSkillPackPolicy,
+    posthogCapture,
+    sendJson,
+    safeErrorMessage,
+  });
   registerDebugRoutes(apiRouter, {
     sendJson,
     safeErrorMessage,
     resolveCodexBinInfo,
     getCachedCodexProbeSummary: () => cachedCodexProbeSummary,
+  });
+  registerAgentsCatalogRoutes(apiRouter, {
+    listAgents,
+    loadLocalSnapshot: () => loadLocalOpenClawSnapshot(240).catch(() => null),
+    readAgentContexts,
+    readAgentRuns,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerMissionControlReadRoutes(apiRouter, {
+    autoContinueRuns,
+    defaultAutoContinueTokenBudget,
+    autoContinueTickMs: AUTO_CONTINUE_TICK_MS,
+    buildMissionControlGraph: (initiativeId) => buildMissionControlGraph(client, initiativeId),
+    applyLocalInitiativeOverrideToGraph: (graph) =>
+      applyLocalInitiativeOverrideToGraph(
+        graph as {
+          initiative: { id: string; status: string };
+          nodes: MissionControlNode[];
+        }
+      ),
+    buildNextUpQueue,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerSettingsByokRoutes(apiRouter, {
+    parseJsonRequest,
+    readByokKeys,
+    writeByokKeys,
+    maskSecret,
+    listAgents,
+    listOpenClawProviderModels,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerBillingRoutes(apiRouter, {
+    client,
+    parseJsonRequest,
+    pickString,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerDelegationRoutes(apiRouter, {
+    client,
+    parseJsonRequest,
+    pickString,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerEntitiesRoutes(apiRouter, {
+    client,
+    parseJsonRequest,
+    pickString,
+    normalizeEntityMutationPayload,
+    resolveAutoAssignments: (input) =>
+      resolveAutoAssignments({
+        client,
+        ...input,
+      }),
+    setLocalInitiativeStatusOverride,
+    clearLocalInitiativeStatusOverride,
+    isUnauthorizedOrgxError,
+    applyLocalInitiativeOverrides,
+    formatInitiatives,
+    getSnapshot,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerLiveMiscRoutes(apiRouter, {
+    parseJsonRequest,
+    pickString,
+    summarizeActivityHeadline,
+    getLiveAgents: ({ initiative, includeIdle }) =>
+      client.getLiveAgents({ initiative, includeIdle }),
+    getLiveInitiatives: ({ id, limit }) => client.getLiveInitiatives({ id, limit }),
+    getLiveDecisions: ({ status, limit }) => client.getLiveDecisions({ status, limit }),
+    getHandoffs: () => client.getHandoffs(),
+    loadLocalOpenClawSnapshot,
+    toLocalLiveAgents,
+    toLocalLiveInitiatives,
+    localInitiativeStatusOverrides,
+    mapDecisionEntity,
+    sendJson,
+    safeErrorMessage,
   });
   registerHealthRoutes(apiRouter, {
     diagnostics,
@@ -7793,7 +7898,6 @@ export function createHttpHandler(
       const runCheckpointRestoreMatch = route.match(
         /^runs\/([^/]+)\/checkpoints\/([^/]+)\/restore$/
       );
-      const isDelegationPreflight = route === "delegation/preflight";
       const isMissionControlAutoAssignmentRoute =
         route === "mission-control/assignments/auto";
       const isMissionControlNextUpPlayRoute =
@@ -7810,7 +7914,6 @@ export function createHttpHandler(
         route === "mission-control/auto-continue/stop";
       const isMissionControlAutoContinueTickRoute =
         route === "mission-control/auto-continue/tick";
-      const isEntitiesRoute = route === "entities";
       const entityCommentsMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/comments$/
       );
@@ -7819,13 +7922,9 @@ export function createHttpHandler(
       );
       const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
       const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
-      const isLiveActivityHeadlineRoute = route === "live/activity/headline";
       const isAgentLaunchRoute = route === "agents/launch";
       const isAgentStopRoute = route === "agents/stop";
       const isAgentRestartRoute = route === "agents/restart";
-      const isByokSettingsRoute = route === "settings/byok";
-      const isAgentSuiteInstallRoute = route === "agent-suite/install";
-      const isSkillPackPolicyRoute = route === "skill-pack/policy";
 
       const routed = apiRouter.match(method, route);
       if (routed) {
@@ -9158,36 +9257,6 @@ export function createHttpHandler(
         return true;
       }
 
-      if (method === "POST" && isDelegationPreflight) {
-        try {
-          const payload = await parseJsonRequest(req);
-          const intent = pickString(payload, ["intent"]);
-          if (!intent) {
-            sendJson(res, 400, { error: "intent is required" });
-            return true;
-          }
-
-          const toStringArray = (value: unknown): string[] | undefined =>
-            Array.isArray(value)
-              ? value.filter((entry): entry is string => typeof entry === "string")
-              : undefined;
-
-          const data = await client.delegationPreflight({
-            intent,
-            acceptanceCriteria: toStringArray(payload.acceptanceCriteria),
-            constraints: toStringArray(payload.constraints),
-            domains: toStringArray(payload.domains),
-          });
-
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
       if (method === "POST" && isMissionControlAutoAssignmentRoute) {
         try {
           const payload = await parseJsonRequest(req);
@@ -9520,21 +9589,13 @@ export function createHttpHandler(
         !(runCheckpointsMatch && method === "POST") &&
         !(runCheckpointRestoreMatch && method === "POST") &&
         !(runActionMatch && method === "POST") &&
-        !(isDelegationPreflight && method === "POST") &&
         !(isMissionControlAutoAssignmentRoute && method === "POST") &&
         !(isMissionControlNextUpPlayRoute && method === "POST") &&
         !(isMissionControlNextUpPinRoute && method === "POST") &&
         !(isMissionControlNextUpUnpinRoute && method === "POST") &&
         !(isMissionControlNextUpReorderRoute && method === "POST") &&
-        !(isEntitiesRoute && method === "POST") &&
-        !(isEntitiesRoute && method === "PATCH") &&
         !(entityCommentsMatch && method === "POST") &&
         !(entityActionMatch && method === "POST") &&
-        !(isByokSettingsRoute && method === "POST") &&
-        !(isAgentSuiteInstallRoute && method === "POST") &&
-        !(isSkillPackPolicyRoute && method === "GET") &&
-        !(isSkillPackPolicyRoute && method === "POST") &&
-        !(isLiveActivityHeadlineRoute && method === "POST") &&
         !(route === "hooks/runtime" && method === "POST") &&
         !(route === "hooks/runtime/setup" && method === "POST")
       ) {
@@ -9548,296 +9609,6 @@ export function createHttpHandler(
       }
 
       switch (route) {
-        case "agent-suite/status": {
-          try {
-            // Resolve skill pack overrides — tolerate failures so the plan
-            // is still returned even when the remote API is unreachable.
-            let skillPack: OrgxSkillPackOverrides | null = null;
-            try {
-              skillPack = await resolveSkillPackOverrides({ client });
-            } catch {
-              // Fall through with null — plan will use builtin defaults.
-            }
-            const state = readSkillPackState();
-            const updateAvailable = Boolean(
-              state.remote?.checksum &&
-                state.pack?.checksum &&
-                state.remote.checksum !== state.pack.checksum
-            );
-            const plan = computeOrgxAgentSuitePlan({
-              packVersion: config.pluginVersion || "0.0.0",
-              skillPack,
-              skillPackRemote: state.remote,
-              skillPackPolicy: state.policy,
-              skillPackUpdateAvailable: updateAvailable,
-            });
-            sendJson(res, 200, {
-              ok: true,
-              data: plan,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "agent-suite/install": {
-          if (method !== "POST") {
-            sendJson(res, 405, {
-              ok: false,
-              error: "Use POST /orgx/api/agent-suite/install",
-            });
-            return true;
-          }
-          try {
-            const payload = await parseJsonRequest(req);
-            const dryRun = Boolean(
-              (payload as any)?.dryRun ?? (payload as any)?.dry_run
-            );
-            const skillPack = await resolveSkillPackOverrides({
-              client,
-              force: Boolean((payload as any)?.forceSkillPack ?? (payload as any)?.force_skill_pack),
-            });
-            const state = readSkillPackState();
-            const updateAvailable = Boolean(
-              state.remote?.checksum &&
-                state.pack?.checksum &&
-                state.remote.checksum !== state.pack.checksum
-            );
-            const plan = computeOrgxAgentSuitePlan({
-              packVersion: config.pluginVersion || "0.0.0",
-              skillPack,
-              skillPackRemote: state.remote,
-              skillPackPolicy: state.policy,
-              skillPackUpdateAvailable: updateAvailable,
-            });
-            const result = applyOrgxAgentSuitePlan({ plan, dryRun, skillPack });
-
-            const counts = (result.plan.workspaceFiles ?? []).reduce(
-              (acc, entry) => {
-                acc[entry.action] += 1;
-                return acc;
-              },
-              { create: 0, update: 0, noop: 0, conflict: 0 } as Record<
-                "create" | "update" | "noop" | "conflict",
-                number
-              >
-            );
-
-            void posthogCapture({
-              event: "openclaw_agent_suite_install",
-              distinctId: telemetryDistinctId,
-              properties: {
-                plugin_version: (config.pluginVersion ?? "").trim() || null,
-                dry_run: Boolean(dryRun),
-                applied: Boolean(result.applied),
-                openclaw_config_updated: Boolean(result.plan.openclawConfigWouldUpdate),
-                added_agents_count: result.plan.openclawConfigAddedAgents.length,
-                files_create: counts.create,
-                files_update: counts.update,
-                files_noop: counts.noop,
-                files_conflict: counts.conflict,
-                skill_pack_source: result.plan.skillPack?.source ?? null,
-                skill_pack_checksum: result.plan.skillPack?.checksum ?? null,
-                skill_pack_version: result.plan.skillPack?.version ?? null,
-              },
-            }).catch(() => {
-              // best effort
-            });
-
-            sendJson(res, 200, {
-              ok: true,
-              operationId: generateAgentSuiteOperationId(),
-              dryRun,
-              applied: result.applied,
-              data: result.plan,
-            });
-          } catch (err: unknown) {
-            void posthogCapture({
-              event: "openclaw_agent_suite_install_failed",
-              distinctId: telemetryDistinctId,
-              properties: {
-                plugin_version: (config.pluginVersion ?? "").trim() || null,
-                error: safeErrorMessage(err),
-              },
-            }).catch(() => {
-              // best effort
-            });
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "skill-pack/policy": {
-          if (method === "GET") {
-            const state = readSkillPackState();
-            const updateAvailable = Boolean(
-              state.remote?.checksum &&
-                state.pack?.checksum &&
-                state.remote.checksum !== state.pack.checksum
-            );
-            sendJson(res, 200, {
-              ok: true,
-              data: {
-                policy: state.policy,
-                pack: state.pack,
-                remote: state.remote,
-                updateAvailable,
-                lastCheckedAt: state.lastCheckedAt,
-                lastError: state.lastError,
-              },
-            });
-            return true;
-          }
-
-          if (method !== "POST") {
-            sendJson(res, 405, { ok: false, error: "Use GET/POST /orgx/api/skill-pack/policy" });
-            return true;
-          }
-
-          try {
-            const payload = await parseJsonRequest(req);
-            const frozenRaw = (payload as any)?.frozen;
-            const frozen =
-              typeof frozenRaw === "boolean" ? frozenRaw : undefined;
-
-            const pinToCurrent = Boolean((payload as any)?.pinToCurrent ?? (payload as any)?.pin_to_current);
-            const clearPin = Boolean((payload as any)?.clearPin ?? (payload as any)?.clear_pin);
-            const pinnedChecksum =
-              typeof (payload as any)?.pinnedChecksum === "string"
-                ? String((payload as any)?.pinnedChecksum)
-                : (payload as any)?.pinnedChecksum === null
-                  ? null
-                  : undefined;
-
-            const state = updateSkillPackPolicy({
-              frozen,
-              pinToCurrent,
-              clearPin,
-              pinnedChecksum,
-            });
-
-            void posthogCapture({
-              event: "openclaw_skill_pack_policy_updated",
-              distinctId: telemetryDistinctId,
-              properties: {
-                plugin_version: (config.pluginVersion ?? "").trim() || null,
-                frozen: state.policy.frozen,
-                pinned_checksum_prefix: state.policy.pinnedChecksum ? state.policy.pinnedChecksum.slice(0, 12) : null,
-              },
-            }).catch(() => {
-              // best effort
-            });
-
-            sendJson(res, 200, { ok: true, data: state.policy });
-          } catch (err: unknown) {
-            sendJson(res, 400, { ok: false, error: safeErrorMessage(err) });
-          }
-          return true;
-        }
-
-        case "agents/catalog": {
-          try {
-            const [openclawAgents, localSnapshot] = await Promise.all([
-              listAgents(),
-              loadLocalOpenClawSnapshot(240).catch(() => null),
-            ]);
-
-            const localById = new Map<
-              string,
-              {
-                status: string;
-                currentTask: string | null;
-                runId: string | null;
-                startedAt: string | null;
-                blockers: string[];
-              }
-            >();
-            if (localSnapshot) {
-              for (const agent of localSnapshot.agents) {
-                localById.set(agent.id, {
-                  status: agent.status,
-                  currentTask: agent.currentTask,
-                  runId: agent.runId,
-                  startedAt: agent.startedAt,
-                  blockers: agent.blockers,
-                });
-              }
-            }
-
-            const contexts = readAgentContexts().agents;
-            const runs = readAgentRuns().runs;
-            const latestRunByAgent = new Map<string, (typeof runs)[string]>();
-
-            for (const run of Object.values(runs)) {
-              if (!run || typeof run !== "object") continue;
-              const agentId = typeof run.agentId === "string" ? run.agentId.trim() : "";
-              if (!agentId) continue;
-              const existing = latestRunByAgent.get(agentId);
-              const nextTs = Date.parse(run.startedAt ?? "");
-              const existingTs = existing ? Date.parse(existing.startedAt ?? "") : 0;
-
-              // Prefer latest running record; fall back to latest overall if none running.
-              if (!existing) {
-                latestRunByAgent.set(agentId, run);
-                continue;
-              }
-
-              const existingRunning = existing.status === "running";
-              const nextRunning = run.status === "running";
-              if (nextRunning && !existingRunning) {
-                latestRunByAgent.set(agentId, run);
-                continue;
-              }
-              if (nextRunning === existingRunning && nextTs > existingTs) {
-                latestRunByAgent.set(agentId, run);
-              }
-            }
-
-            const agents = openclawAgents.map((entry) => {
-              const id = typeof entry.id === "string" ? entry.id.trim() : "";
-              const name =
-                typeof entry.name === "string" && entry.name.trim().length > 0
-                  ? entry.name.trim()
-                  : id || "unknown";
-              const local = id ? localById.get(id) ?? null : null;
-              const context = id ? contexts[id] ?? null : null;
-              const runFromSession = id && local?.runId ? runs[local.runId] ?? null : null;
-              const run = runFromSession ?? (id ? latestRunByAgent.get(id) ?? null : null);
-              return {
-                id,
-                name,
-                workspace: typeof entry.workspace === "string" ? entry.workspace : null,
-                model: typeof entry.model === "string" ? entry.model : null,
-                isDefault: Boolean(entry.isDefault),
-                status: local?.status ?? null,
-                currentTask: local?.currentTask ?? null,
-                runId: local?.runId ?? null,
-                startedAt: local?.startedAt ?? null,
-                blockers: local?.blockers ?? [],
-                context,
-                run,
-              };
-            });
-
-            sendJson(res, 200, {
-              generatedAt: new Date().toISOString(),
-              agents,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
         case "hooks/runtime/config": {
           try {
             const snapshot = readOpenClawSettingsSnapshot();
@@ -10334,498 +10105,6 @@ export function createHttpHandler(
           } catch (err: unknown) {
             sendJson(res, 500, {
               ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "mission-control/auto-continue/status": {
-          const initiativeId =
-            searchParams.get("initiative_id") ??
-            searchParams.get("initiativeId") ??
-            "";
-          const id = initiativeId.trim();
-          if (!id) {
-            sendJson(res, 400, {
-              ok: false,
-              error: "Query parameter 'initiative_id' is required.",
-            });
-            return true;
-          }
-
-          const run = autoContinueRuns.get(id) ?? null;
-          sendJson(res, 200, {
-            ok: true,
-            initiativeId: id,
-            run,
-            defaults: {
-              tokenBudget: defaultAutoContinueTokenBudget(),
-              tickMs: AUTO_CONTINUE_TICK_MS,
-            },
-          });
-          return true;
-        }
-
-        case "billing/status": {
-          if (method !== "GET") {
-            sendJson(res, 405, { ok: false, error: "Method not allowed" });
-            return true;
-          }
-
-          try {
-            const status = await client.getBillingStatus();
-            sendJson(res, 200, { ok: true, data: status });
-          } catch (err: unknown) {
-            sendJson(res, 200, { ok: false, error: safeErrorMessage(err) });
-          }
-          return true;
-        }
-
-        case "billing/checkout": {
-          if (method !== "POST") {
-            sendJson(res, 405, { ok: false, error: "Method not allowed" });
-            return true;
-          }
-
-          const basePricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
-          try {
-            const payload = await parseJsonRequest(req);
-            const planIdRaw =
-              (pickString(payload, ["planId", "plan_id", "plan"]) ?? "starter").trim().toLowerCase();
-            const billingCycleRaw =
-              (pickString(payload, ["billingCycle", "billing_cycle"]) ?? "monthly").trim().toLowerCase();
-
-            const planId =
-              planIdRaw === "team" || planIdRaw === "enterprise" ? planIdRaw : "starter";
-            const billingCycle = billingCycleRaw === "annual" ? "annual" : "monthly";
-
-            const result = await client.createBillingCheckout({
-              planId,
-              billingCycle,
-            } satisfies BillingCheckoutRequest);
-
-            const url = result?.url ?? result?.checkout_url ?? null;
-            sendJson(res, 200, { ok: true, data: { url: url ?? basePricingUrl } });
-          } catch (err: unknown) {
-            // If the remote billing endpoints are not deployed yet, degrade gracefully.
-            sendJson(res, 200, { ok: true, data: { url: basePricingUrl } });
-          }
-          return true;
-        }
-
-        case "billing/portal": {
-          if (method !== "POST") {
-            sendJson(res, 405, { ok: false, error: "Method not allowed" });
-            return true;
-          }
-
-          const basePricingUrl = `${client.getBaseUrl().replace(/\/+$/, "")}/pricing`;
-          try {
-            const result = await client.createBillingPortal();
-            const url = result?.url ?? null;
-            sendJson(res, 200, { ok: true, data: { url: url ?? basePricingUrl } });
-          } catch (err: unknown) {
-            sendJson(res, 200, { ok: true, data: { url: basePricingUrl } });
-          }
-          return true;
-        }
-
-        case "settings/byok": {
-          const stored = readByokKeys();
-          const effectiveOpenai = stored?.openaiApiKey ?? process.env.OPENAI_API_KEY ?? null;
-          const effectiveAnthropic =
-            stored?.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? null;
-          const effectiveOpenrouter =
-            stored?.openrouterApiKey ?? process.env.OPENROUTER_API_KEY ?? null;
-
-          const toProvider = (input: {
-            storedValue: string | null | undefined;
-            envValue: string | undefined;
-            effective: string | null;
-          }) => {
-            const hasStored = typeof input.storedValue === "string" && input.storedValue.trim().length > 0;
-            const hasEnv = typeof input.envValue === "string" && input.envValue.trim().length > 0;
-            const source = hasStored ? "stored" : hasEnv ? "env" : "none";
-            return {
-              configured: Boolean(input.effective && input.effective.trim().length > 0),
-              source,
-              masked: maskSecret(input.effective),
-            };
-          };
-
-          if (method === "POST") {
-            try {
-              const payload = await parseJsonRequest(req);
-              const updates: Record<string, unknown> = {};
-
-              const setIfPresent = (key: string, aliases: string[]) => {
-                for (const alias of aliases) {
-                  if (!Object.prototype.hasOwnProperty.call(payload, alias)) continue;
-                  const raw = (payload as Record<string, unknown>)[alias];
-                  if (raw === null) {
-                    updates[key] = null;
-                    return;
-                  }
-                  if (typeof raw === "string") {
-                    updates[key] = raw;
-                    return;
-                  }
-                }
-              };
-
-              setIfPresent("openaiApiKey", ["openaiApiKey", "openai_api_key", "openaiKey", "openai_key"]);
-              setIfPresent("anthropicApiKey", [
-                "anthropicApiKey",
-                "anthropic_api_key",
-                "anthropicKey",
-                "anthropic_key",
-              ]);
-              setIfPresent("openrouterApiKey", [
-                "openrouterApiKey",
-                "openrouter_api_key",
-                "openrouterKey",
-                "openrouter_key",
-              ]);
-
-              const saved = writeByokKeys(updates as any);
-              const nextEffectiveOpenai = saved.openaiApiKey ?? process.env.OPENAI_API_KEY ?? null;
-              const nextEffectiveAnthropic =
-                saved.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? null;
-              const nextEffectiveOpenrouter =
-                saved.openrouterApiKey ?? process.env.OPENROUTER_API_KEY ?? null;
-
-              sendJson(res, 200, {
-                ok: true,
-                updatedAt: saved.updatedAt,
-                providers: {
-                  openai: toProvider({
-                    storedValue: saved.openaiApiKey,
-                    envValue: process.env.OPENAI_API_KEY,
-                    effective: nextEffectiveOpenai,
-                  }),
-                  anthropic: toProvider({
-                    storedValue: saved.anthropicApiKey,
-                    envValue: process.env.ANTHROPIC_API_KEY,
-                    effective: nextEffectiveAnthropic,
-                  }),
-                  openrouter: toProvider({
-                    storedValue: saved.openrouterApiKey,
-                    envValue: process.env.OPENROUTER_API_KEY,
-                    effective: nextEffectiveOpenrouter,
-                  }),
-                },
-              });
-            } catch (err: unknown) {
-              sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
-            }
-            return true;
-          }
-
-          sendJson(res, 200, {
-            ok: true,
-            updatedAt: stored?.updatedAt ?? null,
-            providers: {
-              openai: toProvider({
-                storedValue: stored?.openaiApiKey,
-                envValue: process.env.OPENAI_API_KEY,
-                effective: effectiveOpenai,
-              }),
-              anthropic: toProvider({
-                storedValue: stored?.anthropicApiKey,
-                envValue: process.env.ANTHROPIC_API_KEY,
-                effective: effectiveAnthropic,
-              }),
-              openrouter: toProvider({
-                storedValue: stored?.openrouterApiKey,
-                envValue: process.env.OPENROUTER_API_KEY,
-                effective: effectiveOpenrouter,
-              }),
-            },
-          });
-          return true;
-        }
-
-        case "settings/byok/health": {
-          let agentId =
-            searchParams.get("agentId") ??
-            searchParams.get("agent_id") ??
-            "";
-          agentId = agentId.trim();
-
-          if (!agentId) {
-            try {
-              const agents = await listAgents();
-              const defaultAgent =
-                agents.find((entry) => Boolean(entry.isDefault)) ?? agents[0] ?? null;
-              const candidate =
-                defaultAgent && typeof defaultAgent.id === "string" ? defaultAgent.id.trim() : "";
-              if (candidate) agentId = candidate;
-            } catch {
-              // ignore
-            }
-          }
-          if (!agentId) agentId = "main";
-
-          const providers: Record<string, unknown> = {};
-          for (const provider of ["openai", "anthropic", "openrouter"] as const) {
-            try {
-              const models = await listOpenClawProviderModels({ agentId, provider });
-              providers[provider] = {
-                ok: true,
-                modelCount: models.length,
-                sample: models.slice(0, 4).map((model) => model.key),
-              };
-            } catch (err: unknown) {
-              providers[provider] = {
-                ok: false,
-                error: safeErrorMessage(err),
-              };
-            }
-          }
-
-          sendJson(res, 200, {
-            ok: true,
-            agentId,
-            providers,
-          });
-          return true;
-        }
-
-        case "mission-control/graph": {
-          const initiativeId =
-            searchParams.get("initiative_id") ??
-            searchParams.get("initiativeId");
-          if (!initiativeId || initiativeId.trim().length === 0) {
-            sendJson(res, 400, {
-              error: "Query parameter 'initiative_id' is required.",
-            });
-            return true;
-          }
-
-          try {
-            const graph = applyLocalInitiativeOverrideToGraph(
-              await buildMissionControlGraph(client, initiativeId.trim())
-            );
-            sendJson(res, 200, graph);
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "mission-control/next-up": {
-          const initiativeIdRaw =
-            searchParams.get("initiative_id") ??
-            searchParams.get("initiativeId") ??
-            "";
-          const initiativeId = initiativeIdRaw.trim() || null;
-
-          try {
-            const queue = await buildNextUpQueue({ initiativeId });
-            sendJson(res, 200, {
-              ok: true,
-              generatedAt: new Date().toISOString(),
-              total: queue.items.length,
-              items: queue.items,
-              degraded: queue.degraded,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "entities": {
-          if (method === "POST") {
-            try {
-              const payload = await parseJsonRequest(req);
-              const type = pickString(payload, ["type"]);
-              const title = pickString(payload, ["title", "name"]);
-
-              if (!type || !title) {
-                sendJson(res, 400, {
-                  error: "Both 'type' and 'title' are required.",
-                });
-                return true;
-              }
-
-              const data = normalizeEntityMutationPayload({ ...payload, title });
-              delete (data as Record<string, unknown>).type;
-
-              let entity = await client.createEntity(type, data);
-              let autoAssignment:
-                | {
-                    ok: boolean;
-                    assignment_source: "orchestrator" | "fallback" | "manual";
-                    assigned_agents: MissionControlAssignedAgent[];
-                    warnings: string[];
-                    updated_entity?: Entity;
-                  }
-                | null = null;
-
-              if (type === "initiative" || type === "workstream") {
-                const entityRecord = entity as Record<string, unknown>;
-                autoAssignment = await resolveAutoAssignments({
-                  client,
-                  entityId: String(entityRecord.id ?? ""),
-                  entityType: type,
-                  initiativeId:
-                    type === "initiative"
-                      ? String(entityRecord.id ?? "")
-                      : pickString(data, ["initiative_id", "initiativeId"]),
-                  title:
-                    pickString(entityRecord, ["title", "name"]) ??
-                    title ??
-                    "Untitled",
-                  summary:
-                    pickString(entityRecord, [
-                      "summary",
-                      "description",
-                      "context",
-                    ]) ?? null,
-                });
-                if (autoAssignment.updated_entity) {
-                  entity = autoAssignment.updated_entity;
-                }
-              }
-
-              sendJson(res, 201, { ok: true, entity, auto_assignment: autoAssignment });
-            } catch (err: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-              });
-            }
-            return true;
-          }
-
-          if (method === "PATCH") {
-            let payload: Record<string, unknown> = {};
-            let type: string | null = null;
-            let id: string | null = null;
-            let requestedStatus: string | null = null;
-            try {
-              payload = await parseJsonRequest(req);
-              type = pickString(payload, ["type"]);
-              id = pickString(payload, ["id"]);
-              requestedStatus = pickString(payload, ["status"]);
-
-              if (!type || !id) {
-                sendJson(res, 400, {
-                  error: "Both 'type' and 'id' are required for PATCH.",
-                });
-                return true;
-              }
-
-              const updates = { ...payload };
-              delete (updates as Record<string, unknown>).type;
-              delete (updates as Record<string, unknown>).id;
-
-              const normalizedType = type.trim().toLowerCase();
-              const normalizedUpdates = normalizeEntityMutationPayload(updates);
-              const entity = await client.updateEntity(
-                type,
-                id,
-                normalizedUpdates
-              );
-              if (normalizedType === "initiative") {
-                clearLocalInitiativeStatusOverride(id);
-              }
-              sendJson(res, 200, { ok: true, entity });
-            } catch (err: unknown) {
-              if (
-                type?.trim().toLowerCase() === "initiative" &&
-                id &&
-                requestedStatus &&
-                isUnauthorizedOrgxError(err)
-              ) {
-                setLocalInitiativeStatusOverride(id, requestedStatus);
-                sendJson(res, 200, {
-                  ok: true,
-                  localFallback: true,
-                  warning: safeErrorMessage(err),
-                  entity: {
-                    id,
-                    type,
-                    status: requestedStatus,
-                  },
-                });
-                return true;
-              }
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-              });
-            }
-            return true;
-          }
-
-          const type = searchParams.get("type");
-          if (!type) {
-            sendJson(res, 400, {
-              error: "Query parameter 'type' is required for GET /entities.",
-            });
-            return true;
-          }
-
-          const status = searchParams.get("status") ?? undefined;
-          const initiativeId = searchParams.get("initiative_id") ?? undefined;
-          const limit = searchParams.get("limit")
-            ? Number(searchParams.get("limit"))
-            : undefined;
-
-          try {
-            const data = await client.listEntities(type, {
-              status,
-              initiative_id: initiativeId,
-              limit: Number.isFinite(limit) ? limit : undefined,
-            });
-            if (type.trim().toLowerCase() === "initiative") {
-              const payload = data as Record<string, unknown>;
-              const rows = Array.isArray(payload.data)
-                ? payload.data.filter(
-                    (row): row is Record<string, unknown> =>
-                      Boolean(row && typeof row === "object")
-                  )
-                : [];
-              sendJson(res, 200, {
-                ...payload,
-                data: applyLocalInitiativeOverrides(rows),
-              });
-              return true;
-            }
-            sendJson(res, 200, data);
-          } catch (err: unknown) {
-            if (
-              type.trim().toLowerCase() === "initiative" &&
-              isUnauthorizedOrgxError(err)
-            ) {
-              const snapshotInitiatives = formatInitiatives(getSnapshot())
-                .map((item) => ({
-                  id: item.id,
-                  title: item.title,
-                  name: item.title,
-                  summary: null,
-                  status: item.status,
-                  progress_pct: item.progress ?? null,
-                  created_at: null,
-                  updated_at: null,
-                }))
-                .filter((item) =>
-                  initiativeId ? item.id === initiativeId : true
-                );
-              sendJson(res, 200, {
-                data: applyLocalInitiativeOverrides(snapshotInitiatives),
-                localFallback: true,
-                warning: safeErrorMessage(err),
-              });
-              return true;
-            }
-            sendJson(res, 500, {
               error: safeErrorMessage(err),
             });
           }
@@ -11626,226 +10905,6 @@ export function createHttpHandler(
           return true;
         }
 
-        case "live/activity/headline": {
-          if (method !== "POST") {
-            sendJson(res, 405, { error: "Use POST /orgx/api/live/activity/headline" });
-            return true;
-          }
-
-          try {
-            const payload = await parseJsonRequest(req);
-            const text = pickString(payload, ["text", "summary", "detail", "content"]);
-            if (!text) {
-              sendJson(res, 400, { error: "text is required" });
-              return true;
-            }
-
-            const title = pickString(payload, ["title", "name"]);
-            const type = pickString(payload, ["type", "kind"]);
-            const result = await summarizeActivityHeadline(
-              {
-                text,
-                title,
-                type,
-              }
-            );
-
-            sendJson(res, 200, {
-              headline: result.headline,
-              source: result.source,
-              model: result.model,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "live/agents": {
-          try {
-            const initiative = searchParams.get("initiative");
-            const includeIdleRaw = searchParams.get("include_idle");
-            const includeIdle =
-              includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
-            const data = await client.getLiveAgents({
-              initiative,
-              includeIdle,
-            });
-            sendJson(res, 200, data);
-          } catch (err: unknown) {
-            try {
-              const initiative = searchParams.get("initiative");
-              const includeIdleRaw = searchParams.get("include_idle");
-              const includeIdle =
-                includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
-
-              const localSnapshot = await loadLocalOpenClawSnapshot(240);
-              const local = toLocalLiveAgents(localSnapshot);
-
-              let agents = local.agents;
-              if (initiative && initiative.trim().length > 0) {
-                agents = agents.filter((agent) => agent.initiativeId === initiative);
-              }
-              if (includeIdle === false) {
-                agents = agents.filter((agent) => agent.status !== "idle");
-              }
-
-              const summary = agents.reduce<Record<string, number>>((acc, agent) => {
-                acc[agent.status] = (acc[agent.status] ?? 0) + 1;
-                return acc;
-              }, {});
-
-              sendJson(res, 200, { agents, summary });
-            } catch (localErr: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-                localFallbackError: safeErrorMessage(localErr),
-              });
-            }
-          }
-          return true;
-        }
-
-        case "live/initiatives": {
-          try {
-            const id = searchParams.get("id");
-            const limit = searchParams.get("limit")
-              ? Number(searchParams.get("limit"))
-              : undefined;
-            const data = await client.getLiveInitiatives({
-              id,
-              limit: Number.isFinite(limit) ? limit : undefined,
-            });
-            const payload = data as Record<string, unknown>;
-            const initiatives = Array.isArray(payload.initiatives)
-              ? payload.initiatives.map((entry) => {
-                  if (!entry || typeof entry !== "object") return entry;
-                  const row = entry as Record<string, unknown>;
-                  const initiativeId = pickString(row, ["id"]);
-                  if (!initiativeId) return entry;
-                  const override =
-                    localInitiativeStatusOverrides.get(initiativeId) ?? null;
-                  if (!override) return entry;
-                  return {
-                    ...row,
-                    status: override.status,
-                    updatedAt:
-                      pickString(row, ["updatedAt", "updated_at"]) ??
-                      override.updatedAt,
-                  };
-                })
-              : payload.initiatives;
-            sendJson(res, 200, {
-              ...payload,
-              initiatives,
-            });
-          } catch (err: unknown) {
-            try {
-              const id = searchParams.get("id");
-              const limitRaw = searchParams.get("limit")
-                ? Number(searchParams.get("limit"))
-                : undefined;
-              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
-
-              const local = toLocalLiveInitiatives(await loadLocalOpenClawSnapshot(240));
-              let initiatives = local.initiatives;
-              if (id && id.trim().length > 0) {
-                initiatives = initiatives.filter((item) => item.id === id);
-              }
-
-              initiatives = initiatives.map((item) => {
-                const override =
-                  localInitiativeStatusOverrides.get(item.id) ?? null;
-                if (!override) return item;
-                return {
-                  ...item,
-                  status: override.status,
-                  updatedAt: item.updatedAt ?? override.updatedAt,
-                };
-              });
-
-              const requestedId = id?.trim() ?? "";
-              if (requestedId.length > 0) {
-                const override = localInitiativeStatusOverrides.get(requestedId) ?? null;
-                if (override && !initiatives.some((item) => item.id === requestedId)) {
-                  initiatives.push({
-                    id: requestedId,
-                    title: `Initiative ${requestedId.slice(0, 8)}`,
-                    status: override.status,
-                    updatedAt: override.updatedAt,
-                    sessionCount: 0,
-                    activeAgents: 0,
-                  });
-                }
-              } else {
-                for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
-                  if (initiatives.some((item) => item.id === initiativeId)) continue;
-                  initiatives.push({
-                    id: initiativeId,
-                    title: `Initiative ${initiativeId.slice(0, 8)}`,
-                    status: override.status,
-                    updatedAt: override.updatedAt,
-                    sessionCount: 0,
-                    activeAgents: 0,
-                  });
-                }
-              }
-
-              sendJson(res, 200, {
-                initiatives: initiatives.slice(0, limit),
-                total: initiatives.length,
-                localFallback: true,
-                warning: safeErrorMessage(err),
-              });
-            } catch (localErr: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-                localFallbackError: safeErrorMessage(localErr),
-              });
-            }
-          }
-          return true;
-        }
-
-        case "live/decisions": {
-          try {
-            const status = searchParams.get("status") ?? "pending";
-            const limit = searchParams.get("limit")
-              ? Number(searchParams.get("limit"))
-              : 100;
-            const data = await client.getLiveDecisions({
-              status,
-              limit: Number.isFinite(limit) ? limit : 100,
-            });
-            const decisions = data.decisions
-              .map(mapDecisionEntity)
-              .sort((a, b) => b.waitingMinutes - a.waitingMinutes);
-
-            sendJson(res, 200, {
-              decisions,
-              total: data.total,
-            });
-          } catch {
-            sendJson(res, 200, {
-              decisions: [],
-              total: 0,
-            });
-          }
-          return true;
-        }
-
-        case "handoffs": {
-          try {
-            const data = await client.getHandoffs();
-            sendJson(res, 200, data);
-          } catch {
-            sendJson(res, 200, { handoffs: [] });
-          }
-          return true;
-        }
-
         case "live/stream": {
           const write = res.write?.bind(res);
           if (!write) {
@@ -12123,11 +11182,6 @@ export function createHttpHandler(
               });
             }
           }
-          return true;
-        }
-
-        case "delegation/preflight": {
-          sendJson(res, 405, { error: "Use POST /orgx/api/delegation/preflight" });
           return true;
         }
 
