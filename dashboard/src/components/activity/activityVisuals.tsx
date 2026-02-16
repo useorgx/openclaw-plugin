@@ -35,6 +35,18 @@ export interface ActivityVisual {
 
 type Meta = Record<string, unknown> | undefined;
 
+function asMetaRecord(value: unknown): Meta {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function normalizeMeta(meta: Meta): Meta {
+  if (!meta) return undefined;
+  const nested = asMetaRecord(meta.metadata);
+  if (!nested) return meta;
+  return { ...meta, ...nested };
+}
+
 const BASE_TYPE_VISUAL: Record<LiveActivityType, ActivityVisual> = {
   run_started: { icon: 'play', label: 'Run started', color: colors.teal },
   run_completed: { icon: 'check_circle', label: 'Run completed', color: colors.lime },
@@ -107,7 +119,7 @@ function artifactVisual(meta: Meta, haystack: string): ActivityVisual {
  * such as heartbeat, memory/sync, checkpoints, quality gates, and routing.
  */
 export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
-  const meta = item.metadata as Meta;
+  const meta = normalizeMeta(asMetaRecord(item.metadata));
   const haystack = textHaystack(item, meta);
   const source = normalizeText(readMetaString(meta, ['source']));
   const action = normalizeText(readMetaString(meta, ['action']));

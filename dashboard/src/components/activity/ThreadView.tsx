@@ -18,6 +18,20 @@ interface ThreadViewProps {
   onBack: () => void;
 }
 
+function asMetadataRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function normalizeMetadata(
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const nested = asMetadataRecord(metadata.metadata);
+  if (!nested) return metadata;
+  return { ...metadata, ...nested };
+}
+
 function formatTime(ts: string): string {
   try {
     return new Date(ts).toLocaleTimeString([], {
@@ -32,7 +46,8 @@ function formatTime(ts: string): string {
 function formatCost(items: LiveActivityItem[]): string | null {
   let total = 0;
   for (const item of items) {
-    const cost = (item.metadata as Record<string, unknown> | undefined)?.costTotal;
+    const metadata = normalizeMetadata(asMetadataRecord(item.metadata));
+    const cost = metadata?.costTotal;
     if (typeof cost === 'number') total += cost;
   }
   if (total <= 0) return null;
@@ -76,7 +91,7 @@ export const ThreadView = memo(function ThreadView({
     let kickoffContextHash: string | null = null;
 
     for (const item of sorted) {
-      const md = item.metadata as Record<string, unknown> | undefined;
+      const md = normalizeMetadata(asMetadataRecord(item.metadata));
       if (!md) continue;
       if (!domain && typeof md.domain === 'string') domain = md.domain;
       if (!provider && typeof md.provider === 'string') provider = md.provider;
@@ -226,7 +241,7 @@ export const ThreadView = memo(function ThreadView({
               {sorted.map((item, index) => {
                 const visual = resolveActivityVisual(item);
                 const color = visual.color;
-                const modelField = (item.metadata as Record<string, unknown> | undefined)?.model;
+                const modelField = normalizeMetadata(asMetadataRecord(item.metadata))?.model;
                 const model = typeof modelField === 'string' ? humanizeModel(modelField) : null;
                 const title = humanizeText(item.title ?? '');
                 const isError = item.type === 'run_failed';

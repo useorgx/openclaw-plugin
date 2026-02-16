@@ -161,6 +161,35 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
+  const record = asRecord(payload);
+  const dispatchMode =
+    record && typeof record.dispatchMode === 'string' ? record.dispatchMode : null;
+  const run = asRecord(record?.run);
+  const stopReason =
+    run && typeof run.stopReason === 'string'
+      ? run.stopReason
+      : run && typeof run.stop_reason === 'string'
+        ? run.stop_reason
+        : null;
+
+  if (stopReason === 'budget_exhausted') {
+    return `Dispatch acknowledged for ${item.workstreamTitle}, but autopilot stopped: budget exhausted.`;
+  }
+  if (dispatchMode === 'pending') {
+    return `Dispatching ${item.workstreamTitle}; waiting for slice start…`;
+  }
+  if (dispatchMode === 'fallback') {
+    return `Dispatched ${item.workstreamTitle} using fallback runner.`;
+  }
+  return `Dispatched ${item.workstreamTitle}.`;
+}
+
 function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   const cards = compact ? 3 : 6;
   return (
@@ -298,15 +327,15 @@ export function NextUpPanel({
   const runAction = async (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string
+    successMessage: string | ((result: unknown) => string)
   ) => {
     setNotice(null);
     setUpgradeGate(null);
     onUpgradeGate?.(null);
     setActionKey(key);
     try {
-      await action();
-      setNotice(successMessage);
+      const result = await action();
+      setNotice(typeof successMessage === 'function' ? successMessage(result) : successMessage);
     } catch (err) {
       if (err instanceof UpgradeRequiredError) {
         setUpgradeGate(err);
@@ -574,7 +603,7 @@ export function NextUpPanel({
                               workstreamId: item.workstreamId,
                               agentId: item.runnerAgentId,
                             }),
-                          `Dispatched ${item.workstreamTitle}.`
+                          (result) => playDispatchNotice(item, result)
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -710,7 +739,7 @@ function NextUpReorderRow({
   runAction: (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string
+    successMessage: string | ((result: unknown) => string)
   ) => Promise<void>;
 }) {
   const controls = useDragControls();
@@ -895,7 +924,7 @@ function NextUpReorderRow({
                     workstreamId: item.workstreamId,
                     agentId: item.runnerAgentId,
                   }),
-                `Dispatched ${item.workstreamTitle}.`
+                (result) => playDispatchNotice(item, result)
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
