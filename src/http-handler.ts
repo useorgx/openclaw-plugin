@@ -1087,6 +1087,49 @@ function normalizeRuntimeSource(value: unknown): RuntimeSourceClient {
   return "unknown";
 }
 
+function runtimeSourceDefaultAgentLabel(sourceClient: RuntimeSourceClient): string | null {
+  if (sourceClient === "codex") return "Codex";
+  if (sourceClient === "claude-code") return "Claude Code";
+  if (sourceClient === "openclaw") return "OpenClaw";
+  if (sourceClient === "api") return "OrgX API";
+  return null;
+}
+
+function runtimeSourceDefaultAgentId(sourceClient: RuntimeSourceClient): string | null {
+  if (sourceClient === "codex") return "runtime:codex";
+  if (sourceClient === "claude-code") return "runtime:claude-code";
+  if (sourceClient === "openclaw") return "runtime:openclaw";
+  if (sourceClient === "api") return "runtime:api";
+  return null;
+}
+
+function deriveRuntimeFallbackAgent(
+  instance: RuntimeInstanceRecord
+): { agentId: string | null; agentName: string | null } {
+  const sourceClient = normalizeRuntimeSource(instance.sourceClient);
+  const agentId = (instance.agentId ?? "").trim() || runtimeSourceDefaultAgentId(sourceClient);
+  const agentName =
+    (instance.agentName ?? "").trim() ||
+    (instance.displayName ?? "").trim() ||
+    runtimeSourceDefaultAgentLabel(sourceClient);
+  return {
+    agentId: agentId || null,
+    agentName: agentName || null,
+  };
+}
+
+function deriveRuntimeSessionStatus(instance: RuntimeInstanceRecord): SessionTreeNode["status"] {
+  const state = (instance.state ?? "").trim().toLowerCase();
+  const phase = (instance.phase ?? "").trim().toLowerCase();
+  if (phase === "blocked" || state === "error") return "blocked";
+  if (phase === "completed") return "completed";
+  if (phase === "handoff") return "handoff";
+  if (phase === "review") return "review";
+  if (state === "stopped") return "paused";
+  if (state === "stale") return "queued";
+  return "running";
+}
+
 function runtimeMatchMaps(instances: RuntimeInstanceRecord[]) {
   const byRunId = new Map<string, RuntimeInstanceRecord>();
   const byAgentInitiative = new Map<string, RuntimeInstanceRecord>();
@@ -1123,9 +1166,20 @@ function enrichSessionsWithRuntime(
         : null;
     const match = byRun ?? byAgent;
     if (!match) return node;
+    const fallbackAgent = deriveRuntimeFallbackAgent(match);
+    const agentId = (node.agentId ?? "").trim() || fallbackAgent.agentId;
+    const agentName = (node.agentName ?? "").trim() || fallbackAgent.agentName;
+    const blockerReason =
+      (node.blockerReason ?? "").trim() ||
+      (node.status?.toLowerCase() === "blocked" || match.phase?.toLowerCase() === "blocked"
+        ? (match.lastMessage ?? "").trim()
+        : "");
 
     return {
       ...node,
+      agentId: agentId || null,
+      agentName: agentName || null,
+      blockerReason: blockerReason || node.blockerReason || null,
       runtimeClient: normalizeRuntimeSource(match.sourceClient),
       runtimeLabel: match.displayName,
       runtimeProvider: match.providerLogo,
@@ -1169,7 +1223,9 @@ function injectRuntimeInstancesAsSessions(
 
     const initiativeId = instance.initiativeId?.trim() || null;
     const workstreamId = instance.workstreamId?.trim() || null;
-    const groupId = initiativeId ?? "runtime";
+    const runtimeClient = normalizeRuntimeSource(instance.sourceClient);
+    const fallbackAgent = deriveRuntimeFallbackAgent(instance);
+    const groupId = initiativeId ?? fallbackAgent.agentId ?? `runtime:${runtimeClient}`;
 
     const meta =
       instance.metadata && typeof instance.metadata === "object"
@@ -1182,7 +1238,7 @@ function injectRuntimeInstancesAsSessions(
       pickString(meta, ["initiative_title", "initiativeTitle"]) ??
       (initiativeId ? `Initiative ${initiativeId.slice(0, 8)}` : null);
     const groupLabel =
-      (initiativeHint ?? groupId).trim();
+      (initiativeHint ?? fallbackAgent.agentName ?? groupId).trim();
 
     if (!groupsById.has(groupId)) {
       const group = { id: groupId, label: groupLabel, status: null };
@@ -1194,15 +1250,21 @@ function injectRuntimeInstancesAsSessions(
     if (existingNodeIds.has(nodeId)) continue;
     existingNodeIds.add(nodeId);
     existingRunIds.add(runId);
+    const status = deriveRuntimeSessionStatus(instance);
+    const blockerReason = status === "blocked" ? (instance.lastMessage ?? null) : null;
+    const blockers =
+      status === "blocked" && typeof blockerReason === "string" && blockerReason.trim().length > 0
+        ? [blockerReason.trim()]
+        : [];
 
     const node: SessionTreeNode = {
       id: nodeId,
       parentId: null,
       runId,
       title: titleHint ?? instance.lastMessage ?? `Runtime ${runId.slice(0, 8)}`,
-      agentId: instance.agentId ?? null,
-      agentName: instance.agentName ?? null,
-      status: "running",
+      agentId: fallbackAgent.agentId,
+      agentName: fallbackAgent.agentName,
+      status,
       progress: instance.progressPct ?? null,
       initiativeId,
       workstreamId,
@@ -1212,10 +1274,11 @@ function injectRuntimeInstancesAsSessions(
       updatedAt: instance.updatedAt ?? null,
       lastEventAt: instance.lastEventAt ?? null,
       lastEventSummary: instance.lastMessage ?? null,
-      blockers: [],
+      blockers,
+      blockerReason,
       phase: (instance.phase as any) ?? null,
       state: instance.state ?? null,
-      runtimeClient: normalizeRuntimeSource(instance.sourceClient),
+      runtimeClient,
       runtimeLabel: instance.displayName,
       runtimeProvider: instance.providerLogo,
       instanceId: instance.id,

@@ -19,8 +19,8 @@ const providerInfo: Record<ProviderId, ProviderInfo> = {
   codex: {
     id: 'codex',
     label: 'Codex',
-    accent: '#9F7AEA',
-    tint: 'rgba(159, 122, 234, 0.2)',
+    accent: '#10B981',
+    tint: 'rgba(16, 185, 129, 0.18)',
   },
   openai: {
     id: 'openai',

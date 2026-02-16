@@ -25,6 +25,10 @@ interface SessionInspectorProps {
 
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
 
+function normalizeStatus(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
 function resolveRunId(item: LiveActivityItem): string | null {
   if (item.runId) return item.runId;
   const metadata = item.metadata as Record<string, unknown> | undefined;
@@ -37,6 +41,27 @@ function resolveRunId(item: LiveActivityItem): string | null {
     }
   }
   return null;
+}
+
+function effectiveSessionStatus(session: SessionTreeNode): string {
+  const status = normalizeStatus(session.status);
+  if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
+    return status;
+  }
+  if (session.blockers.length > 0) return 'blocked';
+
+  const phase = normalizeStatus(session.phase);
+  if (phase === 'blocked') return 'blocked';
+  if (phase === 'handoff') return 'handoff';
+  if (phase === 'completed') return 'completed';
+  if (phase === 'review') return 'review';
+
+  const state = normalizeStatus(session.state);
+  if (state === 'error') return 'failed';
+  if (state === 'stopped') return 'paused';
+  if (state === 'stale') return 'queued';
+
+  return status || 'unknown';
 }
 
 export const SessionInspector = memo(function SessionInspector({
@@ -198,7 +223,13 @@ export const SessionInspector = memo(function SessionInspector({
   }
 
   const progressValue = session.progress === null ? null : Math.round(session.progress);
-  const sessionStatus = session.status.toLowerCase();
+  const sessionStatus = effectiveSessionStatus(session);
+  const statusReason =
+    (session.blockerReason ?? '').trim() ||
+    session.blockers.find((entry) => typeof entry === 'string' && entry.trim().length > 0) ||
+    ((sessionStatus === 'blocked' || sessionStatus === 'failed') && sessionSummary
+      ? sessionSummary
+      : null);
   const canPause = ['running', 'active', 'queued', 'pending'].includes(sessionStatus);
   const canResume = ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
   const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
@@ -220,7 +251,7 @@ export const SessionInspector = memo(function SessionInspector({
       <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
         <h2 className="text-heading font-semibold text-white">Session Detail</h2>
         <div className="flex items-center gap-2">
-          <span className="chip text-caption uppercase">{session.status}</span>
+          <span className="chip text-caption uppercase">{sessionStatus}</span>
           <button
             onClick={() => setIsCollapsed((prev) => !prev)}
             className="text-muted transition-colors hover:text-primary"
@@ -277,6 +308,26 @@ export const SessionInspector = memo(function SessionInspector({
           {sessionSummary && (
             <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2">
               <MarkdownText text={sessionSummary} mode="block" />
+            </div>
+          )}
+
+          {(session.phase || session.state || statusReason) && (
+            <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">
+              <div className="flex flex-wrap items-center gap-2">
+                {session.phase && (
+                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.08em] text-muted">
+                    phase: {session.phase}
+                  </span>
+                )}
+                {session.state && (
+                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.08em] text-muted">
+                    runtime: {session.state}
+                  </span>
+                )}
+              </div>
+              {statusReason && (
+                <p className="mt-2 text-body text-secondary">{statusReason}</p>
+              )}
             </div>
           )}
 
