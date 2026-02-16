@@ -16,6 +16,7 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 
 interface WorkstreamDetailProps {
   workstream: InitiativeWorkstream;
@@ -287,6 +288,17 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           )}
 
           {/* Notes */}
+          {/* Milestone Artifacts (aggregated for workstream) */}
+          <EntityArtifactsPanel
+            entityType="workstream"
+            entityId={workstream.id}
+            title="Artifacts (from milestones)"
+            authToken={authToken}
+            embedMode={embedMode}
+            finalOnly
+            milestoneIds={milestones.map((m) => m.id)}
+          />
+
           <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>

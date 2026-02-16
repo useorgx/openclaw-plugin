@@ -99,4 +99,32 @@ export const queryKeys = {
         limit: params?.limit ?? 300,
       },
     ] as const,
+  artifactsByEntity: (params: {
+    entityType: string;
+    entityId: string;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'artifacts-by-entity',
+      {
+        entityType: params.entityType,
+        entityId: params.entityId,
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
+  artifactDetail: (params: {
+    artifactId: string;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'artifact-detail',
+      {
+        artifactId: params.artifactId,
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
 };

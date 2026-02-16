@@ -23,7 +23,7 @@ import type {
 } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
 import { applyOrgxAgentSuitePlan, computeOrgxAgentSuitePlan } from "./agent-suite.js";
-import { appendActivityItems } from "./activity-store.js";
+import { registerArtifact } from "./artifacts/register-artifact.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -153,6 +153,19 @@ function resolveRuntimeUserId(
   candidates: Array<string | null | undefined>
 ): string {
   if (isUserScopedApiKey(apiKey)) {
+    // For oxk_ keys, the OrgX API ignores X-Orgx-User-Id, but we still keep a UUID
+    // around for created_by_id on certain entity writes (e.g., work_artifacts).
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const trimmed = candidate.trim();
+      if (
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          trimmed
+        )
+      ) {
+        return trimmed;
+      }
+    }
     return "";
   }
   for (const candidate of candidates) {
@@ -2112,16 +2125,64 @@ export default function register(api: PluginAPI): void {
     }
 
     if (event.type === "artifact") {
-      // Artifacts are UI-level breadcrumbs and may not be supported by every
-      // OrgX deployment's `/api/entities` schema. Persist locally and drop from
-      // the outbox so progress reporting doesn't wedge on irreplayable items.
-      try {
-        if (event.activityItem) {
-          appendActivityItems([event.activityItem]);
-        }
-      } catch {
-        // best effort
+      // Artifacts are first-class UX loop closure (activity stream + entity modals).
+      // Try to persist upstream; if this fails, keep the event queued for retry.
+      const payload =
+        event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+          ? (event.payload as Record<string, unknown>)
+          : {};
+
+      const name = pickStringField(payload, "name") ?? pickStringField(payload, "title") ?? "";
+      const artifactType = pickStringField(payload, "artifact_type") ?? "other";
+      const entityType = pickStringField(payload, "entity_type") ?? "";
+      const entityId = pickStringField(payload, "entity_id") ?? "";
+      const artifactId = pickStringField(payload, "artifact_id") ?? null;
+      const description = pickStringField(payload, "description") ?? undefined;
+      const externalUrl = pickStringField(payload, "url") ?? pickStringField(payload, "artifact_url") ?? null;
+      const content = pickStringField(payload, "content") ?? pickStringField(payload, "preview_markdown") ?? null;
+
+      const allowedEntityType =
+        entityType === "initiative" ||
+        entityType === "milestone" ||
+        entityType === "task" ||
+        entityType === "decision" ||
+        entityType === "project"
+          ? (entityType as any)
+          : null;
+
+      if (!allowedEntityType || !entityId.trim() || !name.trim()) {
+        api.log?.warn?.("[orgx] Dropping invalid artifact outbox event", {
+          eventId: event.id,
+          entityType,
+          entityId,
+        });
+        return;
       }
+
+      const result = await registerArtifact(client as any, client.getBaseUrl(), {
+        artifact_id: artifactId,
+        entity_type: allowedEntityType,
+        entity_id: entityId,
+        name: name.trim(),
+        artifact_type: artifactType.trim() || "other",
+        description,
+        external_url: externalUrl,
+        preview_markdown: content,
+        status: "draft",
+        metadata: {
+          source: "outbox_replay",
+          outbox_event_id: event.id,
+          ...(payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+            ? (payload.metadata as Record<string, unknown>)
+            : {}),
+        },
+        validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
+      });
+
+      if (!result.ok) {
+        throw new Error(result.persistence.last_error ?? "artifact registration failed");
+      }
+
       return;
     }
   }
@@ -2519,9 +2580,17 @@ export default function register(api: PluginAPI): void {
         });
       }
 
+      const pairingUserIdRaw =
+        typeof (polled.data as any).supabaseUserId === "string"
+          ? (polled.data as any).supabaseUserId
+          : typeof (polled.data as any).userId === "string"
+            ? (polled.data as any).userId
+            : null;
+
       setRuntimeApiKey({
         apiKey: key,
         source: "browser_pairing",
+        userId: resolveRuntimeUserId(key, [pairingUserIdRaw, config.userId]) || null,
         workspaceName: polled.data.workspaceName ?? null,
         keyPrefix: polled.data.keyPrefix ?? null,
       });
@@ -3936,13 +4005,22 @@ export default function register(api: PluginAPI): void {
     {
       name: "orgx_register_artifact",
       description:
-        "Register a work output (PR, document, config change, report, etc.) with OrgX. Makes it visible in the dashboard.",
+        "Register a work output (PR, document, config change, report, etc.) as a work_artifact in OrgX. Makes it visible in the dashboard activity timeline and entity detail modals.",
       parameters: {
         type: "object",
         properties: {
           initiative_id: {
             type: "string",
-            description: "Optional initiative UUID to attach this artifact to",
+            description: "Convenience: initiative UUID. Used as entity_type='initiative', entity_id=<this> when entity_type/entity_id are not provided.",
+          },
+          entity_type: {
+            type: "string",
+            enum: ["initiative", "milestone", "task", "decision", "project"],
+            description: "The type of entity this artifact is attached to",
+          },
+          entity_id: {
+            type: "string",
+            description: "UUID of the entity this artifact is attached to",
           },
           name: {
             type: "string",
@@ -3950,8 +4028,7 @@ export default function register(api: PluginAPI): void {
           },
           artifact_type: {
             type: "string",
-            enum: ["pr", "commit", "document", "config", "report", "design", "other"],
-            description: "Type of artifact",
+            description: "Artifact type code (e.g., 'eng.diff_pack', 'pr', 'document'). Falls back to 'shared.project_handbook' if the type is not recognized by OrgX.",
           },
           description: {
             type: "string",
@@ -3959,7 +4036,11 @@ export default function register(api: PluginAPI): void {
           },
           url: {
             type: "string",
-            description: "Link to the artifact (PR URL, file path, etc.)",
+            description: "External link to the artifact (PR URL, file path, etc.)",
+          },
+          content: {
+            type: "string",
+            description: "Inline preview content (markdown/text). At least one of url or content is required.",
           },
         },
         required: ["name", "artifact_type"],
@@ -3969,57 +4050,116 @@ export default function register(api: PluginAPI): void {
         _callId: string,
         params: {
           initiative_id?: string;
+          entity_type?: string;
+          entity_id?: string;
           name: string;
           artifact_type: string;
           description?: string;
           url?: string;
+          content?: string;
         } = { name: "", artifact_type: "other" }
       ) {
         const now = new Date().toISOString();
         const id = `artifact:${randomUUID().slice(0, 8)}`;
-        const initiativeId = isUuid(params.initiative_id)
-          ? params.initiative_id
-          : inferReportingInitiativeId(params as unknown as Record<string, unknown>) ?? null;
 
-          const activityItem: LiveActivityItem = {
-            id,
-            type: "artifact_created",
-            title: params.name,
-            description: params.description ?? null,
-            agentId: null,
-            agentName: null,
-            runId: null,
-            initiativeId,
-            timestamp: now,
-            summary: params.url ?? null,
-            metadata: withProvenanceMetadata({
-              source: "orgx_register_artifact",
-              artifact_type: params.artifact_type,
-              url: params.url,
-            }),
-          };
+        // Resolve entity association: explicit entity_type+entity_id > initiative_id > inferred
+        let resolvedEntityType: string | null = null;
+        let resolvedEntityId: string | null = null;
+
+        if (params.entity_type && isUuid(params.entity_id)) {
+          resolvedEntityType = params.entity_type;
+          resolvedEntityId = params.entity_id!;
+        } else if (isUuid(params.initiative_id)) {
+          resolvedEntityType = "initiative";
+          resolvedEntityId = params.initiative_id!;
+        } else {
+          const inferred = inferReportingInitiativeId(params as unknown as Record<string, unknown>);
+          if (inferred) {
+            resolvedEntityType = "initiative";
+            resolvedEntityId = inferred;
+          }
+        }
+
+        if (!resolvedEntityType || !resolvedEntityId) {
+          return text("❌ Cannot register artifact: provide entity_type + entity_id, or initiative_id, so the artifact can be attached to an entity.");
+        }
+
+        if (!params.url && !params.content) {
+          return text("❌ Cannot register artifact: provide at least one of url or content.");
+        }
+
+        const baseUrl = client.getBaseUrl();
+        const artifactId = randomUUID();
+
+        const activityItem: LiveActivityItem = {
+          id,
+          type: "artifact_created",
+          title: params.name,
+          description: params.description ?? null,
+          agentId: null,
+          agentName: null,
+          runId: null,
+          initiativeId: resolvedEntityType === "initiative" ? resolvedEntityId : null,
+          timestamp: now,
+          summary: params.url ?? null,
+          metadata: withProvenanceMetadata({
+            source: "orgx_register_artifact",
+            artifact_type: params.artifact_type,
+            url: params.url,
+            entity_type: resolvedEntityType,
+            entity_id: resolvedEntityId,
+          }),
+        };
 
         try {
-          const entity = await client.createEntity("artifact", {
-            title: params.name,
+          const result = await registerArtifact(client as any, baseUrl, {
+            artifact_id: artifactId,
+            entity_type: resolvedEntityType as any,
+            entity_id: resolvedEntityId,
+            name: params.name,
             artifact_type: params.artifact_type,
-            summary: params.description,
-            initiative_id: initiativeId ?? undefined,
-            artifact_url: params.url,
-            status: "active",
+            description: params.description ?? null,
+            external_url: params.url ?? null,
+            preview_markdown: params.content ?? null,
+            status: "draft",
+            metadata: {
+              source: "orgx_register_artifact",
+              artifact_id: artifactId,
+            },
+            validate_persistence: true,
           });
+
+          if (!result.ok) {
+            throw new Error(result.persistence.last_error ?? "Artifact registration failed");
+          }
+
+          activityItem.metadata = withProvenanceMetadata({
+            ...activityItem.metadata,
+            artifact_id: result.artifact_id,
+            entity_type: resolvedEntityType,
+            entity_id: resolvedEntityId,
+          });
+
           return json(
-            `Artifact registered: ${params.name} [${params.artifact_type}]`,
-            entity
+            `Artifact registered: ${params.name} [${params.artifact_type}] → ${resolvedEntityType}/${resolvedEntityId} (id: ${result.artifact_id})`,
+            result
           );
-        } catch {
+        } catch (firstError: unknown) {
+
+          // Outbox fallback for offline/error scenarios
           await appendToOutbox("artifacts", {
             id,
             type: "artifact",
             timestamp: now,
             payload: {
-              ...params,
-              initiative_id: initiativeId,
+              artifact_id: artifactId,
+              name: params.name,
+              artifact_type: params.artifact_type,
+              description: params.description,
+              url: params.url,
+              content: params.content,
+              entity_type: resolvedEntityType,
+              entity_id: resolvedEntityId,
             } as Record<string, unknown>,
             activityItem,
           });

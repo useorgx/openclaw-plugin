@@ -36,6 +36,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
 import { getOrgxPluginConfigDir } from "./paths.js";
+import { registerArtifact } from "./artifacts/register-artifact.js";
 import {
   readNextUpQueuePins,
   removeNextUpQueuePin,
@@ -5048,6 +5049,7 @@ export function createHttpHandler(
     const name = (input.artifact.name ?? "").trim();
     if (!name) return { ok: false, id: null };
     const artifactType = (input.artifact.artifact_type ?? "other").trim() || "other";
+    const artifactId = randomUUID();
 
     const verificationSteps = Array.isArray(input.artifact.verification_steps)
       ? input.artifact.verification_steps
@@ -5067,23 +5069,43 @@ export function createHttpHandler(
     }
     const description = descriptionParts.length > 0 ? descriptionParts.join("\n\n") : undefined;
 
+    const hasUuidAgent =
+      typeof input.agentId === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.agentId
+      );
+    const createdByType = hasUuidAgent ? "agent" : "human";
+    const createdById = hasUuidAgent ? input.agentId : null;
+
     try {
-      const entity = await client.createEntity("artifact", {
-        initiative_id: input.initiativeId,
-        workstream_id: input.workstreamId,
-        title: name,
+      const entityType = input.artifact.milestone_id ? "milestone" : "initiative";
+      const entityId = input.artifact.milestone_id ? input.artifact.milestone_id : input.initiativeId;
+      const result = await registerArtifact(client as any, client.getBaseUrl(), {
+        artifact_id: artifactId,
+        entity_type: entityType as any,
+        entity_id: entityId,
+        name,
         artifact_type: artifactType,
+        created_by_type: createdByType,
+        created_by_id: createdById,
         description,
-        artifact_url: input.artifact.url ?? undefined,
-        status: "active",
+        external_url: input.artifact.url ?? null,
+        preview_markdown: null,
+        status: "draft",
         metadata: {
           source: "autopilot_slice",
+          artifact_id: artifactId,
           run_id: input.runId,
+          initiative_id: input.initiativeId,
+          workstream_id: input.workstreamId,
           milestone_id: input.artifact.milestone_id ?? null,
           task_ids: input.artifact.task_ids ?? null,
         },
+        // Make persistence validation opt-in to avoid adding latency to every slice by default.
+        validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
       });
-      return { ok: true, id: pickString(entity as any, ["id"]) ?? null };
+
+      return { ok: result.ok, id: result.artifact_id };
     } catch (err: unknown) {
       try {
         await appendToOutbox(input.initiativeId, {
@@ -5091,10 +5113,13 @@ export function createHttpHandler(
           type: "artifact",
           timestamp: now,
           payload: {
-            initiative_id: input.initiativeId,
-            workstream_id: input.workstreamId,
+            artifact_id: artifactId,
+            entity_type: input.artifact.milestone_id ? "milestone" : "initiative",
+            entity_id: input.artifact.milestone_id ?? input.initiativeId,
             name,
             artifact_type: artifactType,
+            created_by_type: createdByType,
+            created_by_id: createdById,
             description,
             url: input.artifact.url ?? undefined,
             run_id: input.runId,
@@ -5115,6 +5140,7 @@ export function createHttpHandler(
               source: "openclaw_local_fallback",
               event: "autopilot_slice_artifact_buffered",
               artifact_type: artifactType,
+              artifact_id: artifactId,
               url: input.artifact.url ?? null,
               error: safeErrorMessage(err),
             },
@@ -7029,6 +7055,8 @@ export function createHttpHandler(
       const entityActionMatch = route.match(
         /^entities\/([^/]+)\/([^/]+)\/([^/]+)$/
       );
+      const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
+      const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
       const isOnboardingStartRoute = route === "onboarding/start";
       const isOnboardingStatusRoute = route === "onboarding/status";
       const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
@@ -8538,6 +8566,32 @@ export function createHttpHandler(
           sendJson(res, 500, {
             error: safeErrorMessage(err),
           });
+        }
+        return true;
+      }
+
+      // Work artifacts by entity: GET /orgx/api/work-artifacts/by-entity?entity_type=...&entity_id=...&limit=...&status=...
+      if (isArtifactsByEntityRoute && method === "GET") {
+        try {
+          const qs = rawUrl.includes("?") ? rawUrl.split("?")[1] : "";
+          const path = `/api/work-artifacts/by-entity${qs ? `?${qs}` : ""}`;
+          const data = await client.rawRequest("GET", path);
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 502, { error: safeErrorMessage(err) });
+        }
+        return true;
+      }
+
+      // Artifact detail: GET /orgx/api/artifacts/:artifactId
+      if (artifactDetailMatch && method === "GET") {
+        try {
+          const artifactId = decodeURIComponent(artifactDetailMatch[1]);
+          const path = `/api/artifacts/${encodeURIComponent(artifactId)}`;
+          const data = await client.rawRequest("GET", path);
+          sendJson(res, 200, data);
+        } catch (err: unknown) {
+          sendJson(res, 502, { error: safeErrorMessage(err) });
         }
         return true;
       }

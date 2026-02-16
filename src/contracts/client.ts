@@ -132,18 +132,17 @@ export class OrgXClient {
   constructor(apiKey: string, baseUrl: string, userId?: string) {
     this.apiKey = apiKey;
     this.baseUrl = normalizeClientBaseUrl(baseUrl, DEFAULT_CLIENT_BASE_URL);
-    this.userId = isUserScopedApiKey(apiKey) ? "" : userId || "";
+    // Keep userId available even for oxk_ keys (it can be used as created_by_id for certain writes),
+    // but only send it as a header for non-user-scoped keys.
+    this.userId = userId || "";
   }
 
   setCredentials(input: { apiKey?: string; userId?: string; baseUrl?: string }) {
     if (typeof input.apiKey === "string") {
       this.apiKey = input.apiKey;
-      if (isUserScopedApiKey(this.apiKey)) {
-        this.userId = "";
-      }
     }
     if (typeof input.userId === "string") {
-      this.userId = isUserScopedApiKey(this.apiKey) ? "" : input.userId;
+      this.userId = input.userId;
     }
     if (typeof input.baseUrl === "string" && input.baseUrl.trim().length > 0) {
       this.baseUrl = normalizeClientBaseUrl(input.baseUrl, this.baseUrl);
@@ -152,6 +151,10 @@ export class OrgXClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  getUserId(): string {
+    return this.userId;
   }
 
   // ===========================================================================

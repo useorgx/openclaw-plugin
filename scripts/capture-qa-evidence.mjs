@@ -346,6 +346,8 @@ async function writeGridIndexHtml(dir, title) {
 
 async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {}) {
   const desktopDir = path.join(outDir, 'activity-view');
+  // Allow re-runs without stale screenshots/videos lingering in the folder.
+  await rm(desktopDir, { recursive: true, force: true });
   await mkdir(desktopDir, { recursive: true });
 
   // 1) Desktop: baseline + detail + inspector (demo mode).
@@ -360,8 +362,24 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     });
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
+    if (verbose) {
+      page.on('console', (msg) => {
+        const type = msg.type();
+        if (type === 'error' || type === 'warning') {
+          console.log(`[qa][browser:${type}] ${msg.text()}`);
+        }
+      });
+      page.on('pageerror', (err) => {
+        console.log(`[qa][pageerror] ${err?.message ?? String(err)}`);
+      });
+    }
     await page.goto(`${baseUrl}/?demo=1`, { waitUntil: 'load' });
-    await page.getByRole('heading', { name: /OrgX.*Live/i }).waitFor();
+    try {
+      await page.getByRole('heading', { name: /OrgX.*Live/i }).waitFor();
+    } catch (err) {
+      await page.screenshot({ path: path.join(desktopDir, 'desktop-00-timeout.png') });
+      throw err;
+    }
     await disableAnimations(page);
     await page.screenshot({ path: path.join(desktopDir, 'desktop-01-baseline.png') });
 
@@ -555,6 +573,8 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
 
 async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose } = {}) {
   const mcDir = path.join(outDir, 'mission-control');
+  // Allow re-runs without stale screenshots/videos lingering in the folder.
+  await rm(mcDir, { recursive: true, force: true });
   await mkdir(mcDir, { recursive: true });
 
 	  // 1) Desktop: table + dependency map + modals (demo mode + mocked graph).
@@ -591,6 +611,17 @@ async function captureMissionControlEvidence(browser, baseUrl, outDir, { verbose
 
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
+    if (verbose) {
+      page.on('console', (msg) => {
+        const type = msg.type();
+        if (type === 'error' || type === 'warning') {
+          console.log(`[qa][browser:${type}] ${msg.text()}`);
+        }
+      });
+      page.on('pageerror', (err) => {
+        console.log(`[qa][pageerror] ${err?.message ?? String(err)}`);
+      });
+    }
     await page.goto(`${baseUrl}/?demo=1&view=mission-control`, { waitUntil: 'load' });
     await page.getByPlaceholder(/Search initiatives/i).waitFor();
     await disableAnimations(page);

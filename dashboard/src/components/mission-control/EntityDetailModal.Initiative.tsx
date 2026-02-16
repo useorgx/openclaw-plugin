@@ -14,6 +14,7 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 
 interface InitiativeDetailProps {
   initiative: Initiative;
@@ -326,6 +327,14 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           <div className="text-micro uppercase tracking-[0.08em] text-muted pt-2 border-t border-subtle">
             {details.tasks.length} total tasks &middot; {doneTasks} done
           </div>
+
+          {/* Artifacts */}
+          <EntityArtifactsPanel
+            entityType="initiative"
+            entityId={initiative.id}
+            authToken={authToken}
+            embedMode={embedMode}
+          />
 
           {/* Notes */}
           <div className="mt-4 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">

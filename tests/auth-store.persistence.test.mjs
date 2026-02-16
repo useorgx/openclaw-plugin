@@ -20,7 +20,7 @@ function ensureMode600(filePath) {
   );
 }
 
-test("auth store persists installation id + sanitizes userId for user-scoped oxk_ keys", async () => {
+test("auth store persists installation id + stores UUID userId for user-scoped oxk_ keys", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-auth-"));
   const prevDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
   process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
@@ -48,13 +48,28 @@ test("auth store persists installation id + sanitizes userId for user-scoped oxk
     });
 
     assert.equal(saved.installationId, id1);
-    assert.equal(saved.userId, null, "userId should be nulled for oxk_ keys");
+    assert.equal(saved.userId, null, "non-UUID userId should be stripped for oxk_ keys");
 
     const loaded = mod.loadAuthStore();
     assert.ok(loaded);
     assert.equal(loaded.installationId, id1);
     assert.equal(loaded.userId, null);
     ensureMode600(join(dir, "auth.json"));
+
+    const uuidUserId = "00000000-0000-4000-8000-000000000000";
+    const savedUuid = mod.saveAuthStore({
+      installationId: id1,
+      apiKey: "oxk_abcdef0123456789abcdef0123456789abcdef01".slice(0, 44),
+      source: "manual",
+      userId: uuidUserId,
+      workspaceName: "Acme",
+      keyPrefix: "oxk_deadbeef",
+    });
+    assert.equal(savedUuid.userId, uuidUserId, "UUID userId should be preserved for oxk_ keys");
+
+    const loadedUuid = mod.loadAuthStore();
+    assert.ok(loadedUuid);
+    assert.equal(loadedUuid.userId, uuidUserId);
   } finally {
     if (prevDir === undefined) {
       delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
