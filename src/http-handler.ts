@@ -126,6 +126,10 @@ import {
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
 import { posthogCapture } from "./telemetry/posthog.js";
 import { createRouter } from "./http/router.js";
+import { registerDebugRoutes } from "./http/routes/debug.js";
+import { registerHealthRoutes } from "./http/routes/health.js";
+import { registerOnboardingRoutes } from "./http/routes/onboarding.js";
+import { registerSummaryRoutes } from "./http/routes/summary.js";
 
 // =============================================================================
 // Helpers
@@ -7687,25 +7691,57 @@ export function createHttpHandler(
   autoContinueTimer.unref?.();
 
   const apiRouter = createRouter<Record<string, never>, PluginRequest, PluginResponse>();
-  apiRouter.add(
-    "GET",
-    "onboarding/status",
-    async ({ res }) => {
-      try {
-        const state = await onboarding.getStatus();
-        sendJson(res, 200, {
-          ok: true,
-          data: getOnboardingState(state),
-        });
-      } catch (err: unknown) {
-        sendJson(res, 500, {
-          ok: false,
-          error: safeErrorMessage(err),
-        });
-      }
-    },
-    "Read onboarding status"
-  );
+  registerOnboardingRoutes(apiRouter, {
+    onboarding,
+    parseJsonRequest,
+    pickString: (input, keys) =>
+      pickString(
+        input && typeof input === "object"
+          ? (input as Record<string, unknown>)
+          : {},
+        keys
+      ),
+    pickHeaderString: (headers, names) =>
+      pickHeaderString(
+        headers && typeof headers === "object"
+          ? (headers as Record<string, string | string[] | undefined>)
+          : {},
+        names
+      ),
+    isUserScopedApiKey,
+    sendJson,
+    safeErrorMessage,
+    getOnboardingState,
+  });
+  registerSummaryRoutes(apiRouter, {
+    getSnapshot,
+    getOrgSnapshot: () => client.getOrgSnapshot(),
+    sendJson,
+    writeHead: (response, status, headers) => response.writeHead(status, headers),
+    end: (response) => response.end(),
+    securityHeaders: SECURITY_HEADERS,
+    corsHeaders: CORS_HEADERS,
+    formatStatus,
+    formatAgents,
+    formatActivity,
+    formatInitiatives,
+    getOnboardingState: async () => getOnboardingState(await onboarding.getStatus()),
+  });
+  registerDebugRoutes(apiRouter, {
+    sendJson,
+    safeErrorMessage,
+    resolveCodexBinInfo,
+    getCachedCodexProbeSummary: () => cachedCodexProbeSummary,
+  });
+  registerHealthRoutes(apiRouter, {
+    diagnostics,
+    readOutboxSummary: () => outboxAdapter.readSummary(),
+    parseBooleanQuery,
+    baseUrl: config.baseUrl,
+    hasApiKey: Boolean(config.apiKey),
+    sendJson,
+    safeErrorMessage,
+  });
 
   return async function handler(
     req: PluginRequest,
@@ -7783,9 +7819,6 @@ export function createHttpHandler(
       );
       const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
       const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
-      const isOnboardingStartRoute = route === "onboarding/start";
-      const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
-      const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
       const isLiveActivityHeadlineRoute = route === "live/activity/headline";
       const isAgentLaunchRoute = route === "agents/launch";
       const isAgentStopRoute = route === "agents/stop";
@@ -7804,98 +7837,6 @@ export function createHttpHandler(
           body: undefined,
           state: {},
         });
-        return true;
-      }
-
-      if (method === "POST" && isOnboardingStartRoute) {
-        try {
-          const payload = await parseJsonRequest(req);
-          const started = await onboarding.startPairing({
-            openclawVersion:
-              pickString(payload, ["openclawVersion", "openclaw_version"]) ??
-              undefined,
-            platform: pickString(payload, ["platform"]) ?? undefined,
-            deviceName: pickString(payload, ["deviceName", "device_name"]) ?? undefined,
-          });
-          sendJson(res, 200, {
-            ok: true,
-            data: {
-              pairingId: started.pairingId,
-              connectUrl: started.connectUrl,
-              expiresAt: started.expiresAt,
-              pollIntervalMs: started.pollIntervalMs,
-              state: getOnboardingState(started.state),
-            },
-          });
-        } catch (err: unknown) {
-          sendJson(res, 400, {
-            ok: false,
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (method === "POST" && isOnboardingManualKeyRoute) {
-        try {
-          const payload = await parseJsonRequest(req);
-          const authHeader = pickHeaderString(req.headers, ["authorization"]);
-          const bearerApiKey =
-            authHeader && authHeader.toLowerCase().startsWith("bearer ")
-              ? authHeader.slice("bearer ".length).trim()
-              : null;
-          const headerApiKey = pickHeaderString(req.headers, [
-            "x-orgx-api-key",
-            "x-api-key",
-          ]);
-          const apiKey =
-            pickString(payload, ["apiKey", "api_key"]) ??
-            headerApiKey ??
-            bearerApiKey;
-          if (!apiKey) {
-            sendJson(res, 400, {
-              ok: false,
-              error: "apiKey is required",
-            });
-            return true;
-          }
-
-          const requestedUserId =
-            pickString(payload, ["userId", "user_id"]) ??
-            pickHeaderString(req.headers, ["x-orgx-user-id", "x-user-id"]) ??
-            undefined;
-          const userId = isUserScopedApiKey(apiKey) ? undefined : requestedUserId;
-          const state = await onboarding.submitManualKey({
-            apiKey,
-            userId,
-          });
-
-          sendJson(res, 200, {
-            ok: true,
-            data: getOnboardingState(state),
-          });
-        } catch (err: unknown) {
-          sendJson(res, 400, {
-            ok: false,
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (method === "POST" && isOnboardingDisconnectRoute) {
-        try {
-          const state = await onboarding.disconnect();
-          sendJson(res, 200, {
-            ok: true,
-            data: getOnboardingState(state),
-          });
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            ok: false,
-            error: safeErrorMessage(err),
-          });
-        }
         return true;
       }
 
@@ -9589,9 +9530,6 @@ export function createHttpHandler(
         !(isEntitiesRoute && method === "PATCH") &&
         !(entityCommentsMatch && method === "POST") &&
         !(entityActionMatch && method === "POST") &&
-        !(isOnboardingStartRoute && method === "POST") &&
-        !(isOnboardingManualKeyRoute && method === "POST") &&
-        !(isOnboardingDisconnectRoute && method === "POST") &&
         !(isByokSettingsRoute && method === "POST") &&
         !(isAgentSuiteInstallRoute && method === "POST") &&
         !(isSkillPackPolicyRoute && method === "GET") &&
@@ -9804,113 +9742,6 @@ export function createHttpHandler(
           return true;
         }
 
-        case "status": {
-          // Proxy-style: try live fetch, fall back to cache
-          let snapshot = getSnapshot();
-          if (!snapshot) {
-            try {
-              snapshot = await client.getOrgSnapshot();
-            } catch {
-              // use null snapshot
-            }
-          }
-          if (method === "HEAD") {
-            // The dashboard uses a HEAD probe to determine connection state.
-            // Mirror the GET semantics (connected vs not) via status code,
-            // but omit a response body.
-            res.writeHead(snapshot ? 200 : 503, {
-              ...SECURITY_HEADERS,
-              ...CORS_HEADERS,
-            });
-            res.end();
-            return true;
-          }
-
-          sendJson(res, 200, formatStatus(snapshot));
-          return true;
-        }
-
-        case "health": {
-          const probeRemote = parseBooleanQuery(
-            searchParams.get("probe") ?? searchParams.get("probe_remote")
-          );
-          try {
-            if (diagnostics?.getHealth) {
-              const health = await diagnostics.getHealth({ probeRemote });
-              sendJson(res, 200, health);
-              return true;
-            }
-
-            const outbox = await outboxAdapter.readSummary();
-            sendJson(res, 200, {
-              ok: true,
-              status: "ok",
-              generatedAt: new Date().toISOString(),
-              checks: [],
-              plugin: {
-                baseUrl: config.baseUrl,
-              },
-              auth: {
-                hasApiKey: Boolean(config.apiKey),
-              },
-              outbox: {
-                pendingTotal: outbox.pendingTotal,
-                pendingByQueue: outbox.pendingByQueue,
-                oldestEventAt: outbox.oldestEventAt,
-                newestEventAt: outbox.newestEventAt,
-                replayStatus: "idle",
-                lastReplayAttemptAt: null,
-                lastReplaySuccessAt: null,
-                lastReplayFailureAt: null,
-                lastReplayError: null,
-              },
-              remote: {
-                enabled: false,
-                reachable: null,
-                latencyMs: null,
-                error: null,
-              },
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "debug/codex-bin": {
-          if (method !== "GET") {
-            sendJson(res, 405, { ok: false, error: "Method not allowed" });
-            return true;
-          }
-          try {
-            const codex = resolveCodexBinInfo();
-            sendJson(res, 200, {
-              ok: true,
-              spawnGuardBypassEnv: Boolean(
-                (process.env.ORGX_SPAWN_GUARD_BYPASS ?? "").trim() ||
-                  ["off", "bypass"].includes(
-                    (process.env.ORGX_SPAWN_GUARD_MODE ?? "").trim().toLowerCase()
-                  )
-              ),
-              codex: {
-                bin: codex.bin,
-                version: codex.version,
-                versionString: codex.versionString,
-              },
-              probe: cachedCodexProbeSummary,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
-          }
-          return true;
-        }
-
-        case "agents":
-          sendJson(res, 200, formatAgents(getSnapshot()));
-          return true;
-
         case "agents/catalog": {
           try {
             const [openclawAgents, localSnapshot] = await Promise.all([
@@ -10006,18 +9837,6 @@ export function createHttpHandler(
           }
           return true;
         }
-
-        case "activity":
-          sendJson(res, 200, formatActivity(getSnapshot()));
-          return true;
-
-        case "initiatives":
-          sendJson(res, 200, formatInitiatives(getSnapshot()));
-          return true;
-
-        case "onboarding":
-          sendJson(res, 200, getOnboardingState(await onboarding.getStatus()));
-          return true;
 
         case "hooks/runtime/config": {
           try {

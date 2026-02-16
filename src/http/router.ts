@@ -2,6 +2,7 @@ import type { SharedState } from "./shared-state.js";
 
 export type RouteMethod =
   | "GET"
+  | "HEAD"
   | "POST"
   | "PUT"
   | "PATCH"
