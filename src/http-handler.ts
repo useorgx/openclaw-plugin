@@ -11701,10 +11701,18 @@ export function createHttpHandler(
             assetPath.startsWith(`${RESOLVED_DIST_ASSETS_DIR}${sep}`);
         }
         if (assetPath && isWithinAssetsDir && existsSync(assetPath)) {
+          const assetExt = extname(assetPath).toLowerCase();
+          // JS/CSS chunks can be invalidated by dashboard rebuilds while browsers retain
+          // immutable cached entry chunks in local plugin environments.
+          // Revalidate executable assets to avoid stale chunk graph 404s.
+          const cacheControl =
+            assetExt === ".js" || assetExt === ".css"
+              ? "no-cache"
+              : "public, max-age=31536000, immutable";
           sendFile(
             res,
             assetPath,
-            "public, max-age=31536000, immutable"
+            cacheControl
           );
         } else {
           send404(res);
