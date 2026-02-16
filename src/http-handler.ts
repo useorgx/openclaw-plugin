@@ -3881,10 +3881,11 @@ export function createHttpHandler(
   type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
   type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
 
-	  type AutoContinueRun = {
-	    initiativeId: string;
-	    agentId: string;
-	    includeVerification: boolean;
+		  type AutoContinueRun = {
+		    initiativeId: string;
+		    agentId: string;
+		    agentName: string | null;
+		    includeVerification: boolean;
 	    allowedWorkstreamIds: string[] | null;
 	    // When true, stop the run after the next slice completes (used for one-shot "Play").
 	    stopAfterSlice: boolean;
@@ -4234,6 +4235,54 @@ export function createHttpHandler(
     } catch {
       // best effort
     }
+
+    const scopeSuffix =
+      Array.isArray(input.run.allowedWorkstreamIds) && input.run.allowedWorkstreamIds.length === 1
+        ? ` (${input.run.allowedWorkstreamIds[0]})`
+        : "";
+    const message =
+      input.reason === "completed"
+        ? `Autopilot stopped: current dispatch scope completed${scopeSuffix}.`
+        : input.reason === "budget_exhausted"
+          ? `Autopilot stopped: token budget exhausted (${input.run.tokensUsed}/${input.run.tokenBudget}).`
+          : input.reason === "stopped"
+            ? `Autopilot stopped by user request${scopeSuffix}.`
+            : input.reason === "blocked"
+              ? `Autopilot stopped: blocked pending decision${scopeSuffix}.`
+              : `Autopilot stopped due to error${scopeSuffix}.`;
+    const phase =
+      input.reason === "completed"
+        ? "completed"
+        : input.reason === "blocked" || input.reason === "error"
+          ? "blocked"
+          : "review";
+    const level =
+      input.reason === "completed"
+        ? "info"
+        : input.reason === "budget_exhausted" || input.reason === "stopped"
+          ? "warn"
+          : "error";
+
+    await emitActivitySafe({
+      initiativeId: input.run.initiativeId,
+      runId: activeRunId ?? input.run.lastRunId ?? undefined,
+      correlationId: activeRunId ?? input.run.lastRunId ?? undefined,
+      phase,
+      level,
+      message,
+      metadata: {
+        event: "auto_continue_stopped",
+        stop_reason: input.reason,
+        requested_by_agent_id: input.run.agentId,
+        requested_by_agent_name: input.run.agentName,
+        active_run_id: activeRunId,
+        last_run_id: input.run.lastRunId,
+        token_budget: input.run.tokenBudget,
+        tokens_used: input.run.tokensUsed,
+        allowed_workstream_ids: input.run.allowedWorkstreamIds,
+        last_error: input.run.lastError,
+      },
+    });
   }
 
   function ensurePrivateDirForFile(pathname: string): void {
@@ -5312,6 +5361,7 @@ export function createHttpHandler(
     workstreamId: string;
     workstreamTitle: string;
     agentId: string;
+    agentName?: string | null;
     taskId?: string | null;
     taskTitle?: string | null;
   }): Promise<{
@@ -5409,6 +5459,9 @@ export function createHttpHandler(
       metadata: {
         event: "next_up_manual_dispatch_started",
         agent_id: input.agentId,
+        agent_name: input.agentName ?? input.agentId,
+        requested_by_agent_id: input.agentId,
+        requested_by_agent_name: input.agentName ?? input.agentId,
         session_id: sessionId,
         workstream_id: input.workstreamId,
         workstream_title: resolvedWorkstreamTitle,
@@ -5468,6 +5521,37 @@ export function createHttpHandler(
     };
   }
 
+  async function resolveAgentDisplayName(
+    agentId: string,
+    fallbackName?: string | null
+  ): Promise<string | null> {
+    const normalizedAgentId = agentId.trim();
+    if (!normalizedAgentId) return null;
+
+    const normalizedFallback =
+      typeof fallbackName === "string" && fallbackName.trim().length > 0
+        ? fallbackName.trim()
+        : null;
+
+    try {
+      const agents = await listAgents();
+      for (const entry of agents) {
+        const record = entry as Record<string, unknown>;
+        const candidateId = pickString(record, ["id", "agent_id", "agentId"]);
+        if (!candidateId || candidateId.trim() !== normalizedAgentId) continue;
+        const candidateName = pickString(record, ["name", "agent_name", "agentName"]);
+        if (candidateName && candidateName.trim().length > 0) {
+          return candidateName.trim();
+        }
+        break;
+      }
+    } catch {
+      // best effort
+    }
+
+    return normalizedFallback ?? normalizedAgentId;
+  }
+
   async function tickAutoContinueRun(run: AutoContinueRun): Promise<void> {
     if (run.status !== "running" && run.status !== "stopping") return;
 
@@ -5518,11 +5602,13 @@ export function createHttpHandler(
 	                  agentName: slice.agentName,
 	                  phase: "execution",
 	                  message: `Autopilot slice running: ${slice.workstreamTitle ?? slice.workstreamId}`,
-	                  metadata: {
-	                    event: "autopilot_slice_heartbeat",
-	                    domain: slice.domain,
-	                    required_skills: slice.requiredSkills,
-	                    workstream_id: slice.workstreamId,
+		                metadata: {
+		                  event: "autopilot_slice_heartbeat",
+		                  requested_by_agent_id: run.agentId,
+		                  requested_by_agent_name: run.agentName,
+		                  domain: slice.domain,
+		                  required_skills: slice.requiredSkills,
+		                  workstream_id: slice.workstreamId,
 	                    workstream_title: slice.workstreamTitle ?? null,
 	                    task_ids: slice.taskIds,
 	                    milestone_ids: slice.milestoneIds,
@@ -5568,10 +5654,12 @@ export function createHttpHandler(
 	                phase: "blocked",
 	                level: "error",
 	                message: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}.`,
-	                metadata: {
-	                  event: "autopilot_slice_mcp_handshake_failed",
-	                  mcp_server: mcpHandshake.server,
-	                  mcp_line: mcpHandshake.line,
+		                metadata: {
+		                  event: "autopilot_slice_mcp_handshake_failed",
+		                  requested_by_agent_id: run.agentId,
+		                  requested_by_agent_name: run.agentName,
+		                  mcp_server: mcpHandshake.server,
+		                  mcp_line: mcpHandshake.line,
 	                  workstream_id: slice.workstreamId,
 	                  task_ids: slice.taskIds,
 	                  milestone_ids: slice.milestoneIds,
@@ -5643,10 +5731,12 @@ export function createHttpHandler(
 	                phase: "blocked",
 	                level: "error",
 	                message: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}.`,
-	                metadata: {
-	                  event,
-	                  workstream_id: slice.workstreamId,
-	                  task_ids: slice.taskIds,
+		                metadata: {
+		                  event,
+		                  requested_by_agent_id: run.agentId,
+		                  requested_by_agent_name: run.agentName,
+		                  workstream_id: slice.workstreamId,
+		                  task_ids: slice.taskIds,
 	                  milestone_ids: slice.milestoneIds,
 	                  log_path: slice.logPath,
 	                  output_path: slice.outputPath,
@@ -5784,10 +5874,12 @@ export function createHttpHandler(
             agentName: slice.agentName ?? null,
             phase: slice.status === "completed" ? "completed" : "blocked",
             message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
-            metadata: {
-              event: "autopilot_slice_finished",
-              status: parsedStatus,
-              artifacts: artifacts.length,
+	            metadata: {
+	              event: "autopilot_slice_finished",
+	              requested_by_agent_id: run.agentId,
+	              requested_by_agent_name: run.agentName,
+	              status: parsedStatus,
+	              artifacts: artifacts.length,
               decisions: decisions.length,
               status_updates: statusUpdateResult.applied,
               status_updates_buffered: statusUpdateResult.buffered,
@@ -5803,17 +5895,19 @@ export function createHttpHandler(
 	          correlationId: slice.runId,
 	          phase: slice.status === "completed" ? "completed" : "blocked",
 	          level: slice.status === "completed" ? "info" : "warn",
-          message:
-            slice.status === "completed"
-              ? `Autopilot slice completed: ${slice.workstreamTitle ?? slice.workstreamId}.`
-              : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
-          metadata: {
-            event: "autopilot_slice_result",
-            agent_id: slice.agentId,
-            agent_name: slice.agentName,
-            domain: slice.domain,
-            required_skills: slice.requiredSkills,
-            workstream_id: slice.workstreamId,
+	          message:
+	            slice.status === "completed"
+	              ? `Autopilot slice completed for ${slice.workstreamTitle ?? slice.workstreamId} (${slice.taskIds.length} task${slice.taskIds.length === 1 ? "" : "s"}).`
+	              : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
+	          metadata: {
+	            event: "autopilot_slice_result",
+	            requested_by_agent_id: run.agentId,
+	            requested_by_agent_name: run.agentName,
+	            agent_id: slice.agentId,
+	            agent_name: slice.agentName,
+	            domain: slice.domain,
+	            required_skills: slice.requiredSkills,
+	            workstream_id: slice.workstreamId,
             task_ids: slice.taskIds,
             milestone_ids: slice.milestoneIds,
             parsed_status: parsedStatus,
@@ -6279,10 +6373,12 @@ export function createHttpHandler(
 	        agentName: sliceAgent.name,
 	        phase: "execution",
 	        message: `Autopilot slice started: ${workstreamTitle ?? selectedWorkstreamId}`,
-	        metadata: {
-	          event: "autopilot_slice_started",
-	          domain: executionPolicy.domain,
-          required_skills: executionPolicy.requiredSkills,
+		        metadata: {
+		          event: "autopilot_slice_started",
+		          requested_by_agent_id: run.agentId,
+		          requested_by_agent_name: run.agentName,
+		          domain: executionPolicy.domain,
+	          required_skills: executionPolicy.requiredSkills,
           task_ids: slice.taskIds,
           initiative_title: initiativeTitle ?? null,
           workstream_title: workstreamTitle ?? null,
@@ -6305,6 +6401,8 @@ export function createHttpHandler(
 	      message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
 	      metadata: {
 	        event: "autopilot_slice_dispatched",
+	        requested_by_agent_id: run.agentId,
+	        requested_by_agent_name: run.agentName,
 	        agent_id: slice.agentId,
 	        agent_name: sliceAgent.name,
 	        domain: executionPolicy.domain,
@@ -6401,11 +6499,12 @@ export function createHttpHandler(
     return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
   }
 
-	  async function startAutoContinueRun(input: {
-	    initiativeId: string;
-	    agentId: string;
-	    tokenBudget: unknown;
-	    includeVerification: boolean;
+		  async function startAutoContinueRun(input: {
+		    initiativeId: string;
+		    agentId: string;
+		    agentName?: string | null;
+		    tokenBudget: unknown;
+		    includeVerification: boolean;
 	    allowedWorkstreamIds: string[] | null;
 	    stopAfterSlice?: boolean;
 	  }): Promise<AutoContinueRun> {
@@ -6416,10 +6515,11 @@ export function createHttpHandler(
 
     const run: AutoContinueRun =
       existing ??
-	      ({
-	        initiativeId: input.initiativeId,
-	        agentId: input.agentId,
-	        includeVerification: false,
+		      ({
+		        initiativeId: input.initiativeId,
+		        agentId: input.agentId,
+		        agentName: input.agentName ?? null,
+		        includeVerification: false,
 	        allowedWorkstreamIds: null,
 	        stopAfterSlice: false,
 	        tokenBudget: defaultAutoContinueTokenBudget(),
@@ -6438,7 +6538,11 @@ export function createHttpHandler(
         activeTaskTokenEstimate: null,
       } as AutoContinueRun);
 
-	    run.agentId = input.agentId;
+		    run.agentId = input.agentId;
+		    run.agentName =
+		      typeof input.agentName === "string" && input.agentName.trim().length > 0
+		        ? input.agentName.trim()
+		        : null;
 	    run.includeVerification = input.includeVerification;
 	    run.allowedWorkstreamIds = input.allowedWorkstreamIds;
 	    run.stopAfterSlice = Boolean(input.stopAfterSlice);
@@ -6452,7 +6556,8 @@ export function createHttpHandler(
     run.stoppedAt = null;
     run.updatedAt = now;
     run.lastError = null;
-    if (!existingIsLive) {
+    const forceFreshRun = Boolean(input.stopAfterSlice);
+    if (!existingIsLive || forceFreshRun) {
       run.tokensUsed = 0;
       run.startedAt = now;
       run.lastTaskId = null;
@@ -8007,6 +8112,13 @@ export function createHttpHandler(
             return true;
           }
 
+          const requestedAgentName = await resolveAgentDisplayName(
+            agentId,
+            matchedQueueItem?.runnerAgentId === agentId
+              ? matchedQueueItem.runnerAgentName
+              : null
+          );
+
           // Autopilot v2 runs slices via local codex dispatch, so BYOK plan gating does not apply here.
 
           const tokenBudget =
@@ -8080,6 +8192,7 @@ export function createHttpHandler(
 	          const run = await startAutoContinueRun({
 	            initiativeId,
 	            agentId,
+	            agentName: requestedAgentName,
 	            tokenBudget,
 	            includeVerification,
 	            allowedWorkstreamIds: [workstreamId],
@@ -8108,6 +8221,7 @@ export function createHttpHandler(
 	                workstreamId,
 	                workstreamTitle: matchedQueueItem.workstreamTitle,
 	                agentId,
+	                agentName: requestedAgentName,
 	                taskId: matchedQueueItem.nextTaskId ?? null,
 	                taskTitle: matchedQueueItem.nextTaskTitle ?? null,
 	              });
@@ -8392,6 +8506,7 @@ export function createHttpHandler(
           const run = await startAutoContinueRun({
             initiativeId,
             agentId,
+            agentName: await resolveAgentDisplayName(agentId, null),
             tokenBudget,
             includeVerification,
             allowedWorkstreamIds,
