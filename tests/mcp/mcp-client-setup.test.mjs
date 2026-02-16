@@ -48,19 +48,21 @@ test("patchClaudeMcpConfig migrates orgx from local proxy to hosted and keeps or
 test("patchClaudeMcpConfig removes stale scoped entries", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
+  const legacyScopedA = "orgx-openclaw-legacy-alpha";
+  const legacyScopedB = "orgx-openclaw-legacy-beta";
   const current = {
     mcpServers: {
       orgx: { type: "http", url: "https://mcp.useorgx.com/mcp" },
       "orgx-openclaw": { type: "http", url: local },
-      "orgx-openclaw-engineering": { type: "http", url: `${local}/engineering` },
-      "orgx-openclaw-orchestration": { type: "http", url: `${local}/orchestration` },
+      [legacyScopedA]: { type: "http", url: `${local}/alpha` },
+      [legacyScopedB]: { type: "http", url: `${local}/beta` },
     },
   };
 
   const patched = mod.patchClaudeMcpConfig({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
-  assert.ok(!("orgx-openclaw-engineering" in patched.next.mcpServers), "scoped entry should be removed");
-  assert.ok(!("orgx-openclaw-orchestration" in patched.next.mcpServers), "scoped entry should be removed");
+  assert.ok(!(legacyScopedA in patched.next.mcpServers), "scoped entry should be removed");
+  assert.ok(!(legacyScopedB in patched.next.mcpServers), "scoped entry should be removed");
   assert.ok("orgx-openclaw" in patched.next.mcpServers, "base entry should remain");
   assert.ok("orgx" in patched.next.mcpServers, "hosted entry should remain");
 });
@@ -86,18 +88,20 @@ test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
 test("patchCursorMcpConfig removes stale scoped entries", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
+  const legacyScopedA = "orgx-openclaw-legacy-alpha";
+  const legacyScopedB = "orgx-openclaw-legacy-beta";
   const current = {
     mcpServers: {
       "orgx-openclaw": { url: local },
-      "orgx-openclaw-product": { url: `${local}/product` },
-      "orgx-openclaw-sales": { url: `${local}/sales` },
+      [legacyScopedA]: { url: `${local}/alpha` },
+      [legacyScopedB]: { url: `${local}/beta` },
     },
   };
 
   const patched = mod.patchCursorMcpConfig({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
-  assert.ok(!("orgx-openclaw-product" in patched.next.mcpServers));
-  assert.ok(!("orgx-openclaw-sales" in patched.next.mcpServers));
+  assert.ok(!(legacyScopedA in patched.next.mcpServers));
+  assert.ok(!(legacyScopedB in patched.next.mcpServers));
   assert.ok("orgx-openclaw" in patched.next.mcpServers);
 });
 
@@ -186,13 +190,15 @@ test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when
   assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
   assert.ok(patched.next.includes(`url = "${local}"`));
   // Should NOT contain any scoped entries
-  assert.ok(!patched.next.includes("orgx-openclaw-engineering"), "should not create scoped entries");
-  assert.ok(!patched.next.includes("orgx-openclaw-orchestration"), "should not create scoped entries");
+  assert.ok(!patched.next.includes("orgx-openclaw-legacy-alpha"), "should not create scoped entries");
+  assert.ok(!patched.next.includes("orgx-openclaw-legacy-beta"), "should not create scoped entries");
 });
 
 test("patchCodexConfigToml removes stale scoped entries", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
+  const legacyScopedA = "orgx-openclaw-legacy-alpha";
+  const legacyScopedB = "orgx-openclaw-legacy-beta";
   const current = [
     'model = "gpt-5.3-codex"',
     "",
@@ -202,11 +208,11 @@ test("patchCodexConfigToml removes stale scoped entries", async () => {
     '[mcp_servers."orgx-openclaw"]',
     `url = "${local}"`,
     "",
-    '[mcp_servers."orgx-openclaw-engineering"]',
-    `url = "${local}/engineering"`,
+    `[mcp_servers."${legacyScopedA}"]`,
+    `url = "${local}/alpha"`,
     "",
-    '[mcp_servers."orgx-openclaw-orchestration"]',
-    `url = "${local}/orchestration"`,
+    `[mcp_servers."${legacyScopedB}"]`,
+    `url = "${local}/beta"`,
     "",
   ].join("\n");
 
@@ -214,6 +220,6 @@ test("patchCodexConfigToml removes stale scoped entries", async () => {
   assert.equal(patched.updated, true);
   assert.ok(patched.next.includes("[mcp_servers.orgx]"), "hosted entry should remain");
   assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'), "base entry should remain");
-  assert.ok(!patched.next.includes("orgx-openclaw-engineering"), "scoped entry should be removed");
-  assert.ok(!patched.next.includes("orgx-openclaw-orchestration"), "scoped entry should be removed");
+  assert.ok(!patched.next.includes(legacyScopedA), "scoped entry should be removed");
+  assert.ok(!patched.next.includes(legacyScopedB), "scoped entry should be removed");
 });

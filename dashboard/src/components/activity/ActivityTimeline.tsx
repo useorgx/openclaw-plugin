@@ -423,46 +423,112 @@ function extractArtifactId(item: LiveActivityItem | null | undefined): string | 
   return null;
 }
 
-function hasArtifactMetadata(metadata: Record<string, unknown> | undefined): boolean {
-  if (!metadata) return false;
-  const keys = [
-    'artifact',
-    'artifacts',
-    'artifact_type',
-    'artifactType',
-    'output',
-    'outputs',
-    'result',
-    'results',
-    'payload',
-    'toolOutput',
-    'toolOutputs',
-    'toolResult',
-    'toolResults',
-  ];
-  return keys.some((key) => key in metadata);
+const ACTIVITY_BUCKET_BY_EVENT = new Map<string, ActivityBucket>([
+  ['autopilot_slice_artifact_buffered', 'artifact'],
+  ['decision_buffered', 'decision'],
+  ['auto_continue_spawn_guard_blocked', 'decision'],
+  ['autopilot_slice_mcp_handshake_failed', 'decision'],
+  ['autopilot_slice_timeout', 'decision'],
+  ['autopilot_slice_log_stall', 'decision'],
+]);
+
+function normalizeActivityBucket(value: unknown): ActivityBucket | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'artifact') return 'artifact';
+  if (normalized === 'decision') return 'decision';
+  if (normalized === 'message') return 'message';
+  return null;
+}
+
+function metadataBoolean(metadata: Record<string, unknown> | undefined, keys: string[]): boolean | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'true') return true;
+      if (normalized === 'false') return false;
+    }
+  }
+  return null;
+}
+
+function metadataCount(metadata: Record<string, unknown> | undefined, keys: string[]): number | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.max(0, parsed);
+    }
+  }
+  return null;
+}
+
+function metadataEventName(metadata: Record<string, unknown> | undefined): string | null {
+  if (!metadata) return null;
+  const raw = metadata.event;
+  if (typeof raw !== 'string') return null;
+  const normalized = raw.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function classifyActivity(item: LiveActivityItem): ActivityBucket {
   const metadata = metadataForItem(item);
-  const metadataText = textFromMetadata(metadata);
-  const combined = [item.type, item.kind, item.summary, item.title, item.description, metadataText]
-    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .join(' ')
-    .toLowerCase();
+  const explicitBucket =
+    normalizeActivityBucket(item.kind) ??
+    normalizeActivityBucket(metadata?.activity_bucket) ??
+    normalizeActivityBucket(metadata?.activityBucket) ??
+    normalizeActivityBucket(metadata?.bucket);
+  if (explicitBucket) return explicitBucket;
 
-  const looksLikeArtifact =
-    item.type === 'artifact_created' ||
-    hasArtifactMetadata(metadata) ||
-    /artifact|deliverable|output payload/.test(combined);
-  if (looksLikeArtifact) return 'artifact';
+  if (item.type === 'artifact_created') return 'artifact';
+  if (item.type === 'decision_requested' || item.type === 'decision_resolved') return 'decision';
 
-  const looksLikeDecision =
-    item.type === 'decision_requested' ||
-    item.type === 'decision_resolved' ||
+  const eventName = metadataEventName(metadata);
+  const decisionRequired =
     item.decisionRequired === true ||
-    /decision|approve|approval|reject|review request|request changes/.test(combined);
-  if (looksLikeDecision) return 'decision';
+    metadataBoolean(metadata, ['decision_required', 'decisionRequired']) === true;
+  const artifacts = metadataCount(metadata, ['artifacts', 'artifact_count', 'artifactCount']) ?? 0;
+  const decisions = metadataCount(metadata, ['decisions', 'decision_count', 'decisionCount']) ?? 0;
+  const blockingDecisions =
+    metadataCount(metadata, [
+      'blocking_decisions',
+      'blockingDecisions',
+      'blocking_decision_count',
+      'blockingDecisionCount',
+    ]) ?? 0;
+  const nonBlockingDecisions =
+    metadataCount(metadata, [
+      'non_blocking_decisions',
+      'nonBlockingDecisions',
+      'non_blocking_decision_count',
+      'nonBlockingDecisionCount',
+    ]) ?? 0;
+
+  if (eventName === 'autopilot_slice_result') {
+    if (decisionRequired || blockingDecisions > 0) return 'decision';
+    if (artifacts > 0) return 'artifact';
+    if (decisions > 0 || nonBlockingDecisions > 0) return 'decision';
+    return 'message';
+  }
+
+  if (eventName && ACTIVITY_BUCKET_BY_EVENT.has(eventName)) {
+    return ACTIVITY_BUCKET_BY_EVENT.get(eventName)!;
+  }
+
+  const hasArtifactReference =
+    typeof metadata?.artifact_id === 'string' ||
+    typeof metadata?.artifactId === 'string' ||
+    typeof metadata?.work_artifact_id === 'string';
+  if (hasArtifactReference || artifacts > 0) return 'artifact';
+
+  if (decisionRequired || decisions > 0 || blockingDecisions > 0 || nonBlockingDecisions > 0) {
+    return 'decision';
+  }
 
   return 'message';
 }

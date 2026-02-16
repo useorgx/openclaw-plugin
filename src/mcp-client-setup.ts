@@ -51,19 +51,21 @@ function backupFileSync(path: string, mode: number): string | null {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stale scoped-entry keys that were previously written to client configs.
-// We actively remove these during patching so configs don't accumulate junk.
-// ---------------------------------------------------------------------------
-const STALE_SCOPED_KEYS = [
-  "orgx-openclaw-engineering",
-  "orgx-openclaw-product",
-  "orgx-openclaw-design",
-  "orgx-openclaw-marketing",
-  "orgx-openclaw-sales",
-  "orgx-openclaw-operations",
-  "orgx-openclaw-orchestration",
-] as const;
+function removeLegacyScopedMcpServers(servers: Record<string, unknown>): {
+  updated: boolean;
+  next: Record<string, unknown>;
+} {
+  const next = { ...servers };
+  let updated = false;
+  const scopedPrefix = `${ORGX_LOCAL_MCP_KEY}-`;
+  for (const key of Object.keys(next)) {
+    if (key === ORGX_LOCAL_MCP_KEY) continue;
+    if (!key.startsWith(scopedPrefix)) continue;
+    delete next[key];
+    updated = true;
+  }
+  return { updated, next };
+}
 
 export function patchClaudeMcpConfig(input: {
   current: Record<string, unknown>;
@@ -104,31 +106,23 @@ export function patchClaudeMcpConfig(input: {
         : "OrgX platform via local OpenClaw plugin (no OAuth)",
   };
 
-  const nextServers: Record<string, unknown> = {
+  const mergedServers: Record<string, unknown> = {
     ...currentServers,
     ...(shouldSetHostedOrgx ? { orgx: nextOrgxEntry } : {}),
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
   };
-
-  // Remove stale scoped entries from previous versions.
-  let removedStale = false;
-  for (const key of STALE_SCOPED_KEYS) {
-    if (key in nextServers) {
-      delete nextServers[key];
-      removedStale = true;
-    }
-  }
+  const scopedCleanup = removeLegacyScopedMcpServers(mergedServers);
 
   const next: Record<string, unknown> = {
     ...input.current,
-    mcpServers: nextServers,
+    mcpServers: scopedCleanup.next,
   };
 
   const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http";
   const updatedHosted =
     shouldSetHostedOrgx &&
     (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
-  const updated = updatedLocal || updatedHosted || removedStale;
+  const updated = updatedLocal || updatedHosted || scopedCleanup.updated;
   return { updated, next };
 }
 
@@ -145,26 +139,18 @@ export function patchCursorMcpConfig(input: {
     url: input.localMcpUrl,
   };
 
-  const nextServers: Record<string, unknown> = {
+  const mergedServers: Record<string, unknown> = {
     ...currentServers,
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
   };
-
-  // Remove stale scoped entries from previous versions.
-  let removedStale = false;
-  for (const key of STALE_SCOPED_KEYS) {
-    if (key in nextServers) {
-      delete nextServers[key];
-      removedStale = true;
-    }
-  }
+  const scopedCleanup = removeLegacyScopedMcpServers(mergedServers);
 
   const next: Record<string, unknown> = {
     ...input.current,
-    mcpServers: nextServers,
+    mcpServers: scopedCleanup.next,
   };
 
-  const updated = priorUrl !== input.localMcpUrl || removedStale;
+  const updated = priorUrl !== input.localMcpUrl || scopedCleanup.updated;
   return { updated, next };
 }
 
@@ -243,42 +229,46 @@ function upsertCodexMcpServerSection(input: {
   return { updated, next: `${lines.join("\n")}\n` };
 }
 
-/**
- * Remove an entire `[mcp_servers."<key>"]` section (header + body) from TOML text.
- * Returns { updated, next } — updated is true if the section was found and removed.
- */
-function removeCodexMcpServerSection(input: {
+function removeCodexLegacyScopedMcpSections(input: {
   current: string;
-  key: string;
+  baseKey: string;
 }): { updated: boolean; next: string } {
   const lines = input.current.split(/\r?\n/);
-  const escapedKey = escapeRegExp(input.key);
-  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|${escapedKey})\\]\\s*$`);
-  let headerIndex = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (headerRegex.test(lines[i].trim())) {
-      headerIndex = i;
-      break;
+  const scopedPrefix = `${input.baseKey}-`;
+  let updated = false;
+
+  let index = 0;
+  while (index < lines.length) {
+    const trimmed = lines[index].trim();
+    const headerMatch = trimmed.match(/^\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_]+))\]\s*$/);
+    if (!headerMatch) {
+      index += 1;
+      continue;
     }
-  }
 
-  if (headerIndex === -1) {
-    return { updated: false, next: input.current };
-  }
-
-  let sectionEnd = lines.length;
-  for (let i = headerIndex + 1; i < lines.length; i += 1) {
-    if (lines[i].trim().startsWith("[")) {
-      sectionEnd = i;
-      break;
+    const key = (headerMatch[1] ?? headerMatch[2] ?? "").trim();
+    const isLegacyScoped =
+      key !== input.baseKey &&
+      key.startsWith(scopedPrefix);
+    if (!isLegacyScoped) {
+      index += 1;
+      continue;
     }
+
+    let sectionEnd = lines.length;
+    for (let i = index + 1; i < lines.length; i += 1) {
+      if (lines[i].trim().startsWith("[")) {
+        sectionEnd = i;
+        break;
+      }
+    }
+    const start = index > 0 && lines[index - 1].trim() === "" ? index - 1 : index;
+    lines.splice(start, sectionEnd - start);
+    updated = true;
+    index = Math.max(0, start);
   }
 
-  // Also remove a leading blank line if present (keeps formatting tidy).
-  const start = headerIndex > 0 && lines[headerIndex - 1].trim() === "" ? headerIndex - 1 : headerIndex;
-  lines.splice(start, sectionEnd - start);
-
-  return { updated: true, next: `${lines.join("\n")}\n` };
+  return { updated, next: `${lines.join("\n")}\n` };
 }
 
 export function patchCodexConfigToml(input: {
@@ -307,12 +297,12 @@ export function patchCodexConfigToml(input: {
   updated = updated || base.updated;
   current = base.next;
 
-  // Remove stale scoped entries from previous versions.
-  for (const key of STALE_SCOPED_KEYS) {
-    const removed = removeCodexMcpServerSection({ current, key });
-    updated = updated || removed.updated;
-    current = removed.next;
-  }
+  const removedScoped = removeCodexLegacyScopedMcpSections({
+    current,
+    baseKey: ORGX_LOCAL_MCP_KEY,
+  });
+  updated = updated || removedScoped.updated;
+  current = removedScoped.next;
 
   return { updated, next: current };
 }
