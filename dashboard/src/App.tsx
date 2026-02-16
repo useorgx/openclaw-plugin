@@ -245,7 +245,7 @@ function DashboardShell({
     if (dashboardView === 'mission-control') {
       return {
         maxSessions: 240,
-        maxActivityItems: 180,
+        maxActivityItems: 120,
         maxHandoffs: 60,
         maxDecisions: 80,
         batchWindowMs: 140,
@@ -253,14 +253,14 @@ function DashboardShell({
     }
     return {
       maxSessions: 320,
-      maxActivityItems: 300,
+      maxActivityItems: 80,
       maxHandoffs: 80,
       maxDecisions: 80,
       batchWindowMs: 120,
     };
   }, [dashboardView]);
 
-  const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
+  const { data, isLoading, error, refetch, approveDecision, rejectDecision, approveAllDecisions } = useLiveData({
     useMock: demoMode,
     enabled: true,
     enableDecisions: shouldAttemptDecisions,
@@ -505,7 +505,7 @@ function DashboardShell({
     seed: data.activity,
     timeFilterId: activityTimeFilterId,
     runId: selectedActivitySession?.runId ?? null,
-    pageSize: 200,
+    pageSize: 50,
   });
 
   const selectedSession = useMemo(
@@ -1915,6 +1915,7 @@ function DashboardShell({
                 <DecisionQueue
                   decisions={data.decisions}
                   onApproveDecision={approveDecision}
+                  onRejectDecision={rejectDecision}
                   onApproveAll={approveAllDecisions}
                 />
               ) : (
@@ -2123,6 +2124,7 @@ function DashboardShell({
         onClose={() => setBulkModal(null)}
         decisions={decisionsVisible ? data.decisions : []}
         onApproveDecision={approveDecision}
+        onRejectDecision={rejectDecision}
         onApproveAll={approveAllDecisions}
       />
 

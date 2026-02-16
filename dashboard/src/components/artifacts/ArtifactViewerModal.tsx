@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
@@ -39,6 +40,8 @@ interface ArtifactDetailResponse {
     to_artifact_id: string;
     relationship_type: string;
   }>;
+  localFallback?: boolean;
+  warning?: string | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -86,6 +89,7 @@ export function ArtifactViewerModal() {
   // so it must not depend on Mission Control context.
   const authToken: string | null = null;
   const embedMode = false;
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<ArtifactDetailResponse>({
     queryKey: queryKeys.artifactDetail({
@@ -101,17 +105,67 @@ export function ArtifactViewerModal() {
         { headers }
       );
       if (!response.ok) {
-        throw new Error(`Failed to fetch artifact: ${response.status}`);
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(
+          payload?.error?.trim() || `Failed to fetch artifact: ${response.status}`
+        );
       }
       return response.json();
     },
   });
 
   const artifact = data?.artifact;
+  const isLocalFallback =
+    data?.localFallback === true ||
+    (artifact?.metadata?.local_fallback as boolean | undefined) === true;
+  const localFallbackWarning =
+    (typeof data?.warning === 'string' && data.warning.trim().length > 0
+      ? data.warning
+      : (artifact?.metadata?.local_warning as string | undefined)) ?? null;
   const previewMarkdown =
     (artifact?.metadata?.preview_markdown as string) ?? null;
+  const fallbackSourcePath = useMemo(() => {
+    if (!artifact?.metadata) return null;
+    const candidates = [
+      artifact.metadata.local_source_path,
+      artifact.metadata.url,
+      artifact.metadata.path,
+      artifact.metadata.file_path,
+      artifact.metadata.filepath,
+      artifact.metadata.artifact_path,
+      artifact.metadata.output_path,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }, [artifact?.metadata]);
+  const fallbackSourceHref = useMemo(() => {
+    if (!fallbackSourcePath) return null;
+    if (/^https?:\/\//i.test(fallbackSourcePath)) return fallbackSourcePath;
+    return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(fallbackSourcePath)}`;
+  }, [fallbackSourcePath]);
   const externalUrl =
     (artifact?.metadata?.external_url as string) ?? artifact?.artifact_url;
+
+  useEffect(() => {
+    if (!copyNotice) return undefined;
+    const timer = window.setTimeout(() => setCopyNotice(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyNotice]);
+
+  const copyText = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyNotice(`${label} copied`);
+    } catch {
+      setCopyNotice('Copy failed');
+    }
+  };
 
   return (
     <Modal open={Boolean(state.artifactId)} onClose={close} maxWidth="max-w-3xl">
@@ -125,9 +179,8 @@ export function ArtifactViewerModal() {
 
       {error && (
         <div className="p-6">
-          <p className="text-body text-red-400">
-            Failed to load artifact: {error.message}
-          </p>
+          <p className="text-body font-medium text-red-300">Failed to load artifact</p>
+          <p className="mt-1 text-caption text-red-200/80">{error.message}</p>
         </div>
       )}
 
@@ -159,6 +212,11 @@ export function ArtifactViewerModal() {
                   {artifact.catalog?.domain && (
                     <span className="text-micro text-faint">
                       {artifact.catalog.domain} / {artifact.catalog.stage}
+                    </span>
+                  )}
+                  {copyNotice && (
+                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
+                      {copyNotice}
                     </span>
                   )}
                 </div>
@@ -212,6 +270,43 @@ export function ArtifactViewerModal() {
 
           {/* Body */}
           <div className="max-h-[65vh] overflow-y-auto px-5 py-4 sm:px-6 space-y-4">
+            {isLocalFallback && (
+              <div className="rounded-xl border border-amber-300/25 bg-amber-500/[0.09] p-4">
+                <p className="text-caption font-semibold uppercase tracking-[0.08em] text-amber-100/90">
+                  Local fallback artifact
+                </p>
+                <p className="mt-1 text-body text-amber-50/90">
+                  This artifact is buffered locally because OrgX registration is currently unavailable.
+                </p>
+                {localFallbackWarning && (
+                  <p className="mt-1.5 text-caption text-amber-100/70">
+                    Upstream error: {localFallbackWarning}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {fallbackSourceHref && (
+                    <a
+                      href={fallbackSourceHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-full border border-amber-200/25 bg-black/25 px-3 py-1 text-caption font-semibold text-amber-100 transition-colors hover:bg-black/35"
+                    >
+                      Open local artifact
+                    </a>
+                  )}
+                  {fallbackSourcePath && (
+                    <button
+                      type="button"
+                      onClick={() => void copyText(fallbackSourcePath, 'Artifact path')}
+                      className="rounded-full border border-amber-200/25 bg-black/20 px-3 py-1 text-caption font-semibold text-amber-100 transition-colors hover:bg-black/35"
+                    >
+                      Copy path
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Description */}
             {artifact.description && (
               <div>

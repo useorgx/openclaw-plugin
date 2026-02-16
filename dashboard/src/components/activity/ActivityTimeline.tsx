@@ -41,8 +41,8 @@ interface ActivityTimelineProps {
   onFocusRunId?: (runId: string) => void;
 }
 
-const INITIAL_RENDER_COUNT = 240;
-const RENDER_STEP = 240;
+const INITIAL_RENDER_COUNT = 50;
+const RENDER_STEP = 50;
 const MAX_RENDER_COUNT = 3_600;
 const MAX_FILTER_POOL = 12_000;
 
@@ -187,7 +187,7 @@ function extractWorkstreamId(item: LiveActivityItem): string | null {
   return null;
 }
 
-function extractArtifactId(item: LiveActivityItem): string | null {
+function extractArtifactId(item: LiveActivityItem | null | undefined): string | null {
   const metadata = metadataForItem(item);
   if (!metadata) return null;
   const candidates = ['artifact_id', 'artifactId', 'work_artifact_id'];
@@ -1188,6 +1188,104 @@ function resolveAutopilotProgress(
   };
 }
 
+type DetailOutcomeTone = 'neutral' | 'warning' | 'critical' | 'positive';
+
+type DetailOutcome = {
+  label: string;
+  summary: string;
+  hint: string | null;
+  tone: DetailOutcomeTone;
+};
+
+function describeDetailOutcome(
+  item: LiveActivityItem,
+  detail: AutopilotSliceDetail | null,
+  breakdown: {
+    decisions: number | null;
+    stopReason: string | null;
+    parsedStatus: string | null;
+  } | null
+): DetailOutcome | null {
+  const metadata = metadataForItem(item);
+  const status = normalizeStatusKey(item.state ?? item.phase ?? item.kind ?? item.type);
+  const parsedStatus = normalizeStatusKey(breakdown?.parsedStatus ?? detail?.parsedStatus ?? status);
+  const stopReason = normalizeStatusKey(breakdown?.stopReason ?? detail?.stopReason);
+  const blockedReason =
+    metadataString(metadata, ['blocked_reason', 'blockedReason', 'error', 'message']) ??
+    detail?.error ??
+    item.description ??
+    null;
+  const decisionsNeeded =
+    item.decisionRequired === true ||
+    item.type === 'decision_requested' ||
+    (breakdown?.decisions ?? 0) > 0 ||
+    parsedStatus === 'needs_decision';
+
+  if (
+    item.type === 'run_failed' ||
+    item.type === 'blocker_created' ||
+    parsedStatus === 'blocked' ||
+    parsedStatus === 'failed' ||
+    parsedStatus === 'error' ||
+    stopReason === 'blocked' ||
+    stopReason === 'error'
+  ) {
+    return {
+      label: 'Blocked',
+      summary: blockedReason
+        ? humanizeActivityBody(blockedReason) ?? 'Execution is blocked.'
+        : 'Execution is blocked and needs intervention.',
+      hint: decisionsNeeded
+        ? 'Resolve the pending decision, then resume the session.'
+        : 'Open the session and retry after fixing the blocker.',
+      tone: 'critical',
+    };
+  }
+
+  if (decisionsNeeded) {
+    return {
+      label: 'Needs decision',
+      summary: 'Execution paused pending approval or a human choice.',
+      hint: 'Review the Decisions panel and approve the pending item to continue.',
+      tone: 'warning',
+    };
+  }
+
+  if (item.type === 'decision_resolved') {
+    return {
+      label: 'Decision resolved',
+      summary: 'A pending decision was completed.',
+      hint: null,
+      tone: 'positive',
+    };
+  }
+
+  if (
+    item.type === 'run_completed' ||
+    item.type === 'milestone_completed' ||
+    isDoneLikeStatus(parsedStatus) ||
+    stopReason === 'completed'
+  ) {
+    return {
+      label: 'Completed',
+      summary: 'Execution completed successfully.',
+      hint: null,
+      tone: 'positive',
+    };
+  }
+
+  if (item.type === 'run_started' || status === 'running' || status === 'in_progress') {
+    return {
+      label: 'In progress',
+      summary: 'Execution is actively running.',
+      hint: null,
+      tone: 'neutral',
+    };
+  }
+
+  return null;
+}
+
 function renderArtifactValue(value: unknown): ReactNode {
   if (typeof value === 'string') {
     return <MarkdownText mode="block" text={value} className="text-body leading-relaxed text-primary" />;
@@ -1731,6 +1829,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () => extractArtifactPayload(activeDecorated?.item ?? null),
     [activeDecorated]
   );
+  const activeArtifactId = useMemo(
+    () => extractArtifactId(activeDecorated?.item ?? null),
+    [activeDecorated]
+  );
   const activeAutopilotSlice = useMemo(
     () => extractAutopilotSliceDetail(activeDecorated?.item ?? null),
     [activeDecorated]
@@ -1825,6 +1927,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       parsedStatus: context.parsedStatus,
     };
   }, [activeAutopilotContext, activeDecorated, initiatives, workstreamNameById]);
+  const activeOutcome = useMemo(
+    () =>
+      activeDecorated
+        ? describeDetailOutcome(
+            activeDecorated.item,
+            activeAutopilotContext,
+            activeExecutionBreakdown
+              ? {
+                  decisions: activeExecutionBreakdown.decisions,
+                  stopReason: activeExecutionBreakdown.stopReason,
+                  parsedStatus: activeExecutionBreakdown.parsedStatus,
+                }
+              : null
+          )
+        : null,
+    [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]
+  );
   const activeAutopilotProgressColor = useMemo(() => {
     if (!activeAutopilotProgress) return colors.teal;
     if (activeAutopilotProgress.tone === 'positive') return colors.lime;
@@ -1867,6 +1986,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       new Set()
     );
   }, [activeDecorated, activity]);
+  const primaryEvidenceHref = useMemo(() => {
+    if (activeFileEvidence.length === 0) return null;
+    const first = activeFileEvidence[0];
+    return first ? resolveFileEvidenceHref(first.path) : null;
+  }, [activeFileEvidence]);
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
@@ -2519,7 +2643,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
             <svg
@@ -2829,6 +2953,63 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </span>
                       )}
                     </div>
+
+                    {activeOutcome && (
+                      <div
+                        className={cn(
+                          'rounded-xl border px-3.5 py-3',
+                          activeOutcome.tone === 'critical' &&
+                            'border-red-400/28 bg-red-500/[0.09]',
+                          activeOutcome.tone === 'warning' &&
+                            'border-amber-400/28 bg-amber-500/[0.09]',
+                          activeOutcome.tone === 'positive' &&
+                            'border-lime/28 bg-lime/[0.08]',
+                          activeOutcome.tone === 'neutral' &&
+                            'border-cyan-400/22 bg-cyan-500/[0.07]'
+                        )}
+                      >
+                        <p className="text-micro font-semibold uppercase tracking-[0.08em] text-white/78">
+                          {activeOutcome.label}
+                        </p>
+                        <p className="mt-1 text-body text-primary">{activeOutcome.summary}</p>
+                        {activeOutcome.hint && (
+                          <p className="mt-1 text-caption text-secondary">{activeOutcome.hint}</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {activeDecorated.runId && onFocusRunId && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onFocusRunId(activeDecorated.runId!);
+                                closeDetail();
+                              }}
+                              className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.1]"
+                            >
+                              Open session
+                            </button>
+                          )}
+                          {activeArtifactId && (
+                            <button
+                              type="button"
+                              onClick={() => openArtifactViewer(activeArtifactId)}
+                              className="rounded-full border border-cyan-300/25 bg-cyan-500/[0.1] px-3 py-1 text-caption font-semibold text-cyan-100 transition hover:bg-cyan-500/[0.16]"
+                            >
+                              View artifact
+                            </button>
+                          )}
+                          {primaryEvidenceHref && (
+                            <a
+                              href={primaryEvidenceHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.1]"
+                            >
+                              Open evidence
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
 	                    {activeAutopilotContext && (
 	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">

@@ -1089,7 +1089,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   ]);
 
   const applyDecisionMutation = useCallback(
-    async (decisionIds: string[], action: 'approve' | 'reject') => {
+    async (decisionIds: string[], action: 'approve' | 'reject', note?: string) => {
       if (!enableDecisions) {
         throw new Error('OrgX decisions are unavailable while disconnected.');
       }
@@ -1151,6 +1151,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         body: JSON.stringify({
           ids,
           action,
+          ...(note ? { note } : {}),
         }),
       });
 
@@ -1235,8 +1236,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   );
 
   const approveDecision = useCallback(
-    async (decisionId: string) => {
-      return applyDecisionMutation([decisionId], 'approve');
+    async (decisionId: string, note?: string) => {
+      return applyDecisionMutation([decisionId], 'approve', note);
+    },
+    [applyDecisionMutation]
+  );
+
+  const rejectDecision = useCallback(
+    async (decisionId: string, note?: string) => {
+      return applyDecisionMutation([decisionId], 'reject', note);
     },
     [applyDecisionMutation]
   );
@@ -1573,6 +1581,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     error,
     refetch: fetchSnapshot,
     approveDecision,
+    rejectDecision,
     approveAllDecisions,
   };
 }

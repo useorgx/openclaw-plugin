@@ -88,7 +88,7 @@ export function useActivityFeed(options: {
   runId?: string | null;
   pageSize?: number;
 }) {
-  const { seed, timeFilterId, runId = null, pageSize = 200 } = options;
+  const { seed, timeFilterId, runId = null, pageSize = 50 } = options;
 
   const cutoffEpoch = useMemo(() => cutoffEpochForActivityFilter(timeFilterId), [timeFilterId]);
   const sinceIso = useMemo(() => sinceIsoForActivityFilter(timeFilterId), [timeFilterId]);
