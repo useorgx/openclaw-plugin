@@ -25,8 +25,6 @@ test("patchClaudeMcpConfig adds orgx-openclaw entry without overwriting orgx", a
   assert.equal(patched.next.mcpServers.orgx.url, "https://mcp.useorgx.com/mcp");
   assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
   assert.equal(patched.next.mcpServers["orgx-openclaw"].type, "http");
-  assert.equal(patched.next.mcpServers["orgx-openclaw-engineering"].url, `${local}/engineering`);
-  assert.equal(patched.next.mcpServers["orgx-openclaw-orchestration"].url, `${local}/orchestration`);
 });
 
 test("patchClaudeMcpConfig migrates orgx from local proxy to hosted and keeps orgx-openclaw", async () => {
@@ -45,7 +43,26 @@ test("patchClaudeMcpConfig migrates orgx from local proxy to hosted and keeps or
   assert.equal(patched.updated, true);
   assert.equal(patched.next.mcpServers.orgx.url, "https://mcp.useorgx.com/mcp");
   assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
-  assert.equal(patched.next.mcpServers["orgx-openclaw-product"].url, `${local}/product`);
+});
+
+test("patchClaudeMcpConfig removes stale scoped entries", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = {
+    mcpServers: {
+      orgx: { type: "http", url: "https://mcp.useorgx.com/mcp" },
+      "orgx-openclaw": { type: "http", url: local },
+      "orgx-openclaw-engineering": { type: "http", url: `${local}/engineering` },
+      "orgx-openclaw-orchestration": { type: "http", url: `${local}/orchestration` },
+    },
+  };
+
+  const patched = mod.patchClaudeMcpConfig({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(!("orgx-openclaw-engineering" in patched.next.mcpServers), "scoped entry should be removed");
+  assert.ok(!("orgx-openclaw-orchestration" in patched.next.mcpServers), "scoped entry should be removed");
+  assert.ok("orgx-openclaw" in patched.next.mcpServers, "base entry should remain");
+  assert.ok("orgx" in patched.next.mcpServers, "hosted entry should remain");
 });
 
 test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
@@ -63,8 +80,25 @@ test("patchCursorMcpConfig adds orgx-openclaw entry", async () => {
   const patched = mod.patchCursorMcpConfig({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
   assert.equal(patched.next.mcpServers["orgx-openclaw"].url, local);
-  assert.equal(patched.next.mcpServers["orgx-openclaw-design"].url, `${local}/design`);
   assert.equal(patched.next.mcpServers["orgx-production"].args[1], "https://mcp.useorgx.com/sse");
+});
+
+test("patchCursorMcpConfig removes stale scoped entries", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = {
+    mcpServers: {
+      "orgx-openclaw": { url: local },
+      "orgx-openclaw-product": { url: `${local}/product` },
+      "orgx-openclaw-sales": { url: `${local}/sales` },
+    },
+  };
+
+  const patched = mod.patchCursorMcpConfig({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(!("orgx-openclaw-product" in patched.next.mcpServers));
+  assert.ok(!("orgx-openclaw-sales" in patched.next.mcpServers));
+  assert.ok("orgx-openclaw" in patched.next.mcpServers);
 });
 
 test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx", async () => {
@@ -81,11 +115,8 @@ test("patchCodexConfigToml adds orgx-openclaw section without overwriting orgx",
   const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
   assert.equal(patched.updated, true);
   assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
-  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw-engineering"]'));
-  assert.ok(patched.next.includes(`[mcp_servers."orgx-openclaw-orchestration"]`));
   assert.ok(patched.next.includes(`url = "https://mcp.useorgx.com/mcp"`));
   assert.ok(patched.next.includes(`url = "${local}"`));
-  assert.ok(patched.next.includes(`url = "${local}/engineering"`));
 });
 
 test("patchCodexConfigToml strips stale stdio fields (command, args, startup_timeout_sec)", async () => {
@@ -113,6 +144,36 @@ test("patchCodexConfigToml strips stale stdio fields (command, args, startup_tim
   assert.ok(!patched.next.includes("startup_timeout_sec ="), "startup_timeout_sec field should be stripped");
 });
 
+test("patchCodexConfigToml converts hosted orgx from mcp-remote stdio to direct url", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = [
+    'model = "gpt-5.3-codex"',
+    "",
+    "[mcp_servers.orgx]",
+    'command = "npx"',
+    'args = ["-y", "mcp-remote", "https://mcp.useorgx.com/mcp"]',
+    "startup_timeout_sec = 60.0",
+    "",
+  ].join("\n");
+
+  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(patched.next.includes('url = "https://mcp.useorgx.com/mcp"'), "should have url for hosted orgx");
+  // stdio fields should be stripped from the orgx section
+  const lines = patched.next.split("\n");
+  const orgxHeaderIdx = lines.findIndex((l) => /^\[mcp_servers\.(?:"orgx"|orgx)\]/.test(l.trim()));
+  assert.ok(orgxHeaderIdx >= 0, "orgx header should exist");
+  let nextSectionIdx = lines.length;
+  for (let i = orgxHeaderIdx + 1; i < lines.length; i++) {
+    if (lines[i].trim().startsWith("[")) { nextSectionIdx = i; break; }
+  }
+  const orgxSection = lines.slice(orgxHeaderIdx, nextSectionIdx).join("\n");
+  assert.ok(!orgxSection.includes("command ="), "command should be stripped from orgx section");
+  assert.ok(!orgxSection.includes("args ="), "args should be stripped from orgx section");
+  assert.ok(!orgxSection.includes("startup_timeout_sec ="), "startup_timeout_sec should be stripped from orgx section");
+});
+
 test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when missing", async () => {
   const mod = await importFreshModule();
   const local = "http://127.0.0.1:18789/orgx/mcp";
@@ -124,6 +185,35 @@ test("patchCodexConfigToml adds hosted orgx and local orgx-openclaw entries when
   assert.ok(patched.next.includes('url = "https://mcp.useorgx.com/mcp"'));
   assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'));
   assert.ok(patched.next.includes(`url = "${local}"`));
-  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw-sales"]'));
-  assert.ok(patched.next.includes(`url = "${local}/sales"`));
+  // Should NOT contain any scoped entries
+  assert.ok(!patched.next.includes("orgx-openclaw-engineering"), "should not create scoped entries");
+  assert.ok(!patched.next.includes("orgx-openclaw-orchestration"), "should not create scoped entries");
+});
+
+test("patchCodexConfigToml removes stale scoped entries", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const current = [
+    'model = "gpt-5.3-codex"',
+    "",
+    "[mcp_servers.orgx]",
+    'url = "https://mcp.useorgx.com/mcp"',
+    "",
+    '[mcp_servers."orgx-openclaw"]',
+    `url = "${local}"`,
+    "",
+    '[mcp_servers."orgx-openclaw-engineering"]',
+    `url = "${local}/engineering"`,
+    "",
+    '[mcp_servers."orgx-openclaw-orchestration"]',
+    `url = "${local}/orchestration"`,
+    "",
+  ].join("\n");
+
+  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(patched.next.includes("[mcp_servers.orgx]"), "hosted entry should remain");
+  assert.ok(patched.next.includes('[mcp_servers."orgx-openclaw"]'), "base entry should remain");
+  assert.ok(!patched.next.includes("orgx-openclaw-engineering"), "scoped entry should be removed");
+  assert.ok(!patched.next.includes("orgx-openclaw-orchestration"), "scoped entry should be removed");
 });

@@ -10,27 +10,6 @@ import type { Logger } from "./mcp-http-handler.js";
 const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
 const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
 
-const ORGX_LOCAL_MCP_SCOPES = [
-  "engineering",
-  "product",
-  "design",
-  "marketing",
-  "sales",
-  "operations",
-  "orchestration",
-] as const;
-
-type OrgxLocalMcpScope = typeof ORGX_LOCAL_MCP_SCOPES[number];
-
-function scopedMcpServerKey(scope: OrgxLocalMcpScope): string {
-  return `${ORGX_LOCAL_MCP_KEY}-${scope}`;
-}
-
-function scopedMcpUrl(localMcpUrl: string, scope: OrgxLocalMcpScope): string {
-  const base = localMcpUrl.replace(/\/+$/, "");
-  return `${base}/${scope}`;
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -72,6 +51,20 @@ function backupFileSync(path: string, mode: number): string | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stale scoped-entry keys that were previously written to client configs.
+// We actively remove these during patching so configs don't accumulate junk.
+// ---------------------------------------------------------------------------
+const STALE_SCOPED_KEYS = [
+  "orgx-openclaw-engineering",
+  "orgx-openclaw-product",
+  "orgx-openclaw-design",
+  "orgx-openclaw-marketing",
+  "orgx-openclaw-sales",
+  "orgx-openclaw-operations",
+  "orgx-openclaw-orchestration",
+] as const;
+
 export function patchClaudeMcpConfig(input: {
   current: Record<string, unknown>;
   localMcpUrl: string;
@@ -111,35 +104,20 @@ export function patchClaudeMcpConfig(input: {
         : "OrgX platform via local OpenClaw plugin (no OAuth)",
   };
 
-  const updatedScopes: string[] = [];
-  const scopedEntries: Record<string, unknown> = {};
-  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
-    const key = scopedMcpServerKey(scope);
-    const expectedUrl = scopedMcpUrl(input.localMcpUrl, scope);
-    const existingScoped = isRecord(currentServers[key]) ? currentServers[key] : {};
-    const priorUrl = typeof existingScoped.url === "string" ? existingScoped.url : "";
-    const priorType = typeof existingScoped.type === "string" ? existingScoped.type : "";
-    const nextScoped: Record<string, unknown> = {
-      ...existingScoped,
-      type: "http",
-      url: expectedUrl,
-      description:
-        typeof existingScoped.description === "string" && existingScoped.description.trim().length > 0
-          ? existingScoped.description
-          : `OrgX platform via local OpenClaw plugin (${scope} scope)`,
-    };
-    scopedEntries[key] = nextScoped;
-    if (priorUrl !== expectedUrl || priorType !== "http") {
-      updatedScopes.push(scope);
-    }
-  }
-
   const nextServers: Record<string, unknown> = {
     ...currentServers,
     ...(shouldSetHostedOrgx ? { orgx: nextOrgxEntry } : {}),
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
-    ...scopedEntries,
   };
+
+  // Remove stale scoped entries from previous versions.
+  let removedStale = false;
+  for (const key of STALE_SCOPED_KEYS) {
+    if (key in nextServers) {
+      delete nextServers[key];
+      removedStale = true;
+    }
+  }
 
   const next: Record<string, unknown> = {
     ...input.current,
@@ -150,7 +128,7 @@ export function patchClaudeMcpConfig(input: {
   const updatedHosted =
     shouldSetHostedOrgx &&
     (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
-  const updated = updatedLocal || updatedHosted || updatedScopes.length > 0;
+  const updated = updatedLocal || updatedHosted || removedStale;
   return { updated, next };
 }
 
@@ -167,32 +145,26 @@ export function patchCursorMcpConfig(input: {
     url: input.localMcpUrl,
   };
 
-  const scopedEntries: Record<string, unknown> = {};
-  let updatedScopes = false;
-  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
-    const key = scopedMcpServerKey(scope);
-    const expectedUrl = scopedMcpUrl(input.localMcpUrl, scope);
-    const existingScoped = isRecord(currentServers[key]) ? currentServers[key] : {};
-    const priorScopedUrl = typeof existingScoped.url === "string" ? existingScoped.url : "";
-    scopedEntries[key] = {
-      ...existingScoped,
-      url: expectedUrl,
-    };
-    if (priorScopedUrl !== expectedUrl) updatedScopes = true;
-  }
-
   const nextServers: Record<string, unknown> = {
     ...currentServers,
     [ORGX_LOCAL_MCP_KEY]: nextEntry,
-    ...scopedEntries,
   };
+
+  // Remove stale scoped entries from previous versions.
+  let removedStale = false;
+  for (const key of STALE_SCOPED_KEYS) {
+    if (key in nextServers) {
+      delete nextServers[key];
+      removedStale = true;
+    }
+  }
 
   const next: Record<string, unknown> = {
     ...input.current,
     mcpServers: nextServers,
   };
 
-  const updated = priorUrl !== input.localMcpUrl || updatedScopes;
+  const updated = priorUrl !== input.localMcpUrl || removedStale;
   return { updated, next };
 }
 
@@ -216,7 +188,9 @@ function upsertCodexMcpServerSection(input: {
   const urlLine = `url = "${input.url}"`;
 
   if (headerIndex === -1) {
-    const suffix = ["", `[mcp_servers.\"${input.key}\"]`, urlLine, ""].join("\n");
+    const needsQuote = /[^A-Za-z0-9_]/.test(input.key);
+    const keyLiteral = needsQuote ? `"${input.key}"` : input.key;
+    const suffix = ["", `[mcp_servers.${keyLiteral}]`, urlLine, ""].join("\n");
     const normalized = currentText.endsWith("\n") ? currentText : `${currentText}\n`;
     return { updated: true, next: `${normalized}${suffix}` };
   }
@@ -269,34 +243,61 @@ function upsertCodexMcpServerSection(input: {
   return { updated, next: `${lines.join("\n")}\n` };
 }
 
+/**
+ * Remove an entire `[mcp_servers."<key>"]` section (header + body) from TOML text.
+ * Returns { updated, next } — updated is true if the section was found and removed.
+ */
+function removeCodexMcpServerSection(input: {
+  current: string;
+  key: string;
+}): { updated: boolean; next: string } {
+  const lines = input.current.split(/\r?\n/);
+  const escapedKey = escapeRegExp(input.key);
+  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|${escapedKey})\\]\\s*$`);
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (headerRegex.test(lines[i].trim())) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    return { updated: false, next: input.current };
+  }
+
+  let sectionEnd = lines.length;
+  for (let i = headerIndex + 1; i < lines.length; i += 1) {
+    if (lines[i].trim().startsWith("[")) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  // Also remove a leading blank line if present (keeps formatting tidy).
+  const start = headerIndex > 0 && lines[headerIndex - 1].trim() === "" ? headerIndex - 1 : headerIndex;
+  lines.splice(start, sectionEnd - start);
+
+  return { updated: true, next: `${lines.join("\n")}\n` };
+}
+
 export function patchCodexConfigToml(input: {
   current: string;
   localMcpUrl: string;
 }): { updated: boolean; next: string } {
   let current = input.current;
-  let updatedHosted = false;
-
-  // If the hosted OrgX entry is missing entirely, add a sensible default. This is
-  // a no-op if the user already has `orgx` pointed at staging or another URL.
-  const hostedHeaderRegex = /^\[mcp_servers\.(?:"orgx"|orgx)\]\s*$/;
-  {
-    const lines = current.split(/\r?\n/);
-    const hasHosted = lines.some((line) => hostedHeaderRegex.test(line.trim()));
-    if (!hasHosted) {
-      const hostedUrlLine = `url = "${ORGX_HOSTED_MCP_URL}"`;
-      const suffix = [
-        ...(current.trim().length === 0 ? [] : [""]),
-        "[mcp_servers.orgx]",
-        hostedUrlLine,
-        "",
-      ].join("\n");
-      const normalized = current.endsWith("\n") ? current : `${current}\n`;
-      current = `${normalized}${suffix}`;
-      updatedHosted = true;
-    }
-  }
-
   let updated = false;
+
+  // Ensure the hosted OrgX entry uses a direct `url` (streamable HTTP) so that
+  // `codex mcp login orgx` can perform OAuth.  Route through upsertCodexMcpServerSection
+  // so stale stdio-transport fields (command/args) are stripped automatically.
+  const hosted = upsertCodexMcpServerSection({
+    current,
+    key: "orgx",
+    url: ORGX_HOSTED_MCP_URL,
+  });
+  updated = updated || hosted.updated;
+  current = hosted.next;
 
   const base = upsertCodexMcpServerSection({
     current,
@@ -306,17 +307,14 @@ export function patchCodexConfigToml(input: {
   updated = updated || base.updated;
   current = base.next;
 
-  for (const scope of ORGX_LOCAL_MCP_SCOPES) {
-    const next = upsertCodexMcpServerSection({
-      current,
-      key: scopedMcpServerKey(scope),
-      url: scopedMcpUrl(input.localMcpUrl, scope),
-    });
-    updated = updated || next.updated;
-    current = next.next;
+  // Remove stale scoped entries from previous versions.
+  for (const key of STALE_SCOPED_KEYS) {
+    const removed = removeCodexMcpServerSection({ current, key });
+    updated = updated || removed.updated;
+    current = removed.next;
   }
 
-  return { updated: updatedHosted || updated, next: current };
+  return { updated, next: current };
 }
 
 export async function autoConfigureDetectedMcpClients(input: {

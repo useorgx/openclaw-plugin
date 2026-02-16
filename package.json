@@ -44,6 +44,7 @@
     "verify:autopilot-e2e:matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-matrix.mjs",
     "verify:autopilot-e2e:entities": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities.mjs",
     "verify:autopilot-e2e:entities-matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities-matrix.mjs",
+    "verify:iwmt-cascade": "npm run build:core && node ./scripts/verify-iwmt-cascade-e2e.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",
