@@ -57,7 +57,8 @@ async function main() {
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "codex",
         ORGX_AUTOPILOT_EXECUTOR: "codex",
-        ORGX_CODEX_ARGS: "--ephemeral --full-auto",
+        // Keep real verification deterministic and low-cost: no external MCP servers.
+        ORGX_CODEX_ARGS: "--ephemeral --full-auto -c mcp_servers={}",
         ORGX_E2E_TIMEOUT_MS: "420000",
         ORGX_E2E_DOMAINS: realDomains,
         ORGX_E2E_TASKS_PER_DOMAIN: "1",
@@ -81,4 +82,3 @@ main().catch((err) => {
   console.error(err?.stack || String(err));
   process.exit(1);
 });
-

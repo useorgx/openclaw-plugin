@@ -137,11 +137,16 @@ async function resolveSkillPackOverrides(input: {
   const getSkillPack = input.client.getSkillPack;
   if (typeof getSkillPack !== "function") return state.overrides;
 
-  const refreshed = await refreshSkillPackState({
-    getSkillPack: (args) => getSkillPack(args),
-    force,
-  });
-  return refreshed.state.overrides;
+  try {
+    const refreshed = await refreshSkillPackState({
+      getSkillPack: (args) => getSkillPack(args),
+      force,
+    });
+    return refreshed.state.overrides;
+  } catch {
+    // If refresh fails (network, disk, etc.), fall back to cached overrides.
+    return state.overrides;
+  }
 }
 
 function safeErrorMessage(err: unknown): string {
@@ -8910,7 +8915,14 @@ export function createHttpHandler(
       switch (route) {
         case "agent-suite/status": {
           try {
-            const skillPack = await resolveSkillPackOverrides({ client });
+            // Resolve skill pack overrides — tolerate failures so the plan
+            // is still returned even when the remote API is unreachable.
+            let skillPack: OrgxSkillPackOverrides | null = null;
+            try {
+              skillPack = await resolveSkillPackOverrides({ client });
+            } catch {
+              // Fall through with null — plan will use builtin defaults.
+            }
             const state = readSkillPackState();
             const updateAvailable = Boolean(
               state.remote?.checksum &&

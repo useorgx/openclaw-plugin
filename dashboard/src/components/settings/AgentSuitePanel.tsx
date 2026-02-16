@@ -59,7 +59,7 @@ export function AgentSuitePanel({
 
   const summary = useMemo(() => {
     if (suite.isLoading) return 'Loading agent suite status...';
-    if (suite.error) return 'Unable to read suite status.';
+    if (suite.error) return `Unable to read suite status: ${suite.error}`;
     if (!plan) return 'Suite status unavailable.';
     if (conflictFiles > 0) return `Conflicts detected: ${pluralize(conflictFiles, 'file')} need attention.`;
     if (missingAgents === 0 && changedFiles === 0) return 'Suite is installed and up to date.';

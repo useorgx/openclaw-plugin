@@ -53,7 +53,7 @@ async function main() {
         ORGX_AUTOPILOT_WORKER_KIND: "codex",
         ORGX_AUTOPILOT_EXECUTOR: "codex",
         // Keep the run minimal. `normalizeCodexArgs` will ensure `exec` is used.
-        ORGX_CODEX_ARGS: "--ephemeral --full-auto",
+        ORGX_CODEX_ARGS: "--ephemeral --full-auto -c mcp_servers={}",
         ORGX_E2E_TIMEOUT_MS: "360000",
         ORGX_E2E_TASKS: "1",
       },
