@@ -80,12 +80,15 @@ export function useAgentSuite({
   return {
     status: statusQuery.data ?? null,
     isLoading: statusQuery.isLoading,
+    isRefetching: statusQuery.isRefetching,
     error:
       (statusQuery.data && 'error' in statusQuery.data ? statusQuery.data.error : null) ??
       statusQuery.error?.message ??
       null,
+    installError: installMutation.error?.message ?? null,
     refetchStatus: statusQuery.refetch,
-    install: installMutation.mutateAsync,
+    install: installMutation.mutate,
+    resetInstall: installMutation.reset,
     installResult: installMutation.data ?? null,
     isInstalling: installMutation.isPending,
   };

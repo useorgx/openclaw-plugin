@@ -27,6 +27,9 @@ import {
   readdirSync,
   statSync,
   writeFileSync,
+  openSync,
+  readSync,
+  closeSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep, dirname } from "node:path";
@@ -187,6 +190,62 @@ function isUnauthorizedOrgxError(err: unknown): boolean {
 
 const ACTIVITY_WARM_THROTTLE_MS = 30_000;
 const activityWarmByKey = new Map<string, number>();
+const SNAPSHOT_RESPONSE_CACHE_TTL_MS = 1_500;
+const SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES = 16;
+const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
+const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
+let lastSnapshotActivityPersistAt = 0;
+let lastSnapshotActivityFingerprint = "";
+const snapshotResponseCache = new Map<
+  string,
+  { expiresAt: number; payload: Record<string, unknown> }
+>();
+
+function snapshotActivityFingerprint(items: LiveActivityItem[]): string {
+  if (!Array.isArray(items) || items.length === 0) return "0";
+  const sample = items
+    .slice(0, SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH)
+    .map((item) => `${item.id}|${item.timestamp}`)
+    .join(";");
+  return `${items.length}:${sample}`;
+}
+
+function readSnapshotResponseCache(key: string): Record<string, unknown> | null {
+  const entry = snapshotResponseCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    snapshotResponseCache.delete(key);
+    return null;
+  }
+  return entry.payload;
+}
+
+function writeSnapshotResponseCache(
+  key: string,
+  payload: Record<string, unknown>
+): void {
+  const now = Date.now();
+  snapshotResponseCache.set(key, {
+    expiresAt: now + SNAPSHOT_RESPONSE_CACHE_TTL_MS,
+    payload,
+  });
+
+  if (snapshotResponseCache.size <= SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES) return;
+
+  for (const [cachedKey, entry] of snapshotResponseCache.entries()) {
+    if (entry.expiresAt <= now) snapshotResponseCache.delete(cachedKey);
+  }
+
+  while (snapshotResponseCache.size > SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES) {
+    const oldestKey = snapshotResponseCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    snapshotResponseCache.delete(oldestKey);
+  }
+}
+
+function clearSnapshotResponseCache(): void {
+  snapshotResponseCache.clear();
+}
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
@@ -1735,6 +1794,8 @@ const IMMUTABLE_FILE_CACHE = new Map<
   { content: Buffer; contentType: string }
 >();
 const IMMUTABLE_FILE_CACHE_MAX = 128;
+const FILE_PREVIEW_MAX_BYTES = 1_000_000;
+const FILE_PREVIEW_MAX_DIR_ENTRIES = 300;
 
 function sendJson(
   res: PluginResponse,
@@ -1750,6 +1811,79 @@ function sendJson(
     ...CORS_HEADERS,
   });
   res.end(body);
+}
+
+function sendHtml(res: PluginResponse, status: number, html: string): void {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...SECURITY_HEADERS,
+    ...CORS_HEADERS,
+  });
+  res.end(html);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function resolveFilesystemOpenPath(rawPath: string): string {
+  let value = rawPath.trim();
+  if (value.toLowerCase().startsWith("file://")) {
+    value = value.replace(/^file:\/\//i, "");
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // best effort
+    }
+    if (process.platform === "win32" && value.startsWith("/")) {
+      value = value.slice(1);
+    }
+  }
+
+  if (value.startsWith("~/")) {
+    return resolve(homedir(), value.slice(2));
+  }
+
+  const looksWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(value);
+  if (value.startsWith("/") || looksWindowsAbsolute) {
+    return resolve(value);
+  }
+
+  return resolve(process.cwd(), value);
+}
+
+function readFilePreview(pathname: string, totalBytes: number): {
+  previewBuffer: Buffer;
+  truncated: boolean;
+} {
+  if (totalBytes <= 0) {
+    return { previewBuffer: Buffer.alloc(0), truncated: false };
+  }
+
+  const previewBytes = Math.min(totalBytes, FILE_PREVIEW_MAX_BYTES);
+  const previewBuffer = Buffer.alloc(previewBytes);
+  const fd = openSync(pathname, "r");
+  try {
+    const bytesRead = readSync(fd, previewBuffer, 0, previewBytes, 0);
+    if (bytesRead < previewBytes) {
+      return {
+        previewBuffer: previewBuffer.subarray(0, bytesRead),
+        truncated: totalBytes > bytesRead,
+      };
+    }
+    return {
+      previewBuffer,
+      truncated: totalBytes > previewBytes,
+    };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function sendFile(
@@ -5109,6 +5243,7 @@ export function createHttpHandler(
     });
     // Make runtime updates feel instantaneous (don't wait for the 15s staleness timer).
     broadcastRuntimeSse("runtime.updated", instance);
+    clearSnapshotResponseCache();
     return instance;
   }
 
@@ -9929,6 +10064,7 @@ export function createHttpHandler(
 
             const instance = upsertRuntimeInstanceFromHook(payload);
             broadcastRuntimeSse("runtime.updated", instance);
+            clearSnapshotResponseCache();
 
 
             const fallbackPhaseByEvent: Record<string, string> = {
@@ -10514,6 +10650,12 @@ export function createHttpHandler(
           const includeIdleRaw = searchParams.get("include_idle");
           const includeIdle =
             includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
+          const snapshotCacheKey = `${route}?${searchParams.toString()}`;
+          const cachedSnapshot = readSnapshotResponseCache(snapshotCacheKey);
+          if (cachedSnapshot) {
+            sendJson(res, 200, cachedSnapshot);
+            return true;
+          }
           const degraded: string[] = [];
           const contextStore = readAgentContexts();
           const agentContexts = contextStore.agents;
@@ -10824,12 +10966,23 @@ export function createHttpHandler(
           activity = enrichActivityWithRuntime(activity, runtimeInstances);
 
           try {
-            appendActivityItems(activity);
+            // Avoid reprocessing/storing large activity snapshots when the leading window
+            // is unchanged and we persisted recently.
+            const fingerprint = snapshotActivityFingerprint(activity);
+            const now = Date.now();
+            const shouldPersist =
+              fingerprint !== lastSnapshotActivityFingerprint ||
+              now - lastSnapshotActivityPersistAt >= SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS;
+            if (shouldPersist) {
+              appendActivityItems(activity);
+              lastSnapshotActivityFingerprint = fingerprint;
+              lastSnapshotActivityPersistAt = now;
+            }
           } catch {
             // best effort
           }
 
-          sendJson(res, 200, {
+          const payload = {
             sessions,
             activity,
             handoffs,
@@ -10839,7 +10992,9 @@ export function createHttpHandler(
             outbox: outboxStatus,
             generatedAt: new Date().toISOString(),
             degraded: degraded.length > 0 ? degraded : undefined,
-          });
+          } as Record<string, unknown>;
+          writeSnapshotResponseCache(snapshotCacheKey, payload);
+          sendJson(res, 200, payload);
           return true;
         }
 
@@ -11135,6 +11290,111 @@ export function createHttpHandler(
             sendJson(res, 200, { detail });
           } catch (err: unknown) {
             sendJson(res, 500, { error: safeErrorMessage(err), turnId });
+          }
+          return true;
+        }
+
+        case "live/filesystem/open": {
+          if (method !== "GET") {
+            sendJson(res, 405, { error: "Use GET /orgx/api/live/filesystem/open?path=..." });
+            return true;
+          }
+
+          const rawPath = searchParams.get("path") ?? "";
+          if (!rawPath.trim()) {
+            sendJson(res, 400, { error: "path is required" });
+            return true;
+          }
+
+          const pathInput = rawPath.trim();
+          if (/^https?:\/\//i.test(pathInput)) {
+            res.writeHead(302, {
+              Location: pathInput,
+              ...SECURITY_HEADERS,
+              ...CORS_HEADERS,
+            });
+            res.end();
+            return true;
+          }
+
+          const resolvedPath = resolveFilesystemOpenPath(pathInput);
+          const escapedInput = escapeHtml(pathInput);
+          const escapedResolved = escapeHtml(resolvedPath);
+          const shellPath = resolvedPath.replaceAll("'", "'\\''");
+
+          if (!existsSync(resolvedPath)) {
+            sendHtml(
+              res,
+              404,
+              `<!doctype html><html><head><meta charset="utf-8"/><title>Path Not Found</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}a{color:#BFFF00}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Path not found</h1><p style="margin:0 0 12px;color:#9ca3af;">The evidence path no longer exists.</p><pre>${escapedInput}</pre><p style="margin:12px 0 0;color:#9ca3af;">Resolved as:</p><pre>${escapedResolved}</pre></body></html>`
+            );
+            return true;
+          }
+
+          try {
+            const stats = statSync(resolvedPath);
+            if (stats.isDirectory()) {
+              const entries = readdirSync(resolvedPath);
+              const visibleEntries = entries.slice(0, FILE_PREVIEW_MAX_DIR_ENTRIES);
+              const items = visibleEntries
+                .map((name) => {
+                  const nextPath = resolve(resolvedPath, name);
+                  const href = `/orgx/api/live/filesystem/open?path=${encodeURIComponent(nextPath)}`;
+                  return `<li style="margin:0 0 6px;"><a href="${href}" target="_blank" rel="noreferrer" style="color:#BFFF00;text-decoration:none;">${escapeHtml(name)}</a></li>`;
+                })
+                .join("");
+              const overflowNote =
+                entries.length > visibleEntries.length
+                  ? `<p style="margin:12px 0 0;color:#9ca3af;">Showing ${visibleEntries.length} of ${entries.length} entries.</p>`
+                  : "";
+
+              sendHtml(
+                res,
+                200,
+                `<!doctype html><html><head><meta charset="utf-8"/><title>Directory Preview</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre,ul{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px}ul{list-style:none;margin:0;max-height:70vh;overflow:auto}pre{white-space:pre-wrap;word-break:break-word}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Directory</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapedResolved}</p><ul>${items || "<li style=\"color:#9ca3af;\">(empty)</li>"}</ul>${overflowNote}<p style="margin:12px 0 0;color:#9ca3af;">Tip: open in terminal with <code>ls -la '${escapeHtml(shellPath)}'</code></p></body></html>`
+              );
+              return true;
+            }
+
+            if (!stats.isFile()) {
+              sendHtml(
+                res,
+                200,
+                `<!doctype html><html><head><meta charset="utf-8"/><title>Unsupported Path</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Unsupported path type</h1><p style="margin:0 0 12px;color:#9ca3af;">Only files and directories are previewable.</p><pre>${escapedResolved}</pre></body></html>`
+              );
+              return true;
+            }
+
+            const totalBytes = Number.isFinite(stats.size) ? Math.max(0, stats.size) : 0;
+            const { previewBuffer, truncated } = readFilePreview(resolvedPath, totalBytes);
+            const isBinary = previewBuffer.includes(0);
+            const sizeLabel = `${totalBytes.toLocaleString()} bytes`;
+
+            if (isBinary) {
+              sendHtml(
+                res,
+                200,
+                `<!doctype html><html><head><meta charset="utf-8"/><title>Binary File</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Binary file</h1><p style="margin:0 0 12px;color:#9ca3af;">Cannot render binary content in browser preview.</p><pre>${escapedResolved}\n${escapeHtml(sizeLabel)}</pre><p style="margin:12px 0 0;color:#9ca3af;">Inspect in terminal with <code>file '${escapeHtml(shellPath)}'</code></p></body></html>`
+              );
+              return true;
+            }
+
+            const previewText = previewBuffer.toString("utf8");
+            const truncationNote = truncated
+              ? `<p style="margin:12px 0 0;color:#9ca3af;">Preview truncated to first ${FILE_PREVIEW_MAX_BYTES.toLocaleString()} bytes.</p>`
+              : "";
+
+            sendHtml(
+              res,
+              200,
+              `<!doctype html><html><head><meta charset="utf-8"/><title>File Preview</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre;overflow:auto;max-height:75vh}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">File preview</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapedResolved}</p><p style="margin:0 0 12px;color:#9ca3af;">${escapeHtml(sizeLabel)}</p><pre>${escapeHtml(previewText)}</pre>${truncationNote}<p style="margin:12px 0 0;color:#9ca3af;">Open in terminal with <code>cat '${escapeHtml(shellPath)}'</code></p></body></html>`
+            );
+          } catch (err: unknown) {
+            sendHtml(
+              res,
+              500,
+              `<!doctype html><html><head><meta charset="utf-8"/><title>Preview Error</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Unable to preview path</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapeHtml(safeErrorMessage(err))}</p><pre>${escapedResolved}</pre></body></html>`
+            );
           }
           return true;
         }

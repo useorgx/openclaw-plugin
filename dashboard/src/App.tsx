@@ -217,13 +217,54 @@ function DashboardShell({
     }
   });
 
+  // Dashboard view toggle: Activity (3-column) vs Mission Control
+  const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'mission-control') return 'mission-control';
+    try {
+      if (localStorage.getItem('orgx-dashboard-view') === 'mission-control') return 'mission-control';
+    } catch {
+      // ignore
+    }
+    return 'activity';
+  });
+
+  const switchDashboardView = useCallback((v: DashboardView) => {
+    setDashboardView(v);
+    try {
+      localStorage.setItem('orgx-dashboard-view', v);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const shouldAttemptDecisions =
     demoMode || (onboarding.state.hasApiKey && onboarding.state.connectionVerified);
+
+  const liveDataOptions = useMemo(() => {
+    if (dashboardView === 'mission-control') {
+      return {
+        maxSessions: 240,
+        maxActivityItems: 180,
+        maxHandoffs: 60,
+        maxDecisions: 80,
+        batchWindowMs: 140,
+      };
+    }
+    return {
+      maxSessions: 320,
+      maxActivityItems: 300,
+      maxHandoffs: 80,
+      maxDecisions: 80,
+      batchWindowMs: 120,
+    };
+  }, [dashboardView]);
 
   const { data, isLoading, error, refetch, approveDecision, approveAllDecisions } = useLiveData({
     useMock: demoMode,
     enabled: true,
     enableDecisions: shouldAttemptDecisions,
+    ...liveDataOptions,
   });
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -232,7 +273,7 @@ function DashboardShell({
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
-    useState<ActivityTimeFilterId>('all');
+    useState<ActivityTimeFilterId>('30m');
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -358,21 +399,6 @@ function DashboardShell({
     void import('@/components/mission-control/MissionControlView');
   }, []);
 
-  // Dashboard view toggle: Activity (3-column) vs Mission Control
-  const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'mission-control') return 'mission-control';
-    try {
-      if (localStorage.getItem('orgx-dashboard-view') === 'mission-control') return 'mission-control';
-    } catch { /* ignore */ }
-    return 'activity';
-  });
-
-  const switchDashboardView = useCallback((v: DashboardView) => {
-    setDashboardView(v);
-    try { localStorage.setItem('orgx-dashboard-view', v); } catch { /* ignore */ }
-  }, []);
-
   // Fetch entity-based initiatives for Mission Control (only when view is active)
   const { data: entityInitiatives } = useEntityInitiatives(dashboardView === 'mission-control');
   const { data: liveInitiatives } = useLiveInitiatives(dashboardView === 'mission-control');
@@ -407,6 +433,10 @@ function DashboardShell({
   const clearActivityWorkstreamFilter = useCallback(() => {
     setActivityFilterWorkstreamId(null);
     setActivityFilterWorkstreamLabel(null);
+  }, []);
+
+  const clearAgentFilter = useCallback(() => {
+    setAgentFilter(null);
   }, []);
 
   useEffect(() => {
@@ -463,6 +493,13 @@ function DashboardShell({
     () => data.sessions.nodes.find((n) => n.id === activityFilterSessionId) ?? null,
     [activityFilterSessionId, data.sessions.nodes]
   );
+
+  const selectedActivityRunIds = useMemo(() => {
+    const runId = selectedActivitySession?.runId?.trim() ?? '';
+    const nodeId = selectedActivitySession?.id?.trim() ?? '';
+    if (!runId || !nodeId) return [];
+    return runId === nodeId ? [runId] : [runId, nodeId];
+  }, [selectedActivitySession?.id, selectedActivitySession?.runId]);
 
   const activityFeed = useActivityFeed({
     seed: data.activity,
@@ -1763,7 +1800,6 @@ function DashboardShell({
 	            onAgentFilter={setAgentFilter}
             agentFilter={agentFilter}
             timeFilterId={activityTimeFilterId}
-            onTimeFilterChange={setActivityTimeFilterId}
             onReconnect={handleReconnect}
             connectionStatus={data.connection}
 	          />
@@ -1774,22 +1810,19 @@ function DashboardShell({
 	            activity={activityFeed.items}
 	            sessions={data.sessions.nodes}
 	            initiatives={initiatives}
-	            selectedRunIds={
-	              selectedActivitySession
-	                ? [selectedActivitySession.runId, selectedActivitySession.id]
-	                : []
-	            }
+	            selectedRunIds={selectedActivityRunIds}
 	            selectedSessionLabel={selectedActivitySessionLabel}
               selectedWorkstreamId={activityFilterWorkstreamId}
               selectedWorkstreamLabel={activityFilterWorkstreamLabel}
 	            agentFilter={agentFilter}
               timeFilterId={activityTimeFilterId}
+              onTimeFilterChange={setActivityTimeFilterId}
               hasMore={activityFeed.hasMore}
               isLoadingMore={activityFeed.isLoadingMore}
-              onLoadMore={activityFeed.loadMore}
+	            onLoadMore={activityFeed.loadMore}
 	            onClearSelection={clearActivitySessionFilter}
 	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
-	            onClearAgentFilter={() => setAgentFilter(null)}
+	            onClearAgentFilter={clearAgentFilter}
 	            onFocusRunId={focusActivityRunId}
 	          />
 	        </section>

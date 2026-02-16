@@ -12,7 +12,7 @@ import { EntityIcon } from '@/components/shared/EntityIcon';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
-import { resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
+import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 
 const itemVariants = {
@@ -31,6 +31,7 @@ interface ActivityTimelineProps {
   selectedWorkstreamLabel?: string | null;
   agentFilter?: string | null;
   timeFilterId?: ActivityTimeFilterId;
+  onTimeFilterChange?: (next: ActivityTimeFilterId) => void;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
@@ -330,6 +331,42 @@ function metadataToJson(metadata: Record<string, unknown> | undefined): string |
   }
 }
 
+function numericFromValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function countFromValue(value: unknown): number | null {
+  const numeric = numericFromValue(value);
+  if (numeric !== null) return Math.max(0, Math.round(numeric));
+  if (Array.isArray(value)) return value.length;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const nested = numericFromValue(record.count ?? record.total ?? record.size);
+    if (nested !== null) return Math.max(0, Math.round(nested));
+  }
+  return null;
+}
+
+function percentFromValue(value: unknown): number | null {
+  const numeric = numericFromValue(value);
+  if (numeric === null) return null;
+  const normalized = numeric > 0 && numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function metadataPercent(metadata: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const candidate = percentFromValue(metadata[key]);
+    if (candidate !== null) return candidate;
+  }
+  return null;
+}
+
 type AutopilotSliceDetail = {
   event: string;
   agentId: string | null;
@@ -337,11 +374,19 @@ type AutopilotSliceDetail = {
   requesterAgentId: string | null;
   requesterAgentName: string | null;
   dispatcherClient: string | null;
+  initiativeId: string | null;
   domain: string | null;
+  phase: string | null;
+  progressPct: number | null;
+  nextStep: string | null;
   requiredSkills: string[];
+  initiativeStatus: string | null;
   initiativeTitle: string | null;
   workstreamId: string | null;
+  workstreamStatus: string | null;
   workstreamTitle: string | null;
+  taskTitle: string | null;
+  milestoneTitle: string | null;
   taskIds: string[];
   milestoneIds: string[];
   parsedStatus: string | null;
@@ -366,9 +411,13 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
     typeof metadata.event === 'string' && metadata.event.trim().length > 0
       ? metadata.event.trim()
       : null;
+  const eventName = event ?? '';
+  const isAutopilotSliceEvent =
+    eventName.startsWith('autopilot_slice') &&
+    !eventName.includes('artifact');
   if (
     !event ||
-    (!event.startsWith('autopilot_slice') &&
+    (!isAutopilotSliceEvent &&
       event !== 'auto_continue_stopped' &&
       event !== 'next_up_manual_dispatch_started')
   ) {
@@ -388,7 +437,8 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
       : null) ??
     (typeof metadata.runnerAgentId === 'string' && metadata.runnerAgentId.trim().length > 0
       ? metadata.runnerAgentId.trim()
-      : null);
+      : null) ??
+    identity.agentId;
   const requesterAgentName =
     (typeof metadata.requested_by_agent_name === 'string' && metadata.requested_by_agent_name.trim().length > 0
       ? metadata.requested_by_agent_name.trim()
@@ -401,7 +451,8 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
       : null) ??
     (typeof metadata.runnerAgentName === 'string' && metadata.runnerAgentName.trim().length > 0
       ? metadata.runnerAgentName.trim()
-      : null);
+      : null) ??
+    identity.agentName;
   const dispatcherClient =
     (typeof metadata.source_client === 'string' && metadata.source_client.trim().length > 0
       ? metadata.source_client.trim()
@@ -416,6 +467,7 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
   const requiredSkills = Array.isArray(requiredSkillsRaw)
     ? requiredSkillsRaw.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
     : [];
+  const inferredAgentNameFromSkills = inferAgentNameFromSkills(requiredSkills);
 
   const taskIdsRaw = (metadata.task_ids ?? metadata.taskIds) as unknown;
   const taskIds = Array.isArray(taskIdsRaw)
@@ -427,28 +479,31 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
     ? milestoneIdsRaw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     : [];
 
-  const workstreamId =
-    typeof metadata.workstream_id === 'string'
-      ? metadata.workstream_id
-      : typeof metadata.workstreamId === 'string'
-        ? metadata.workstreamId
-        : null;
-
-  const workstreamTitle =
-    typeof metadata.workstream_title === 'string'
-      ? metadata.workstream_title
-      : typeof metadata.workstreamTitle === 'string'
-        ? metadata.workstreamTitle
-        : null;
-
-  const initiativeTitle =
-    typeof metadata.initiative_title === 'string'
-      ? metadata.initiative_title
-      : typeof metadata.initiativeTitle === 'string'
-        ? metadata.initiativeTitle
-        : null;
-
-  const domain = typeof metadata.domain === 'string' ? metadata.domain : null;
+  const initiativeId =
+    metadataString(metadata, ['initiative_id', 'initiativeId']) ??
+    (typeof item.initiativeId === 'string' && item.initiativeId.trim().length > 0
+      ? item.initiativeId.trim()
+      : null);
+  const initiativeTitle = metadataString(metadata, ['initiative_title', 'initiativeTitle']);
+  const initiativeStatus = metadataString(metadata, ['initiative_status', 'initiativeStatus']);
+  const workstreamId = extractWorkstreamId(item);
+  const workstreamTitle = metadataString(metadata, ['workstream_title', 'workstreamTitle']);
+  const workstreamStatus = metadataString(metadata, ['workstream_status', 'workstreamStatus']);
+  const taskTitle = metadataString(metadata, ['task_title', 'taskTitle']);
+  const milestoneTitle = metadataString(metadata, ['milestone_title', 'milestoneTitle']);
+  const domain = metadataString(metadata, ['domain']);
+  const phase = metadataString(metadata, ['phase', 'slice_phase', 'slicePhase']);
+  const nextStep = metadataString(metadata, ['next_step', 'nextStep']);
+  const progressPct = metadataPercent(metadata, [
+    'progress_pct',
+    'progressPct',
+    'progress_percent',
+    'progressPercent',
+    'completion_pct',
+    'completionPct',
+    'slice_progress_pct',
+    'sliceProgressPct',
+  ]);
   const parsedStatus =
     typeof metadata.parsed_status === 'string'
       ? metadata.parsed_status
@@ -476,43 +531,68 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
         : null;
   const error = typeof metadata.error === 'string' ? metadata.error : null;
 
-  const artifacts = typeof metadata.artifacts === 'number' ? metadata.artifacts : null;
-  const decisions = typeof metadata.decisions === 'number' ? metadata.decisions : null;
+  const artifacts = countFromValue(metadata.artifacts ?? metadata.artifact_count ?? metadata.artifactCount);
+  const decisions = countFromValue(metadata.decisions ?? metadata.decision_count ?? metadata.decisionCount);
+  const statusUpdatesAppliedDirect = countFromValue(
+    metadata.status_updates_applied ?? metadata.statusUpdatesApplied
+  );
+  const taskUpdates = countFromValue(metadata.task_updates ?? metadata.taskUpdates);
+  const milestoneUpdates = countFromValue(metadata.milestone_updates ?? metadata.milestoneUpdates);
   const statusUpdatesApplied =
-    typeof metadata.status_updates_applied === 'number' ? metadata.status_updates_applied : null;
-  const statusUpdatesBuffered =
-    typeof metadata.status_updates_buffered === 'number' ? metadata.status_updates_buffered : null;
+    statusUpdatesAppliedDirect ??
+    (taskUpdates !== null || milestoneUpdates !== null
+      ? (taskUpdates ?? 0) + (milestoneUpdates ?? 0)
+      : null);
+  const statusUpdatesBuffered = countFromValue(
+    metadata.status_updates_buffered ?? metadata.statusUpdatesBuffered
+  );
   const stopReason =
     typeof metadata.stop_reason === 'string'
       ? metadata.stop_reason
       : typeof metadata.stopReason === 'string'
         ? metadata.stopReason
         : null;
-  const tokenBudget =
-    typeof metadata.token_budget === 'number'
-      ? metadata.token_budget
-      : typeof metadata.tokenBudget === 'number'
-        ? metadata.tokenBudget
-        : null;
-  const tokensUsed =
-    typeof metadata.tokens_used === 'number'
-      ? metadata.tokens_used
-      : typeof metadata.tokensUsed === 'number'
-        ? metadata.tokensUsed
-        : null;
+  const tokenBudget = numericFromValue(metadata.token_budget ?? metadata.tokenBudget);
+  const tokensUsed = numericFromValue(metadata.tokens_used ?? metadata.tokensUsed);
+  const rawAgentId =
+    identity.agentId ??
+    (typeof metadata.runner_agent_id === 'string' && metadata.runner_agent_id.trim().length > 0
+      ? metadata.runner_agent_id.trim()
+      : null) ??
+    (typeof metadata.runnerAgentId === 'string' && metadata.runnerAgentId.trim().length > 0
+      ? metadata.runnerAgentId.trim()
+      : null);
+  const agentName =
+    identity.agentName ??
+    (typeof metadata.runner_agent_name === 'string' && metadata.runner_agent_name.trim().length > 0
+      ? metadata.runner_agent_name.trim()
+      : null) ??
+    (typeof metadata.runnerAgentName === 'string' && metadata.runnerAgentName.trim().length > 0
+      ? metadata.runnerAgentName.trim()
+      : null) ??
+    inferredAgentNameFromSkills;
+  const agentId = inferredAgentNameFromSkills && !identity.agentName ? null : rawAgentId;
 
   return {
     event,
-    agentId: identity.agentId,
-    agentName: identity.agentName,
+    agentId,
+    agentName,
     requesterAgentId,
     requesterAgentName,
     dispatcherClient,
+    initiativeId,
     domain,
+    phase,
+    progressPct,
+    nextStep,
     requiredSkills,
+    initiativeStatus,
     initiativeTitle,
     workstreamId,
+    workstreamStatus,
     workstreamTitle,
+    taskTitle,
+    milestoneTitle,
     taskIds,
     milestoneIds,
     parsedStatus,
@@ -539,6 +619,13 @@ type FileEvidencePath = {
   key: string;
   path: string;
 };
+
+function resolveFileEvidenceHref(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(trimmed)}`;
+}
 
 type ProvenanceDetail = {
   pluginVersion: string | null;
@@ -731,11 +818,68 @@ function metadataString(
   return null;
 }
 
+function inferAgentNameFromSkills(requiredSkills: string[]): string | null {
+  if (requiredSkills.length !== 1) return null;
+  const skill = requiredSkills[0]?.trim();
+  if (!skill) return null;
+
+  const directMap: Record<string, string> = {
+    'orgx-marketing-agent': 'OrgX Marketing',
+    'orgx-engineering-agent': 'OrgX Engineering',
+    'orgx-design-agent': 'OrgX Design',
+    'orgx-product-agent': 'OrgX Product',
+    'orgx-sales-agent': 'OrgX Sales',
+    'orgx-operations-agent': 'OrgX Operations',
+    'orgx-orchestrator-agent': 'OrgX Orchestrator',
+  };
+  if (directMap[skill]) return directMap[skill];
+
+  if (skill.endsWith('-agent')) {
+    const stripped = skill.replace(/^orgx-/, '').replace(/-agent$/, '').trim();
+    if (stripped.length === 0) return null;
+    return `OrgX ${humanizeText(stripped)}`;
+  }
+  return null;
+}
+
+function formatAgentLabel(
+  explicitName: string | null,
+  explicitId: string | null,
+  namesById?: Map<string, string>
+): string {
+  const normalizedName = typeof explicitName === 'string' && explicitName.trim().length > 0
+    ? explicitName.trim()
+    : null;
+  const normalizedId = typeof explicitId === 'string' && explicitId.trim().length > 0
+    ? explicitId.trim()
+    : null;
+  const defaultNameById: Record<string, string> = {
+    main: 'Holt',
+  };
+  const inferredFromId = normalizedId
+    ? namesById?.get(normalizedId) ?? defaultNameById[normalizedId] ?? null
+    : null;
+  const name = normalizedName ?? inferredFromId;
+
+  if (name && normalizedId && normalizedId !== name) return `${name} · ${normalizedId}`;
+  if (name) return name;
+  return normalizedId ?? '—';
+}
+
 const UUID_LIKE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_EXTRACT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
   const ids = new Set<string>();
   if (!item) return ids;
+
+  for (const candidate of [item.title, item.summary, item.description]) {
+    if (typeof candidate !== 'string') continue;
+    for (const match of candidate.match(UUID_EXTRACT_REGEX) ?? []) {
+      const normalized = match.trim().toLowerCase();
+      if (UUID_LIKE_REGEX.test(normalized)) ids.add(normalized);
+    }
+  }
 
   if (typeof item.runId === 'string' && UUID_LIKE_REGEX.test(item.runId.trim())) {
     ids.add(item.runId.trim().toLowerCase());
@@ -814,7 +958,11 @@ function extractNearestRelatedFileEvidencePaths(
   if (!activeWorkstreamId && !activeInitiativeId && activeLinkIds.size === 0) return [];
 
   const activeTimestamp = toEpoch(activeItem.timestamp);
-  const relatedCandidates: Array<{ delta: number; evidence: FileEvidencePath[] }> = [];
+  const relatedCandidates: Array<{
+    priority: number;
+    delta: number;
+    evidence: FileEvidencePath[];
+  }> = [];
 
   for (const candidate of pool) {
     if (candidate.id === activeItem.id) continue;
@@ -849,23 +997,195 @@ function extractNearestRelatedFileEvidencePaths(
     // matched on broader context (initiative/workstream) instead of shared IDs.
     if (!hasSharedId && delta > 2 * 60 * 60 * 1000) continue;
 
-    relatedCandidates.push({
-      delta,
-      evidence: candidateEvidence,
-    });
+    const priority = hasSharedId ? 0 : sameWorkstream ? 1 : 2;
+    if (!hasSharedId && delta > 20 * 60 * 1000) continue;
+
+    relatedCandidates.push({ priority, delta, evidence: candidateEvidence });
   }
 
   if (relatedCandidates.length === 0) return [];
-  relatedCandidates.sort((a, b) => a.delta - b.delta);
+  relatedCandidates.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.delta - b.delta;
+  });
 
   const merged: FileEvidencePath[] = [];
   const seen = new Set(existingPaths);
-  for (const entry of relatedCandidates[0].evidence) {
-    if (seen.has(entry.path)) continue;
-    seen.add(entry.path);
-    merged.push({ key: `related.${entry.key}`, path: entry.path });
+  const topPriority = relatedCandidates[0].priority;
+  for (const candidate of relatedCandidates) {
+    if (candidate.priority !== topPriority) break;
+    for (const entry of candidate.evidence) {
+      if (seen.has(entry.path)) continue;
+      seen.add(entry.path);
+      merged.push({ key: `related.${entry.key}`, path: entry.path });
+      if (merged.length >= 8) return merged;
+    }
   }
   return merged;
+}
+
+type RelatedAutopilotSliceDetail = {
+  detail: AutopilotSliceDetail;
+  relation: 'shared_id' | 'workstream' | 'initiative';
+};
+
+function extractNearestRelatedAutopilotSliceDetail(
+  activeItem: LiveActivityItem | null,
+  pool: LiveActivityItem[]
+): RelatedAutopilotSliceDetail | null {
+  if (!activeItem) return null;
+  const activeMetadata = metadataForItem(activeItem);
+  const activeWorkstreamId = metadataString(activeMetadata, ['workstream_id', 'workstreamId']);
+  const activeInitiativeId = metadataString(activeMetadata, ['initiative_id', 'initiativeId']);
+  const activeLinkIds = collectActivityLinkIds(activeItem);
+  if (!activeWorkstreamId && !activeInitiativeId && activeLinkIds.size === 0) return null;
+
+  const activeTimestamp = toEpoch(activeItem.timestamp);
+  const candidates: Array<{
+    priority: number;
+    delta: number;
+    relation: RelatedAutopilotSliceDetail['relation'];
+    detail: AutopilotSliceDetail;
+  }> = [];
+
+  for (const candidate of pool) {
+    if (candidate.id === activeItem.id) continue;
+    const detail = extractAutopilotSliceDetail(candidate);
+    if (!detail) continue;
+
+    const candidateMetadata = metadataForItem(candidate);
+    if (!candidateMetadata) continue;
+
+    const candidateWorkstreamId = metadataString(candidateMetadata, ['workstream_id', 'workstreamId']);
+    const candidateInitiativeId = metadataString(candidateMetadata, ['initiative_id', 'initiativeId']);
+    const candidateLinkIds = collectActivityLinkIds(candidate);
+    const hasSharedId =
+      activeLinkIds.size > 0 &&
+      Array.from(activeLinkIds).some((id) => candidateLinkIds.has(id));
+
+    const sameWorkstream =
+      Boolean(activeWorkstreamId) &&
+      Boolean(candidateWorkstreamId) &&
+      activeWorkstreamId === candidateWorkstreamId;
+    const sameInitiative =
+      Boolean(activeInitiativeId) &&
+      Boolean(candidateInitiativeId) &&
+      activeInitiativeId === candidateInitiativeId;
+
+    if (!hasSharedId && !sameWorkstream && !sameInitiative) continue;
+
+    const delta = Math.abs(toEpoch(candidate.timestamp) - activeTimestamp);
+    if (!hasSharedId && delta > 20 * 60 * 1000) continue;
+
+    const relation: RelatedAutopilotSliceDetail['relation'] = hasSharedId
+      ? 'shared_id'
+      : sameWorkstream
+        ? 'workstream'
+        : 'initiative';
+    const priority = relation === 'shared_id' ? 0 : relation === 'workstream' ? 1 : 2;
+    candidates.push({ priority, delta, relation, detail });
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.delta - b.delta;
+  });
+
+  const winner = candidates[0];
+  return { detail: winner.detail, relation: winner.relation };
+}
+
+type AutopilotProgressTone = 'neutral' | 'positive' | 'warning' | 'critical';
+
+type AutopilotProgressDetail = {
+  pct: number;
+  source: 'metadata' | 'session' | 'lifecycle';
+  label: string;
+  tone: AutopilotProgressTone;
+};
+
+function normalizeStatusKey(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isDoneLikeStatus(value: string | null | undefined): boolean {
+  const key = normalizeStatusKey(value);
+  return ['done', 'complete', 'completed', 'stopped', 'success'].includes(key);
+}
+
+function progressToneForAutopilot(detail: AutopilotSliceDetail): AutopilotProgressTone {
+  const statusKey = normalizeStatusKey(detail.parsedStatus);
+  const eventKey = normalizeStatusKey(detail.event);
+  if (
+    statusKey === 'failed' ||
+    statusKey === 'error' ||
+    statusKey === 'timed_out' ||
+    statusKey === 'timeout' ||
+    statusKey === 'aborted' ||
+    eventKey.includes('error') ||
+    eventKey.includes('timeout')
+  ) {
+    return 'critical';
+  }
+  if (statusKey === 'blocked' || detail.stopReason === 'blocked') return 'warning';
+  if (isDoneLikeStatus(statusKey) || detail.stopReason === 'completed') return 'positive';
+  return 'neutral';
+}
+
+function inferLifecycleProgress(detail: AutopilotSliceDetail): number | null {
+  if (isDoneLikeStatus(detail.parsedStatus) || detail.stopReason === 'completed') return 100;
+
+  const statusKey = normalizeStatusKey(detail.parsedStatus);
+  if (statusKey === 'blocked' || statusKey === 'error' || statusKey === 'failed') return 100;
+
+  const event = detail.event;
+  if (event === 'next_up_manual_dispatch_started') return 8;
+  if (event === 'autopilot_slice_dispatched') return 14;
+  if (event === 'autopilot_slice_status_updates_buffered') return 72;
+  if (event === 'autopilot_slice_result') return 92;
+  if (event === 'auto_continue_stopped') return 100;
+  if (event.startsWith('autopilot_slice')) return 56;
+
+  return null;
+}
+
+function coerceProgressPercent(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function resolveAutopilotProgress(
+  detail: AutopilotSliceDetail | null,
+  sessionProgress: number | null
+): AutopilotProgressDetail | null {
+  if (!detail && sessionProgress === null) return null;
+  if (detail?.progressPct !== null && detail?.progressPct !== undefined) {
+    return {
+      pct: coerceProgressPercent(detail.progressPct) ?? 0,
+      source: 'metadata',
+      label: 'Reported by slice metadata',
+      tone: detail ? progressToneForAutopilot(detail) : 'neutral',
+    };
+  }
+  if (sessionProgress !== null) {
+    return {
+      pct: sessionProgress,
+      source: 'session',
+      label: 'Derived from runtime session',
+      tone: detail ? progressToneForAutopilot(detail) : 'neutral',
+    };
+  }
+  if (!detail) return null;
+  const lifecycle = inferLifecycleProgress(detail);
+  if (lifecycle === null) return null;
+  return {
+    pct: lifecycle,
+    source: 'lifecycle',
+    label: 'Estimated from dispatch lifecycle',
+    tone: progressToneForAutopilot(detail),
+  };
 }
 
 function renderArtifactValue(value: unknown): ReactNode {
@@ -1040,7 +1360,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   selectedWorkstreamId = null,
   selectedWorkstreamLabel = null,
   agentFilter = null,
-  timeFilterId = 'live',
+  timeFilterId = '30m',
+  onTimeFilterChange,
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
@@ -1056,6 +1377,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [query, setQuery] = useState('');
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
@@ -1067,6 +1389,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
+  const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -1088,6 +1411,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         map.set(session.runId, session.status);
         map.set(session.id, session.status);
       }
+    }
+    return map;
+  }, [sessions]);
+  const sessionProgressById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const session of sessions) {
+      const progress = coerceProgressPercent(session.progress);
+      if (progress === null) continue;
+      map.set(session.runId, progress);
+      map.set(session.id, progress);
+    }
+    return map;
+  }, [sessions]);
+  const agentNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const session of sessions) {
+      if (!session.agentId || !session.agentName) continue;
+      map.set(session.agentId, session.agentName);
     }
     return map;
   }, [sessions]);
@@ -1329,6 +1670,30 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   ]);
 
   useEffect(() => {
+    if (!viewMenuOpen) return undefined;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (controlsMenuRef.current?.contains(target)) return;
+      setViewMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setViewMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [viewMenuOpen]);
+
+  useEffect(() => {
     const root = scrollRef.current;
     const target = sentinelRef.current;
     if (!root || !target) return undefined;
@@ -1370,6 +1735,103 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () => extractAutopilotSliceDetail(activeDecorated?.item ?? null),
     [activeDecorated]
   );
+  const activeRelatedAutopilotSlice = useMemo(
+    () =>
+      activeAutopilotSlice
+        ? null
+        : extractNearestRelatedAutopilotSliceDetail(activeDecorated?.item ?? null, activity),
+    [activeAutopilotSlice, activeDecorated, activity]
+  );
+  const activeAutopilotContext = activeAutopilotSlice ?? activeRelatedAutopilotSlice?.detail ?? null;
+  const activeAutopilotRequesterLabel = useMemo(
+    () =>
+      formatAgentLabel(
+        activeAutopilotContext?.requesterAgentName ?? null,
+        activeAutopilotContext?.requesterAgentId ?? null,
+        agentNameById
+      ),
+    [activeAutopilotContext, agentNameById]
+  );
+  const activeAutopilotExecutorLabel = useMemo(() => {
+    const label = formatAgentLabel(
+      activeAutopilotContext?.agentName ?? null,
+      activeAutopilotContext?.agentId ?? null,
+      agentNameById
+    );
+    return label === '—' ? 'Codex' : label;
+  }, [activeAutopilotContext, agentNameById]);
+  const activeSessionProgress = useMemo(() => {
+    if (!activeDecorated?.runId) return null;
+    return sessionProgressById.get(activeDecorated.runId) ?? null;
+  }, [activeDecorated, sessionProgressById]);
+  const activeAutopilotProgress = useMemo(
+    () => resolveAutopilotProgress(activeAutopilotContext, activeSessionProgress),
+    [activeAutopilotContext, activeSessionProgress]
+  );
+  const activeExecutionBreakdown = useMemo(() => {
+    const context = activeAutopilotContext;
+    if (!context) return null;
+
+    const initiativeId = context.initiativeId ?? activeDecorated?.item.initiativeId ?? null;
+    const initiative = initiativeId ? initiatives.find((entry) => entry.id === initiativeId) ?? null : null;
+    const initiativeTitle = context.initiativeTitle ?? initiative?.name ?? null;
+    const initiativeStatus = context.initiativeStatus ?? initiative?.status ?? null;
+
+    const initiativeWorkstreams = initiative?.workstreams ?? [];
+    const totalInitiativeWorkstreams = initiativeWorkstreams.length > 0 ? initiativeWorkstreams.length : null;
+    const doneInitiativeWorkstreams =
+      totalInitiativeWorkstreams !== null
+        ? initiativeWorkstreams.filter((entry) => isDoneLikeStatus(entry.status)).length
+        : null;
+    const initiativeWorkstreamPct =
+      totalInitiativeWorkstreams && doneInitiativeWorkstreams !== null
+        ? Math.round((doneInitiativeWorkstreams / totalInitiativeWorkstreams) * 100)
+        : null;
+
+    const workstreamId = context.workstreamId ?? null;
+    const workstreamFromInitiative =
+      workstreamId && initiativeWorkstreams.length > 0
+        ? initiativeWorkstreams.find((entry) => entry.id === workstreamId) ?? null
+        : null;
+    const workstreamTitle =
+      context.workstreamTitle ??
+      workstreamFromInitiative?.name ??
+      (workstreamId ? workstreamNameById.get(workstreamId) ?? null : null);
+    const workstreamStatus = context.workstreamStatus ?? workstreamFromInitiative?.status ?? null;
+
+    return {
+      initiativeId,
+      initiativeTitle,
+      initiativeStatus,
+      totalInitiativeWorkstreams,
+      doneInitiativeWorkstreams,
+      initiativeWorkstreamPct,
+      workstreamId,
+      workstreamTitle,
+      workstreamStatus,
+      taskTitle: context.taskTitle,
+      milestoneTitle: context.milestoneTitle,
+      scopedTaskCount: context.taskIds.length,
+      scopedMilestoneCount: context.milestoneIds.length,
+      statusUpdatesApplied: context.statusUpdatesApplied,
+      statusUpdatesBuffered: context.statusUpdatesBuffered,
+      artifacts: context.artifacts,
+      decisions: context.decisions,
+      tokensUsed: context.tokensUsed,
+      tokenBudget: context.tokenBudget,
+      nextStep: context.nextStep,
+      phase: context.phase,
+      stopReason: context.stopReason,
+      parsedStatus: context.parsedStatus,
+    };
+  }, [activeAutopilotContext, activeDecorated, initiatives, workstreamNameById]);
+  const activeAutopilotProgressColor = useMemo(() => {
+    if (!activeAutopilotProgress) return colors.teal;
+    if (activeAutopilotProgress.tone === 'positive') return colors.lime;
+    if (activeAutopilotProgress.tone === 'warning') return colors.amber;
+    if (activeAutopilotProgress.tone === 'critical') return colors.red;
+    return colors.teal;
+  }, [activeAutopilotProgress]);
   const activeProvenance = useMemo(
     () => extractProvenance(metadataForItem(activeDecorated?.item ?? null)),
     [activeDecorated]
@@ -1397,34 +1859,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     [activeMetadata]
   );
   const activeFileEvidence = useMemo(() => {
-    const evidence = extractFileEvidencePaths(activeDecorated?.item ?? null);
-    if (!activeAutopilotSlice) {
-      const related = extractNearestRelatedFileEvidencePaths(
-        activeDecorated?.item ?? null,
-        activity,
-        new Set(evidence.map((entry) => entry.path))
-      );
-      return [...evidence, ...related];
-    }
-
-    const autopilotPaths = new Set(
-      [activeAutopilotSlice.logPath, activeAutopilotSlice.outputPath]
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    );
-    const filtered = autopilotPaths.size === 0
-      ? evidence
-      : evidence.filter((entry) => !autopilotPaths.has(entry.path));
-
-    const related = extractNearestRelatedFileEvidencePaths(
+    const direct = extractFileEvidencePaths(activeDecorated?.item ?? null);
+    if (direct.length > 0) return direct;
+    return extractNearestRelatedFileEvidencePaths(
       activeDecorated?.item ?? null,
       activity,
-      new Set(
-        [...filtered.map((entry) => entry.path), ...Array.from(autopilotPaths)]
-      )
+      new Set()
     );
-
-    return [...filtered, ...related];
-  }, [activeDecorated, activeAutopilotSlice, activity]);
+  }, [activeDecorated, activity]);
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
@@ -1609,8 +2051,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   const enableItemMotion = !prefersReducedMotion && filtered.length <= 160;
 
-  const renderItem = (decorated: DecoratedActivityItem, index: number) => {
+  const renderItem = (
+    decorated: DecoratedActivityItem,
+    index: number,
+    keyOverride?: string
+  ) => {
     const item = decorated.item;
+    const renderKey = keyOverride ?? item.id;
     const identity = resolveAgentIdentity(item);
     const displayAgentName = identity.agentName ?? identity.agentId ?? item.agentName ?? 'OrgX';
     const severity = activitySeverity(item);
@@ -1726,7 +2173,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       return (
         <button
           type="button"
-          key={item.id}
+          key={renderKey}
           onClick={() => {
             setDetailDirection(1);
             setActiveItemId(item.id);
@@ -1745,7 +2192,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return (
       <motion.button
         type="button"
-        key={item.id}
+        key={renderKey}
         variants={itemVariants}
         initial="initial"
         animate="animate"
@@ -1778,162 +2225,299 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ) : (
         <>
           <div className="border-b border-subtle px-4 py-3.5">
-            <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-heading font-semibold text-white">Activity</h2>
-              <span className="rounded-full border border-strong bg-white/[0.05] px-2 py-0.5 text-micro text-primary tabular-nums">
-                {filteredTotal}
-              </span>
-              {hiddenCount > 0 && (
-                <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums">
-                  +{hiddenCount} hidden
-                </span>
-              )}
-              {timeWindow.id !== 'all' && (
-                <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-micro text-secondary">
-                  {timeWindow.label}
-                </span>
-              )}
-              <span
-                className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
-                style={{ backgroundColor: colors.lime }}
-                aria-label="Live"
-                title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
-              />
-            </div>
-
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-                className="control-pill px-3 text-caption font-medium"
-                aria-label={sortOrder === 'newest' ? 'Sort oldest first' : 'Sort newest first'}
-              >
-                {sortOrder === 'newest' ? 'Newest' : 'Oldest'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCollapsed((prev) => !prev)}
-                data-state={collapsed ? 'active' : 'idle'}
-                className="control-pill px-3 text-caption font-medium"
-                aria-pressed={collapsed}
-              >
-                {collapsed ? 'Expand' : 'Compact'}
-              </button>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
-                <>
-                  {hasSessionFilter && (
-                    <button
-                      onClick={onClearSelection}
-                      className="chip inline-flex min-w-0 items-center gap-2"
-                      aria-label="Clear session filter"
-                    >
-                      <AgentAvatar
-                        name={filteredSession?.agentName ?? 'OrgX'}
-                        hint={selectedSessionLabel ?? null}
-                        size="xs"
-                      />
-                      <span className="min-w-0 truncate">
-                        Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
-                      </span>
-                      <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                        ×
-                      </span>
-                    </button>
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-wrap items-start justify-between gap-2.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="text-heading font-semibold text-white">Activity</h2>
+                  <span className="rounded-full border border-strong bg-white/[0.05] px-2 py-0.5 text-micro text-primary tabular-nums">
+                    {filteredTotal}
+                  </span>
+                  {hiddenCount > 0 && (
+                    <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums">
+                      +{hiddenCount} hidden
+                    </span>
                   )}
-                  {selectedWorkstreamId && (
-                    <button
-                      onClick={onClearWorkstreamFilter}
-                      className="chip inline-flex min-w-0 items-center gap-2"
-                      style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
-                      aria-label="Clear workstream filter"
-                    >
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro">
-                        ↳
-                      </span>
-                      <span className="min-w-0 truncate">
-                        Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
-                      </span>
-                      <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                        ×
-                      </span>
-                    </button>
+                  {timeWindow.id !== 'all' && (
+                    <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-micro text-secondary">
+                      {timeWindow.label}
+                    </span>
                   )}
-                  {agentFilter && (
-                    <button
-                      onClick={onClearAgentFilter}
-                      className="chip inline-flex min-w-0 items-center gap-2"
-                      style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
-                      aria-label="Clear agent filter"
-                    >
-                      <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
-                      <span className="min-w-0 truncate">Agent: {agentFilter}</span>
-                      <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                        ×
-                      </span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+                  <span
+                    className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
+                    style={{ backgroundColor: colors.lime }}
+                    aria-label="Live"
+                    title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
+                  />
+                </div>
 
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end">
-              <div className="relative min-w-0 flex-1 sm:max-w-[340px]">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-                >
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m20 20-3.5-3.5" />
-                </svg>
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search activity..."
-                  className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
-                  aria-label="Search activity"
-                />
-              </div>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                  <div
+                    className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
+                    role="group"
+                    aria-label="Activity type filters"
+                  >
+                    {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
+                      const active = activeFilter === filterId;
+                      return (
+                        <button
+                          type="button"
+                          key={filterId}
+                          onClick={() => setActiveFilter(filterId)}
+                          aria-pressed={active}
+                          className={cn(
+                            'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
+                            active
+                              ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
+                              : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                          )}
+                        >
+                          {filterLabels[filterId]}
+                        </button>
+                      );
+                    })}
+                  </div>
 
-              <div
-                className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
-                role="group"
-                aria-label="Activity filters"
-              >
-                {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
-                  const active = activeFilter === filterId;
-                  return (
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed((prev) => !prev)}
+                    className={cn(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-muted transition-colors hover:bg-white/[0.08] hover:text-primary',
+                      collapsed ? 'border-lime/30 text-lime' : 'border-white/[0.1]'
+                    )}
+                    aria-pressed={collapsed}
+                    aria-label={collapsed ? 'Expand activity density' : 'Compact activity density'}
+                    title={collapsed ? 'Expand activity density' : 'Compact activity density'}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <path d="M4 7h16" />
+                      <path d={collapsed ? 'M4 12h16' : 'M4 12h10'} />
+                      <path d="M4 17h16" />
+                    </svg>
+                  </button>
+
+                  <div className="relative" ref={controlsMenuRef}>
                     <button
                       type="button"
-                      key={filterId}
-                      onClick={() => setActiveFilter(filterId)}
-                      aria-pressed={active}
+                      onClick={() => setViewMenuOpen((prev) => !prev)}
+                      aria-haspopup="menu"
+                      aria-expanded={viewMenuOpen}
                       className={cn(
-                        'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
-                        active
-                          ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
-                          : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                        'inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-caption font-semibold transition-colors',
+                        viewMenuOpen
+                          ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
+                          : 'border-white/[0.1] bg-white/[0.03] text-primary hover:bg-white/[0.08]'
                       )}
                     >
-                      {filterLabels[filterId]}
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 6h16" />
+                        <path d="M7 12h10" />
+                        <path d="M10 18h4" />
+                      </svg>
+                      <span className="hidden sm:inline">Filters</span>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className={cn('transition-transform duration-200', viewMenuOpen && 'rotate-180')}
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
                     </button>
-                  );
-                })}
+
+                    <AnimatePresence>
+                      {viewMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          className="absolute right-0 z-20 mt-2 w-[290px] rounded-xl border border-white/[0.12] bg-[#0A0D14]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+                          role="menu"
+                          aria-label="Activity view controls"
+                        >
+                          <div className="space-y-3">
+                            <div>
+                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Sort
+                              </p>
+                              <div className="grid grid-cols-2 gap-1">
+                                {([
+                                  { id: 'newest', label: 'Newest' },
+                                  { id: 'oldest', label: 'Oldest' },
+                                ] as const).map((option) => (
+                                  <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSortOrder(option.id);
+                                      setViewMenuOpen(false);
+                                    }}
+                                    className={cn(
+                                      'rounded-lg border px-2 py-1.5 text-caption font-medium transition-colors',
+                                      sortOrder === option.id
+                                        ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                        : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
+                                    )}
+                                  >
+                                    {option.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Date range
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {ACTIVITY_TIME_FILTERS.map((option) => {
+                                  const active = timeFilterId === option.id;
+                                  return (
+                                    <button
+                                      key={option.id}
+                                      type="button"
+                                      onClick={() => {
+                                        onTimeFilterChange?.(option.id);
+                                        setViewMenuOpen(false);
+                                      }}
+                                      className={cn(
+                                        'rounded-full border px-2.5 py-1 text-micro font-semibold transition-colors',
+                                        active
+                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                          : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
+                                      )}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Type
+                              </p>
+                              <div className="grid grid-cols-2 gap-1">
+                                {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
+                                  const active = activeFilter === filterId;
+                                  return (
+                                    <button
+                                      key={filterId}
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveFilter(filterId);
+                                        setViewMenuOpen(false);
+                                      }}
+                                      className={cn(
+                                        'rounded-lg border px-2 py-1.5 text-caption font-medium transition-colors',
+                                        active
+                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                          : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
+                                      )}
+                                    >
+                                      {filterLabels[filterId]}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+                    <>
+                      {hasSessionFilter && (
+                        <button
+                          onClick={onClearSelection}
+                          className="chip inline-flex min-w-0 items-center gap-2"
+                          aria-label="Clear session filter"
+                        >
+                          <AgentAvatar
+                            name={filteredSession?.agentName ?? 'OrgX'}
+                            hint={selectedSessionLabel ?? null}
+                            size="xs"
+                          />
+                          <span className="min-w-0 truncate">
+                            Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+                          </span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                      {selectedWorkstreamId && (
+                        <button
+                          onClick={onClearWorkstreamFilter}
+                          className="chip inline-flex min-w-0 items-center gap-2"
+                          style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
+                          aria-label="Clear workstream filter"
+                        >
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro">
+                            ↳
+                          </span>
+                          <span className="min-w-0 truncate">
+                            Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
+                          </span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                      {agentFilter && (
+                        <button
+                          onClick={onClearAgentFilter}
+                          className="chip inline-flex min-w-0 items-center gap-2"
+                          style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
+                          aria-label="Clear agent filter"
+                        >
+                          <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                          <span className="min-w-0 truncate">Agent: {agentFilter}</span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end">
+                  <div className="relative min-w-0 flex-1 sm:max-w-[360px]">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.5-3.5" />
+                    </svg>
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search activity..."
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
+                      aria-label="Search activity"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {filtered.length === 0 && (
@@ -1986,9 +2570,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          if (cluster.count === 1) {
 	                            return renderItem(cluster.representative, index);
 	                          }
+	                          const representativeKey = `cluster:${cluster.key}`;
 	                          return (
 	                            <div key={cluster.key}>
-	                              {renderItem(cluster.representative, index)}
+	                              {renderItem(cluster.representative, index, representativeKey)}
 	                              <button
 	                                type="button"
 	                                onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
@@ -2003,7 +2588,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              </button>
 	                              {isExpanded && (
 	                                <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
-	                                  {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
+	                                  {cluster.allItems
+	                                    .slice(1)
+	                                    .map((item, subIndex) => renderItem(item, index + subIndex + 1))}
 	                                </div>
 	                              )}
 	                            </div>
@@ -2018,9 +2605,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                        if (cluster.count === 1) {
 	                          return renderItem(cluster.representative, index);
 	                        }
+	                        const representativeKey = `cluster:${cluster.key}`;
 	                        return (
 	                          <div key={cluster.key}>
-	                            {renderItem(cluster.representative, index)}
+	                            {renderItem(cluster.representative, index, representativeKey)}
 	                            <button
 	                              type="button"
 	                              onClick={(e) => { e.stopPropagation(); toggleCluster(cluster.key); }}
@@ -2035,7 +2623,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                            </button>
 	                            {isExpanded && (
 	                              <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
-	                                {cluster.allItems.slice(1).map((item, subIndex) => renderItem(item, index + subIndex + 1))}
+	                                {cluster.allItems
+	                                  .slice(1)
+	                                  .map((item, subIndex) => renderItem(item, index + subIndex + 1))}
 	                              </div>
 	                            )}
 	                          </div>
@@ -2240,152 +2830,280 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       )}
                     </div>
 
-	                    {activeAutopilotSlice && (
-	                      <div className="rounded-xl border border-lime/20 bg-lime/10 p-3">
-		                        <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">Autopilot slice</p>
-	                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-		                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requested by</div>
-	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotSlice.requesterAgentName ??
-	                                activeAutopilotSlice.requesterAgentId ??
-	                                '—'}
+	                    {activeAutopilotContext && (
+	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">
+	                        <div className="flex flex-wrap items-center justify-between gap-2">
+	                          <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">
+	                            {activeRelatedAutopilotSlice ? 'Related execution context' : 'Execution context'}
+	                          </p>
+	                          <span className="rounded-full border border-lime/30 bg-black/20 px-2 py-0.5 text-micro font-semibold text-lime/85">
+	                            {humanizeText(activeAutopilotContext.event)}
+	                          </span>
+	                        </div>
+	                        {activeRelatedAutopilotSlice && (
+	                          <p className="mt-1 text-micro text-lime/70">
+	                            Derived from nearest related slice event ({humanizeText(activeRelatedAutopilotSlice.relation)}).
+	                          </p>
+	                        )}
+
+	                        {activeAutopilotProgress && (
+	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+	                            <div className="flex items-center justify-between gap-2">
+	                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
+	                                Slice progress
+	                              </p>
+	                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
+	                                {activeAutopilotProgress.pct}%
+	                              </p>
 	                            </div>
+	                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
+	                              <div
+	                                className="h-full rounded-full transition-[width] duration-300"
+	                                style={{
+	                                  width: `${Math.max(4, activeAutopilotProgress.pct)}%`,
+	                                  backgroundColor: activeAutopilotProgressColor,
+	                                }}
+	                              />
+	                            </div>
+	                            <p className="mt-1 text-micro text-secondary">
+	                              {activeAutopilotProgress.label}
+	                            </p>
+	                          </div>
+	                        )}
+
+	                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requested by</div>
+	                            <div className="mt-1 text-body text-primary">{activeAutopilotRequesterLabel}</div>
 	                          </div>
 	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-		                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatched by</div>
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executed by</div>
+	                            <div className="mt-1 text-body text-primary">{activeAutopilotExecutorLabel}</div>
+	                          </div>
+	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatched by</div>
 	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotSlice.dispatcherClient
-	                                ? humanizeText(activeAutopilotSlice.dispatcherClient)
+	                              {activeAutopilotContext.dispatcherClient
+	                                ? humanizeText(activeAutopilotContext.dispatcherClient)
 	                                : 'OpenClaw'}
 	                            </div>
 	                          </div>
 	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-		                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executed by</div>
-	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotSlice.agentName ?? 'Codex'}
-	                              {activeAutopilotSlice.agentId ? ` · ${activeAutopilotSlice.agentId}` : ''}
-	                            </div>
-	                          </div>
-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
-                            <div className="mt-1 text-body text-primary">
-                              {activeAutopilotSlice.workstreamTitle ?? activeAutopilotSlice.workstreamId ?? '—'}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
 	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
 	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotSlice.domain ?? '—'}
-	                              {activeAutopilotSlice.requiredSkills.length > 0 ? ` · ${activeAutopilotSlice.requiredSkills.join(', ')}` : ''}
+	                              {activeAutopilotContext.domain ?? '—'}
+	                              {activeAutopilotContext.requiredSkills.length > 0
+	                                ? ` · ${activeAutopilotContext.requiredSkills.join(', ')}`
+	                                : ''}
 	                            </div>
 	                          </div>
 	                        </div>
 
-                        <div className="mt-2 flex flex-wrap gap-2 text-caption text-secondary">
-                          <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                            {activeAutopilotSlice.event}
-                          </span>
-                          {activeAutopilotSlice.parsedStatus && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              status: {activeAutopilotSlice.parsedStatus}
-                            </span>
-                          )}
-                          {typeof activeAutopilotSlice.hasOutput === 'boolean' && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              output: {activeAutopilotSlice.hasOutput ? 'yes' : 'no'}
-                            </span>
-                          )}
-                          {typeof activeAutopilotSlice.artifacts === 'number' && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              artifacts: {activeAutopilotSlice.artifacts}
-                            </span>
-                          )}
-                          {typeof activeAutopilotSlice.decisions === 'number' && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              decisions: {activeAutopilotSlice.decisions}
-                            </span>
-                          )}
-                          {typeof activeAutopilotSlice.statusUpdatesApplied === 'number' && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              status updates: {activeAutopilotSlice.statusUpdatesApplied}
-                            </span>
-                          )}
-                          {activeAutopilotSlice.stopReason && (
-                            <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                              stop: {activeAutopilotSlice.stopReason}
-                            </span>
-                          )}
-                          {typeof activeAutopilotSlice.tokensUsed === 'number' &&
-                            typeof activeAutopilotSlice.tokenBudget === 'number' && (
-                              <span className="rounded-full border border-strong bg-black/20 px-2 py-0.5">
-                                tokens: {activeAutopilotSlice.tokensUsed}/{activeAutopilotSlice.tokenBudget}
-                              </span>
-                            )}
-	                          {typeof activeAutopilotSlice.statusUpdatesBuffered === 'number' && activeAutopilotSlice.statusUpdatesBuffered > 0 && (
-	                            <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-0.5 text-amber-100/80">
-	                              buffered: {activeAutopilotSlice.statusUpdatesBuffered}
-	                            </span>
-	                          )}
-	                        </div>
+	                        {activeExecutionBreakdown && (
+	                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                              <div className="flex items-center justify-between gap-2">
+	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Initiative</div>
+	                                {activeExecutionBreakdown.initiativeStatus && (
+	                                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+	                                    {humanizeText(activeExecutionBreakdown.initiativeStatus)}
+	                                  </span>
+	                                )}
+	                              </div>
+	                              <p className="mt-1 text-body text-primary">
+	                                {activeExecutionBreakdown.initiativeTitle ?? activeExecutionBreakdown.initiativeId ?? '—'}
+	                              </p>
+	                              {activeExecutionBreakdown.initiativeId && (
+	                                <p className="mt-1 break-all font-mono text-micro text-secondary">
+	                                  {activeExecutionBreakdown.initiativeId}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.initiativeWorkstreamPct !== null && (
+	                                <div className="mt-2">
+	                                  <div className="mb-1 flex items-center justify-between text-micro text-secondary">
+	                                    <span>Workstreams complete</span>
+	                                    <span className="tabular-nums">
+	                                      {activeExecutionBreakdown.doneInitiativeWorkstreams ?? 0}/
+	                                      {activeExecutionBreakdown.totalInitiativeWorkstreams ?? 0}
+	                                    </span>
+	                                  </div>
+	                                  <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
+	                                    <div
+	                                      className="h-full rounded-full bg-[#BFFF00]/80"
+	                                      style={{ width: `${Math.max(4, activeExecutionBreakdown.initiativeWorkstreamPct)}%` }}
+	                                    />
+	                                  </div>
+	                                </div>
+	                              )}
+	                            </div>
 
-	                        {(activeAutopilotSlice.taskIds.length > 0 || activeAutopilotSlice.milestoneIds.length > 0) && (
-	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            {activeAutopilotSlice.taskIds.length > 0 && (
-	                              <p className="text-caption text-secondary">
-	                                Tasks ({activeAutopilotSlice.taskIds.length}): {activeAutopilotSlice.taskIds.join(', ')}
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                              <div className="flex items-center justify-between gap-2">
+	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
+	                                {activeExecutionBreakdown.workstreamStatus && (
+	                                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+	                                    {humanizeText(activeExecutionBreakdown.workstreamStatus)}
+	                                  </span>
+	                                )}
+	                              </div>
+	                              <p className="mt-1 text-body text-primary">
+	                                {activeExecutionBreakdown.workstreamTitle ?? activeExecutionBreakdown.workstreamId ?? '—'}
 	                              </p>
-	                            )}
-	                            {activeAutopilotSlice.milestoneIds.length > 0 && (
-	                              <p className="mt-1 text-caption text-secondary">
-	                                Milestones ({activeAutopilotSlice.milestoneIds.length}): {activeAutopilotSlice.milestoneIds.join(', ')}
-	                              </p>
-	                            )}
+	                              {activeExecutionBreakdown.workstreamId && (
+	                                <p className="mt-1 break-all font-mono text-micro text-secondary">
+	                                  {activeExecutionBreakdown.workstreamId}
+	                                </p>
+	                              )}
+	                            </div>
+
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
+	                                Completion breakdown
+	                              </div>
+	                              <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
+	                                <div>
+	                                  <div className="text-micro text-secondary">Tasks in slice</div>
+	                                  <div className="mt-0.5 tabular-nums">
+	                                    {activeExecutionBreakdown.scopedTaskCount}
+	                                  </div>
+	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Milestones in slice</div>
+	                                  <div className="mt-0.5 tabular-nums">
+	                                    {activeExecutionBreakdown.scopedMilestoneCount}
+	                                  </div>
+	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Status updates</div>
+	                                  <div className="mt-0.5 tabular-nums">
+	                                    {activeExecutionBreakdown.statusUpdatesApplied ?? '—'}
+	                                  </div>
+	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Buffered updates</div>
+	                                  <div className="mt-0.5 tabular-nums">
+	                                    {activeExecutionBreakdown.statusUpdatesBuffered ?? 0}
+	                                  </div>
+	                                </div>
+	                              </div>
+	                            </div>
+
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
+	                                Outputs
+	                              </div>
+	                              <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
+	                                <div>
+	                                  <div className="text-micro text-secondary">Artifacts</div>
+	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.artifacts ?? 0}</div>
+	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Decisions</div>
+	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.decisions ?? 0}</div>
+	                                </div>
+	                                <div className="col-span-2">
+	                                  <div className="text-micro text-secondary">Token usage</div>
+	                                  <div className="mt-0.5 tabular-nums">
+	                                    {activeExecutionBreakdown.tokensUsed !== null &&
+	                                    activeExecutionBreakdown.tokenBudget !== null
+	                                      ? `${Math.round(activeExecutionBreakdown.tokensUsed)}/${Math.round(activeExecutionBreakdown.tokenBudget)}`
+	                                      : '—'}
+	                                  </div>
+	                                </div>
+	                              </div>
+	                            </div>
 	                          </div>
 	                        )}
 
-	                        {(activeAutopilotSlice.logPath || activeAutopilotSlice.outputPath) && (
+	                        {(activeExecutionBreakdown?.taskTitle ||
+	                          activeExecutionBreakdown?.milestoneTitle ||
+	                          activeExecutionBreakdown?.phase ||
+	                          activeExecutionBreakdown?.nextStep ||
+	                          activeExecutionBreakdown?.parsedStatus ||
+	                          activeExecutionBreakdown?.stopReason) && (
+	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
+	                              Current scope
+	                            </div>
+	                            <div className="mt-1.5 space-y-1 text-caption text-primary">
+	                              {activeExecutionBreakdown.taskTitle && (
+	                                <p>
+	                                  <span className="text-secondary">Task:</span> {activeExecutionBreakdown.taskTitle}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.milestoneTitle && (
+	                                <p>
+	                                  <span className="text-secondary">Milestone:</span> {activeExecutionBreakdown.milestoneTitle}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.phase && (
+	                                <p>
+	                                  <span className="text-secondary">Phase:</span> {humanizeText(activeExecutionBreakdown.phase)}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.nextStep && (
+	                                <p>
+	                                  <span className="text-secondary">Next step:</span> {activeExecutionBreakdown.nextStep}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.parsedStatus && (
+	                                <p>
+	                                  <span className="text-secondary">Slice status:</span>{' '}
+	                                  {humanizeText(activeExecutionBreakdown.parsedStatus)}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown.stopReason && (
+	                                <p>
+	                                  <span className="text-secondary">Stop reason:</span>{' '}
+	                                  {humanizeText(activeExecutionBreakdown.stopReason)}
+	                                </p>
+	                              )}
+	                            </div>
+	                          </div>
+	                        )}
+
+	                        {(activeAutopilotContext.logPath || activeAutopilotContext.outputPath) && (
 	                          <div className="mt-3 space-y-2 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            {activeAutopilotSlice.logPath && (
+	                            {activeAutopilotContext.logPath && (
 	                              <p className="break-all font-mono text-caption text-secondary">
-	                                log: {activeAutopilotSlice.logPath}
+	                                log: {activeAutopilotContext.logPath}
 	                              </p>
 	                            )}
-	                            {activeAutopilotSlice.outputPath && (
+	                            {activeAutopilotContext.outputPath && (
 	                              <p className="break-all font-mono text-caption text-secondary">
-	                                output: {activeAutopilotSlice.outputPath}
+	                                output: {activeAutopilotContext.outputPath}
 	                              </p>
 	                            )}
 	                            <div className="flex flex-wrap gap-2">
-	                            {activeAutopilotSlice.logPath && (
-	                              <button
-	                                type="button"
-	                                onClick={() => void copyText('Log path', activeAutopilotSlice.logPath ?? '')}
-	                                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                              >
-                                Copy log path
-                              </button>
-                            )}
-                            {activeAutopilotSlice.outputPath && (
-                              <button
-                                type="button"
-                                onClick={() => void copyText('Output path', activeAutopilotSlice.outputPath ?? '')}
-                                className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                              >
-	                                Copy output path
-	                              </button>
-	                            )}
+	                              {activeAutopilotContext.logPath && (
+	                                <button
+	                                  type="button"
+	                                  onClick={() => void copyText('Log path', activeAutopilotContext.logPath ?? '')}
+	                                  className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+	                                >
+	                                  Copy log path
+	                                </button>
+	                              )}
+	                              {activeAutopilotContext.outputPath && (
+	                                <button
+	                                  type="button"
+	                                  onClick={() => void copyText('Output path', activeAutopilotContext.outputPath ?? '')}
+	                                  className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+	                                >
+	                                  Copy output path
+	                                </button>
+	                              )}
 	                            </div>
 	                          </div>
 	                        )}
 
-                        {activeAutopilotSlice.error && (
-                          <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-body text-red-100/80">
-                            {activeAutopilotSlice.error}
-                          </div>
-                        )}
-                      </div>
-                    )}
+	                        {activeAutopilotContext.error && (
+	                          <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-body text-red-100/80">
+	                            {activeAutopilotContext.error}
+	                          </div>
+	                        )}
+	                      </div>
+	                    )}
 
                     {activeProvenance && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
@@ -2476,62 +3194,77 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {activeSummaryText && (
-	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Summary</p>
-                        {detailSummarySource === 'missing' && (
-                          <p className="mt-1 text-caption text-amber-200/75">
-                            Full local turn transcript was unavailable; showing the event summary payload.
-                          </p>
-                        )}
-                        <MarkdownText
-                          mode="block"
-                          text={activeSummaryText}
-                          className="mt-1.5 text-heading leading-relaxed text-primary"
-                        />
-                      </div>
-                    )}
+	                    {activeSummaryText && (
+		                      <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
+		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Summary</p>
+	                        {detailSummarySource === 'missing' && (
+	                          <p className="mt-1 text-caption text-amber-200/75">
+	                            Full local turn transcript was unavailable; showing the event summary payload.
+	                          </p>
+	                        )}
+	                        <MarkdownText
+	                          mode="block"
+	                          text={activeSummaryText}
+	                          className="mt-1.5 text-body leading-relaxed text-primary"
+	                        />
+	                      </div>
+	                    )}
 
-                    {humanizeActivityBody(activeDecorated.item.description) && (
-	                      <div className="rounded-xl border border-white/[0.08] bg-black/25 p-3">
-	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Details</p>
-                        <MarkdownText
-                          mode="block"
-                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
-                          className="mt-1.5 text-body leading-relaxed text-primary"
-                        />
-                      </div>
-                    )}
+	                    {humanizeActivityBody(activeDecorated.item.description) && (
+		                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
+		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
+	                        <MarkdownText
+	                          mode="block"
+	                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
+	                          className="mt-1.5 text-body leading-relaxed text-secondary"
+	                        />
+	                      </div>
+	                    )}
 
                     {activeFileEvidence.length > 0 && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                         <p className="text-caption font-semibold tracking-[0.02em] text-secondary">
                           Filesystem evidence
                         </p>
-                        <div className="mt-2 space-y-2">
-                          {activeFileEvidence.map((entry, index) => (
-                            <div
-                              key={`${entry.key}:${entry.path}:${index}`}
-                              className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2"
-                            >
-                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
+	                        <div className="mt-2 space-y-2">
+	                          {activeFileEvidence.map((entry, index) => {
+	                            const evidenceHref = resolveFileEvidenceHref(entry.path);
+	                            return (
+	                            <div
+	                              key={`${entry.key}:${entry.path}:${index}`}
+	                              className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2"
+	                            >
+	                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
                                 {humanizeText(entry.key)}
                               </p>
-                              <p className="mt-1 break-all font-mono text-caption text-primary">
-                                {entry.path}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
-                                className="mt-2 rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                              >
-                                Copy path
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+	                              <p className="mt-1 break-all font-mono text-caption text-primary">
+	                                {entry.path}
+	                              </p>
+	                              <div className="mt-2 flex flex-wrap gap-2">
+	                                {evidenceHref ? (
+	                                  <a
+	                                    href={evidenceHref}
+	                                    target="_blank"
+	                                    rel="noopener noreferrer"
+	                                    className="inline-flex items-center rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-2.5 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
+	                                  >
+	                                    Open in tab
+	                                  </a>
+	                                ) : null}
+	                                <button
+	                                  type="button"
+	                                  onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
+	                                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+	                                >
+	                                  Copy path
+	                                </button>
+	                              </div>
+	                            </div>
+	                            );
+	                          })}
+	                        </div>
+	                      </div>
+	                    )}
 
                     {/* View registered artifact button (loop closure) */}
                     {activeDecorated && extractArtifactId(activeDecorated.item) && (
