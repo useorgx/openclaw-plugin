@@ -366,7 +366,14 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
     typeof metadata.event === 'string' && metadata.event.trim().length > 0
       ? metadata.event.trim()
       : null;
-  if (!event || (!event.startsWith('autopilot_slice') && event !== 'auto_continue_stopped')) return null;
+  if (
+    !event ||
+    (!event.startsWith('autopilot_slice') &&
+      event !== 'auto_continue_stopped' &&
+      event !== 'next_up_manual_dispatch_started')
+  ) {
+    return null;
+  }
 
   const identity = resolveAgentIdentity(item);
   const requesterAgentId =
@@ -685,6 +692,9 @@ function extractFileEvidencePaths(item: LiveActivityItem | null): FileEvidencePa
       const keyLower = rawKey.toLowerCase();
       const keyLooksPathLike =
         keyLower.includes('path') ||
+        keyLower === 'url' ||
+        keyLower === 'uri' ||
+        keyLower.endsWith('url') ||
         keyLower.endsWith('_file') ||
         keyLower.endsWith('file') ||
         keyLower.includes('artifact');
@@ -705,6 +715,157 @@ function extractFileEvidencePaths(item: LiveActivityItem | null): FileEvidencePa
 
   visit(metadata);
   return entries;
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  keys: string[]
+): string | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+const UUID_LIKE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
+  const ids = new Set<string>();
+  if (!item) return ids;
+
+  if (typeof item.runId === 'string' && UUID_LIKE_REGEX.test(item.runId.trim())) {
+    ids.add(item.runId.trim().toLowerCase());
+  }
+
+  const metadata = metadataForItem(item);
+  if (!metadata) return ids;
+
+  const scalarKeys = [
+    'run_id',
+    'runId',
+    'last_run_id',
+    'lastRunId',
+    'active_run_id',
+    'activeRunId',
+    'slice_id',
+    'sliceId',
+    'worker_run_id',
+    'workerRunId',
+    'correlation_id',
+    'correlationId',
+    'initiative_id',
+    'initiativeId',
+    'workstream_id',
+    'workstreamId',
+    'task_id',
+    'taskId',
+    'milestone_id',
+    'milestoneId',
+    'outbox_event_id',
+    'outboxEventId',
+    'requester_id',
+    'requesterId',
+  ];
+
+  const listKeys = [
+    'task_ids',
+    'taskIds',
+    'milestone_ids',
+    'milestoneIds',
+    'allowed_workstream_ids',
+    'allowedWorkstreamIds',
+  ];
+
+  for (const key of scalarKeys) {
+    const value = metadata[key];
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (UUID_LIKE_REGEX.test(normalized)) ids.add(normalized);
+    }
+  }
+
+  for (const key of listKeys) {
+    const value = metadata[key];
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      if (typeof entry !== 'string') continue;
+      const normalized = entry.trim().toLowerCase();
+      if (UUID_LIKE_REGEX.test(normalized)) ids.add(normalized);
+    }
+  }
+
+  return ids;
+}
+
+function extractNearestRelatedFileEvidencePaths(
+  activeItem: LiveActivityItem | null,
+  pool: LiveActivityItem[],
+  existingPaths: Set<string>
+): FileEvidencePath[] {
+  if (!activeItem) return [];
+  const activeMetadata = metadataForItem(activeItem);
+  const activeWorkstreamId = metadataString(activeMetadata, ['workstream_id', 'workstreamId']);
+  const activeInitiativeId = metadataString(activeMetadata, ['initiative_id', 'initiativeId']);
+  const activeLinkIds = collectActivityLinkIds(activeItem);
+  if (!activeWorkstreamId && !activeInitiativeId && activeLinkIds.size === 0) return [];
+
+  const activeTimestamp = toEpoch(activeItem.timestamp);
+  const relatedCandidates: Array<{ delta: number; evidence: FileEvidencePath[] }> = [];
+
+  for (const candidate of pool) {
+    if (candidate.id === activeItem.id) continue;
+    const candidateMetadata = metadataForItem(candidate);
+    if (!candidateMetadata) continue;
+
+    const candidateWorkstreamId = metadataString(candidateMetadata, ['workstream_id', 'workstreamId']);
+    const candidateInitiativeId = metadataString(candidateMetadata, ['initiative_id', 'initiativeId']);
+    const candidateLinkIds = collectActivityLinkIds(candidate);
+    const hasSharedId =
+      activeLinkIds.size > 0 &&
+      Array.from(activeLinkIds).some((id) => candidateLinkIds.has(id));
+
+    const sameWorkstream =
+      Boolean(activeWorkstreamId) &&
+      Boolean(candidateWorkstreamId) &&
+      activeWorkstreamId === candidateWorkstreamId;
+    const sameInitiative =
+      Boolean(activeInitiativeId) &&
+      Boolean(candidateInitiativeId) &&
+      activeInitiativeId === candidateInitiativeId;
+
+    if (!hasSharedId && !sameWorkstream && !sameInitiative) continue;
+
+    const candidateEvidence = extractFileEvidencePaths(candidate).filter(
+      (entry) => !existingPaths.has(entry.path)
+    );
+    if (candidateEvidence.length === 0) continue;
+
+    const delta = Math.abs(toEpoch(candidate.timestamp) - activeTimestamp);
+    // Avoid attaching stale evidence from unrelated historical runs when we only
+    // matched on broader context (initiative/workstream) instead of shared IDs.
+    if (!hasSharedId && delta > 2 * 60 * 60 * 1000) continue;
+
+    relatedCandidates.push({
+      delta,
+      evidence: candidateEvidence,
+    });
+  }
+
+  if (relatedCandidates.length === 0) return [];
+  relatedCandidates.sort((a, b) => a.delta - b.delta);
+
+  const merged: FileEvidencePath[] = [];
+  const seen = new Set(existingPaths);
+  for (const entry of relatedCandidates[0].evidence) {
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    merged.push({ key: `related.${entry.key}`, path: entry.path });
+  }
+  return merged;
 }
 
 function renderArtifactValue(value: unknown): ReactNode {
@@ -1237,14 +1398,33 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
   const activeFileEvidence = useMemo(() => {
     const evidence = extractFileEvidencePaths(activeDecorated?.item ?? null);
-    if (!activeAutopilotSlice) return evidence;
+    if (!activeAutopilotSlice) {
+      const related = extractNearestRelatedFileEvidencePaths(
+        activeDecorated?.item ?? null,
+        activity,
+        new Set(evidence.map((entry) => entry.path))
+      );
+      return [...evidence, ...related];
+    }
+
     const autopilotPaths = new Set(
       [activeAutopilotSlice.logPath, activeAutopilotSlice.outputPath]
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     );
-    if (autopilotPaths.size === 0) return evidence;
-    return evidence.filter((entry) => !autopilotPaths.has(entry.path));
-  }, [activeDecorated, activeAutopilotSlice]);
+    const filtered = autopilotPaths.size === 0
+      ? evidence
+      : evidence.filter((entry) => !autopilotPaths.has(entry.path));
+
+    const related = extractNearestRelatedFileEvidencePaths(
+      activeDecorated?.item ?? null,
+      activity,
+      new Set(
+        [...filtered.map((entry) => entry.path), ...Array.from(autopilotPaths)]
+      )
+    );
+
+    return [...filtered, ...related];
+  }, [activeDecorated, activeAutopilotSlice, activity]);
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
