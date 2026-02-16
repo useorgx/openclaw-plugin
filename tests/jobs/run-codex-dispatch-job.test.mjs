@@ -427,6 +427,39 @@ test("detectMcpHandshakeFailure extracts server and reason from worker logs", ()
   assert.match(detected.line, /handshaking with mcp server failed/i);
 });
 
+test("detectMcpHandshakeFailure ignores codex_apps by default", () => {
+  const prev = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  try {
+    const payload = [
+      "OpenAI Codex v0.101.0",
+      "mcp: codex_apps failed: MCP client for `codex_apps` failed to start: MCP startup failed: handshaking with MCP server failed: initialize response",
+    ].join("\n");
+    const detected = detectMcpHandshakeFailure(payload);
+    assert.equal(detected, null);
+  } finally {
+    if (typeof prev === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prev;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  }
+});
+
+test("detectMcpHandshakeFailure can enforce strict mode via env override", () => {
+  const prev = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = "none";
+  try {
+    const payload = [
+      "OpenAI Codex v0.101.0",
+      "mcp: codex_apps failed: MCP client for `codex_apps` failed to start: MCP startup failed: handshaking with MCP server failed: initialize response",
+    ].join("\n");
+    const detected = detectMcpHandshakeFailure(payload);
+    assert.ok(detected);
+    assert.equal(detected.server?.toLowerCase(), "codex_apps");
+  } finally {
+    if (typeof prev === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prev;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  }
+});
+
 test("shouldKillWorker triggers when timeout or log stall is exceeded", () => {
   const now = 1_000_000;
   const decisionTimeout = shouldKillWorker(

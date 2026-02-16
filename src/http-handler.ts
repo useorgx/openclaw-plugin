@@ -3931,8 +3931,11 @@ export function createHttpHandler(
     string,
     { status: string; updatedAt: string }
   >();
-  let autoContinueTickInFlight = false;
-  const AUTO_CONTINUE_TICK_MS = 2_500;
+  let autoContinueTickInFlight: Promise<void> | null = null;
+  const AUTO_CONTINUE_TICK_MS = readBudgetEnvNumber("ORGX_AUTO_CONTINUE_TICK_MS", 2_500, {
+    min: 250,
+    max: 60_000,
+  });
 
   // ---------------------------------------------------------------------------
   // Auto-continue v2 (Workstream Slices)
@@ -3997,6 +4000,14 @@ export function createHttpHandler(
 	  // Keep child handles alive so stdout/stderr capture remains reliable even when the process is detached.
 	  const autoContinueSliceChildren = new Map<string, ChildProcess>();
 	  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
+  const clearAutoContinueSliceTransientState = (
+    sliceRunId: string | null | undefined
+  ): void => {
+    const id = (sliceRunId ?? "").trim();
+    if (!id) return;
+    autoContinueSliceChildren.delete(id);
+    autoContinueSliceLastHeartbeatMs.delete(id);
+  };
   const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
   const AUTO_CONTINUE_SLICE_TIMEOUT_MS = readBudgetEnvNumber(
     "ORGX_AUTOPILOT_SLICE_TIMEOUT_MS",
@@ -4160,7 +4171,7 @@ export function createHttpHandler(
   }): Promise<void> {
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = {
-      auto_continue_enabled: true,
+      auto_continue_enabled: input.run.status === "running" || input.run.status === "stopping",
       auto_continue_status: input.run.status,
       auto_continue_stop_reason: input.run.stopReason,
       auto_continue_started_at: input.run.startedAt,
@@ -4186,6 +4197,7 @@ export function createHttpHandler(
     error?: string | null;
   }): Promise<void> {
     const now = new Date().toISOString();
+    const activeRunId = input.run.activeRunId;
     input.run.status = "stopped";
     input.run.stopReason = input.reason;
     input.run.stoppedAt = now;
@@ -4193,15 +4205,20 @@ export function createHttpHandler(
     input.run.stopRequested = false;
     input.run.activeRunId = null;
     input.run.activeTaskId = null;
+    input.run.activeTaskTokenEstimate = null;
     if (input.error) input.run.lastError = input.error;
+    clearAutoContinueSliceTransientState(activeRunId);
 
-    // Autopilot should not auto-complete initiatives; keep status changes conservative.
-    try {
-      await client.updateEntity("initiative", input.run.initiativeId, {
-        status: "paused",
-      });
-    } catch {
-      // best effort
+    // Only pause the initiative on non-terminal stops (error, blocked, user-requested).
+    // Completed / budget-exhausted runs should not override the initiative status.
+    if (input.reason !== "completed" && input.reason !== "budget_exhausted") {
+      try {
+        await client.updateEntity("initiative", input.run.initiativeId, {
+          status: "paused",
+        });
+      } catch {
+        // best effort
+      }
     }
 
     try {
@@ -5537,6 +5554,7 @@ export function createHttpHandler(
 
 	              run.lastError = slice.lastError;
 	              run.updatedAt = now;
+                clearAutoContinueSliceTransientState(slice.runId);
 
 	              await emitActivitySafe({
 	                initiativeId: run.initiativeId,
@@ -5607,6 +5625,7 @@ export function createHttpHandler(
 
 	              run.lastError = slice.lastError;
 	              run.updatedAt = now;
+                clearAutoContinueSliceTransientState(slice.runId);
 
 	              const event =
 	                killDecision.kind === "timeout" ? "autopilot_slice_timeout" : "autopilot_slice_log_stall";
@@ -5685,6 +5704,7 @@ export function createHttpHandler(
             ? slice.lastError ?? "Autopilot slice failed or returned invalid output."
             : null;
         autoContinueSliceRuns.set(slice.runId, slice);
+        clearAutoContinueSliceTransientState(slice.runId);
 
         // Token accounting: codex CLI doesn't provide tokens here; use the modeled estimate.
         const modeledTokens = slice.tokenEstimate ?? run.activeTaskTokenEstimate ?? 0;
@@ -5966,7 +5986,7 @@ export function createHttpHandler(
       if (
         !run.includeVerification &&
         typeof node.title === "string" &&
-        /^verification\\s+scenario/i.test(node.title)
+        /^verification[ \t]+scenario/i.test(node.title)
       ) {
         continue;
       }
@@ -6006,7 +6026,7 @@ export function createHttpHandler(
               taskIsReady(node) &&
               !taskHasBlockedParent(node) &&
               (run.includeVerification ||
-                !/^verification\\s+scenario/i.test(String(node.title ?? "")))
+                !/^verification[ \t]+scenario/i.test(String(node.title ?? "")))
           )
       )
       .slice(0, AUTO_CONTINUE_SLICE_MAX_TASKS);
@@ -6326,9 +6346,12 @@ export function createHttpHandler(
   }
 
   async function tickAllAutoContinue(): Promise<void> {
-    if (autoContinueTickInFlight) return;
-    autoContinueTickInFlight = true;
-    try {
+    if (autoContinueTickInFlight) {
+      // Wait for the in-flight tick to finish instead of silently dropping.
+      await autoContinueTickInFlight.catch(() => {});
+      return;
+    }
+    const work = (async () => {
       for (const run of autoContinueRuns.values()) {
         try {
           await tickAutoContinueRun(run);
@@ -6339,8 +6362,12 @@ export function createHttpHandler(
           await stopAutoContinueRun({ run, reason: "error", error: run.lastError });
         }
       }
+    })();
+    autoContinueTickInFlight = work;
+    try {
+      await work;
     } finally {
-      autoContinueTickInFlight = false;
+      autoContinueTickInFlight = null;
     }
   }
 
@@ -6379,6 +6406,8 @@ export function createHttpHandler(
 	  }): Promise<AutoContinueRun> {
     const now = new Date().toISOString();
     const existing = autoContinueRuns.get(input.initiativeId) ?? null;
+    const existingIsLive =
+      existing?.status === "running" || existing?.status === "stopping";
 
     const run: AutoContinueRun =
       existing ??
@@ -6415,10 +6444,18 @@ export function createHttpHandler(
     run.status = "running";
     run.stopReason = null;
     run.stopRequested = false;
-    run.startedAt = now;
     run.stoppedAt = null;
     run.updatedAt = now;
     run.lastError = null;
+    if (!existingIsLive) {
+      run.tokensUsed = 0;
+      run.startedAt = now;
+      run.lastTaskId = null;
+      run.lastRunId = null;
+      run.activeTaskId = null;
+      run.activeRunId = null;
+      run.activeTaskTokenEstimate = null;
+    }
 
     autoContinueRuns.set(input.initiativeId, run);
 
@@ -7629,6 +7666,23 @@ export function createHttpHandler(
           const result = await stopProcess(record.pid);
           const updated = markAgentRunStopped(runId);
 
+          try {
+            writeRuntimeEvent({
+              sourceClient: "codex",
+              event: "session_stop",
+              runId,
+              initiativeId: record.initiativeId ?? "",
+              workstreamId: record.workstreamId ?? null,
+              taskId: record.taskId ?? null,
+              agentId: record.agentId ?? null,
+              agentName: null,
+              phase: "stopped",
+              message: `Agent ${record.agentId ?? "unknown"} stopped.`,
+            });
+          } catch {
+            // best effort
+          }
+
           void posthogCapture({
             event: "openclaw_agent_stop",
             distinctId: telemetryDistinctId,
@@ -7688,6 +7742,17 @@ export function createHttpHandler(
           if (!record) {
             sendJson(res, 404, { ok: false, error: "Run not found" });
             return true;
+          }
+
+          // Stop the previous process before spawning a replacement to avoid
+          // orphaned workers consuming resources or writing conflicting output.
+          if (record.pid) {
+            try {
+              await stopProcess(record.pid);
+            } catch {
+              // best effort — process may have already exited
+            }
+            markAgentRunStopped(previousRunId);
           }
 
           const messageOverride =
@@ -7983,6 +8048,29 @@ export function createHttpHandler(
 	              : parseBooleanQuery(
 	                  typeof fastAckRaw === "string" ? fastAckRaw : null
 	                );
+
+            const existingRun = autoContinueRuns.get(initiativeId) ?? null;
+            if (
+              existingRun &&
+              (existingRun.status === "running" || existingRun.status === "stopping") &&
+              existingRun.activeRunId
+            ) {
+              const activeSlice = autoContinueSliceRuns.get(existingRun.activeRunId) ?? null;
+              const activeWorkstreamId = activeSlice?.workstreamId ?? null;
+              const activeWorkstreamTitle = activeSlice?.workstreamTitle ?? null;
+              sendJson(res, 409, {
+                ok: false,
+                code: "auto_continue_already_running",
+                error:
+                  activeWorkstreamId || activeWorkstreamTitle
+                    ? `Auto-continue is already running for ${activeWorkstreamTitle ?? activeWorkstreamId}. Stop it before launching another Play run.`
+                    : "Auto-continue is already running for this initiative. Stop it before launching another Play run.",
+                run: existingRun,
+                activeWorkstreamId,
+                activeWorkstreamTitle,
+              });
+              return true;
+            }
 
 	          const run = await startAutoContinueRun({
 	            initiativeId,

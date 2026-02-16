@@ -209,6 +209,11 @@ export async function registerArtifact(
         : preview;
     if (preview.length > MAX_PREVIEW_MARKDOWN) metadata.preview_truncated = true;
   }
+  const metadataInitiativeId =
+    typeof metadata.initiative_id === "string" && metadata.initiative_id.trim().length > 0
+      ? metadata.initiative_id.trim()
+      : null;
+  const initiativeIdHint = input.entity_type === "initiative" ? input.entity_id : metadataInitiativeId;
 
   let entity: any = null;
   let created = false;
@@ -223,6 +228,7 @@ export async function registerArtifact(
         artifact_type: input.artifact_type,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
+        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,
@@ -242,6 +248,7 @@ export async function registerArtifact(
         artifact_type: "shared.project_handbook",
         entity_type: input.entity_type,
         entity_id: input.entity_id,
+        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,
@@ -259,6 +266,7 @@ export async function registerArtifact(
         artifact_type: input.artifact_type,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
+        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
         status,
         metadata,
@@ -277,6 +285,7 @@ export async function registerArtifact(
         artifact_type: "shared.project_handbook",
         entity_type: input.entity_type,
         entity_id: input.entity_id,
+        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
         status,
         metadata,

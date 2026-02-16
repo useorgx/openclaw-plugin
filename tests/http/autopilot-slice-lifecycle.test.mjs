@@ -301,6 +301,7 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.ok(artifactCreate, "expected artifact.create");
   assert.equal(artifactCreate.payload?.entity_type, "initiative");
   assert.equal(artifactCreate.payload?.entity_id, "init-1");
+  assert.equal(artifactCreate.payload?.initiative_id, "init-1");
   assert.equal(artifactCreate.payload?.name, "Mock deliverable");
   assert.equal(artifactCreate.payload?.artifact_type, "document");
   assert.equal(artifactCreate.payload?.created_by_type, "human");
@@ -381,6 +382,145 @@ test("autopilot slice lifecycle: stalled worker is terminated and blocks run", a
     String(result.status.run?.lastError || "").toLowerCase().includes("stalled") ||
       String(result.status.run?.lastError || "").toLowerCase().includes("stall"),
     "expected stalled lastError"
+  );
+});
+
+test("autopilot slice lifecycle: includeVerification=false skips verification scenario tasks", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls } = createClientHarness();
+      const originalListEntities = client.listEntities;
+      client.listEntities = async (type, filters) => {
+        if (type === "task") {
+          return {
+            data: [
+              {
+                id: "task-verification",
+                title: "Verification scenario: do not run this task first",
+                status: "todo",
+                initiative_id: "init-1",
+                workstream_id: "ws-1",
+                milestone_id: null,
+                priority: "high",
+              },
+              {
+                id: "task-real",
+                title: "Implement real slice task",
+                status: "todo",
+                initiative_id: "init-1",
+                workstream_id: "ws-1",
+                milestone_id: null,
+                priority: "high",
+              },
+            ],
+            pagination: { total: 2, has_more: false },
+          };
+        }
+        return originalListEntities(type, filters);
+      };
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.equal(resPlay.status, 200);
+      await sleep(80);
+      const resTick = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resTick.status, 200);
+
+      const taskUpdates = calls.applyChangeset
+        .flatMap((entry) => (Array.isArray(entry.operations) ? entry.operations : []))
+        .filter((op) => op?.op === "task.update");
+      const updatedIds = taskUpdates.map((op) => op.task_id);
+      assert.ok(updatedIds.includes("task-real"), "expected non-verification task to be updated");
+      assert.ok(!updatedIds.includes("task-verification"), "expected verification scenario task to be skipped");
+    }
+  );
+});
+
+test("autopilot slice lifecycle: play rejects while another slice is already active", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "stall",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "10000",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "60000",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "60000",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client } = createClientHarness();
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+      const resStart = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/start?initiativeId=init-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", agentId: "agent-1" }),
+      });
+      assert.equal(resStart.status, 200);
+
+      const resTick = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resTick.status, 200);
+
+      const resStatus = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+        headers: {},
+      });
+      assert.equal(resStatus.status, 200);
+      const statusBody = JSON.parse(resStatus.body);
+      assert.ok(statusBody?.run?.activeRunId, "expected active slice run before play");
+
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.equal(resPlay.status, 409);
+      const playBody = JSON.parse(resPlay.body);
+      assert.equal(playBody?.ok, false);
+      assert.equal(playBody?.code, "auto_continue_already_running");
+
+      await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/stop?initiativeId=init-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+    }
   );
 });
 
