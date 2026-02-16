@@ -42,6 +42,9 @@ interface MissionControlViewProps {
   hasApiKey?: boolean;
   onOpenSettings?: () => void;
   onRefresh?: () => void;
+  onCreateInitiative?: () => void;
+  onPlayNextUp?: () => Promise<void> | void;
+  onStartAutopilot?: () => Promise<void> | void;
   onFollowWorkstream?: (item: NextUpQueueItem) => void;
 }
 
@@ -226,6 +229,9 @@ export function MissionControlView({
   hasApiKey,
   onOpenSettings,
   onRefresh,
+  onCreateInitiative,
+  onPlayNextUp,
+  onStartAutopilot,
   onFollowWorkstream,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
@@ -247,6 +253,9 @@ export function MissionControlView({
         hasApiKey={hasApiKey}
         onOpenSettings={onOpenSettings}
         onRefresh={onRefresh}
+        onCreateInitiative={onCreateInitiative}
+        onPlayNextUp={onPlayNextUp}
+        onStartAutopilot={onStartAutopilot}
         onFollowWorkstream={onFollowWorkstream}
       />
     </MissionControlProvider>
@@ -275,6 +284,9 @@ function MissionControlInner({
   hasApiKey,
   onOpenSettings,
   onRefresh,
+  onCreateInitiative,
+  onPlayNextUp,
+  onStartAutopilot,
   onFollowWorkstream,
 }: {
   initiatives: Initiative[];
@@ -287,6 +299,9 @@ function MissionControlInner({
   hasApiKey?: boolean;
   onOpenSettings?: () => void;
   onRefresh?: () => void;
+  onCreateInitiative?: () => void;
+  onPlayNextUp?: () => Promise<void> | void;
+  onStartAutopilot?: () => Promise<void> | void;
   onFollowWorkstream?: (item: NextUpQueueItem) => void;
 }) {
   const {
@@ -1821,19 +1836,26 @@ function MissionControlInner({
                     </div>
                   ) : (
                     <div className="pb-8">
-                      <MissionControlEmpty />
+                      <MissionControlEmpty
+                        mode="empty"
+                        onCreateInitiative={onCreateInitiative}
+                        onPlayNextUp={onPlayNextUp}
+                        onStartAutopilot={onStartAutopilot}
+                        onRefresh={onRefresh}
+                      />
                     </div>
                   )
                 ) : sortedInitiatives.length === 0 ? (
-                  <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-4 py-8 text-center pb-8">
-                    <div className="text-body font-medium text-bright">
-                      No initiatives match the current filters
-                    </div>
-                    <div className="mt-1 text-body text-secondary">
-                      {hasActiveFilters
-                        ? 'Try adjusting status/date filters or clear them.'
-                        : 'Try a broader search phrase.'}
-                    </div>
+                  <div className="pb-8">
+                    <MissionControlEmpty
+                      mode="filtered"
+                      hasActiveFilters={hasActiveFilters}
+                      onClearFilters={hasActiveFilters ? clearFilters : undefined}
+                      onCreateInitiative={onCreateInitiative}
+                      onPlayNextUp={onPlayNextUp}
+                      onStartAutopilot={onStartAutopilot}
+                      onRefresh={onRefresh}
+                    />
                   </div>
                 ) : groups ? (
                   /* Grouped initiative list */

@@ -39,10 +39,16 @@ interface ActivityTimelineProps {
   onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
+  onPlayNextUp?: () => Promise<void> | void;
+  onStartAutopilot?: () => Promise<void> | void;
+  onCreateInitiative?: () => void;
+  onOpenMissionControl?: () => void;
+  isLoading?: boolean;
 }
 
 const INITIAL_RENDER_COUNT = 50;
 const RENDER_STEP = 50;
+const CLUSTER_EXPANDED_BATCH_SIZE = 20;
 const MAX_RENDER_COUNT = 3_600;
 const MAX_FILTER_POOL = 12_000;
 
@@ -1381,6 +1387,76 @@ function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: bo
   return { title: 'System event', isSystem: true };
 }
 
+const LOW_SIGNAL_SYNC_EVENTS = new Set([
+  'changeset_replayed',
+  'changeset_applied',
+  'outbox_replay_applied',
+  'outbox_replayed',
+  'sync_applied',
+  'sentinel_changeset_applied',
+  'sentinel_decision_applied',
+]);
+
+function isOutboxSyncReplayEvent(item: LiveActivityItem): boolean {
+  const metadata = metadataForItem(item);
+  if (!metadata) return false;
+
+  const eventName =
+    (typeof metadata.event === 'string' && metadata.event.trim().length > 0
+      ? metadata.event.trim().toLowerCase()
+      : null) ??
+    (typeof metadata.event_name === 'string' && metadata.event_name.trim().length > 0
+      ? metadata.event_name.trim().toLowerCase()
+      : null) ??
+    (typeof metadata.eventName === 'string' && metadata.eventName.trim().length > 0
+      ? metadata.eventName.trim().toLowerCase()
+      : null);
+
+  const sourceClient =
+    (typeof metadata.source_client === 'string' ? metadata.source_client : null) ??
+    (typeof metadata.sourceClient === 'string' ? metadata.sourceClient : null);
+  const sourceLower = sourceClient?.toLowerCase() ?? '';
+
+  const replayed = metadata.replayed === true;
+  const hasChangesetId =
+    (typeof metadata.changeset_id === 'string' && metadata.changeset_id.trim().length > 0) ||
+    (typeof metadata.changesetId === 'string' && metadata.changesetId.trim().length > 0);
+  const hasSyncTitle = /changes synced|changeset replayed|outbox replay/i.test(
+    `${item.title ?? ''} ${item.summary ?? ''} ${item.description ?? ''}`
+  );
+
+  if (eventName && LOW_SIGNAL_SYNC_EVENTS.has(eventName)) return true;
+  if (replayed && (hasChangesetId || hasSyncTitle)) return true;
+  if (hasChangesetId && (hasSyncTitle || sourceLower.includes('outbox') || sourceLower.includes('replay'))) {
+    return true;
+  }
+  if (sourceLower.includes('outbox_replay') && hasSyncTitle) return true;
+  return false;
+}
+
+function syncReplaySummary(item: LiveActivityItem | null): string | null {
+  if (!item || !isOutboxSyncReplayEvent(item)) return null;
+  const metadata = metadataForItem(item);
+  const appliedCount = countFromValue(
+    metadata?.applied_count ?? metadata?.appliedCount ?? metadata?.applied ?? null
+  );
+  const idempotencyKey =
+    (typeof metadata?.idempotency_key === 'string' ? metadata.idempotency_key : null) ??
+    (typeof metadata?.idempotencyKey === 'string' ? metadata.idempotencyKey : null);
+  const idempotencyTarget = idempotencyKey?.match(/sentinel:([a-z_]+):/i)?.[1] ?? null;
+  const entityType =
+    metadataString(metadata, ['entity_type', 'entityType']) ??
+    idempotencyTarget ??
+    (item.type === 'milestone_completed' ? 'milestone' : null);
+
+  const countLabel =
+    appliedCount !== null
+      ? `${appliedCount} change${appliedCount === 1 ? '' : 's'}`
+      : 'Queued changes';
+  const entityLabel = entityType ? ` for ${humanizeText(entityType).toLowerCase()}` : '';
+  return `${countLabel}${entityLabel} were synced from local replay.`;
+}
+
 function getLocalTurnReference(item: LiveActivityItem | null): {
   turnId: string;
   sessionKey: string | null;
@@ -1467,13 +1543,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearWorkstreamFilter,
   onClearAgentFilter,
   onFocusRunId,
+  onPlayNextUp,
+  onStartAutopilot,
+  onCreateInitiative,
+  onOpenMissionControl,
+  isLoading = false,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const { open: openArtifactViewer } = useArtifactViewer();
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
+  const [showSyncEvents, setShowSyncEvents] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  const [clusterVisibleCounts, setClusterVisibleCounts] = useState<Record<string, number>>({});
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
@@ -1487,6 +1570,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
+  const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | null>(null);
+  const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -1600,6 +1685,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
 
   const hasSessionFilter = selectedRunIdSet.size > 0;
+  const emptyTimeFilters = useMemo(
+    () =>
+      ACTIVITY_TIME_FILTERS.filter((option) =>
+        ['30m', 'live', '24h', '7d', 'all'].includes(option.id)
+      ),
+    []
+  );
   const filteredSession = useMemo(() => {
     if (!hasSessionFilter) return null;
     for (const candidate of selectedRunIdSet) {
@@ -1609,9 +1701,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return null;
   }, [hasSessionFilter, selectedRunIdSet, sessions]);
 
-  const { filtered, filteredTotal, hiddenCount } = useMemo(() => {
+  const { filtered, filteredTotal, hiddenCount, hiddenSyncCount } = useMemo(() => {
     const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
+    let filteredSyncEvents = 0;
     const normalizedQuery = query.trim().toLowerCase();
 
     for (const decorated of decoratedActivity) {
@@ -1631,6 +1724,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
       const identity = resolveAgentIdentity(decorated.item);
       if (agentFilter && identity.agentName !== agentFilter) {
+        continue;
+      }
+
+      if (!showSyncEvents && isOutboxSyncReplayEvent(decorated.item)) {
+        filteredSyncEvents += 1;
         continue;
       }
 
@@ -1668,6 +1766,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       filtered: rendered,
       filteredTotal: total,
       hiddenCount: Math.max(0, total - rendered.length),
+      hiddenSyncCount: filteredSyncEvents,
     };
   }, [
     activeFilter,
@@ -1680,6 +1779,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     selectedWorkstreamId,
     selectedRunIdSet,
     sessionWorkstreamByRunId,
+    showSyncEvents,
     sortOrder,
   ]);
 
@@ -1711,7 +1811,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return grouped.map((group) => {
       const clusterMap = new Map<string, DeduplicatedCluster>();
       for (const decorated of group.items) {
-        const clusterKey = `${decorated.item.type}::${decorated.item.title}`;
+        const normalizedClusterTitle = cleanSystemTitle(decorated.item).title.trim().toLowerCase();
+        const clusterKey = `${decorated.item.type}::${normalizedClusterTitle}`;
         const existing = clusterMap.get(clusterKey);
         if (existing) {
           existing.count += 1;
@@ -1748,6 +1849,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       }
       return next;
     });
+    setClusterVisibleCounts((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, clusterKey)) {
+        const next = { ...prev };
+        delete next[clusterKey];
+        return next;
+      }
+      return {
+        ...prev,
+        [clusterKey]: CLUSTER_EXPANDED_BATCH_SIZE,
+      };
+    });
+  }, []);
+
+  const loadMoreClusterItems = useCallback((clusterKey: string, maxItems: number) => {
+    setClusterVisibleCounts((prev) => {
+      const current = prev[clusterKey] ?? CLUSTER_EXPANDED_BATCH_SIZE;
+      const nextVisible = Math.min(maxItems, current + CLUSTER_EXPANDED_BATCH_SIZE);
+      if (nextVisible === current) return prev;
+      return {
+        ...prev,
+        [clusterKey]: nextVisible,
+      };
+    });
   }, []);
 
   const renderableTotal = useMemo(
@@ -1757,12 +1881,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   useEffect(() => {
     setRenderCount(INITIAL_RENDER_COUNT);
+    setExpandedClusters(new Set());
+    setClusterVisibleCounts({});
   }, [
     activeFilter,
     agentFilter,
     hasSessionFilter,
     query,
     selectedWorkstreamId,
+    showSyncEvents,
     sortOrder,
     timeFilterId,
   ]);
@@ -1994,21 +2121,47 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
+    const syncSummary = syncReplaySummary(activeDecorated?.item ?? null);
+    if (syncSummary) return syncSummary;
     return (
       humanizeActivityBody(activeDecorated?.item.summary) ??
       humanizeActivityBody(activeDecorated?.item.description)
     );
   }, [detailSummaryOverride, activeDecorated]);
+  const activeIsSyncReplay = useMemo(
+    () => (activeDecorated ? isOutboxSyncReplayEvent(activeDecorated.item) : false),
+    [activeDecorated]
+  );
 
   const closeDetail = useCallback(() => {
     setActiveItemId(null);
   }, []);
+
+  const runEmptyAction = useCallback(
+    async (action: 'play' | 'autopilot', handler: (() => Promise<void> | void) | undefined) => {
+      if (!handler) return;
+      setEmptyActionError(null);
+      setEmptyActionPending(action);
+      try {
+        await handler();
+      } catch (error) {
+        setEmptyActionError(error instanceof Error ? error.message : 'Action failed');
+      } finally {
+        setEmptyActionPending((current) => (current === action ? null : current));
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!copyNotice) return undefined;
     const timer = window.setTimeout(() => setCopyNotice(null), 2000);
     return () => window.clearTimeout(timer);
   }, [copyNotice]);
+
+  useEffect(() => {
+    setEmptyActionError(null);
+  }, [activeFilter, query, timeFilterId]);
 
   const copyText = useCallback(async (label: string, value: string) => {
     if (!value) return;
@@ -2191,9 +2344,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const runId = decorated.runId;
     const runLabel = runId ? runLabelById.get(runId) ?? humanizeText(runId) : 'Workspace';
     const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
+    const syncSummary = syncReplaySummary(item);
+    const isSyncReplay = syncSummary !== null;
 
     const { title: displayTitle, isSystem: isSystemEvent } = cleanSystemTitle(item);
-    const displaySummary = humanizeActivityBody(item.summary);
+    const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
     const workstreamId =
@@ -2201,14 +2356,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const workstreamName = workstreamId
       ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
       : null;
-    const kindLabel = bucketLabel(bucket);
-    const primaryTag = severity === 'critical'
-      ? 'Error'
-      : severity === 'warning'
-        ? 'Needs review'
-        : severity === 'positive'
-          ? 'Completed'
-          : 'Update';
+    const kindLabel = isSyncReplay ? 'Sync' : bucketLabel(bucket);
+    const primaryTag = isSyncReplay
+      ? 'Synced'
+      : severity === 'critical'
+        ? 'Error'
+        : severity === 'warning'
+          ? 'Needs review'
+          : severity === 'positive'
+            ? 'Completed'
+            : 'Update';
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
       hour: 'numeric',
       minute: '2-digit',
@@ -2360,6 +2517,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums">
                       +{hiddenCount} hidden
                     </span>
+                  )}
+                  {hiddenSyncCount > 0 && !showSyncEvents && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSyncEvents(true)}
+                      className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums transition-colors hover:bg-white/[0.08] hover:text-primary"
+                      title="Show low-signal sync replay events"
+                    >
+                      {hiddenSyncCount} sync hidden
+                    </button>
+                  )}
+                  {showSyncEvents && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSyncEvents(false)}
+                      className="rounded-full border border-lime/30 bg-lime/[0.10] px-2 py-0.5 text-micro text-[#E1FFB2] transition-colors hover:bg-lime/[0.16]"
+                      title="Hide low-signal sync replay events"
+                    >
+                      Sync visible
+                    </button>
                   )}
                   {timeWindow.id !== 'all' && (
                     <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-micro text-secondary">
@@ -2549,6 +2726,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 })}
                               </div>
                             </div>
+
+                            <div>
+                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Signal
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowSyncEvents((prev) => !prev);
+                                }}
+                                className={cn(
+                                  'w-full rounded-lg border px-2.5 py-2 text-left text-caption transition-colors',
+                                  showSyncEvents
+                                    ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                    : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
+                                )}
+                              >
+                                {showSyncEvents ? 'Hide sync replay events' : 'Show sync replay events'}
+                              </button>
+                              <p className="mt-1 text-micro leading-relaxed text-muted">
+                                Changeset replay and outbox sync events are low-signal operational noise for most users.
+                              </p>
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -2645,35 +2845,120 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3">
         {filtered.length === 0 && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-faint"
-            >
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-            </svg>
-            <p className="text-body text-secondary">
-              {hasSessionFilter
-                ? `No ${filterLabels[activeFilter].toLowerCase()} for the selected session.`
-                : selectedWorkstreamId
-                  ? `No ${filterLabels[activeFilter].toLowerCase()} for the selected workstream.`
-                  : 'No matching activity right now.'}
-            </p>
-            {(hasSessionFilter || selectedWorkstreamId) && (
-              <button
-                onClick={hasSessionFilter ? onClearSelection : onClearWorkstreamFilter}
-                className="rounded-md border border-strong bg-white/[0.04] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08]"
-              >
-                {hasSessionFilter ? 'Show all sessions' : 'Show all workstreams'}
-              </button>
-            )}
+          <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
+            <div className="mx-auto max-w-2xl">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-secondary">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
+                </span>
+                <div className="min-w-0">
+                  <p className="text-body font-semibold text-primary">
+                    {isLoading
+                      ? 'Syncing activity feed...'
+                      : hasSessionFilter
+                        ? 'No activity yet for this session'
+                        : selectedWorkstreamId
+                          ? 'No activity yet for this workstream'
+                          : `No ${filterLabels[activeFilter].toLowerCase()} in ${timeWindow.label}`}
+                  </p>
+                  <p className="mt-1 text-caption leading-relaxed text-secondary">
+                    {isLoading
+                      ? 'Live updates usually appear within a few seconds after dispatch.'
+                      : 'Try widening the time window, changing the type filter, or launch the next workstream.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {emptyTimeFilters.map((option) => {
+                  const active = timeFilterId === option.id;
+                  return (
+                    <button
+                      key={`empty-time-${option.id}`}
+                      type="button"
+                      onClick={() => onTimeFilterChange?.(option.id)}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-caption font-semibold transition-colors',
+                        active
+                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                          : 'border-white/[0.1] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasSessionFilter) onClearSelection();
+                      if (selectedWorkstreamId) onClearWorkstreamFilter?.();
+                      if (agentFilter) onClearAgentFilter?.();
+                    }}
+                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
+                  >
+                    Clear filters
+                  </button>
+                )}
+                {onPlayNextUp && (
+                  <button
+                    type="button"
+                    onClick={() => void runEmptyAction('play', onPlayNextUp)}
+                    disabled={emptyActionPending !== null}
+                    className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
+                  >
+                    {emptyActionPending === 'play' ? 'Dispatching...' : 'Play Next Up'}
+                  </button>
+                )}
+                {onStartAutopilot && (
+                  <button
+                    type="button"
+                    onClick={() => void runEmptyAction('autopilot', onStartAutopilot)}
+                    disabled={emptyActionPending !== null}
+                    className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-3 py-1.5 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
+                  >
+                    {emptyActionPending === 'autopilot' ? 'Starting...' : 'Start Autopilot'}
+                  </button>
+                )}
+                {onCreateInitiative && (
+                  <button
+                    type="button"
+                    onClick={onCreateInitiative}
+                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
+                  >
+                    Create initiative
+                  </button>
+                )}
+                {onOpenMissionControl && (
+                  <button
+                    type="button"
+                    onClick={onOpenMissionControl}
+                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
+                  >
+                    Open Mission Control
+                  </button>
+                )}
+              </div>
+
+              {emptyActionError && (
+                <p className="mt-2 text-caption text-amber-200/80">{emptyActionError}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -2688,12 +2973,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 		                  </h3>
 	                  {enableItemMotion ? (
 	                    <AnimatePresence mode="popLayout">
-	                      <div className="space-y-2">
-	                        {visibleClusters.map((cluster, index) => {
-	                          const isExpanded = expandedClusters.has(cluster.key);
-	                          if (cluster.count === 1) {
-	                            return renderItem(cluster.representative, index);
-	                          }
+		                      <div className="space-y-2">
+		                        {visibleClusters.map((cluster, index) => {
+		                          const isExpanded = expandedClusters.has(cluster.key);
+                              const expandedItems = cluster.allItems.slice(1);
+                              const expandedTotal = expandedItems.length;
+                              const expandedVisible = Math.min(
+                                expandedTotal,
+                                clusterVisibleCounts[cluster.key] ?? CLUSTER_EXPANDED_BATCH_SIZE
+                              );
+                              const visibleExpandedItems = expandedItems.slice(0, expandedVisible);
+		                          if (cluster.count === 1) {
+		                            return renderItem(cluster.representative, index);
+		                          }
 	                          const representativeKey = `cluster:${cluster.key}`;
 	                          return (
 	                            <div key={cluster.key}>
@@ -2710,25 +3002,44 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                  <path d="m6 9 6 6 6-6" />
 	                                </svg>
 	                              </button>
-	                              {isExpanded && (
-	                                <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
-	                                  {cluster.allItems
-	                                    .slice(1)
-	                                    .map((item, subIndex) => renderItem(item, index + subIndex + 1))}
-	                                </div>
-	                              )}
+		                              {isExpanded && (
+		                                <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
+		                                  {visibleExpandedItems.map((item, subIndex) =>
+		                                    renderItem(item, index + subIndex + 1)
+		                                  )}
+                                      {expandedVisible < expandedTotal && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            loadMoreClusterItems(cluster.key, expandedTotal);
+                                          }}
+                                          className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                                        >
+                                          Load more ({expandedTotal - expandedVisible} remaining)
+                                        </button>
+                                      )}
+		                                </div>
+		                              )}
 	                            </div>
 	                          );
 	                        })}
 	                      </div>
 	                    </AnimatePresence>
 	                  ) : (
-	                    <div className="space-y-2">
-	                      {visibleClusters.map((cluster, index) => {
-	                        const isExpanded = expandedClusters.has(cluster.key);
-	                        if (cluster.count === 1) {
-	                          return renderItem(cluster.representative, index);
-	                        }
+		                    <div className="space-y-2">
+		                      {visibleClusters.map((cluster, index) => {
+		                        const isExpanded = expandedClusters.has(cluster.key);
+                            const expandedItems = cluster.allItems.slice(1);
+                            const expandedTotal = expandedItems.length;
+                            const expandedVisible = Math.min(
+                              expandedTotal,
+                              clusterVisibleCounts[cluster.key] ?? CLUSTER_EXPANDED_BATCH_SIZE
+                            );
+                            const visibleExpandedItems = expandedItems.slice(0, expandedVisible);
+		                        if (cluster.count === 1) {
+		                          return renderItem(cluster.representative, index);
+		                        }
 	                        const representativeKey = `cluster:${cluster.key}`;
 	                        return (
 	                          <div key={cluster.key}>
@@ -2745,13 +3056,25 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                <path d="m6 9 6 6 6-6" />
 	                              </svg>
 	                            </button>
-	                            {isExpanded && (
-	                              <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
-	                                {cluster.allItems
-	                                  .slice(1)
-	                                  .map((item, subIndex) => renderItem(item, index + subIndex + 1))}
-	                              </div>
-	                            )}
+		                            {isExpanded && (
+		                              <div className="ml-8 mt-1 space-y-1.5 border-l border-subtle pl-3">
+		                                {visibleExpandedItems.map((item, subIndex) =>
+		                                  renderItem(item, index + subIndex + 1)
+		                                )}
+                                    {expandedVisible < expandedTotal && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          loadMoreClusterItems(cluster.key, expandedTotal);
+                                        }}
+                                        className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-micro text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                                      >
+                                        Load more ({expandedTotal - expandedVisible} remaining)
+                                      </button>
+                                    )}
+		                              </div>
+		                            )}
 	                          </div>
 	                        );
 	                      })}
@@ -2937,6 +3260,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
                         {labelForType(activeDecorated.item.type)}
                       </span>
+                      {activeIsSyncReplay && (
+                        <span className="rounded-full border border-lime/25 bg-lime/[0.10] px-2 py-0.5 text-[#D8FFA1]">
+                          Sync replay
+                        </span>
+                      )}
                       {activeIdentity.agentName && (
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-strong px-1.5 py-0.5 text-secondary">
                           <AgentAvatar
@@ -3378,7 +3706,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                    {activeSummaryText && (
 		                      <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
 		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Summary</p>
-	                        {detailSummarySource === 'missing' && (
+	                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
 	                          <p className="mt-1 text-caption text-amber-200/75">
 	                            Full local turn transcript was unavailable; showing the event summary payload.
 	                          </p>
