@@ -1,4 +1,5 @@
 export const ACTIVITY_TIME_FILTERS = [
+  { id: '30m', label: '30m', minutes: 30 },
   { id: 'live', label: 'Live', minutes: null },
   { id: 'all', label: 'All', minutes: null },
   { id: '24h', label: '24h', minutes: 24 * 60 },
@@ -35,4 +36,3 @@ export function sinceIsoForActivityFilter(
   if (!cutoff) return null;
   return new Date(cutoff).toISOString();
 }
-

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors, getAgentRole } from '@/lib/tokens';
@@ -19,7 +19,7 @@ import { AgentLaunchModal } from './AgentLaunchModal';
 import { AgentDetailModal } from './AgentDetailModal';
 import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
-import { ACTIVITY_TIME_FILTERS, cutoffEpochForActivityFilter, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
+import { cutoffEpochForActivityFilter, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
@@ -27,7 +27,6 @@ interface AgentsChatsPanelProps {
   selectedSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
   timeFilterId: ActivityTimeFilterId;
-  onTimeFilterChange: (next: ActivityTimeFilterId) => void;
   onAgentFilter?: (agentName: string | null) => void;
   agentFilter?: string | null;
   onReconnect?: () => void;
@@ -37,6 +36,12 @@ interface AgentsChatsPanelProps {
 
 const MAX_VISIBLE_GROUPS = 120;
 const MAX_VISIBLE_CHILD_SESSIONS = 10;
+const AGENT_VIRTUALIZATION_THRESHOLD = 24;
+const AGENT_VIRTUAL_OVERSCAN_PX = 520;
+const AGENT_ROW_BASE_HEIGHT = 58;
+const AGENT_ROW_CHILD_HEIGHT = 56;
+const AGENT_ROW_CONTAINER_PADDING = 20;
+const AGENT_ROW_ESTIMATED_GAP = 8;
 const ACTIVE_STATUSES = new Set([
   'running',
   'active',
@@ -60,6 +65,63 @@ const DEFAULT_ORGX_AGENTS = [
   { id: 'operations', name: 'Operations', role: 'Manages reliability and processes' },
 ] as const;
 
+type CanonicalOrgxAgent = {
+  id: 'eli' | 'dana' | 'mark' | 'sage' | 'orion' | 'xandy' | 'pace';
+  name: string;
+  role: string;
+  aliases: RegExp[];
+};
+
+const CANONICAL_ORGX_AGENTS: CanonicalOrgxAgent[] = [
+  {
+    id: 'eli',
+    name: 'Eli',
+    role: 'Engineering',
+    aliases: [/\beli\b/i, /\borgx[\s_-]*engineering\b/i, /^\s*engineering\s*$/i],
+  },
+  {
+    id: 'dana',
+    name: 'Dana',
+    role: 'Product Design',
+    aliases: [
+      /\bdana\b/i,
+      /\borgx[\s_-]*design\b/i,
+      /\borgx[\s_-]*product\b/i,
+      /\bproduct[\s_-]*design\b/i,
+    ],
+  },
+  {
+    id: 'mark',
+    name: 'Mark',
+    role: 'Marketing',
+    aliases: [/\bmark\b/i, /\borgx[\s_-]*marketing\b/i, /^\s*marketing\s*$/i],
+  },
+  {
+    id: 'sage',
+    name: 'Sage',
+    role: 'Sales',
+    aliases: [/\bsage\b/i, /\borgx[\s_-]*sales\b/i, /^\s*sales\s*$/i],
+  },
+  {
+    id: 'orion',
+    name: 'Orion',
+    role: 'Operations',
+    aliases: [/\borion\b/i, /\borgx[\s_-]*operations\b/i, /^\s*operations\s*$/i],
+  },
+  {
+    id: 'xandy',
+    name: 'Xandy',
+    role: 'Orchestrator',
+    aliases: [/\bxandy\b/i, /\borgx[\s_-]*orchestrator\b/i, /^\s*orchestrator\s*$/i],
+  },
+  {
+    id: 'pace',
+    name: 'Pace',
+    role: 'Engineering',
+    aliases: [/\bpace\b/i, /\borgx[\s_-]*pace\b/i],
+  },
+];
+
 type AgentGroup = {
   groupKey: string;
   agentId: string | null;
@@ -75,6 +137,30 @@ type AgentGroup = {
 function normalizeIdentity(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function canonicalizeOrgxIdentity(
+  agentId: string | null | undefined,
+  agentName: string | null | undefined
+): { agentId: string; agentName: string; role: string } | null {
+  const normalizedId = normalizeIdentity(agentId);
+  const normalizedName = normalizeIdentity(agentName);
+  if (!normalizedId && !normalizedName) return null;
+
+  const haystack = [normalizedId, normalizedName].filter(Boolean).join(' ');
+  if (!haystack) return null;
+
+  for (const candidate of CANONICAL_ORGX_AGENTS) {
+    if (candidate.aliases.some((pattern) => pattern.test(haystack))) {
+      return {
+        agentId: `orgx:${candidate.id}`,
+        agentName: candidate.name,
+        role: candidate.role,
+      };
+    }
+  }
+
+  return null;
 }
 
 function inferRuntimeSourceFromNode(node: SessionTreeNode): 'codex' | 'claude-code' | 'openclaw' | 'api' | null {
@@ -105,6 +191,14 @@ function inferRuntimeSourceFromNode(node: SessionTreeNode): 'codex' | 'claude-co
 }
 
 function inferredAgentIdentity(node: SessionTreeNode): { agentId: string | null; agentName: string | null } {
+  const canonical = canonicalizeOrgxIdentity(node.agentId, node.agentName);
+  if (canonical) {
+    return {
+      agentId: canonical.agentId,
+      agentName: canonical.agentName,
+    };
+  }
+
   const normalizedId = normalizeIdentity(node.agentId);
   const normalizedName = normalizeIdentity(node.agentName);
   if (normalizedId || normalizedName) {
@@ -200,10 +294,6 @@ function runtimeProviderIdFromLogo(
   return 'unknown';
 }
 
-function runtimeProviderId(runtime: RuntimeInstance | null | undefined): ProviderId {
-  return runtimeProviderIdFromLogo(runtime?.providerLogo ?? null);
-}
-
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -235,7 +325,6 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   selectedSessionId,
   onSelectSession,
   timeFilterId,
-  onTimeFilterChange,
   onAgentFilter,
   agentFilter,
   onReconnect,
@@ -299,7 +388,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       if (runtime.runId && !runtimeByRunId.has(runtime.runId)) {
         runtimeByRunId.set(runtime.runId, runtime);
       }
-      const normalizedAgentId = normalizeIdentity(runtime.agentId);
+      const canonicalRuntime = canonicalizeOrgxIdentity(
+        runtime.agentId,
+        runtime.agentName ?? runtime.displayName
+      );
+      const normalizedAgentId = normalizeIdentity(
+        canonicalRuntime?.agentId ?? runtime.agentId
+      );
       if (normalizedAgentId) {
         const list = runtimeByAgentId.get(normalizedAgentId) ?? [];
         list.push(runtime);
@@ -362,8 +457,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     // Merge catalog agents: add groups for agents not already in the session map
     for (const catAgent of catalogAgents) {
-      const normalizedCatalogId = normalizeIdentity(catAgent.id);
-      const normalizedCatalogName = normalizeIdentity(catAgent.name);
+      const canonicalCatalog = canonicalizeOrgxIdentity(catAgent.id, catAgent.name);
+      const catalogId = canonicalCatalog?.agentId ?? catAgent.id;
+      const catalogName = canonicalCatalog?.agentName ?? catAgent.name;
+      const normalizedCatalogId = normalizeIdentity(catalogId);
+      const normalizedCatalogName = normalizeIdentity(catalogName);
       const idKey = normalizedCatalogId ? `id:${normalizedCatalogId}` : null;
       const nameKey = normalizedCatalogName ? `name:${normalizedCatalogName}` : null;
 
@@ -387,14 +485,14 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         // Attach catalog reference to existing group
         const group = map.get(matchKey)!;
         group.catalogAgent = catAgent;
-        if (!group.agentId && catAgent.id) {
-          group.agentId = catAgent.id;
+        if (!group.agentId && catalogId) {
+          group.agentId = catalogId;
         }
         if (
           (group.agentName === 'Unassigned' || !group.agentName) &&
-          catAgent.name
+          catalogName
         ) {
-          group.agentName = catAgent.name;
+          group.agentName = catalogName;
         }
 
         if (idKey && group.groupKey !== idKey && !map.has(idKey)) {
@@ -405,11 +503,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       } else {
         // Synthetic group for catalog-only agent (0 sessions)
         const syntheticKey =
-          idKey ?? nameKey ?? `catalog:${catAgent.name.toLowerCase()}`;
+          idKey ?? nameKey ?? `catalog:${catalogName.toLowerCase()}`;
         map.set(syntheticKey, {
           groupKey: syntheticKey,
-          agentId: catAgent.id,
-          agentName: catAgent.name,
+          agentId: catalogId,
+          agentName: catalogName,
           nodes: [],
           latest: null,
           catalogAgent: catAgent,
@@ -487,10 +585,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     for (const group of sortedGroups) {
       const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
-      // Always include 0-session catalog agents
+      // Keep zero-session roster noise out of historical views.
       if (group.nodes.length === 0) {
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
-        if (!isLiveWindow || catalogIsLive || runtimeIsLive) {
+        if (isLiveWindow && (catalogIsLive || runtimeIsLive)) {
           filteredGroups.push(group);
         }
         continue;
@@ -680,12 +778,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       if (!detailGroup) return [];
       const detailName = normalizeIdentity(detailGroup.agentName);
       const detailId = normalizeIdentity(detailGroup.agentId);
+      const detailCanonical = canonicalizeOrgxIdentity(detailGroup.agentId, detailGroup.agentName);
       return activityWithinWindow.filter((item) => {
         const itemName = normalizeIdentity(item.agentName);
         const itemId = normalizeIdentity(item.agentId);
+        const itemCanonical = canonicalizeOrgxIdentity(item.agentId, item.agentName);
         return (
           (detailName !== null && itemName === detailName) ||
-          (detailId !== null && itemId === detailId)
+          (detailId !== null && itemId === detailId) ||
+          (
+            detailCanonical !== null &&
+            itemCanonical !== null &&
+            normalizeIdentity(detailCanonical.agentId) === normalizeIdentity(itemCanonical.agentId)
+          )
         );
       });
     },
@@ -694,6 +799,98 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
   const hasNoSessions = sessions.nodes.length === 0;
   const hasCatalogAgents = catalogAgents.length > 0;
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const [listViewportHeight, setListViewportHeight] = useState(0);
+
+  const handleListScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const nextTop = event.currentTarget.scrollTop;
+    setListScrollTop((prev) => (Math.abs(prev - nextTop) < 1 ? prev : nextTop));
+  }, []);
+
+  useEffect(() => {
+    const node = listScrollRef.current;
+    if (!node) return;
+
+    const syncMetrics = () => {
+      const nextHeight = node.clientHeight;
+      const nextTop = node.scrollTop;
+      setListViewportHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+      setListScrollTop((prev) => (Math.abs(prev - nextTop) < 1 ? prev : nextTop));
+    };
+
+    syncMetrics();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => syncMetrics());
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', syncMetrics);
+    return () => window.removeEventListener('resize', syncMetrics);
+  }, [agents.length]);
+
+  const {
+    visibleAgentGroups,
+    topVirtualSpacerPx,
+    bottomVirtualSpacerPx,
+    virtualizationEnabled,
+  } = useMemo(() => {
+    const canVirtualize =
+      agents.length > AGENT_VIRTUALIZATION_THRESHOLD && listViewportHeight > 0;
+    if (!canVirtualize) {
+      return {
+        visibleAgentGroups: agents,
+        topVirtualSpacerPx: 0,
+        bottomVirtualSpacerPx: 0,
+        virtualizationEnabled: false,
+      };
+    }
+
+    const estimatedHeights = agents.map((group) => {
+      const collapsedGroup = collapsed.has(group.groupKey);
+      const visibleChildCount = collapsedGroup
+        ? 0
+        : Math.min(group.nodes.length, MAX_VISIBLE_CHILD_SESSIONS);
+      let estimated = AGENT_ROW_BASE_HEIGHT;
+      if (visibleChildCount > 0) {
+        estimated += AGENT_ROW_CONTAINER_PADDING + visibleChildCount * AGENT_ROW_CHILD_HEIGHT;
+        if (group.nodes.length > visibleChildCount) estimated += 20;
+      }
+      return estimated + AGENT_ROW_ESTIMATED_GAP;
+    });
+
+    const prefixHeights = new Array(estimatedHeights.length + 1).fill(0);
+    for (let i = 0; i < estimatedHeights.length; i += 1) {
+      prefixHeights[i + 1] = prefixHeights[i] + estimatedHeights[i];
+    }
+
+    const totalHeight = prefixHeights[prefixHeights.length - 1];
+    const startBoundary = Math.max(0, listScrollTop - AGENT_VIRTUAL_OVERSCAN_PX);
+    const endBoundary = listScrollTop + listViewportHeight + AGENT_VIRTUAL_OVERSCAN_PX;
+
+    let startIndex = 0;
+    while (
+      startIndex < agents.length &&
+      prefixHeights[startIndex + 1] < startBoundary
+    ) {
+      startIndex += 1;
+    }
+
+    let endIndex = startIndex;
+    while (endIndex < agents.length && prefixHeights[endIndex] < endBoundary) {
+      endIndex += 1;
+    }
+    if (endIndex <= startIndex) endIndex = Math.min(agents.length, startIndex + 1);
+
+    return {
+      visibleAgentGroups: agents.slice(startIndex, endIndex),
+      topVirtualSpacerPx: prefixHeights[startIndex],
+      bottomVirtualSpacerPx: Math.max(0, totalHeight - prefixHeights[endIndex]),
+      virtualizationEnabled: true,
+    };
+  }, [agents, collapsed, listScrollTop, listViewportHeight]);
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -743,52 +940,13 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             </button>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-caption text-secondary">History</span>
-          <div
-            className="hidden items-center gap-1 rounded-full border border-white/[0.08] bg-black/30 p-0.5 sm:inline-flex"
-            role="group"
-            aria-label="Session history filter"
-          >
-            {ACTIVITY_TIME_FILTERS.map((option) => {
-              const active = timeFilterId === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => onTimeFilterChange(option.id)}
-                  aria-pressed={active}
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-micro font-semibold tracking-[-0.01em] transition-colors',
-                    active
-                      ? 'border border-lime/25 bg-lime/[0.12] text-lime'
-                      : 'border border-transparent text-secondary hover:bg-white/[0.06] hover:text-primary'
-                  )}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-          <label htmlFor="offline-date-filter" className="sr-only">
-            Session history filter
-          </label>
-          <select
-            id="offline-date-filter"
-            value={timeFilterId}
-            onChange={(event) => onTimeFilterChange(event.target.value as ActivityTimeFilterId)}
-            className="rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30 sm:hidden"
-          >
-            {ACTIVITY_TIME_FILTERS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+      <div
+        ref={listScrollRef}
+        onScroll={handleListScroll}
+        className="flex-1 space-y-2 overflow-y-auto p-3"
+      >
         {agents.length === 0 && !hasNoSessions && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
             <svg
@@ -805,7 +963,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
             <p className="text-body text-secondary">
-              No sessions match the selected history filter.
+              No sessions match the selected activity window.
             </p>
           </div>
         )}
@@ -844,7 +1002,15 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </div>
         )}
 
-        {agents.map((group) => {
+        <div className="space-y-2">
+          {virtualizationEnabled && topVirtualSpacerPx > 0 && (
+            <div
+              aria-hidden="true"
+              style={{ height: topVirtualSpacerPx }}
+            />
+          )}
+
+          {visibleAgentGroups.map((group) => {
           const agentKey = group.groupKey;
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
@@ -854,7 +1020,25 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const runtime = group.runtime ?? null;
           const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
           const active = lead ? selectedSessionId === lead.id : false;
-          const displayName = group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
+          const displayNameRaw =
+            group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
+          const canonicalOrgx = canonicalizeOrgxIdentity(group.agentId, displayNameRaw);
+          const displayName = canonicalOrgx?.agentName ?? displayNameRaw;
+          const roleLabel = canonicalOrgx?.role ?? getAgentRole(displayName);
+          const headerProvider = resolveProvider(
+            group.agentId,
+            displayName,
+            runtime?.displayName,
+            lead?.runtimeProvider,
+            lead?.runtimeClient
+          );
+          const showProviderAvatar =
+            canonicalOrgx === null &&
+            (headerProvider.id === 'codex' ||
+              headerProvider.id === 'openai' ||
+              headerProvider.id === 'anthropic' ||
+              headerProvider.id === 'openclaw');
+          const filterLabel = roleLabel ? `${displayName} — ${roleLabel}` : displayName;
           const visibleChildren = isCollapsed
             ? []
             : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
@@ -863,7 +1047,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             group.nodes.length - visibleChildren.length
           );
           const isFiltered =
-            normalizeIdentity(agentFilter) === normalizeIdentity(displayName);
+            normalizeIdentity(agentFilter) === normalizeIdentity(displayName) ||
+            normalizeIdentity(agentFilter) === normalizeIdentity(filterLabel);
 
           return (
             <motion.div
@@ -891,7 +1076,28 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   className="flex flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
                 >
                   <div className="relative flex-shrink-0">
-                    <AgentAvatar name={displayName} size="sm" hint={displayName} />
+                    {showProviderAvatar ? (
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-strong bg-white/[0.03]">
+                        <ProviderLogo provider={headerProvider.id} size="sm" showRing={false} />
+                      </span>
+                    ) : (
+                      <AgentAvatar
+                        name={displayName}
+                        size="sm"
+                        hint={`${group.agentId ?? ''} ${displayName}`}
+                      />
+                    )}
+                    {canonicalOrgx && (
+                      <span className="absolute -bottom-0.5 -left-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
+                        <img
+                          src="/orgx/live/brand/orgx-logo.png"
+                          alt=""
+                          aria-hidden="true"
+                          className="h-2.5 w-2.5 rounded-full object-contain"
+                          loading="lazy"
+                        />
+                      </span>
+                    )}
                     {lead && (
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
@@ -913,33 +1119,16 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       />
                     )}
                   </div>
-                  <span className="min-w-0 truncate">
-                    <span className="text-body font-semibold text-white">{displayName}</span>
-                    {getAgentRole(displayName) && (
-                      <span className="ml-1 text-caption text-muted">— {getAgentRole(displayName)}</span>
-                    )}
-                  </span>
-                  {runtime && (
-                    <span
-                      className="inline-flex items-center gap-1 rounded-full border border-strong bg-white/[0.04] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-primary"
-                      title={
-                        runtime.currentTask
-                          ? `${runtime.displayName}: ${runtime.currentTask}`
-                          : runtime.lastMessage ?? runtime.displayName
-                      }
-                    >
-                      <ProviderLogo provider={runtimeProviderId(runtime)} size="xs" showRing={false} className="h-4 w-4" />
-                      <span>{runtime.displayName}</span>
-                      {runtime.progressPct !== null && (
-                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {Math.round(runtime.progressPct)}%
-                        </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body font-semibold text-white">
+                      {displayName}
+                      {roleLabel && (
+                        <span className="ml-1 text-caption font-normal text-muted">— {roleLabel}</span>
                       )}
-                      {runtimeIsLive && <span className="h-1.5 w-1.5 rounded-full bg-lime status-breathe" />}
-                    </span>
-                  )}
+                    </p>
+                  </div>
                   {hasSessions ? (
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
                         {(() => {
                           const counts: Record<string, number> = {};
@@ -964,19 +1153,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       </span>
                     </span>
                   ) : catalogIsLive || runtimeIsLive ? (
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]">
                         <span
                           className="h-1.5 w-full"
                           style={{ backgroundColor: statusColor('running') }}
                         />
                       </span>
-                      <span className="text-micro uppercase tracking-[0.08em] text-lime/80">
-                        live
+                      <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {Math.max(1, group.runtimeActiveCount ?? 0)}
                       </span>
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]" />
                       <span className="text-micro text-muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         0
@@ -1117,7 +1306,15 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               </AnimatePresence>
             </motion.div>
           );
-        })}
+          })}
+
+          {virtualizationEnabled && bottomVirtualSpacerPx > 0 && (
+            <div
+              aria-hidden="true"
+              style={{ height: bottomVirtualSpacerPx }}
+            />
+          )}
+        </div>
 
         {hiddenGroupCount > 0 && (
           <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">

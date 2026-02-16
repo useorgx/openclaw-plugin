@@ -30,6 +30,11 @@ function statusLabel(status: string): string {
   return status.replace(/_/g, ' ');
 }
 
+function coerceProgress(progress: number | null | undefined): number | null {
+  if (typeof progress !== 'number' || !Number.isFinite(progress)) return null;
+  return Math.max(0, Math.min(100, Math.round(progress)));
+}
+
 interface InProgressPanelProps {
   sessions: SessionTreeNode[];
   title?: string;
@@ -138,6 +143,12 @@ export const InProgressPanel = memo(function InProgressPanel({
                 : when
                   ? `Updated ${formatRelativeTime(when)}`
                   : null;
+              const progressValue = coerceProgress(session.progress);
+              const showEstimatedProgress =
+                progressValue === null &&
+                ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(
+                  status
+                );
 
               return (
                 <div
@@ -165,6 +176,26 @@ export const InProgressPanel = memo(function InProgressPanel({
                           {subtitle}
                         </p>
                       ) : null}
+                      {(progressValue !== null || showEstimatedProgress) && (
+                        <div className="mt-2">
+                          <div className="mb-1 flex items-center justify-between text-micro">
+                            <span className="text-secondary">Slice progress</span>
+                            <span className="font-semibold text-primary tabular-nums">
+                              {progressValue === null ? 'Tracking…' : `${progressValue}%`}
+                            </span>
+                          </div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.09]">
+                            {progressValue === null ? (
+                              <div className="h-full w-1/3 rounded-full bg-[#7dd3c0]/70 animate-pulse" />
+                            ) : (
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-[#BFFF00]/80 to-[#7dd3c0]"
+                                style={{ width: `${Math.max(3, progressValue)}%` }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-1.5 flex items-center gap-1.5">
                         <button
                           type="button"

@@ -65,7 +65,7 @@ export function AgentSuitePanel({
     if (missingAgents === 0 && changedFiles === 0) return 'Suite is installed and up to date.';
     const parts = [];
     if (missingAgents > 0) parts.push(`will add ${pluralize(missingAgents, 'agent')}`);
-    if (changedFiles > 0) parts.push(`will ${changedFiles === 1 ? 'update' : 'update'} ${pluralize(changedFiles, 'file')}`);
+    if (changedFiles > 0) parts.push(`will update ${pluralize(changedFiles, 'file')}`);
     return `Preview: ${parts.join(', ')}.`;
   }, [changedFiles, conflictFiles, missingAgents, plan, suite.error, suite.isLoading]);
 
@@ -99,16 +99,20 @@ export function AgentSuitePanel({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => { void suite.refetchStatus(); }}
-            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06]"
+            onClick={() => {
+              suite.resetInstall();
+              void suite.refetchStatus();
+            }}
+            disabled={suite.isRefetching}
+            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Refresh
+            {suite.isRefetching ? 'Refreshing...' : 'Refresh'}
           </button>
           <button
             type="button"
             onClick={() => {
               setShowDetails(true);
-              void suite.install({ dryRun: true });
+              suite.install({ dryRun: true });
             }}
             disabled={suite.isInstalling}
             className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
@@ -118,7 +122,7 @@ export function AgentSuitePanel({
           </button>
           <button
             type="button"
-            onClick={() => { void suite.install({ dryRun: false, forceSkillPack: true }); }}
+            onClick={() => { suite.install({ dryRun: false, forceSkillPack: true }); }}
             disabled={suite.isInstalling}
             className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
             title="Forces a check for the latest OrgX skill pack and applies it (managed/local overlay preserves local edits)"
@@ -127,7 +131,7 @@ export function AgentSuitePanel({
           </button>
           <button
             type="button"
-            onClick={() => { void suite.install({ dryRun: false }); }}
+            onClick={() => { suite.install({ dryRun: false }); }}
             disabled={suite.isInstalling}
             className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
             title="Adds missing agents to openclaw.json and scaffolds managed workspace files"
@@ -153,6 +157,14 @@ export function AgentSuitePanel({
         )}
       </div>
 
+      {/* Install error banner */}
+      {suite.installError && (
+        <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-body text-rose-100">
+          {suite.installError}
+        </div>
+      )}
+
+      {/* Install success banner */}
       {lastInstall && (
         <div className="mt-3 rounded-xl border border-lime/20 bg-lime/[0.06] px-4 py-3">
           <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">
@@ -189,8 +201,10 @@ export function AgentSuitePanel({
                     <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.openclawConfigPath}</code>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>Suite workspace root</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.suiteWorkspaceRoot}</code>
+                    <span>Agent workspaces</span>
+                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">
+                      {plan.suiteWorkspaceRoot}/{'{agent-id}'}
+                    </code>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Pack</span>
@@ -254,7 +268,7 @@ export function AgentSuitePanel({
               </div>
 
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
-                <p className="text-body font-semibold text-primary">Agents</p>
+                <p className="text-body font-semibold text-primary">Agents ({totalAgents})</p>
                 <div className="mt-2 grid gap-2">
                   {plan.agents.map((agent) => (
                     <div
