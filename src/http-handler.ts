@@ -125,6 +125,7 @@ import {
 } from "./openclaw-settings.js";
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
 import { posthogCapture } from "./telemetry/posthog.js";
+import { createRouter } from "./http/router.js";
 
 // =============================================================================
 // Helpers
@@ -7685,6 +7686,27 @@ export function createHttpHandler(
   }, AUTO_CONTINUE_TICK_MS);
   autoContinueTimer.unref?.();
 
+  const apiRouter = createRouter<Record<string, never>, PluginRequest, PluginResponse>();
+  apiRouter.add(
+    "GET",
+    "onboarding/status",
+    async ({ res }) => {
+      try {
+        const state = await onboarding.getStatus();
+        sendJson(res, 200, {
+          ok: true,
+          data: getOnboardingState(state),
+        });
+      } catch (err: unknown) {
+        sendJson(res, 500, {
+          ok: false,
+          error: safeErrorMessage(err),
+        });
+      }
+    },
+    "Read onboarding status"
+  );
+
   return async function handler(
     req: PluginRequest,
     res: PluginResponse
@@ -7762,7 +7784,6 @@ export function createHttpHandler(
       const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
       const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
       const isOnboardingStartRoute = route === "onboarding/start";
-      const isOnboardingStatusRoute = route === "onboarding/status";
       const isOnboardingManualKeyRoute = route === "onboarding/manual-key";
       const isOnboardingDisconnectRoute = route === "onboarding/disconnect";
       const isLiveActivityHeadlineRoute = route === "live/activity/headline";
@@ -7772,6 +7793,19 @@ export function createHttpHandler(
       const isByokSettingsRoute = route === "settings/byok";
       const isAgentSuiteInstallRoute = route === "agent-suite/install";
       const isSkillPackPolicyRoute = route === "skill-pack/policy";
+
+      const routed = apiRouter.match(method, route);
+      if (routed) {
+        await routed.handler({
+          req,
+          res,
+          path: route,
+          query: searchParams,
+          body: undefined,
+          state: {},
+        });
+        return true;
+      }
 
       if (method === "POST" && isOnboardingStartRoute) {
         try {
@@ -7795,22 +7829,6 @@ export function createHttpHandler(
           });
         } catch (err: unknown) {
           sendJson(res, 400, {
-            ok: false,
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (method === "GET" && isOnboardingStatusRoute) {
-        try {
-          const state = await onboarding.getStatus();
-          sendJson(res, 200, {
-            ok: true,
-            data: getOnboardingState(state),
-          });
-        } catch (err: unknown) {
-          sendJson(res, 500, {
             ok: false,
             error: safeErrorMessage(err),
           });

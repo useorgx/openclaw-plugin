@@ -5,6 +5,27 @@
  * Mirrors the server-side types in orgx/lib/client-integration/types.ts
  */
 
+export type {
+  HandoffEvent,
+  HandoffSummary,
+  LiveActivityItem,
+  LiveActivityType,
+  LiveDecision,
+  OnboardingKeySource,
+  OnboardingNextAction,
+  OnboardingState,
+  OnboardingStatus,
+  RunPhase,
+  RuntimeInstance,
+  RuntimeInstanceState,
+  RuntimeProviderLogo,
+  RuntimeSourceClient,
+  SessionTreeEdge,
+  SessionTreeGroup,
+  SessionTreeNode,
+  SessionTreeResponse,
+} from './shared-types.js';
+
 // =============================================================================
 // CONFIGURATION
 // =============================================================================
@@ -28,45 +49,6 @@ export interface OrgXConfig {
    * that appear to have out-of-band edits ("conflict").
    */
   autoInstallAgentSuiteOnConnect?: boolean;
-}
-
-export type OnboardingStatus =
-  | 'idle'
-  | 'starting'
-  | 'awaiting_browser_auth'
-  | 'pairing'
-  | 'connected'
-  | 'error'
-  | 'manual_key';
-
-export type OnboardingNextAction =
-  | 'connect'
-  | 'wait_for_browser'
-  | 'open_dashboard'
-  | 'enter_manual_key'
-  | 'retry'
-  | 'reconnect';
-
-export interface OnboardingState {
-  status: OnboardingStatus;
-  hasApiKey: boolean;
-  connectionVerified: boolean;
-  workspaceName: string | null;
-  lastError: string | null;
-  nextAction: OnboardingNextAction;
-  docsUrl: string;
-  keySource:
-    | 'config'
-    | 'environment'
-    | 'persisted'
-    | 'openclaw-config-file'
-    | 'legacy-dev'
-    | 'none';
-  installationId: string | null;
-  connectUrl: string | null;
-  pairingId: string | null;
-  expiresAt: string | null;
-  pollIntervalMs: number | null;
 }
 
 // =============================================================================
@@ -338,14 +320,6 @@ export interface BillingUrlResult {
 // RUN PHASES + HANDOFF CONTINUITY
 // =============================================================================
 
-export type RunPhase =
-  | 'intent'
-  | 'execution'
-  | 'blocked'
-  | 'review'
-  | 'handoff'
-  | 'completed';
-
 export interface HandoffWorkspaceState {
   git?: {
     branch?: string | null;
@@ -503,7 +477,6 @@ export interface EntityListFilters {
 // =============================================================================
 
 export type ReportingSourceClient = 'openclaw' | 'codex' | 'claude-code' | 'api';
-export type RuntimeSourceClient = ReportingSourceClient | 'unknown';
 export type ReportingPhase =
   | 'intent'
   | 'execution'
@@ -671,140 +644,5 @@ export interface RecordRunRetroResponse {
 // =============================================================================
 // LIVE SESSION GRAPH + HANDOFFS
 // =============================================================================
-
-export type LiveActivityType =
-  | 'run_started'
-  | 'run_completed'
-  | 'run_failed'
-  | 'artifact_created'
-  | 'decision_requested'
-  | 'decision_resolved'
-  | 'handoff_requested'
-  | 'handoff_claimed'
-  | 'handoff_fulfilled'
-  | 'blocker_created'
-  | 'milestone_completed'
-  | 'delegation';
-
-export type RuntimeInstanceState = 'active' | 'stale' | 'stopped' | 'error';
-
-export interface RuntimeInstance {
-  id: string;
-  sourceClient: RuntimeSourceClient;
-  displayName: string;
-  providerLogo: 'codex' | 'openai' | 'anthropic' | 'openclaw' | 'orgx' | 'unknown';
-  state: RuntimeInstanceState;
-  runId: string | null;
-  correlationId: string | null;
-  initiativeId: string | null;
-  workstreamId: string | null;
-  taskId: string | null;
-  agentId: string | null;
-  agentName: string | null;
-  phase: string | null;
-  progressPct: number | null;
-  currentTask: string | null;
-  lastHeartbeatAt: string | null;
-  lastEventAt: string;
-  lastMessage: string | null;
-  metadata: Record<string, unknown> | null;
-}
-
-export interface LiveActivityItem {
-  id: string;
-  type: LiveActivityType;
-  title: string;
-  description: string | null;
-  agentId: string | null;
-  agentName: string | null;
-  requesterAgentId: string | null;
-  requesterAgentName: string | null;
-  executorAgentId: string | null;
-  executorAgentName: string | null;
-  runId: string | null;
-  initiativeId: string | null;
-  timestamp: string;
-  phase?: RunPhase | null;
-  state?: string | null;
-  kind?: string | null;
-  summary?: string | null;
-  decisionRequired?: boolean;
-  costDelta?: number | null;
-  runtimeClient?: RuntimeSourceClient | null;
-  runtimeLabel?: string | null;
-  runtimeProvider?: RuntimeInstance['providerLogo'] | null;
-  instanceId?: string | null;
-  lastHeartbeatAt?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-export interface SessionTreeNode {
-  id: string;
-  parentId: string | null;
-  runId: string;
-  title: string;
-  agentId: string | null;
-  agentName: string | null;
-  status: string;
-  progress: number | null;
-  initiativeId: string | null;
-  workstreamId: string | null;
-  groupId: string;
-  groupLabel: string;
-  startedAt: string | null;
-  updatedAt: string | null;
-  lastEventAt: string | null;
-  lastEventSummary: string | null;
-  blockers: string[];
-  phase?: RunPhase | null;
-  state?: string | null;
-  eta?: string | null;
-  cost?: number | null;
-  checkpointCount?: number | null;
-  blockerReason?: string | null;
-  runtimeClient?: RuntimeSourceClient | null;
-  runtimeLabel?: string | null;
-  runtimeProvider?: RuntimeInstance['providerLogo'] | null;
-  instanceId?: string | null;
-  lastHeartbeatAt?: string | null;
-}
-
-export interface SessionTreeEdge {
-  parentId: string;
-  childId: string;
-}
-
-export interface SessionTreeGroup {
-  id: string;
-  label: string;
-  status: string | null;
-}
-
-export interface SessionTreeResponse {
-  nodes: SessionTreeNode[];
-  edges: SessionTreeEdge[];
-  groups: SessionTreeGroup[];
-}
-
-export interface HandoffEvent {
-  id: string;
-  handoffId: string;
-  eventType: string;
-  actorType: string | null;
-  actorId: string | null;
-  payload: Record<string, unknown> | null;
-  createdAt: string;
-}
-
-export interface HandoffSummary {
-  id: string;
-  title: string;
-  status: string;
-  priority: string | null;
-  summary: string | null;
-  currentActorType: string | null;
-  currentActorId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  events: HandoffEvent[];
-}
+// Live/session/handoff activity shapes are imported and re-exported from
+// ./shared-types.ts to keep dashboard and plugin contracts in lockstep.
