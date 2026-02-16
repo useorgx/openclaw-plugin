@@ -1340,6 +1340,23 @@ export function detectMcpHandshakeFailure(logText) {
   const server = serverMatch
     ? pickString(serverMatch[1]) ?? null
     : null;
+  const ignoredServerEnv = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  const ignoredServers =
+    typeof ignoredServerEnv === "string"
+      ? (() => {
+          const trimmed = ignoredServerEnv.trim();
+          if (!trimmed || trimmed.toLowerCase() === "none") return new Set();
+          return new Set(
+            trimmed
+              .split(",")
+              .map((entry) => entry.trim().toLowerCase())
+              .filter(Boolean)
+          );
+        })()
+      : new Set(["codex_apps"]);
+  if (server && ignoredServers.has(server.toLowerCase())) {
+    return null;
+  }
 
   return {
     kind: "mcp_handshake",
