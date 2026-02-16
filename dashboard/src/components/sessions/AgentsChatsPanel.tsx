@@ -45,8 +45,6 @@ const AGENT_ROW_ESTIMATED_GAP = 8;
 const ACTIVE_STATUSES = new Set([
   'running',
   'active',
-  'queued',
-  'pending',
   'in_progress',
   'working',
   'planning',
@@ -64,6 +62,9 @@ const DEFAULT_ORGX_AGENTS = [
   { id: 'design', name: 'Design', role: 'Creates interfaces and experiences' },
   { id: 'operations', name: 'Operations', role: 'Manages reliability and processes' },
 ] as const;
+
+const UUID_LIKE_NAME =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type CanonicalOrgxAgent = {
   id: 'eli' | 'dana' | 'mark' | 'sage' | 'orion' | 'xandy' | 'pace';
@@ -252,6 +253,18 @@ function sessionGroupKey(node: SessionTreeNode): string {
   if (name) return `name:${name}`;
 
   return 'unassigned';
+}
+
+function compactAgentDisplayName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "Unassigned";
+  if (UUID_LIKE_NAME.test(trimmed)) {
+    return `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`;
+  }
+  if (!trimmed.includes(" ") && trimmed.length > 36) {
+    return `${trimmed.slice(0, 24)}…`;
+  }
+  return trimmed;
 }
 
 function isOrgxGroup(group: AgentGroup): boolean {
@@ -1053,7 +1066,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const displayNameRaw =
             group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
           const canonicalOrgx = canonicalizeOrgxIdentity(group.agentId, displayNameRaw);
-          const displayName = canonicalOrgx?.agentName ?? displayNameRaw;
+          const displayName = canonicalOrgx?.agentName ?? compactAgentDisplayName(displayNameRaw);
           const roleLabel = canonicalOrgx?.role ?? getAgentRole(displayName);
           const headerProvider = resolveProvider(
             group.agentId,
@@ -1068,7 +1081,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               headerProvider.id === 'openai' ||
               headerProvider.id === 'anthropic' ||
               headerProvider.id === 'openclaw');
-          const filterLabel = roleLabel ? `${displayName} — ${roleLabel}` : displayName;
+          const filterLabel = roleLabel ? `${displayNameRaw} — ${roleLabel}` : displayNameRaw;
           const visibleChildren = isCollapsed
             ? []
             : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
@@ -1150,12 +1163,22 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-body font-semibold text-white">
-                      {displayName}
+                    <div className="flex min-w-0 items-baseline gap-1">
+                      <span
+                        className="truncate text-body font-semibold text-white"
+                        title={displayNameRaw}
+                      >
+                        {displayName}
+                      </span>
                       {roleLabel && (
-                        <span className="ml-1 text-caption font-normal text-muted">— {roleLabel}</span>
+                        <span
+                          className="max-w-[44%] truncate text-caption font-normal text-muted"
+                          title={roleLabel}
+                        >
+                          — {roleLabel}
+                        </span>
                       )}
-                    </p>
+                    </div>
                   </div>
                   {hasSessions ? (
                     <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
@@ -1285,7 +1308,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                             <div className="flex items-center gap-2">
                               <ProviderLogo provider={childProvider.id} size="xs" />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-body text-bright">{node.title}</p>
+                                <p className="truncate text-body text-bright" title={node.title}>
+                                  {node.title}
+                                </p>
                                 <div className="flex items-center gap-1.5 text-micro text-secondary">
                                   <span
                                     className="font-semibold uppercase tracking-[0.08em]"

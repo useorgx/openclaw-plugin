@@ -22,6 +22,8 @@ interface DecisionDetailModalProps {
 
 type ModalPhase = 'idle' | 'approving' | 'rejecting' | 'success' | 'rejected' | 'error';
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+
 function safeJson(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -45,8 +47,11 @@ export function DecisionDetailModal({
   const [copied, setCopied] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Stable ref to onClose so the auto-close timer always calls the latest version
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  // Reset state when decision changes
+  // Reset state when decision changes or modal opens/closes
   useEffect(() => {
     if (open) {
       setPhase('idle');
@@ -62,9 +67,11 @@ export function DecisionDetailModal({
   }, [open, decision?.id]);
 
   const requestedAt = decision?.requestedAt ?? null;
-  const meta = (decision?.metadata ?? {}) as Record<string, unknown>;
+  const metadata = decision?.metadata;
 
   const options = useMemo(() => {
+    if (!metadata) return [];
+    const meta = metadata as Record<string, unknown>;
     const raw = meta.options ?? meta.option ?? meta.actions ?? null;
     if (Array.isArray(raw)) {
       const parsed = raw
@@ -82,17 +89,19 @@ export function DecisionDetailModal({
       return parsed;
     }
     return [];
-  }, [meta]);
+  }, [metadata]);
 
   const context = useMemo(() => {
     const value = (decision?.context ?? '').trim();
     if (value) return value;
+    if (!metadata) return '';
+    const meta = metadata as Record<string, unknown>;
     const fallback =
       (typeof meta.summary === 'string' ? meta.summary : null) ??
       (typeof meta.description === 'string' ? meta.description : null) ??
       '';
     return String(fallback ?? '').trim();
-  }, [decision?.context, meta]);
+  }, [decision?.context, metadata]);
 
   const urgencyColor = useMemo(() => {
     const mins = decision?.waitingMinutes ?? 0;
@@ -101,9 +110,9 @@ export function DecisionDetailModal({
     return colors.teal;
   }, [decision?.waitingMinutes]);
 
-  const copyDetails = async () => {
+  const copyDetails = useCallback(async () => {
     if (!decision) return;
-    const payload = safeJson({ decision, metadata: meta });
+    const payload = safeJson({ decision, metadata });
     if (!payload) return;
     try {
       await navigator.clipboard.writeText(payload);
@@ -112,7 +121,7 @@ export function DecisionDetailModal({
     } catch {
       /* silently fail */
     }
-  };
+  }, [decision, metadata]);
 
   const buildNote = useCallback(() => {
     const parts: string[] = [];
@@ -121,43 +130,58 @@ export function DecisionDetailModal({
     return parts.length > 0 ? parts.join('\n') : undefined;
   }, [selectedOption, note]);
 
-  const handleApprove = async () => {
-    if (!decision || !onApprove || phase === 'approving' || phase === 'rejecting') return;
+  const handleApprove = useCallback(async () => {
+    if (!decision || !onApprove) return;
+    // Use functional setState to read latest phase without stale closure
+    let shouldProceed = false;
+    setPhase((prev) => {
+      if (prev === 'approving' || prev === 'rejecting') return prev;
+      shouldProceed = true;
+      return 'approving';
+    });
+    if (!shouldProceed) return;
+
     setErrorMessage(null);
-    setPhase('approving');
     try {
       const result = await onApprove(decision.id, buildNote());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage(`Approval failed. Please try again.`);
+        setErrorMessage('Approval failed. Please try again.');
       } else {
         setPhase('success');
-        autoCloseTimer.current = setTimeout(() => onClose(), 800);
+        autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
       }
     } catch (err) {
       setPhase('error');
       setErrorMessage(err instanceof Error ? err.message : 'Approval failed.');
     }
-  };
+  }, [decision, onApprove, buildNote]);
 
-  const handleReject = async () => {
-    if (!decision || !onReject || phase === 'approving' || phase === 'rejecting') return;
+  const handleReject = useCallback(async () => {
+    if (!decision || !onReject) return;
+    let shouldProceed = false;
+    setPhase((prev) => {
+      if (prev === 'approving' || prev === 'rejecting') return prev;
+      shouldProceed = true;
+      return 'rejecting';
+    });
+    if (!shouldProceed) return;
+
     setErrorMessage(null);
-    setPhase('rejecting');
     try {
       const result = await onReject(decision.id, buildNote());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage(`Rejection failed. Please try again.`);
+        setErrorMessage('Rejection failed. Please try again.');
       } else {
         setPhase('rejected');
-        autoCloseTimer.current = setTimeout(() => onClose(), 800);
+        autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
       }
     } catch (err) {
       setPhase('error');
       setErrorMessage(err instanceof Error ? err.message : 'Rejection failed.');
     }
-  };
+  }, [decision, onReject, buildNote]);
 
   // Keyboard: Cmd/Ctrl+Enter to approve
   useEffect(() => {
@@ -170,7 +194,7 @@ export function DecisionDetailModal({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  });
+  }, [open, handleApprove]);
 
   if (!open || !decision) return null;
 
@@ -181,29 +205,31 @@ export function DecisionDetailModal({
 
   // Success / rejected overlay
   if (resolved) {
+    const isApproval = phase === 'success';
+    const accent = isApproval ? colors.lime : colors.red;
     return (
       <Modal open={open} onClose={onClose} maxWidth="max-w-xl" fitContent>
         <div className="flex flex-col items-center justify-center px-8 py-12">
           <div
             className="mb-4 flex h-16 w-16 items-center justify-center rounded-full"
             style={{
-              backgroundColor: phase === 'success' ? `${colors.lime}18` : `${colors.red}18`,
-              border: `1.5px solid ${phase === 'success' ? `${colors.lime}40` : `${colors.red}40`}`,
+              backgroundColor: `${accent}18`,
+              border: `1.5px solid ${accent}40`,
             }}
           >
-            {phase === 'success' ? (
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colors.lime} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {isApproval ? (
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             ) : (
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={colors.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 6L6 18" />
                 <path d="M6 6l12 12" />
               </svg>
             )}
           </div>
           <p className="text-heading font-semibold text-white">
-            {phase === 'success' ? 'Approved' : 'Rejected'}
+            {isApproval ? 'Approved' : 'Rejected'}
           </p>
           <p className="mt-1 text-body text-secondary">
             {decision.title}
@@ -240,7 +266,7 @@ export function DecisionDetailModal({
                   {decision.title || 'Decision'}
                 </h2>
                 <p className="mt-0.5 text-caption text-secondary">
-                  {decision.agentName ? `${decision.agentName}` : 'System'}
+                  {decision.agentName || 'System'}
                   {' \u00b7 '}
                   {decision.waitingMinutes}m waiting
                   {requestedAt ? ` \u00b7 ${formatRelativeTime(requestedAt)}` : ''}
@@ -357,7 +383,7 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* Comments thread (collapsed by default) */}
+          {/* Comments thread */}
           <div className="mt-4 border-t border-white/[0.06] pt-4">
             <EntityCommentsPanel entityType="decision" entityId={decision.id} />
           </div>
@@ -385,7 +411,7 @@ export function DecisionDetailModal({
                   type="button"
                   onClick={handleReject}
                   disabled={busy}
-                  className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-body font-medium text-secondary transition-all hover:border-red-400/30 hover:bg-red-400/8 hover:text-red-300 disabled:opacity-40"
+                  className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-body font-medium text-secondary transition-all hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:opacity-40"
                 >
                   {phase === 'rejecting' ? (
                     <span className="flex items-center gap-2">
@@ -409,7 +435,7 @@ export function DecisionDetailModal({
             </div>
             <div className="flex items-center gap-3">
               <span className="hidden text-micro text-muted sm:block">
-                {navigator.platform?.includes('Mac') ? '\u2318' : 'Ctrl'}+Enter
+                {isMac ? '\u2318' : 'Ctrl'}+Enter
               </span>
               <button
                 type="button"

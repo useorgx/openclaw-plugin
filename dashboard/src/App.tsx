@@ -1033,6 +1033,99 @@ function DashboardShell({
     await refetch();
   }, [data.sessions.nodes, refetch]);
 
+  const fetchNextUpCandidate = useCallback(async (): Promise<NextUpQueueItem | null> => {
+    const response = await fetch('/orgx/api/mission-control/next-up');
+    const body = (await response.json().catch(() => null)) as
+      | { ok?: boolean; items?: NextUpQueueItem[]; error?: string; message?: string }
+      | null;
+
+    if (!response.ok) {
+      const message =
+        (typeof body?.error === 'string' && body.error.trim().length > 0
+          ? body.error
+          : typeof body?.message === 'string' && body.message.trim().length > 0
+            ? body.message
+            : `Failed to load Next Up queue (${response.status})`);
+      throw new Error(message);
+    }
+
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (items.length === 0) return null;
+
+    return (
+      items.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
+      items.find((item) => item.queueState !== 'blocked') ??
+      null
+    );
+  }, []);
+
+  const playNextUpFromActivity = useCallback(async () => {
+    const candidate = await fetchNextUpCandidate();
+    if (!candidate) {
+      setOpsNotice('No startable Next Up workstream is available.');
+      switchDashboardView('mission-control');
+      return;
+    }
+
+    const response = await fetch('/orgx/api/mission-control/next-up/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initiativeId: candidate.initiativeId,
+        workstreamId: candidate.workstreamId,
+        agentId: candidate.runnerAgentId,
+        fastAck: true,
+      }),
+    });
+
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string; message?: string }
+      | null;
+    if (!response.ok) {
+      throw new Error(body?.error ?? body?.message ?? `Failed to dispatch Next Up (${response.status})`);
+    }
+
+    setActivityFilterSessionId(null);
+    setActivityFilterWorkstreamId(candidate.workstreamId);
+    setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
+    setAgentFilter(null);
+    setOpsNotice(`Dispatched Next Up: ${candidate.workstreamTitle}`);
+    await refetch();
+  }, [fetchNextUpCandidate, refetch, switchDashboardView]);
+
+  const startAutopilotFromActivity = useCallback(async () => {
+    const candidate = await fetchNextUpCandidate();
+    if (!candidate) {
+      setOpsNotice('No startable initiative is ready for Autopilot yet.');
+      switchDashboardView('mission-control');
+      return;
+    }
+
+    const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initiativeId: candidate.initiativeId,
+        workstreamIds: [candidate.workstreamId],
+        agentId: candidate.runnerAgentId,
+      }),
+    });
+
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string; message?: string }
+      | null;
+    if (!response.ok) {
+      throw new Error(body?.error ?? body?.message ?? `Failed to start Autopilot (${response.status})`);
+    }
+
+    setActivityFilterSessionId(null);
+    setActivityFilterWorkstreamId(candidate.workstreamId);
+    setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
+    setAgentFilter(null);
+    setOpsNotice(`Autopilot started for ${candidate.initiativeTitle}.`);
+    await refetch();
+  }, [fetchNextUpCandidate, refetch, switchDashboardView]);
+
   const dispatchSession = useCallback(
     async (session: SessionTreeNode) => {
       setSelectedSessionId(session.id);
@@ -1757,6 +1850,9 @@ function DashboardShell({
 	              hasApiKey={onboarding.state.hasApiKey}
 	              onOpenSettings={() => openSettings('orgx')}
 	              onRefresh={refetch}
+                onCreateInitiative={startInitiative}
+                onPlayNextUp={playNextUpFromActivity}
+                onStartAutopilot={startAutopilotFromActivity}
                 onFollowWorkstream={followQueuedWorkstream}
 	            />
 	          </Suspense>
@@ -1824,6 +1920,11 @@ function DashboardShell({
 	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={clearAgentFilter}
 	            onFocusRunId={focusActivityRunId}
+              onPlayNextUp={playNextUpFromActivity}
+              onStartAutopilot={startAutopilotFromActivity}
+              onCreateInitiative={startInitiative}
+              onOpenMissionControl={() => switchDashboardView('mission-control')}
+              isLoading={isLoading}
 	          />
 	        </section>
 

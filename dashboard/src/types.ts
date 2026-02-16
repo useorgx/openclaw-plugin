@@ -111,6 +111,10 @@ export interface LiveActivityItem {
   description: string | null;
   agentId: string | null;
   agentName: string | null;
+  requesterAgentId?: string | null;
+  requesterAgentName?: string | null;
+  executorAgentId?: string | null;
+  executorAgentName?: string | null;
   runId: string | null;
   initiativeId: string | null;
   timestamp: string;

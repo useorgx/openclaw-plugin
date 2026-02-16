@@ -297,7 +297,11 @@ function sameActivityShape(a: LiveActivityItem[], b: LiveActivityItem[]): boolea
       a[i].id !== b[i].id ||
       a[i].timestamp !== b[i].timestamp ||
       a[i].type !== b[i].type ||
-      a[i].title !== b[i].title
+      a[i].title !== b[i].title ||
+      a[i].requesterAgentId !== b[i].requesterAgentId ||
+      a[i].requesterAgentName !== b[i].requesterAgentName ||
+      a[i].executorAgentId !== b[i].executorAgentId ||
+      a[i].executorAgentName !== b[i].executorAgentName
     ) {
       return false;
     }
@@ -479,6 +483,10 @@ function mergeActivity(
       existing.kind !== item.kind ||
       existing.agentId !== item.agentId ||
       existing.agentName !== item.agentName ||
+      existing.requesterAgentId !== item.requesterAgentId ||
+      existing.requesterAgentName !== item.requesterAgentName ||
+      existing.executorAgentId !== item.executorAgentId ||
+      existing.executorAgentName !== item.executorAgentName ||
       existing.runId !== item.runId ||
       existing.initiativeId !== item.initiativeId ||
       existing.decisionRequired !== item.decisionRequired ||
@@ -494,7 +502,11 @@ function mergeActivity(
   }
 
   const merged = Array.from(byId.values())
-    .sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp))
+    .sort((a, b) => {
+      const timestampDelta = toEpoch(b.timestamp) - toEpoch(a.timestamp);
+      if (timestampDelta !== 0) return timestampDelta;
+      return b.id.localeCompare(a.id);
+    })
     .slice(0, maxActivityItems);
 
   return sameActivityShape(current, merged) ? current : merged;
@@ -502,7 +514,11 @@ function mergeActivity(
 
 function normalizeActivity(source: LiveActivityItem[], maxActivityItems: number): LiveActivityItem[] {
   const sorted = [...source]
-    .sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp))
+    .sort((a, b) => {
+      const timestampDelta = toEpoch(b.timestamp) - toEpoch(a.timestamp);
+      if (timestampDelta !== 0) return timestampDelta;
+      return b.id.localeCompare(a.id);
+    })
     .slice(0, maxActivityItems);
 
   const seen = new Set<string>();

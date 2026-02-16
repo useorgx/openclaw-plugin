@@ -79,6 +79,24 @@ async function disableAnimations(page) {
   });
 }
 
+async function waitForAnyVisible(page, locatorFactories, timeoutMs = 15_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    for (const createLocator of locatorFactories) {
+      try {
+        const locator = createLocator(page);
+        if (await locator.first().isVisible()) {
+          return;
+        }
+      } catch {
+        // continue until one locator is visible or timeout elapses
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  throw new Error(`Timed out waiting for any expected UI markers (${timeoutMs}ms)`);
+}
+
 function snapshotEmpty(generatedAt) {
   return {
     sessions: { nodes: [], edges: [], groups: [] },
@@ -495,8 +513,13 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
       .getByLabel('Mobile sections')
       .getByRole('button', { name: /^Activity$/ })
       .click({ force: true });
-    // Wait for the timeline controls to render (avoid matching the view-toggle label).
-    await page.getByRole('group', { name: 'Activity filters' }).waitFor();
+    // Wait for timeline content with resilient fallback selectors.
+    await waitForAnyVisible(page, [
+      (target) => target.getByRole('group', { name: 'Activity filters' }),
+      (target) => target.getByRole('heading', { name: /^Activity$/ }),
+      (target) => target.getByPlaceholder(/Search activity/i),
+      (target) => target.locator('button[aria-label^="Open activity details"]'),
+    ]);
     await page.screenshot({ path: path.join(desktopDir, 'mobile-01-activity.png') });
 
     const detailButton = page.locator('button[aria-label^="Open activity details"]').first();
