@@ -232,10 +232,15 @@ function createClientHarness() {
     },
   };
 
-  return { client, calls };
+  return { client, calls, state };
 }
 
-async function runPlayTickStatus({ scenario, extraEnv = {}, after = null }) {
+async function runPlayTickStatus({
+  scenario,
+  extraEnv = {},
+  configureHarness = null,
+  after = null,
+}) {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-"));
   return await withEnv(
     {
@@ -249,7 +254,10 @@ async function runPlayTickStatus({ scenario, extraEnv = {}, after = null }) {
     },
     async () => {
       const config = baseConfig();
-      const { client, calls } = createClientHarness();
+      const { client, calls, state } = createClientHarness();
+      if (typeof configureHarness === "function") {
+        await configureHarness({ client, calls, state });
+      }
       const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
 
       const resPlay = await call(handler, {
@@ -285,11 +293,28 @@ async function runPlayTickStatus({ scenario, extraEnv = {}, after = null }) {
         tick: JSON.parse(resTick.body),
         status: JSON.parse(resStatus.body),
         calls,
+        state,
         handler,
         afterResult,
       };
     }
   );
+}
+
+function listDecisionCreateOps(calls) {
+  return calls.applyChangeset
+    .flatMap((entry) => (Array.isArray(entry.operations) ? entry.operations : []))
+    .filter((op) => op?.op === "decision.create");
+}
+
+function latestSliceResultActivity(calls) {
+  for (let i = calls.emitActivity.length - 1; i >= 0; i -= 1) {
+    const payload = calls.emitActivity[i];
+    if (payload?.metadata?.event === "autopilot_slice_result") {
+      return payload;
+    }
+  }
+  return null;
 }
 
 test("autopilot slice lifecycle: success registers artifact and completes run", async () => {
@@ -312,6 +337,29 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
     ),
     "expected task.update changeset"
   );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "completed");
+  assert.ok(
+    typeof sliceResult.metadata?.requested_by_agent_id === "string" &&
+      sliceResult.metadata.requested_by_agent_id.length > 0,
+    "expected requester agent id on slice result metadata"
+  );
+  assert.ok(
+    typeof sliceResult.metadata?.requested_by_agent_name === "string" &&
+      sliceResult.metadata.requested_by_agent_name.length > 0,
+    "expected requester agent name on slice result metadata"
+  );
+  assert.ok(
+    typeof sliceResult.metadata?.agent_id === "string" && sliceResult.metadata.agent_id.length > 0,
+    "expected executing agent id on slice result metadata"
+  );
+  assert.ok(
+    typeof sliceResult.metadata?.agent_name === "string" && sliceResult.metadata.agent_name.length > 0,
+    "expected executing agent name on slice result metadata"
+  );
+  assert.equal(sliceResult.metadata?.decision_required, false);
+  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
 });
 
 test("autopilot slice lifecycle: completed without outputs blocks and requests decision", async () => {
@@ -319,12 +367,17 @@ test("autopilot slice lifecycle: completed without outputs blocks and requests d
   assert.equal(result.status.ok, true);
   assert.equal(result.status.run?.status, "stopped");
   assert.equal(result.status.run?.stopReason, "blocked");
+  const decisionOps = listDecisionCreateOps(result.calls);
+  assert.ok(decisionOps.length > 0, "expected decision.create");
   assert.ok(
-    result.calls.applyChangeset.some((c) =>
-      Array.isArray(c.operations) && c.operations.some((op) => op.op === "decision.create")
-    ),
-    "expected decision.create"
+    decisionOps.some((op) => String(op.title ?? "").toLowerCase().includes("needs verification")),
+    "expected verification follow-up decision"
   );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "completed");
+  assert.equal(sliceResult.metadata?.decision_required, false);
+  assert.equal(sliceResult.metadata?.activity_bucket, "message");
 });
 
 test("autopilot slice lifecycle: needs_decision blocks and requests decision", async () => {
@@ -332,11 +385,114 @@ test("autopilot slice lifecycle: needs_decision blocks and requests decision", a
   assert.equal(result.status.ok, true);
   assert.equal(result.status.run?.status, "stopped");
   assert.equal(result.status.run?.stopReason, "blocked");
+  const decisionOps = listDecisionCreateOps(result.calls);
+  assert.ok(decisionOps.length > 0, "expected decision.create");
   assert.ok(
-    result.calls.applyChangeset.some((c) =>
-      Array.isArray(c.operations) && c.operations.some((op) => op.op === "decision.create")
-    ),
-    "expected decision.create"
+    decisionOps.some((op) => op.blocking === true),
+    "expected blocking decision in needs_decision path"
+  );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "needs_decision");
+  assert.equal(sliceResult.metadata?.blocking_decisions, 1);
+  assert.equal(sliceResult.metadata?.non_blocking_decisions, 0);
+  assert.equal(sliceResult.metadata?.decision_required, true);
+  assert.equal(sliceResult.metadata?.activity_bucket, "decision");
+});
+
+test("autopilot slice lifecycle: completed + non-blocking decision stays completed", async () => {
+  const result = await runPlayTickStatus({ scenario: "completed_optional_decision" });
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "completed");
+  const decisionOps = listDecisionCreateOps(result.calls);
+  assert.ok(decisionOps.length > 0, "expected optional decision.create");
+  assert.ok(
+    decisionOps.every((op) => op.blocking === false),
+    "expected all optional decisions to be non-blocking"
+  );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "completed");
+  assert.equal(sliceResult.metadata?.decisions, 1);
+  assert.equal(sliceResult.metadata?.blocking_decisions, 0);
+  assert.equal(sliceResult.metadata?.non_blocking_decisions, 1);
+  assert.equal(sliceResult.metadata?.decision_required, false);
+  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+});
+
+test("autopilot slice lifecycle: completed + unspecified decision defaults to non-blocking", async () => {
+  const result = await runPlayTickStatus({ scenario: "completed_unspecified_decision" });
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "completed");
+  const decisionOps = listDecisionCreateOps(result.calls);
+  assert.ok(decisionOps.length > 0, "expected decision.create");
+  assert.ok(
+    decisionOps.every((op) => op.blocking === false),
+    "expected decisions without explicit blocking to default to non-blocking on completed status"
+  );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "completed");
+  assert.equal(sliceResult.metadata?.blocking_decisions, 0);
+  assert.equal(sliceResult.metadata?.non_blocking_decisions, 1);
+  assert.equal(sliceResult.metadata?.decision_required, false);
+  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+});
+
+test("autopilot slice lifecycle: buffered artifact activity preserves requester/executor provenance", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    configureHarness: async ({ client }) => {
+      client.createEntity = async () => {
+        throw new Error("503 upstream artifact endpoint unavailable");
+      };
+    },
+    after: async ({ handler }) => {
+      const resSnapshot = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=20&activityLimit=50&decisionsLimit=10&initiative=init-1",
+        headers: {},
+      });
+      assert.equal(resSnapshot.status, 200);
+      return JSON.parse(resSnapshot.body);
+    },
+  });
+
+  const localBufferedArtifact =
+    result.afterResult?.activity?.find(
+      (item) => item?.metadata?.event === "autopilot_slice_artifact_buffered"
+    ) ?? null;
+
+  assert.ok(localBufferedArtifact, "expected local buffered artifact activity");
+  assert.ok(
+    typeof localBufferedArtifact.agentId === "string" && localBufferedArtifact.agentId.length > 0,
+    "expected fallback artifact activity agentId"
+  );
+  assert.ok(
+    typeof localBufferedArtifact.agentName === "string" && localBufferedArtifact.agentName.length > 0,
+    "expected fallback artifact activity agentName"
+  );
+  assert.ok(
+    typeof localBufferedArtifact.requesterAgentId === "string" &&
+      localBufferedArtifact.requesterAgentId.length > 0,
+    "expected requesterAgentId on buffered artifact activity"
+  );
+  assert.ok(
+    typeof localBufferedArtifact.requesterAgentName === "string" &&
+      localBufferedArtifact.requesterAgentName.length > 0,
+    "expected requesterAgentName on buffered artifact activity"
+  );
+  assert.ok(
+    typeof localBufferedArtifact.executorAgentId === "string" &&
+      localBufferedArtifact.executorAgentId.length > 0,
+    "expected executorAgentId on buffered artifact activity"
+  );
+  assert.ok(
+    typeof localBufferedArtifact.executorAgentName === "string" &&
+      localBufferedArtifact.executorAgentName.length > 0,
+    "expected executorAgentName on buffered artifact activity"
   );
 });
 

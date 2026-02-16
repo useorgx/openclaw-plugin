@@ -9,6 +9,8 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=success (default)
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=no_updates
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_optional_decision
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_unspecified_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=error
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=invalid_json
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=stall (sleeps; prints nothing)
@@ -101,6 +103,95 @@ async function main() {
               blocking: true,
             },
           ],
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  if (scenario === "completed_optional_decision") {
+    emitOutput(
+      JSON.stringify(
+        {
+          status: "completed",
+          summary: "Mock slice completed with an optional optimization follow-up.",
+          workstream_id: workstreamId,
+          workstream_title: workstreamTitle,
+          slice_id: runId,
+          decisions_needed: [
+            {
+              question: "Optional: review hook-variant optimization suggestion?",
+              summary: "The slice completed successfully; this review is informational only.",
+              options: ["Review now", "Review later", "Ignore"],
+              urgency: "medium",
+              blocking: false,
+            },
+          ],
+          artifacts: [
+            {
+              name: "Mock deliverable",
+              artifact_type: "document",
+              description: "A simulated artifact emitted by the worker.",
+              url: "file://mock/artifact.txt",
+              verification_steps: ["Open the artifact file", "Verify contents match expected output"],
+              task_ids: taskId ? [taskId] : null,
+            },
+          ],
+          task_updates: taskId
+            ? [
+                {
+                  task_id: taskId,
+                  status: "done",
+                  reason: "Mock worker completed the task.",
+                },
+              ]
+            : null,
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  if (scenario === "completed_unspecified_decision") {
+    emitOutput(
+      JSON.stringify(
+        {
+          status: "completed",
+          summary: "Mock slice completed with follow-up decision but no explicit blocking flag.",
+          workstream_id: workstreamId,
+          workstream_title: workstreamTitle,
+          slice_id: runId,
+          decisions_needed: [
+            {
+              question: "Review optional optimization recommendation?",
+              summary: "Used to verify coordinator defaults completed-status decisions to non-blocking.",
+              options: ["Review now", "Review later", "Ignore"],
+              urgency: "medium",
+            },
+          ],
+          artifacts: [
+            {
+              name: "Mock deliverable",
+              artifact_type: "document",
+              description: "A simulated artifact emitted by the worker.",
+              url: "file://mock/artifact.txt",
+              verification_steps: ["Open the artifact file", "Verify contents match expected output"],
+              task_ids: taskId ? [taskId] : null,
+            },
+          ],
+          task_updates: taskId
+            ? [
+                {
+                  task_id: taskId,
+                  status: "done",
+                  reason: "Mock worker completed the task.",
+                },
+              ]
+            : null,
         },
         null,
         2

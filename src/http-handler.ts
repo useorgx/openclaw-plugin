@@ -202,6 +202,127 @@ const snapshotResponseCache = new Map<
   { expiresAt: number; payload: Record<string, unknown> }
 >();
 
+type ActivityBucket = "message" | "artifact" | "decision";
+
+const ACTIVITY_DECISION_EVENT_HINTS = new Set<string>([
+  "decision_buffered",
+  "auto_continue_spawn_guard_blocked",
+  "autopilot_slice_mcp_handshake_failed",
+  "autopilot_slice_timeout",
+  "autopilot_slice_log_stall",
+]);
+
+const ACTIVITY_ARTIFACT_EVENT_HINTS = new Set<string>([
+  "autopilot_slice_artifact_buffered",
+]);
+
+function normalizeActivityBucket(value: unknown): ActivityBucket | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "artifact") return "artifact";
+  if (normalized === "decision") return "decision";
+  if (normalized === "message") return "message";
+  return null;
+}
+
+function activityMetadataBoolean(metadata: Record<string, unknown> | undefined, keys: string[]): boolean | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true") return true;
+      if (normalized === "false") return false;
+    }
+  }
+  return null;
+}
+
+function activityMetadataNumber(metadata: Record<string, unknown> | undefined, keys: string[]): number | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(0, value);
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, parsed);
+      }
+    }
+  }
+  return null;
+}
+
+function activityMetadataEventName(metadata: Record<string, unknown> | undefined): string | null {
+  if (!metadata) return null;
+  const raw = metadata.event;
+  if (typeof raw !== "string") return null;
+  const normalized = raw.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function deriveStructuredActivityBucket(input: {
+  phase: "intent" | "execution" | "blocked" | "review" | "handoff" | "completed";
+  metadata?: Record<string, unknown>;
+  explicitBucket?: ActivityBucket | null;
+}): ActivityBucket {
+  const metadata = input.metadata;
+
+  const explicit =
+    normalizeActivityBucket(input.explicitBucket) ??
+    normalizeActivityBucket(metadata?.activity_bucket) ??
+    normalizeActivityBucket(metadata?.activityBucket) ??
+    normalizeActivityBucket(metadata?.bucket) ??
+    null;
+  if (explicit) return explicit;
+
+  const event = activityMetadataEventName(metadata);
+  const decisionRequired =
+    activityMetadataBoolean(metadata, ["decision_required", "decisionRequired"]) === true;
+  const artifacts =
+    activityMetadataNumber(metadata, ["artifacts", "artifact_count", "artifactCount"]) ?? 0;
+  const decisions =
+    activityMetadataNumber(metadata, ["decisions", "decision_count", "decisionCount"]) ?? 0;
+  const blockingDecisions =
+    activityMetadataNumber(metadata, [
+      "blocking_decisions",
+      "blockingDecisions",
+      "blocking_decision_count",
+      "blockingDecisionCount",
+    ]) ?? 0;
+  const nonBlockingDecisions =
+    activityMetadataNumber(metadata, [
+      "non_blocking_decisions",
+      "nonBlockingDecisions",
+      "non_blocking_decision_count",
+      "nonBlockingDecisionCount",
+    ]) ?? 0;
+
+  if (event === "autopilot_slice_result") {
+    if (decisionRequired || blockingDecisions > 0) return "decision";
+    if (artifacts > 0) return "artifact";
+    if (decisions > 0 || nonBlockingDecisions > 0) return "decision";
+    return "message";
+  }
+
+  if (event && ACTIVITY_ARTIFACT_EVENT_HINTS.has(event)) return "artifact";
+  if (event && ACTIVITY_DECISION_EVENT_HINTS.has(event)) return "decision";
+
+  const hasArtifactReference =
+    typeof metadata?.artifact_id === "string" ||
+    typeof metadata?.artifactId === "string" ||
+    typeof metadata?.work_artifact_id === "string";
+  if (hasArtifactReference || artifacts > 0) return "artifact";
+  if (decisionRequired || blockingDecisions > 0 || decisions > 0 || nonBlockingDecisions > 0) {
+    return "decision";
+  }
+
+  return "message";
+}
+
 function snapshotActivityFingerprint(items: LiveActivityItem[]): string {
   if (!Array.isArray(items) || items.length === 0) return "0";
   const sample = items
@@ -3609,6 +3730,7 @@ export function createHttpHandler(
     level?: "info" | "warn" | "error";
     progressPct?: number;
     nextStep?: string;
+    activityBucket?: ActivityBucket | null;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
     const initiativeId = input.initiativeId?.trim() ?? "";
@@ -3616,7 +3738,16 @@ export function createHttpHandler(
     const message = input.message.trim();
     if (!message) return;
 
-    const enrichedMetadata = withProvenanceMetadata(input.metadata);
+    const metadataWithProvenance = withProvenanceMetadata(input.metadata);
+    const activityBucket = deriveStructuredActivityBucket({
+      phase: input.phase,
+      metadata: metadataWithProvenance,
+      explicitBucket: input.activityBucket ?? null,
+    });
+    const enrichedMetadata: Record<string, unknown> = {
+      ...(metadataWithProvenance ?? {}),
+      activity_bucket: activityBucket,
+    };
 
     try {
       await client.emitActivity({
@@ -3687,28 +3818,29 @@ export function createHttpHandler(
           title: message,
           description: input.nextStep ?? null,
           agentId:
-            (typeof enrichedMetadata?.agent_id === "string"
-              ? enrichedMetadata.agent_id
+            (typeof metadataWithProvenance?.agent_id === "string"
+              ? metadataWithProvenance.agent_id
               : null) ?? null,
           agentName:
-            (typeof enrichedMetadata?.agent_name === "string"
-              ? enrichedMetadata.agent_name
+            (typeof metadataWithProvenance?.agent_name === "string"
+              ? metadataWithProvenance.agent_name
               : null) ?? null,
           requesterAgentId: null,
           requesterAgentName: null,
           executorAgentId:
-            (typeof enrichedMetadata?.agent_id === "string"
-              ? enrichedMetadata.agent_id
+            (typeof metadataWithProvenance?.agent_id === "string"
+              ? metadataWithProvenance.agent_id
               : null) ?? null,
           executorAgentName:
-            (typeof enrichedMetadata?.agent_name === "string"
-              ? enrichedMetadata.agent_name
+            (typeof metadataWithProvenance?.agent_name === "string"
+              ? metadataWithProvenance.agent_name
               : null) ?? null,
           runId,
           initiativeId,
           timestamp,
           phase: input.phase,
           summary: message,
+          kind: activityBucket,
           metadata: {
             ...(enrichedMetadata ?? {}),
             source: "openclaw_local_fallback",
@@ -4920,31 +5052,6 @@ export function createHttpHandler(
     return normalized;
   }
 
-  const ORGX_SCOPED_MCP_SERVER_KEYS = [
-    "orgx-openclaw-engineering",
-    "orgx-openclaw-product",
-    "orgx-openclaw-design",
-    "orgx-openclaw-marketing",
-    "orgx-openclaw-sales",
-    "orgx-openclaw-operations",
-    "orgx-openclaw-orchestration",
-  ] as const;
-
-  function resolveScopedOrgxMcpServer(agentId: string | undefined): string | null {
-    const normalized = (agentId ?? "").trim().toLowerCase();
-    if (!normalized) return null;
-    if (normalized.includes("engineering")) return "orgx-openclaw-engineering";
-    if (normalized.includes("product")) return "orgx-openclaw-product";
-    if (normalized.includes("design")) return "orgx-openclaw-design";
-    if (normalized.includes("marketing")) return "orgx-openclaw-marketing";
-    if (normalized.includes("sales")) return "orgx-openclaw-sales";
-    if (normalized.includes("operations")) return "orgx-openclaw-operations";
-    if (normalized.includes("orchestration") || normalized.includes("orchestrator")) {
-      return "orgx-openclaw-orchestration";
-    }
-    return null;
-  }
-
   type CodexBinInfo = {
     bin: string;
     version: [number, number, number] | null;
@@ -5342,22 +5449,6 @@ export function createHttpHandler(
       extraArgs.push("-c", "mcp_servers.firecrawl.enabled=false");
     }
 
-    const scopeOrgxMcpRaw = (process.env.ORGX_AUTOPILOT_SCOPE_ORGX_MCP ?? "").trim().toLowerCase();
-    const scopeOrgxMcp =
-      scopeOrgxMcpRaw !== "false" && scopeOrgxMcpRaw !== "0" && scopeOrgxMcpRaw !== "no";
-    const hasScopedOrgxOverride = args.some((arg) =>
-      /mcp_servers\.orgx-openclaw-(engineering|product|design|marketing|sales|operations|orchestration)\.enabled=/i.test(
-        String(arg)
-      )
-    );
-    if (scopeOrgxMcp && !hasScopedOrgxOverride) {
-      const targetScopedServer = resolveScopedOrgxMcpServer(input.env.ORGX_AGENT_ID);
-      for (const serverKey of ORGX_SCOPED_MCP_SERVER_KEYS) {
-        const enabled = targetScopedServer !== null && serverKey === targetScopedServer;
-        extraArgs.push("-c", `mcp_servers.${serverKey}.enabled=${enabled ? "true" : "false"}`);
-      }
-    }
-
     const logStream = createWriteStream(input.logPath, { flags: "a" });
     logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
     logStream.write(
@@ -5541,6 +5632,10 @@ export function createHttpHandler(
       `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
       `- Artifacts must be verifiable: include URLs or local paths, plus verification steps.`,
       `- If you need a human decision, include it in decisions_needed.`,
+      `- For every decisions_needed entry, ALWAYS set blocking explicitly (true or false).`,
+      `- Status/decision consistency is strict:`,
+      `  - If any decision is blocking=true, status MUST be needs_decision or blocked (never completed).`,
+      `  - Only use status=completed when all listed decisions are non-blocking follow-ups.`,
       `- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).`,
       `  - task_updates.status must be one of: todo, in_progress, done, blocked`,
       `  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled`,
@@ -5641,6 +5736,10 @@ export function createHttpHandler(
             description: description ?? null,
             agentId: input.agentId,
             agentName: input.agentName ?? null,
+            requesterAgentId: input.agentId,
+            requesterAgentName: input.agentName ?? null,
+            executorAgentId: input.agentId,
+            executorAgentName: input.agentName ?? null,
             runId: input.runId,
             initiativeId: input.initiativeId,
             timestamp: now,
@@ -5775,6 +5874,10 @@ export function createHttpHandler(
             description: null,
             agentId: null,
             agentName: null,
+            requesterAgentId: null,
+            requesterAgentName: null,
+            executorAgentId: null,
+            executorAgentName: null,
             runId: input.runId,
             initiativeId: input.initiativeId,
             timestamp,
@@ -6224,6 +6327,7 @@ export function createHttpHandler(
 	        const raw = readSliceOutputFile(slice.outputPath);
         const parsed = raw ? parseSliceResult(raw) : null;
         const parsedStatus = parsed?.status ?? "error";
+        const defaultDecisionBlocking = parsedStatus === "completed" ? false : true;
 
         const decisions = Array.isArray(parsed?.decisions_needed)
           ? (parsed?.decisions_needed ?? [])
@@ -6233,7 +6337,7 @@ export function createHttpHandler(
               )
           : [];
         const blockingDecisionCount = decisions.filter(
-          (item) => typeof item.blocking === "boolean" ? item.blocking : true
+          (item) => typeof item.blocking === "boolean" ? item.blocking : defaultDecisionBlocking
         ).length;
         const nonBlockingDecisionCount = Math.max(0, decisions.length - blockingDecisionCount);
         const effectiveParsedStatus =
@@ -6286,7 +6390,8 @@ export function createHttpHandler(
             options: Array.isArray(decision.options)
               ? decision.options.filter((opt: string) => typeof opt === "string" && opt.trim())
               : [],
-            blocking: typeof decision.blocking === "boolean" ? decision.blocking : true,
+            blocking:
+              typeof decision.blocking === "boolean" ? decision.blocking : defaultDecisionBlocking,
           });
         }
 
