@@ -163,6 +163,25 @@ function canonicalizeOrgxIdentity(
   return null;
 }
 
+function canonicalizeOrgxIdentityFromNode(
+  node: SessionTreeNode
+): { agentId: string; agentName: string; role: string } | null {
+  const direct = canonicalizeOrgxIdentity(node.agentId, node.agentName);
+  if (direct) return direct;
+
+  const fallbackHints = [
+    node.groupLabel,
+    node.title,
+    node.runtimeLabel,
+    node.lastEventSummary,
+  ];
+  for (const hint of fallbackHints) {
+    const match = canonicalizeOrgxIdentity(null, hint);
+    if (match) return match;
+  }
+  return null;
+}
+
 function inferRuntimeSourceFromNode(node: SessionTreeNode): 'codex' | 'claude-code' | 'openclaw' | 'api' | null {
   const explicit = normalizeIdentity(node.runtimeClient);
   if (explicit === 'codex') return 'codex';
@@ -191,7 +210,7 @@ function inferRuntimeSourceFromNode(node: SessionTreeNode): 'codex' | 'claude-co
 }
 
 function inferredAgentIdentity(node: SessionTreeNode): { agentId: string | null; agentName: string | null } {
-  const canonical = canonicalizeOrgxIdentity(node.agentId, node.agentName);
+  const canonical = canonicalizeOrgxIdentityFromNode(node);
   if (canonical) {
     return {
       agentId: canonical.agentId,
@@ -233,6 +252,14 @@ function sessionGroupKey(node: SessionTreeNode): string {
   if (name) return `name:${name}`;
 
   return 'unassigned';
+}
+
+function isOrgxGroup(group: AgentGroup): boolean {
+  const canonical = canonicalizeOrgxIdentity(group.agentId, group.agentName);
+  if (canonical) return true;
+  const normalizedId = normalizeIdentity(group.agentId);
+  if (normalizedId?.startsWith('orgx')) return true;
+  return false;
 }
 
 function effectiveSessionStatus(node: SessionTreeNode): string {
@@ -565,6 +592,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     // Sort: groups with sessions first (by latest update), then 0-session groups
     const sortedGroups = Array.from(map.values()).sort((a, b) => {
+      const aOrgx = isOrgxGroup(a);
+      const bOrgx = isOrgxGroup(b);
+      if (aOrgx !== bOrgx) return aOrgx ? -1 : 1;
       if (a.latest && b.latest) return sortByUpdated(a.latest, b.latest);
       if (a.latest && !b.latest) return -1;
       if (!a.latest && b.latest) return 1;
@@ -1258,12 +1288,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                 <p className="truncate text-body text-bright">{node.title}</p>
                                 <div className="flex items-center gap-1.5 text-micro text-secondary">
                                   <span
-                                    className="rounded-full border px-1.5 py-0.5 uppercase tracking-[0.08em]"
-                                    style={{
-                                      borderColor: `${childProvider.accent}66`,
-                                      color: childProvider.accent,
-                                      backgroundColor: childProvider.tint,
-                                    }}
+                                    className="font-semibold uppercase tracking-[0.08em]"
+                                    style={{ color: childProvider.accent }}
                                   >
                                     {childProvider.label}
                                   </span>

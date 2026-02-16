@@ -2,6 +2,21 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.7 - 2026-02-16
+
+### Activity + Performance
+- Reduced live activity feed payload/render pressure by lowering dashboard activity limits and paging batch sizes.
+- Reduced Activity timeline initial render and incremental render step sizes to smooth scrolling and reduce visual churn.
+- Added a clearer detail outcome state in Activity modal (blocked/needs decision/completed/in-progress) with direct quick actions.
+
+### Artifact Reliability
+- Hardened artifact detail retrieval with local fallback support when upstream OrgX artifact lookup is unavailable.
+- Added filesystem-aware fallback links/path handling in artifact detail UX so local evidence can still be opened and copied.
+
+### Agent Identity + Ordering
+- Improved OrgX agent identity canonicalization using additional session node hints (group/title/runtime/summary).
+- Prioritized canonical OrgX groups in Agents panel ordering and tightened child provider label presentation.
+
 ## 0.4.6 - 2026-02-14
 
 ### Runtime + Reliability

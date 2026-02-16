@@ -16,7 +16,8 @@ interface DecisionActionSummary {
 
 interface DecisionQueueProps {
   decisions: LiveDecision[];
-  onApproveDecision: (decisionId: string) => Promise<DecisionActionSummary>;
+  onApproveDecision: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
+  onRejectDecision?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
   onApproveAll: () => Promise<DecisionActionSummary>;
 }
 
@@ -29,6 +30,7 @@ function urgencyAccent(waitingMinutes: number): { border: string; glow: string }
 export const DecisionQueue = memo(function DecisionQueue({
   decisions,
   onApproveDecision,
+  onRejectDecision,
   onApproveAll,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -80,13 +82,18 @@ export const DecisionQueue = memo(function DecisionQueue({
     [detailDecisionId, sorted]
   );
 
-  const handleApproveFromDetail = async (decisionId: string) => {
-    const result = await onApproveDecision(decisionId);
-    if (result.failed === 0 && result.updated > 0) {
-      setDetailDecisionId(null);
-    }
+  const handleApproveFromDetail = async (decisionId: string, note?: string) => {
+    const result = await onApproveDecision(decisionId, note);
+    // Auto-close is handled by the detail modal's success state
     return result;
   };
+
+  const handleRejectFromDetail = onRejectDecision
+    ? async (decisionId: string, note?: string) => {
+        const result = await onRejectDecision(decisionId, note);
+        return result;
+      }
+    : undefined;
 
   useEffect(() => {
     setVisibleCount((prev) => {
@@ -230,6 +237,7 @@ export const DecisionQueue = memo(function DecisionQueue({
         decision={detailDecision}
         onClose={() => setDetailDecisionId(null)}
         onApprove={handleApproveFromDetail}
+        onReject={handleRejectFromDetail}
       />
       <div className="space-y-2 border-b border-subtle px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
