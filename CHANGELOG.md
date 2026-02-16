@@ -2,6 +2,22 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.8 - 2026-02-16
+
+### Activity Timeline Clarity
+- Distinguish blocking vs non-blocking decisions in autopilot slice result metadata and surface both counts in Activity detail.
+- Updated Activity outcome messaging to show `Completed + follow-up` for non-blocking decisions instead of `Needs decision`.
+- Expanded low-signal sync suppression to hide noisy `changeset.applied/replayed` activity by default.
+- Stabilized activity sort tie-breakers to reduce list churn/flicker during frequent polling/snapshot refreshes.
+
+### Runtime + In-Progress Reconciliation
+- Downgrade stale runtime-backed sessions from live-running to queued/paused semantics so stale work does not appear active.
+- Tightened Mission Control In Progress filtering to exclude stale/stopped sessions and dedupe repeated rows by active workstream.
+- Updated agents/session live-status rules to avoid showing queued backlog items as active runs in Live view.
+
+### Autopilot Worker Scoping
+- Added scoped Codex MCP overrides per slice to disable unrelated `orgx-openclaw-*` domain servers by default and keep only the target domain server enabled.
+
 ## 0.4.7 - 2026-02-16
 
 ### Activity + Performance

@@ -494,7 +494,11 @@ function mergeActivity(
   }
 
   const merged = Array.from(byId.values())
-    .sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp))
+    .sort((a, b) => {
+      const timestampDelta = toEpoch(b.timestamp) - toEpoch(a.timestamp);
+      if (timestampDelta !== 0) return timestampDelta;
+      return b.id.localeCompare(a.id);
+    })
     .slice(0, maxActivityItems);
 
   return sameActivityShape(current, merged) ? current : merged;
@@ -502,7 +506,11 @@ function mergeActivity(
 
 function normalizeActivity(source: LiveActivityItem[], maxActivityItems: number): LiveActivityItem[] {
   const sorted = [...source]
-    .sort((a, b) => toEpoch(b.timestamp) - toEpoch(a.timestamp))
+    .sort((a, b) => {
+      const timestampDelta = toEpoch(b.timestamp) - toEpoch(a.timestamp);
+      if (timestampDelta !== 0) return timestampDelta;
+      return b.id.localeCompare(a.id);
+    })
     .slice(0, maxActivityItems);
 
   const seen = new Set<string>();

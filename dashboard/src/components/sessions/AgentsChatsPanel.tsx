@@ -45,8 +45,6 @@ const AGENT_ROW_ESTIMATED_GAP = 8;
 const ACTIVE_STATUSES = new Set([
   'running',
   'active',
-  'queued',
-  'pending',
   'in_progress',
   'working',
   'planning',
@@ -1173,7 +1171,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         {displayName}
                       </span>
                       {roleLabel && (
-                        <span className="shrink-0 text-caption font-normal text-muted">
+                        <span
+                          className="max-w-[44%] truncate text-caption font-normal text-muted"
+                          title={roleLabel}
+                        >
                           — {roleLabel}
                         </span>
                       )}
@@ -1307,7 +1308,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                             <div className="flex items-center gap-2">
                               <ProviderLogo provider={childProvider.id} size="xs" />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-body text-bright">{node.title}</p>
+                                <p className="truncate text-body text-bright" title={node.title}>
+                                  {node.title}
+                                </p>
                                 <div className="flex items-center gap-1.5 text-micro text-secondary">
                                   <span
                                     className="font-semibold uppercase tracking-[0.08em]"

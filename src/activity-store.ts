@@ -7,6 +7,7 @@ import {
 import { Buffer } from "node:buffer";
 
 import type { LiveActivityItem } from "./contracts/types.js";
+import { enrichActivityActorFieldsList } from "./activity-actor-fields.js";
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 
@@ -102,7 +103,9 @@ function normalizeItems(source: LiveActivityItem[]): LiveActivityItem[] {
     byId.set(id, item);
   }
 
-  return Array.from(byId.values()).sort(compareActivity).slice(0, MAX_ITEMS);
+  return enrichActivityActorFieldsList(Array.from(byId.values()))
+    .sort(compareActivity)
+    .slice(0, MAX_ITEMS);
 }
 
 function readPersistedStore(): PersistedActivityStore {
@@ -219,6 +222,10 @@ export function appendActivityItems(items: LiveActivityItem[]): { appended: numb
       existing.type !== item.type ||
       existing.title !== item.title ||
       existing.description !== item.description ||
+      (existing.requesterAgentId ?? null) !== (item.requesterAgentId ?? null) ||
+      (existing.requesterAgentName ?? null) !== (item.requesterAgentName ?? null) ||
+      (existing.executorAgentId ?? null) !== (item.executorAgentId ?? null) ||
+      (existing.executorAgentName ?? null) !== (item.executorAgentName ?? null) ||
       (existing as any).summary !== (item as any).summary ||
       JSON.stringify((existing as any).metadata ?? null) !== JSON.stringify((item as any).metadata ?? null)
     ) {
@@ -292,4 +299,3 @@ export function getActivityStoreStats(): { total: number; updatedAt: string } {
   const state = ensureCache();
   return { total: state.items.length, updatedAt: state.storeUpdatedAt };
 }
-

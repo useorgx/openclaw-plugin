@@ -55,6 +55,7 @@ const MAX_FILTER_POOL = 12_000;
 type ActivityBucket = 'message' | 'artifact' | 'decision';
 type ActivityFilterId = 'all' | 'messages' | 'artifacts' | 'decisions';
 type SortOrder = 'newest' | 'oldest';
+type DetailTabId = 'overview' | 'flow' | 'technical';
 interface DecoratedActivityItem {
   item: LiveActivityItem;
   bucket: ActivityBucket;
@@ -94,11 +95,18 @@ function normalizeActivityMetadata(
   metadata: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
-  const nested = asMetadataRecord(metadata.metadata);
-  if (!nested) return metadata;
-  // OrgX activity payloads may arrive wrapped as { source_client, ..., metadata: { ...eventFields } }.
-  // Flatten one level so UI extractors can consume event fields consistently.
-  return { ...metadata, ...nested };
+  // OrgX activity payloads may arrive wrapped as
+  // { source_client, ..., metadata: { ...eventFields, metadata: {...} } }.
+  // Flatten a few nested levels so extractors can consume event fields consistently.
+  let flattened: Record<string, unknown> = { ...metadata };
+  let cursor: Record<string, unknown> | undefined = asMetadataRecord(flattened.metadata);
+  let depth = 0;
+  while (cursor && depth < 4) {
+    flattened = { ...flattened, ...cursor };
+    cursor = asMetadataRecord(cursor.metadata);
+    depth += 1;
+  }
+  return flattened;
 }
 
 function metadataForItem(item: LiveActivityItem | null | undefined): Record<string, unknown> | undefined {
@@ -167,6 +175,217 @@ function resolveAgentIdentity(item: LiveActivityItem): { agentId: string | null;
     (typeof item.agentName === 'string' && item.agentName.trim().length > 0 ? item.agentName.trim() : null);
 
   return { agentId, agentName };
+}
+
+type ActivityActor = {
+  id: string | null;
+  name: string | null;
+  label: string;
+};
+
+type ActivityActorMode = 'single' | 'handoff' | 'requested' | 'system';
+
+type ActivityActorFlow = {
+  requester: ActivityActor | null;
+  executor: ActivityActor | null;
+  mode: ActivityActorMode;
+  primaryLabel: string;
+  subtitle: string;
+};
+
+function normalizeActorValue(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveActorFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+  idKeys: string[],
+  nameKeys: string[]
+): ActivityActor | null {
+  if (!metadata) return null;
+
+  let id: string | null = null;
+  for (const key of idKeys) {
+    const value = normalizeActorValue(metadata[key]);
+    if (value) {
+      id = value;
+      break;
+    }
+  }
+
+  let name: string | null = null;
+  for (const key of nameKeys) {
+    const value = normalizeActorValue(metadata[key]);
+    if (value) {
+      name = value;
+      break;
+    }
+  }
+
+  if (!id && !name) return null;
+  return {
+    id,
+    name,
+    label: name ?? id ?? 'System',
+  };
+}
+
+function sameActor(a: ActivityActor | null, b: ActivityActor | null): boolean {
+  if (!a || !b) return false;
+  if (a.id && b.id) return a.id.trim().toLowerCase() === b.id.trim().toLowerCase();
+  if (!a.name || !b.name) return false;
+  return a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+}
+
+function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
+  const metadata = metadataForItem(item);
+  const identity = resolveAgentIdentity(item);
+  const cleaned = cleanSystemTitle(item);
+
+  const explicitRequester =
+    item.requesterAgentId || item.requesterAgentName
+      ? {
+          id: item.requesterAgentId ?? null,
+          name: item.requesterAgentName ?? null,
+          label: item.requesterAgentName ?? item.requesterAgentId ?? 'System',
+        }
+      : null;
+
+  const requester =
+    explicitRequester ??
+    resolveActorFromMetadata(
+      metadata,
+      [
+        'requested_by_agent_id',
+        'requestedByAgentId',
+        'requester_agent_id',
+        'requesterAgentId',
+        'requester_id',
+        'requesterId',
+        'runner_agent_id',
+        'runnerAgentId',
+      ],
+      [
+        'requested_by_agent_name',
+        'requestedByAgentName',
+        'requester_agent_name',
+        'requesterAgentName',
+        'requester_name',
+        'requesterName',
+        'runner_agent_name',
+        'runnerAgentName',
+      ]
+    ) ?? null;
+
+  const explicitExecutor =
+    item.executorAgentId || item.executorAgentName
+      ? {
+          id: item.executorAgentId ?? null,
+          name: item.executorAgentName ?? null,
+          label: item.executorAgentName ?? item.executorAgentId ?? 'Agent',
+        }
+      : null;
+
+  const executor =
+    explicitExecutor ??
+    resolveActorFromMetadata(
+      metadata,
+      [
+        'executed_by_agent_id',
+        'executedByAgentId',
+        'executor_agent_id',
+        'executorAgentId',
+        'delegated_to_agent_id',
+        'delegatedToAgentId',
+        'handoff_to_agent_id',
+        'handoffToAgentId',
+        'agent_id',
+        'agentId',
+      ],
+      [
+        'executed_by_agent_name',
+        'executedByAgentName',
+        'executor_agent_name',
+        'executorAgentName',
+        'delegated_to_agent_name',
+        'delegatedToAgentName',
+        'handoff_to_agent_name',
+        'handoffToAgentName',
+        'agent_name',
+        'agentName',
+      ]
+    ) ??
+    (identity.agentId || identity.agentName
+      ? {
+          id: identity.agentId,
+          name: identity.agentName,
+          label: identity.agentName ?? identity.agentId ?? 'Agent',
+        }
+      : null);
+
+  if (requester && executor) {
+    if (sameActor(requester, executor)) {
+      return {
+        requester,
+        executor,
+        mode: 'single',
+        primaryLabel: executor.label,
+        subtitle: executor.label,
+      };
+    }
+    return {
+      requester,
+      executor,
+      mode: 'handoff',
+      primaryLabel: executor.label,
+      subtitle: `${requester.label} -> ${executor.label}`,
+    };
+  }
+
+  if (requester && !executor) {
+    return {
+      requester,
+      executor: null,
+      mode: 'requested',
+      primaryLabel: requester.label,
+      subtitle: `${requester.label} requested dispatch`,
+    };
+  }
+
+  if (!requester && executor) {
+    return {
+      requester: null,
+      executor,
+      mode: 'single',
+      primaryLabel: executor.label,
+      subtitle: executor.label,
+    };
+  }
+
+  if (cleaned.isSystem) {
+    return {
+      requester: null,
+      executor: null,
+      mode: 'system',
+      primaryLabel: 'System',
+      subtitle: 'System',
+    };
+  }
+
+  return {
+    requester: null,
+    executor: null,
+    mode: 'system',
+    primaryLabel: item.agentName ?? item.agentId ?? 'OrgX',
+    subtitle: item.agentName ?? item.agentId ?? 'System',
+  };
+}
+
+function actorAvatarHint(actor: ActivityActor | null): string {
+  if (!actor) return '';
+  return [actor.id, actor.name, actor.label].filter(Boolean).join(' ');
 }
 
 function extractWorkstreamId(item: LiveActivityItem): string | null {
@@ -399,6 +618,8 @@ type AutopilotSliceDetail = {
   hasOutput: boolean | null;
   artifacts: number | null;
   decisions: number | null;
+  blockingDecisions: number | null;
+  nonBlockingDecisions: number | null;
   statusUpdatesApplied: number | null;
   statusUpdatesBuffered: number | null;
   stopReason: string | null;
@@ -539,6 +760,40 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
 
   const artifacts = countFromValue(metadata.artifacts ?? metadata.artifact_count ?? metadata.artifactCount);
   const decisions = countFromValue(metadata.decisions ?? metadata.decision_count ?? metadata.decisionCount);
+  const decisionsNeededRaw = (metadata.decisions_needed ?? metadata.decisionsNeeded) as unknown;
+  let blockingDecisions = countFromValue(
+    metadata.blocking_decisions ??
+      metadata.blockingDecisions ??
+      metadata.blocking_decision_count ??
+      metadata.blockingDecisionCount
+  );
+  let nonBlockingDecisions = countFromValue(
+    metadata.non_blocking_decisions ??
+      metadata.nonBlockingDecisions ??
+      metadata.non_blocking_decision_count ??
+      metadata.nonBlockingDecisionCount
+  );
+  if ((blockingDecisions === null || nonBlockingDecisions === null) && Array.isArray(decisionsNeededRaw)) {
+    let blocking = 0;
+    let nonBlocking = 0;
+    for (const candidate of decisionsNeededRaw) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+      const record = candidate as Record<string, unknown>;
+      if (record.blocking === false) nonBlocking += 1;
+      else blocking += 1;
+    }
+    if (blockingDecisions === null) blockingDecisions = blocking;
+    if (nonBlockingDecisions === null) nonBlockingDecisions = nonBlocking;
+  }
+  if (blockingDecisions === null && decisions !== null && item.decisionRequired === true) {
+    blockingDecisions = decisions > 0 ? decisions : 1;
+  }
+  if (nonBlockingDecisions === null && decisions !== null && blockingDecisions !== null) {
+    nonBlockingDecisions = Math.max(0, decisions - blockingDecisions);
+  }
+  if (blockingDecisions === null && decisions !== null && nonBlockingDecisions !== null) {
+    blockingDecisions = Math.max(0, decisions - nonBlockingDecisions);
+  }
   const statusUpdatesAppliedDirect = countFromValue(
     metadata.status_updates_applied ?? metadata.statusUpdatesApplied
   );
@@ -605,6 +860,8 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
     hasOutput,
     artifacts,
     decisions,
+    blockingDecisions,
+    nonBlockingDecisions,
     statusUpdatesApplied,
     statusUpdatesBuffered,
     stopReason,
@@ -1208,6 +1465,8 @@ function describeDetailOutcome(
   detail: AutopilotSliceDetail | null,
   breakdown: {
     decisions: number | null;
+    blockingDecisions: number | null;
+    nonBlockingDecisions: number | null;
     stopReason: string | null;
     parsedStatus: string | null;
   } | null
@@ -1221,11 +1480,27 @@ function describeDetailOutcome(
     detail?.error ??
     item.description ??
     null;
+  const decisionCount = Math.max(0, breakdown?.decisions ?? detail?.decisions ?? 0);
+  const inferredBlockingDecisions = Math.max(
+    0,
+    breakdown?.blockingDecisions ?? detail?.blockingDecisions ?? (item.decisionRequired === true ? Math.max(1, decisionCount) : 0)
+  );
+  const inferredNonBlockingDecisions = Math.max(
+    0,
+    breakdown?.nonBlockingDecisions ??
+      detail?.nonBlockingDecisions ??
+      Math.max(0, decisionCount - inferredBlockingDecisions)
+  );
   const decisionsNeeded =
     item.decisionRequired === true ||
     item.type === 'decision_requested' ||
-    (breakdown?.decisions ?? 0) > 0 ||
+    inferredBlockingDecisions > 0 ||
     parsedStatus === 'needs_decision';
+  const completionLike =
+    item.type === 'run_completed' ||
+    item.type === 'milestone_completed' ||
+    isDoneLikeStatus(parsedStatus) ||
+    stopReason === 'completed';
 
   if (
     item.type === 'run_failed' ||
@@ -1257,6 +1532,15 @@ function describeDetailOutcome(
     };
   }
 
+  if (completionLike && inferredNonBlockingDecisions > 0) {
+    return {
+      label: 'Completed + follow-up',
+      summary: `Execution completed. ${inferredNonBlockingDecisions} non-blocking decision${inferredNonBlockingDecisions === 1 ? '' : 's'} were logged for optional follow-up.`,
+      hint: 'Review the decision for optimization, but no approval is required to mark this slice complete.',
+      tone: 'positive',
+    };
+  }
+
   if (item.type === 'decision_resolved') {
     return {
       label: 'Decision resolved',
@@ -1266,12 +1550,7 @@ function describeDetailOutcome(
     };
   }
 
-  if (
-    item.type === 'run_completed' ||
-    item.type === 'milestone_completed' ||
-    isDoneLikeStatus(parsedStatus) ||
-    stopReason === 'completed'
-  ) {
+  if (completionLike) {
     return {
       label: 'Completed',
       summary: 'Execution completed successfully.',
@@ -1390,11 +1669,16 @@ function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: bo
 const LOW_SIGNAL_SYNC_EVENTS = new Set([
   'changeset_replayed',
   'changeset_applied',
+  'changeset.replayed',
+  'changeset.applied',
   'outbox_replay_applied',
   'outbox_replayed',
   'sync_applied',
+  'sync.applied',
   'sentinel_changeset_applied',
   'sentinel_decision_applied',
+  'sentinel.changeset.applied',
+  'sentinel.decision.applied',
 ]);
 
 function isOutboxSyncReplayEvent(item: LiveActivityItem): boolean {
@@ -1416,16 +1700,34 @@ function isOutboxSyncReplayEvent(item: LiveActivityItem): boolean {
     (typeof metadata.source_client === 'string' ? metadata.source_client : null) ??
     (typeof metadata.sourceClient === 'string' ? metadata.sourceClient : null);
   const sourceLower = sourceClient?.toLowerCase() ?? '';
+  const kindLower =
+    (typeof item.kind === 'string' && item.kind.trim().length > 0
+      ? item.kind.trim().toLowerCase()
+      : null) ??
+    (typeof metadata.kind === 'string' && metadata.kind.trim().length > 0
+      ? metadata.kind.trim().toLowerCase()
+      : null) ??
+    (typeof metadata.event_kind === 'string' && metadata.event_kind.trim().length > 0
+      ? metadata.event_kind.trim().toLowerCase()
+      : null) ??
+    (typeof metadata.eventKind === 'string' && metadata.eventKind.trim().length > 0
+      ? metadata.eventKind.trim().toLowerCase()
+      : null) ??
+    '';
+  const hasChangesetKind = /(changeset[\._ ]?(applied|replayed)|sync[\._ ]?applied|sentinel[\._ ]?(changeset|decision)[\._ ]?applied)/i.test(
+    kindLower
+  );
 
   const replayed = metadata.replayed === true;
   const hasChangesetId =
     (typeof metadata.changeset_id === 'string' && metadata.changeset_id.trim().length > 0) ||
     (typeof metadata.changesetId === 'string' && metadata.changesetId.trim().length > 0);
-  const hasSyncTitle = /changes synced|changeset replayed|outbox replay/i.test(
+  const hasSyncTitle = /changes synced|changeset replayed|changeset applied|outbox replay/i.test(
     `${item.title ?? ''} ${item.summary ?? ''} ${item.description ?? ''}`
   );
 
   if (eventName && LOW_SIGNAL_SYNC_EVENTS.has(eventName)) return true;
+  if (hasChangesetKind) return true;
   if (replayed && (hasChangesetId || hasSyncTitle)) return true;
   if (hasChangesetId && (hasSyncTitle || sourceLower.includes('outbox') || sourceLower.includes('replay'))) {
     return true;
@@ -1564,6 +1866,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [detailMenuOpen, setDetailMenuOpen] = useState(false);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabId>('overview');
   const [artifactViewMode, setArtifactViewMode] = useState<'structured' | 'json'>('structured');
   const [detailSummaryOverride, setDetailSummaryOverride] = useState<string | null>(null);
   const [detailSummarySource, setDetailSummarySource] = useState<'feed' | 'local' | 'missing'>('feed');
@@ -1971,24 +2274,28 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         : extractNearestRelatedAutopilotSliceDetail(activeDecorated?.item ?? null, activity),
     [activeAutopilotSlice, activeDecorated, activity]
   );
+  const activeActorFlow = useMemo(
+    () => (activeDecorated ? resolveActivityActorFlow(activeDecorated.item) : null),
+    [activeDecorated]
+  );
   const activeAutopilotContext = activeAutopilotSlice ?? activeRelatedAutopilotSlice?.detail ?? null;
   const activeAutopilotRequesterLabel = useMemo(
     () =>
       formatAgentLabel(
-        activeAutopilotContext?.requesterAgentName ?? null,
-        activeAutopilotContext?.requesterAgentId ?? null,
+        activeAutopilotContext?.requesterAgentName ?? activeActorFlow?.requester?.name ?? null,
+        activeAutopilotContext?.requesterAgentId ?? activeActorFlow?.requester?.id ?? null,
         agentNameById
       ),
-    [activeAutopilotContext, agentNameById]
+    [activeAutopilotContext, activeActorFlow, agentNameById]
   );
   const activeAutopilotExecutorLabel = useMemo(() => {
     const label = formatAgentLabel(
-      activeAutopilotContext?.agentName ?? null,
-      activeAutopilotContext?.agentId ?? null,
+      activeAutopilotContext?.agentName ?? activeActorFlow?.executor?.name ?? null,
+      activeAutopilotContext?.agentId ?? activeActorFlow?.executor?.id ?? null,
       agentNameById
     );
-    return label === '—' ? 'Codex' : label;
-  }, [activeAutopilotContext, agentNameById]);
+    return label === '—' ? activeActorFlow?.primaryLabel ?? 'Codex' : label;
+  }, [activeAutopilotContext, activeActorFlow, agentNameById]);
   const activeSessionProgress = useMemo(() => {
     if (!activeDecorated?.runId) return null;
     return sessionProgressById.get(activeDecorated.runId) ?? null;
@@ -2046,6 +2353,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       statusUpdatesBuffered: context.statusUpdatesBuffered,
       artifacts: context.artifacts,
       decisions: context.decisions,
+      blockingDecisions: context.blockingDecisions,
+      nonBlockingDecisions: context.nonBlockingDecisions,
       tokensUsed: context.tokensUsed,
       tokenBudget: context.tokenBudget,
       nextStep: context.nextStep,
@@ -2063,6 +2372,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             activeExecutionBreakdown
               ? {
                   decisions: activeExecutionBreakdown.decisions,
+                  blockingDecisions: activeExecutionBreakdown.blockingDecisions,
+                  nonBlockingDecisions: activeExecutionBreakdown.nonBlockingDecisions,
                   stopReason: activeExecutionBreakdown.stopReason,
                   parsedStatus: activeExecutionBreakdown.parsedStatus,
                 }
@@ -2176,6 +2487,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   useEffect(() => {
     setArtifactViewMode('structured');
     setDetailMenuOpen(false);
+    setActiveDetailTab('overview');
   }, [activeItemId]);
 
   useEffect(() => {
@@ -2336,7 +2648,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const item = decorated.item;
     const renderKey = keyOverride ?? item.id;
     const identity = resolveAgentIdentity(item);
-    const displayAgentName = identity.agentName ?? identity.agentId ?? item.agentName ?? 'OrgX';
+    const actorFlow = resolveActivityActorFlow(item);
+    const displayAgentName = actorFlow.primaryLabel || identity.agentName || identity.agentId || item.agentName || 'OrgX';
     const severity = activitySeverity(item);
     const railColor = severityColor(severity);
     const isRecent = sortOrder === 'newest' && index < 2;
@@ -2348,6 +2661,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const isSyncReplay = syncSummary !== null;
 
     const { title: displayTitle, isSystem: isSystemEvent } = cleanSystemTitle(item);
+    const actorSubtitle = isSystemEvent ? 'System' : actorFlow.subtitle;
+    const showHandoffFlow =
+      actorFlow.mode === 'handoff' && actorFlow.requester !== null && actorFlow.executor !== null;
     const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
@@ -2377,11 +2693,33 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const content = (
       <div className="flex items-start gap-3">
         <div className="mt-0.5">
-          <AgentAvatar
-            name={displayAgentName}
-            hint={`${identity.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
-            size="xs"
-          />
+          {showHandoffFlow ? (
+            <div className="flex items-center gap-1">
+              <div className="inline-flex -space-x-2">
+                <span className="rounded-full bg-[#080808] p-[1px]">
+                  <AgentAvatar
+                    name={actorFlow.requester?.label ?? 'Requester'}
+                    hint={actorAvatarHint(actorFlow.requester)}
+                    size="xs"
+                  />
+                </span>
+                <span className="rounded-full bg-[#080808] p-[1px]">
+                  <AgentAvatar
+                    name={actorFlow.executor?.label ?? 'Executor'}
+                    hint={actorAvatarHint(actorFlow.executor)}
+                    size="xs"
+                  />
+                </span>
+              </div>
+              <span className="text-micro text-muted">→</span>
+            </div>
+          ) : (
+            <AgentAvatar
+              name={displayAgentName}
+              hint={`${identity.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
+              size="xs"
+            />
+          )}
         </div>
         <div className="relative min-w-0 flex-1 pl-3">
           <span
@@ -2396,8 +2734,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <p className={`line-clamp-2 break-words text-body font-semibold leading-snug ${isSystemEvent ? 'text-muted' : 'text-bright'}`}>
                 {displayTitle}
               </p>
-              <p className="mt-0.5 text-caption text-secondary">
-                {isSystemEvent ? 'System' : displayAgentName}
+              <p className="mt-0.5 truncate text-caption text-secondary" title={actorSubtitle}>
+                {actorSubtitle}
                 {sessionStatus ? ` · ${humanizeText(sessionStatus)}` : ''}
               </p>
             </div>
@@ -2427,6 +2765,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
               {primaryTag}
             </span>
+            {showHandoffFlow && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/25 bg-cyan-500/[0.10] px-2 py-0.5 text-cyan-100">
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-200" />
+                Handoff
+              </span>
+            )}
             {initiativeName ? (
               <span
                 className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
@@ -2870,12 +3214,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         ? 'No activity yet for this session'
                         : selectedWorkstreamId
                           ? 'No activity yet for this workstream'
-                          : `No ${filterLabels[activeFilter].toLowerCase()} in ${timeWindow.label}`}
+                          : 'No matching activity right now.'}
                   </p>
                   <p className="mt-1 text-caption leading-relaxed text-secondary">
                     {isLoading
                       ? 'Live updates usually appear within a few seconds after dispatch.'
-                      : 'Try widening the time window, changing the type filter, or launch the next workstream.'}
+                      : `Try widening the time window (${timeWindow.label}), changing filters, or launch the next workstream.`}
                   </p>
                 </div>
               </div>
@@ -3265,7 +3609,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           Sync replay
                         </span>
                       )}
-                      {activeIdentity.agentName && (
+                      {activeActorFlow?.mode === 'handoff' &&
+                        activeActorFlow.requester &&
+                        activeActorFlow.executor && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-300/25 bg-cyan-500/[0.10] px-1.5 py-0.5 text-cyan-100">
+                            <AgentAvatar
+                              name={activeActorFlow.requester.label}
+                              hint={actorAvatarHint(activeActorFlow.requester)}
+                              size="xs"
+                            />
+                            <span className="text-micro text-cyan-100/80">→</span>
+                            <AgentAvatar
+                              name={activeActorFlow.executor.label}
+                              hint={actorAvatarHint(activeActorFlow.executor)}
+                              size="xs"
+                            />
+                          </span>
+                        )}
+                      {activeActorFlow?.mode !== 'handoff' && activeIdentity.agentName && (
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-strong px-1.5 py-0.5 text-secondary">
                           <AgentAvatar
                             name={activeIdentity.agentName ?? 'Agent'}
@@ -3282,7 +3643,49 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       )}
                     </div>
 
-                    {activeOutcome && (
+                    <div className="inline-flex rounded-full border border-white/[0.12] bg-white/[0.03] p-1 text-caption">
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailTab('overview')}
+                        aria-pressed={activeDetailTab === 'overview'}
+                        className={cn(
+                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
+                          activeDetailTab === 'overview'
+                            ? 'bg-white/[0.14] text-primary'
+                            : 'text-secondary hover:text-primary'
+                        )}
+                      >
+                        Overview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailTab('flow')}
+                        aria-pressed={activeDetailTab === 'flow'}
+                        className={cn(
+                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
+                          activeDetailTab === 'flow'
+                            ? 'bg-cyan-500/[0.16] text-cyan-100'
+                            : 'text-secondary hover:text-primary'
+                        )}
+                      >
+                        Flow
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDetailTab('technical')}
+                        aria-pressed={activeDetailTab === 'technical'}
+                        className={cn(
+                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
+                          activeDetailTab === 'technical'
+                            ? 'bg-lime/[0.16] text-[#E1FFB2]'
+                            : 'text-secondary hover:text-primary'
+                        )}
+                      >
+                        Technical
+                      </button>
+                    </div>
+
+                    {activeDetailTab === 'overview' && activeOutcome && (
                       <div
                         className={cn(
                           'rounded-xl border px-3.5 py-3',
@@ -3339,7 +3742,64 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeAutopilotContext && (
+                    {activeDetailTab === 'flow' && activeActorFlow && (
+                      <div className="rounded-xl border border-cyan-300/24 bg-cyan-500/[0.07] p-3">
+                        <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
+                          Delegation flow
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requester</div>
+                            <div className="mt-1 flex items-center gap-2 text-body text-primary">
+                              {activeActorFlow.requester ? (
+                                <>
+                                  <AgentAvatar
+                                    name={activeActorFlow.requester.label}
+                                    hint={actorAvatarHint(activeActorFlow.requester)}
+                                    size="xs"
+                                  />
+                                  <span>{activeActorFlow.requester.label}</span>
+                                </>
+                              ) : (
+                                <span className="text-secondary">System / unknown</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Flow</div>
+                            <p className="mt-1 text-body text-primary">
+                              {activeActorFlow.mode === 'handoff'
+                                ? 'Delegated handoff'
+                                : activeActorFlow.mode === 'requested'
+                                  ? 'Dispatch requested'
+                                  : activeActorFlow.mode === 'single'
+                                    ? 'Direct execution'
+                                    : 'System event'}
+                            </p>
+                            <p className="mt-1 text-caption text-secondary">{activeActorFlow.subtitle}</p>
+                          </div>
+                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executor</div>
+                            <div className="mt-1 flex items-center gap-2 text-body text-primary">
+                              {activeActorFlow.executor ? (
+                                <>
+                                  <AgentAvatar
+                                    name={activeActorFlow.executor.label}
+                                    hint={actorAvatarHint(activeActorFlow.executor)}
+                                    size="xs"
+                                  />
+                                  <span>{activeActorFlow.executor.label}</span>
+                                </>
+                              ) : (
+                                <span className="text-secondary">Not assigned</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+	                    {activeDetailTab === 'flow' && activeAutopilotContext && (
 	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">
 	                        <div className="flex flex-wrap items-center justify-between gap-2">
 	                          <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">
@@ -3510,6 +3970,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                  <div className="text-micro text-secondary">Decisions</div>
 	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.decisions ?? 0}</div>
 	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Blocking decisions</div>
+	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.blockingDecisions ?? 0}</div>
+	                                </div>
+	                                <div>
+	                                  <div className="text-micro text-secondary">Non-blocking decisions</div>
+	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.nonBlockingDecisions ?? 0}</div>
+	                                </div>
 	                                <div className="col-span-2">
 	                                  <div className="text-micro text-secondary">Token usage</div>
 	                                  <div className="mt-0.5 tabular-nums">
@@ -3614,7 +4082,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </div>
 	                    )}
 
-                    {activeProvenance && (
+                    {activeDetailTab === 'technical' && activeProvenance && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
 	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Provenance</p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -3703,7 +4171,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeSummaryText && (
+	                    {activeDetailTab === 'overview' && activeSummaryText && (
 		                      <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
 		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Summary</p>
 	                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
@@ -3719,7 +4187,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </div>
 	                    )}
 
-	                    {humanizeActivityBody(activeDecorated.item.description) && (
+	                    {activeDetailTab === 'overview' && humanizeActivityBody(activeDecorated.item.description) && (
 		                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
 		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
 	                        <MarkdownText
@@ -3730,7 +4198,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </div>
 	                    )}
 
-                    {activeFileEvidence.length > 0 && (
+                    {activeDetailTab === 'technical' && activeFileEvidence.length > 0 && (
                       <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                         <p className="text-caption font-semibold tracking-[0.02em] text-secondary">
                           Filesystem evidence
@@ -3776,7 +4244,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                    )}
 
                     {/* View registered artifact button (loop closure) */}
-                    {activeDecorated && extractArtifactId(activeDecorated.item) && (
+                    {activeDetailTab === 'overview' && activeDecorated && extractArtifactId(activeDecorated.item) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3795,7 +4263,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </button>
                     )}
 
-                    {activeArtifact && (
+                    {activeDetailTab === 'technical' && activeArtifact && (
 	                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
 	                        <div className="flex items-center justify-between gap-2">
 	                          <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
@@ -3841,7 +4309,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeResolvedMetadataJson && activeResolvedMetadataJson !== activeMetadataJson && (
+	                    {activeDetailTab === 'technical' && activeResolvedMetadataJson && activeResolvedMetadataJson !== activeMetadataJson && (
 	                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
 	                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
 	                          Parsed metadata
@@ -3852,7 +4320,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </details>
 	                    )}
 
-	                    {activeMetadataJson && (
+	                    {activeDetailTab === 'technical' && activeMetadataJson && (
 		                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
 		                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
 		                          Raw metadata

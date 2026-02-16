@@ -98,6 +98,7 @@ import {
   appendActivityItems,
   listActivityPage,
 } from "./activity-store.js";
+import { enrichActivityActorFields } from "./activity-actor-fields.js";
 import { readByokKeys, writeByokKeys } from "./byok-store.js";
 import {
   applyOrgxAgentSuitePlan,
@@ -1152,54 +1153,59 @@ function applyAgentContextsToActivity(
   input: LiveActivityItem[],
   contexts: { agents: Record<string, AgentLaunchContext>; runs: Record<string, RunLaunchContext> }
 ): LiveActivityItem[] {
-		  if (!Array.isArray(input)) return [];
-		  return input.map((item) => {
-		    const existingInitiativeId = (item.initiativeId ?? "").trim();
-		    if (isUuidLike(existingInitiativeId)) return item;
+  if (!Array.isArray(input)) return [];
+  return input.map((item) => {
+    let nextItem = item;
+    const existingInitiativeId = (item.initiativeId ?? "").trim();
 
-		    const runCtx = item.runId ? contexts.runs[item.runId] : null;
-		    if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
-		      const initiativeId = runCtx.initiativeId.trim();
-		      const metadata =
-        item.metadata && typeof item.metadata === "object"
-          ? { ...(item.metadata as Record<string, unknown>) }
-          : {};
-      metadata.orgx_context = {
-        initiativeId,
-        workstreamId: runCtx.workstreamId ?? null,
-        taskId: runCtx.taskId ?? null,
-        updatedAt: runCtx.updatedAt,
-      };
+    if (!isUuidLike(existingInitiativeId)) {
+      const runCtx = item.runId ? contexts.runs[item.runId] : null;
+      if (runCtx && runCtx.initiativeId && runCtx.initiativeId.trim().length > 0) {
+        const initiativeId = runCtx.initiativeId.trim();
+        const metadata =
+          item.metadata && typeof item.metadata === "object"
+            ? { ...(item.metadata as Record<string, unknown>) }
+            : {};
+        metadata.orgx_context = {
+          initiativeId,
+          workstreamId: runCtx.workstreamId ?? null,
+          taskId: runCtx.taskId ?? null,
+          updatedAt: runCtx.updatedAt,
+        };
 
-      return {
-        ...item,
-        initiativeId,
-        metadata,
-      };
+        nextItem = {
+          ...item,
+          initiativeId,
+          metadata,
+        };
+      } else {
+        const agentId = item.agentId?.trim() ?? "";
+        if (agentId) {
+          const ctx = contexts.agents[agentId];
+          const initiativeId = ctx?.initiativeId?.trim() ?? "";
+          if (initiativeId) {
+            const metadata =
+              item.metadata && typeof item.metadata === "object"
+                ? { ...(item.metadata as Record<string, unknown>) }
+                : {};
+            metadata.orgx_context = {
+              initiativeId,
+              workstreamId: ctx.workstreamId ?? null,
+              taskId: ctx.taskId ?? null,
+              updatedAt: ctx.updatedAt,
+            };
+
+            nextItem = {
+              ...item,
+              initiativeId,
+              metadata,
+            };
+          }
+        }
+      }
     }
 
-    const agentId = item.agentId?.trim() ?? "";
-    if (!agentId) return item;
-    const ctx = contexts.agents[agentId];
-    const initiativeId = ctx?.initiativeId?.trim() ?? "";
-    if (!initiativeId) return item;
-
-    const metadata =
-      item.metadata && typeof item.metadata === "object"
-        ? { ...(item.metadata as Record<string, unknown>) }
-        : {};
-    metadata.orgx_context = {
-      initiativeId,
-      workstreamId: ctx.workstreamId ?? null,
-      taskId: ctx.taskId ?? null,
-      updatedAt: ctx.updatedAt,
-    };
-
-    return {
-      ...item,
-      initiativeId,
-      metadata,
-    };
+    return enrichActivityActorFields(nextItem);
   });
 }
 
@@ -1263,9 +1269,11 @@ function mergeActivities(
   extra: LiveActivityItem[],
   limit: number
 ): LiveActivityItem[] {
-  const merged = [...(base ?? []), ...(extra ?? [])].sort(
-    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
-  );
+  const merged = [...(base ?? []), ...(extra ?? [])].sort((a, b) => {
+    const timestampDelta = Date.parse(b.timestamp) - Date.parse(a.timestamp);
+    if (timestampDelta !== 0) return timestampDelta;
+    return b.id.localeCompare(a.id);
+  });
   const deduped: LiveActivityItem[] = [];
   const seen = new Set<string>();
   for (const item of merged) {
@@ -1386,9 +1394,20 @@ function enrichSessionsWithRuntime(
         : null;
     const match = byRun ?? byAgent;
     if (!match) return node;
+    const runtimeStatus = deriveRuntimeSessionStatus(match);
     const fallbackAgent = deriveRuntimeFallbackAgent(match);
     const agentId = (node.agentId ?? "").trim() || fallbackAgent.agentId;
     const agentName = (node.agentName ?? "").trim() || fallbackAgent.agentName;
+    const nodeStatus = (node.status ?? "").trim().toLowerCase();
+    const isLiveLikeNodeStatus =
+      nodeStatus === "running" ||
+      nodeStatus === "active" ||
+      nodeStatus === "in_progress" ||
+      nodeStatus === "working" ||
+      nodeStatus === "planning" ||
+      nodeStatus === "dispatching";
+    const shouldDowngradeStatusFromRuntime =
+      isLiveLikeNodeStatus && (runtimeStatus === "queued" || runtimeStatus === "paused");
     const blockerReason =
       (node.blockerReason ?? "").trim() ||
       (node.status?.toLowerCase() === "blocked" || match.phase?.toLowerCase() === "blocked"
@@ -1399,6 +1418,12 @@ function enrichSessionsWithRuntime(
       ...node,
       agentId: agentId || null,
       agentName: agentName || null,
+      status: shouldDowngradeStatusFromRuntime ? runtimeStatus : node.status,
+      state: node.state ?? match.state ?? null,
+      lastEventSummary:
+        shouldDowngradeStatusFromRuntime && runtimeStatus === "queued"
+          ? node.lastEventSummary ?? "Recovered stale runtime; awaiting next dispatch."
+          : node.lastEventSummary,
       blockerReason: blockerReason || node.blockerReason || null,
       runtimeClient: normalizeRuntimeSource(match.sourceClient),
       runtimeLabel: match.displayName,
@@ -1437,9 +1462,9 @@ function injectRuntimeInstancesAsSessions(
     if (!runId) continue;
     if (existingRunIds.has(runId)) continue;
 
-    // Only surface active/stale runtime instances as "sessions" so the Activity UI can show
-    // a seamless "in progress" lane even when this isn't an OpenClaw session tree node.
-    if (instance.state !== "active" && instance.state !== "stale") continue;
+    // Only surface active runtime instances as synthetic sessions.
+    // Stale instances are reconciled onto existing sessions but shouldn't appear as fresh work.
+    if (instance.state !== "active") continue;
 
     const initiativeId = instance.initiativeId?.trim() || null;
     const workstreamId = instance.workstreamId?.trim() || null;
@@ -3669,6 +3694,16 @@ export function createHttpHandler(
             (typeof enrichedMetadata?.agent_name === "string"
               ? enrichedMetadata.agent_name
               : null) ?? null,
+          requesterAgentId: null,
+          requesterAgentName: null,
+          executorAgentId:
+            (typeof enrichedMetadata?.agent_id === "string"
+              ? enrichedMetadata.agent_id
+              : null) ?? null,
+          executorAgentName:
+            (typeof enrichedMetadata?.agent_name === "string"
+              ? enrichedMetadata.agent_name
+              : null) ?? null,
           runId,
           initiativeId,
           timestamp,
@@ -3767,6 +3802,10 @@ export function createHttpHandler(
         description: input.summary ?? null,
         agentId: null,
         agentName: null,
+        requesterAgentId: null,
+        requesterAgentName: null,
+        executorAgentId: null,
+        executorAgentName: null,
         runId: correlationId ?? null,
         initiativeId,
         timestamp,
@@ -4881,6 +4920,31 @@ export function createHttpHandler(
     return normalized;
   }
 
+  const ORGX_SCOPED_MCP_SERVER_KEYS = [
+    "orgx-openclaw-engineering",
+    "orgx-openclaw-product",
+    "orgx-openclaw-design",
+    "orgx-openclaw-marketing",
+    "orgx-openclaw-sales",
+    "orgx-openclaw-operations",
+    "orgx-openclaw-orchestration",
+  ] as const;
+
+  function resolveScopedOrgxMcpServer(agentId: string | undefined): string | null {
+    const normalized = (agentId ?? "").trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized.includes("engineering")) return "orgx-openclaw-engineering";
+    if (normalized.includes("product")) return "orgx-openclaw-product";
+    if (normalized.includes("design")) return "orgx-openclaw-design";
+    if (normalized.includes("marketing")) return "orgx-openclaw-marketing";
+    if (normalized.includes("sales")) return "orgx-openclaw-sales";
+    if (normalized.includes("operations")) return "orgx-openclaw-operations";
+    if (normalized.includes("orchestration") || normalized.includes("orchestrator")) {
+      return "orgx-openclaw-orchestration";
+    }
+    return null;
+  }
+
   type CodexBinInfo = {
     bin: string;
     version: [number, number, number] | null;
@@ -5276,6 +5340,22 @@ export function createHttpHandler(
     const extraArgs: string[] = [];
     if (disableFirecrawl && !hasFirecrawlOverride) {
       extraArgs.push("-c", "mcp_servers.firecrawl.enabled=false");
+    }
+
+    const scopeOrgxMcpRaw = (process.env.ORGX_AUTOPILOT_SCOPE_ORGX_MCP ?? "").trim().toLowerCase();
+    const scopeOrgxMcp =
+      scopeOrgxMcpRaw !== "false" && scopeOrgxMcpRaw !== "0" && scopeOrgxMcpRaw !== "no";
+    const hasScopedOrgxOverride = args.some((arg) =>
+      /mcp_servers\.orgx-openclaw-(engineering|product|design|marketing|sales|operations|orchestration)\.enabled=/i.test(
+        String(arg)
+      )
+    );
+    if (scopeOrgxMcp && !hasScopedOrgxOverride) {
+      const targetScopedServer = resolveScopedOrgxMcpServer(input.env.ORGX_AGENT_ID);
+      for (const serverKey of ORGX_SCOPED_MCP_SERVER_KEYS) {
+        const enabled = targetScopedServer !== null && serverKey === targetScopedServer;
+        extraArgs.push("-c", `mcp_servers.${serverKey}.enabled=${enabled ? "true" : "false"}`);
+      }
     }
 
     const logStream = createWriteStream(input.logPath, { flags: "a" });
@@ -6145,10 +6225,26 @@ export function createHttpHandler(
         const parsed = raw ? parseSliceResult(raw) : null;
         const parsedStatus = parsed?.status ?? "error";
 
+        const decisions = Array.isArray(parsed?.decisions_needed)
+          ? (parsed?.decisions_needed ?? [])
+              .filter(
+                (item: AutoContinueSliceDecision): item is AutoContinueSliceDecision =>
+                  Boolean(item && typeof item.question === "string" && item.question.trim())
+              )
+          : [];
+        const blockingDecisionCount = decisions.filter(
+          (item) => typeof item.blocking === "boolean" ? item.blocking : true
+        ).length;
+        const nonBlockingDecisionCount = Math.max(0, decisions.length - blockingDecisionCount);
+        const effectiveParsedStatus =
+          parsedStatus === "completed" && blockingDecisionCount > 0
+            ? "needs_decision"
+            : parsedStatus;
+
         slice.status =
-          parsedStatus === "completed"
+          effectiveParsedStatus === "completed"
             ? "completed"
-            : parsedStatus === "blocked" || parsedStatus === "needs_decision"
+            : effectiveParsedStatus === "blocked" || effectiveParsedStatus === "needs_decision"
               ? "blocked"
               : "error";
         slice.finishedAt = now;
@@ -6164,14 +6260,6 @@ export function createHttpHandler(
         const modeledTokens = slice.tokenEstimate ?? run.activeTaskTokenEstimate ?? 0;
         run.tokensUsed += Math.max(0, modeledTokens);
         run.activeTaskTokenEstimate = null;
-
-        const decisions = Array.isArray(parsed?.decisions_needed)
-          ? (parsed?.decisions_needed ?? [])
-              .filter(
-                (item: AutoContinueSliceDecision): item is AutoContinueSliceDecision =>
-                  Boolean(item && typeof item.question === "string" && item.question.trim())
-              )
-          : [];
 
         const artifacts = Array.isArray(parsed?.artifacts)
           ? (parsed?.artifacts ?? [])
@@ -6233,13 +6321,15 @@ export function createHttpHandler(
             agentName: slice.agentName ?? null,
             phase: slice.status === "completed" ? "completed" : "blocked",
             message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
-	            metadata: {
-	              event: "autopilot_slice_finished",
-	              requested_by_agent_id: run.agentId,
-	              requested_by_agent_name: run.agentName,
-	              status: parsedStatus,
-	              artifacts: artifacts.length,
+	              metadata: {
+	                event: "autopilot_slice_finished",
+	                requested_by_agent_id: run.agentId,
+	                requested_by_agent_name: run.agentName,
+	                status: effectiveParsedStatus,
+	                artifacts: artifacts.length,
               decisions: decisions.length,
+              blocking_decisions: blockingDecisionCount,
+              non_blocking_decisions: nonBlockingDecisionCount,
               status_updates: statusUpdateResult.applied,
               status_updates_buffered: statusUpdateResult.buffered,
             },
@@ -6266,13 +6356,16 @@ export function createHttpHandler(
 	            agent_name: slice.agentName,
 	            domain: slice.domain,
 	            required_skills: slice.requiredSkills,
-	            workstream_id: slice.workstreamId,
+            workstream_id: slice.workstreamId,
             task_ids: slice.taskIds,
             milestone_ids: slice.milestoneIds,
-            parsed_status: parsedStatus,
+            parsed_status: effectiveParsedStatus,
             has_output: Boolean(parsed),
             artifacts: artifacts.length,
             decisions: decisions.length,
+            blocking_decisions: blockingDecisionCount,
+            non_blocking_decisions: nonBlockingDecisionCount,
+            decision_required: blockingDecisionCount > 0,
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
             output_path: slice.outputPath,
@@ -6307,7 +6400,7 @@ export function createHttpHandler(
 	            error:
 	              parsed?.summary ??
               slice.lastError ??
-              `Slice returned status: ${parsedStatus}`,
+              `Slice returned status: ${effectiveParsedStatus}`,
           });
           return;
         }
@@ -11132,6 +11225,10 @@ export function createHttpHandler(
           sessions = injectRuntimeInstancesAsSessions(sessions, runtimeInstances);
           sessions = enrichSessionsWithRuntime(sessions, runtimeInstances);
           activity = enrichActivityWithRuntime(activity, runtimeInstances);
+          activity = applyAgentContextsToActivity(activity, {
+            agents: agentContexts,
+            runs: runContexts,
+          });
 
           try {
             // Avoid reprocessing/storing large activity snapshots when the leading window
@@ -11248,6 +11345,16 @@ export function createHttpHandler(
             until,
             cursor,
           });
+          {
+            const ctx = readAgentContexts();
+            page = {
+              ...page,
+              activities: applyAgentContextsToActivity(page.activities, {
+                agents: ctx.agents,
+                runs: ctx.runs ?? {},
+              }),
+            };
+          }
 
           // If the local store is empty or we haven't warmed enough history yet, opportunistically
           // warm from the remote API (which only supports since+limit) and re-page.
@@ -11283,6 +11390,16 @@ export function createHttpHandler(
                 until,
                 cursor,
               });
+              {
+                const ctx = readAgentContexts();
+                page = {
+                  ...page,
+                  activities: applyAgentContextsToActivity(page.activities, {
+                    agents: ctx.agents,
+                    runs: ctx.runs ?? {},
+                  }),
+                };
+              }
             } catch {
               // best effort
             }

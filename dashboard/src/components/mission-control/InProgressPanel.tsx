@@ -16,12 +16,24 @@ const IN_PROGRESS_STATUSES = new Set([
   'blocked',
 ]);
 
+const LIVE_HEARTBEAT_WINDOW_MS = 3 * 60_000;
+
+function isFreshHeartbeat(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed <= LIVE_HEARTBEAT_WINDOW_MS;
+}
+
 function isInProgress(session: SessionTreeNode): boolean {
   const status = normalizeStatus(session.status ?? '');
+  const runtimeState = normalizeStatus(session.state ?? '');
+  if (runtimeState === 'stale' || status === 'stale') return false;
+  if (runtimeState === 'stopped' && status !== 'blocked') return false;
   if (IN_PROGRESS_STATUSES.has(status)) return true;
-  if (status === 'queued' || status === 'pending') return false;
-  // Fallback: treat any non-terminal status with a heartbeat as in-progress.
-  if (session.lastHeartbeatAt) return true;
+  if (status === 'queued' || status === 'pending' || status === 'paused' || status === 'completed') return false;
+  // Fallback: treat non-terminal sessions as in-progress only if heartbeat is recent.
+  if (session.lastHeartbeatAt) return isFreshHeartbeat(session.lastHeartbeatAt);
   return false;
 }
 
@@ -61,7 +73,18 @@ export const InProgressPanel = memo(function InProgressPanel({
       const safeB = Number.isFinite(bEpoch) ? bEpoch : 0;
       return safeB - safeA;
     });
-    return rows;
+    const deduped: SessionTreeNode[] = [];
+    const seen = new Set<string>();
+    for (const session of rows) {
+      const dedupeKey =
+        session.workstreamId && session.workstreamId.trim().length > 0
+          ? `${session.initiativeId ?? 'none'}:${session.workstreamId}`
+          : session.runId;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      deduped.push(session);
+    }
+    return deduped;
   }, [sessions]);
 
   /** Distinct statuses present in the current list, sorted by count desc. */

@@ -14,6 +14,93 @@ If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flo
 
 Manual API key entry is still available as a permanent fallback from the onboarding panel.
 
+## Architecture Overview
+
+```
+                         ┌──────────────────────────────┐
+                         │       OrgX Cloud API         │
+                         │   (useorgx.com)              │
+                         │                              │
+                         │  Snapshots, Decisions,       │
+                         │  Activity, Entity CRUD,      │
+                         │  Quality Gates, Model Routing │
+                         └──────────────┬───────────────┘
+                                        │
+                              Bearer token (oxk_...)
+                                        │
+┌───────────────────────────────────────┼───────────────────────────────────────┐
+│  OpenClaw Gateway (localhost:18789)   │                                       │
+│  ┌────────────────────────────────────┴──────────────────────────────────┐    │
+│  │                     OrgX Plugin (this repo)                          │    │
+│  │                                                                      │    │
+│  │  ┌──────────────┐   ┌──────────────┐   ┌─────────────────────────┐  │    │
+│  │  │  OrgXClient   │   │   Outbox      │   │   State Stores          │  │    │
+│  │  │              │   │              │   │                         │  │    │
+│  │  │  API calls   │   │  Offline     │   │  auth-store    (creds) │  │    │
+│  │  │  to cloud    │◄──│  event queue │   │  snapshot-store (cache) │  │    │
+│  │  │              │   │  + replay    │   │  activity-store (feed)  │  │    │
+│  │  └──────┬───────┘   └──────────────┘   │  agent-run-store       │  │    │
+│  │         │                               │  next-up-queue-store   │  │    │
+│  │         │                               └─────────────────────────┘  │    │
+│  │         │                                                            │    │
+│  │  ┌──────┴──────────────────────────────────────────────────────────┐ │    │
+│  │  │                    HTTP Handler                                 │ │    │
+│  │  │                                                                 │ │    │
+│  │  │  /orgx/live          → Dashboard SPA (Vite-built React app)    │ │    │
+│  │  │  /orgx/api/*         → 33+ REST endpoints                     │ │    │
+│  │  │  /orgx/mcp           → MCP bridge (tools/list, tools/call)     │ │    │
+│  │  │  /orgx/api/live/*    → Polling + SSE for real-time data        │ │    │
+│  │  └────────────────────────────────┬────────────────────────────────┘ │    │
+│  │                                   │                                  │    │
+│  │  ┌────────────────────────────────┼─────────────────────────────┐   │    │
+│  │  │  Background Services           │                             │   │    │
+│  │  │                                │                             │   │    │
+│  │  │  Sync service (every 5min)     │  Gateway watchdog           │   │    │
+│  │  │  Agent suite provisioning      │  MCP client auto-config     │   │    │
+│  │  │  Auto-continue pipeline        │  Worker supervisor          │   │    │
+│  │  └────────────────────────────────┘─────────────────────────────┘   │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│  ┌───────────────────────────────────┴──────────────────────────────────┐    │
+│  │  MCP Tools (exposed to agents)                                       │    │
+│  │                                                                      │    │
+│  │  orgx_status         orgx_spawn_check      orgx_create_entity       │    │
+│  │  orgx_sync           orgx_quality_score     orgx_update_entity       │    │
+│  │  orgx_emit_activity  orgx_request_decision  orgx_list_entities       │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                              Polling (every 8s)
+                                        │
+                         ┌──────────────┴───────────────┐
+                         │     React Dashboard          │
+                         │     /orgx/live                │
+                         │                              │
+                         │  Mission Control (hierarchy) │
+                         │  Activity Timeline           │
+                         │  Decision Queue (approve/    │
+                         │    reject with notes)        │
+                         │  Session Inspector           │
+                         │  Agent Provisioning          │
+                         └──────────────────────────────┘
+```
+
+### Data Flow
+
+```
+Agent calls MCP tool (e.g. orgx_emit_activity)
+  → Plugin validates + forwards to OrgX Cloud
+  → Cloud persists, returns updated state
+  → Plugin caches snapshot locally
+  → Dashboard polls /orgx/api/live/sessions every 8s
+  → useLiveData hook merges + renders
+
+If cloud is unreachable:
+  → Plugin queues event in Outbox (~/.orgx/plugin/outbox/)
+  → Dashboard reads from cached snapshot + outbox replay
+  → On reconnect, outbox auto-replays with backoff
+```
+
 ## Installation
 
 ```bash
@@ -74,7 +161,7 @@ Environment overrides:
 
 ## Features
 
-### 🛠️ MCP Tools
+### MCP Tools
 
 The plugin registers these tools for your agents:
 
@@ -88,7 +175,7 @@ The plugin registers these tools for your agents:
 - **`orgx_update_entity`** — Update entity status and fields
 - **`orgx_list_entities`** — Query entities by type and status
 
-### 📊 Live Dashboard
+### Live Dashboard
 
 Access the OrgX command center at `http://127.0.0.1:18789/orgx/live` (or your gateway URL).
 The Vite dev server (`http://localhost:5173`) is only for local preview; the installed plugin runs on the OpenClaw port (18789).
@@ -100,7 +187,7 @@ Shows:
 - Activity stream
 - Outbox replay visibility for buffered offline events
 
-### 🔁 Auto-Continue (Scaffold → Agent Execution)
+### Auto-Continue (Scaffold to Agent Execution)
 
 If you scaffold an initiative from chat (for example, "plan X" and then create/scaffold), OrgX can automatically start executing the first workstream via the stream auto-continue pipeline.
 
@@ -108,7 +195,7 @@ Troubleshooting:
 - If agents do not start automatically, say: `start agents` to re-trigger dispatch.
 - Open the live link (Mission Control) to see stream status (`ready`, `active`, `blocked`) and any upgrade/approval decisions.
 
-### 🎯 Model Routing
+### Model Routing
 
 OrgX automatically routes tasks to the appropriate model tier:
 
@@ -118,30 +205,27 @@ OrgX automatically routes tasks to the appropriate model tier:
 | Implementation, code, docs | **sonnet** | claude-sonnet-4 |
 | Status checks, formatting | **local** | qwen2.5-coder |
 
-### 🚦 Quality Gates
+### Quality Gates
 
 Before spawning sub-agents, check the quality gate:
 
 ```
 Agent calls orgx_spawn_check(domain: "engineering", taskId: "...")
-  ↓
-OrgX checks: rate limit, quality score threshold, task assignment
-  ↓
-Returns: { allowed: true, modelTier: "sonnet" }
-  ↓
-Agent spawns with recommended model
+  -> OrgX checks: rate limit, quality score threshold, task assignment
+  -> Returns: { allowed: true, modelTier: "sonnet" }
+  -> Agent spawns with recommended model
 ```
 
-### 🔑 BYOK (Bring Your Own Keys)
+### BYOK (Bring Your Own Keys)
 
 If you use BYOK models (OpenAI, Anthropic, OpenRouter), store your provider keys in OpenClaw. The OrgX plugin reads OpenClaw settings and injects keys when it invokes OpenClaw CLI commands, so you do not need to put provider keys in the OrgX plugin config.
 
-### 🩺 Diagnostics
+### Diagnostics
 
 - `openclaw orgx doctor` runs local checks and can optionally probe the OrgX API.
 - `openclaw gateway status --json` shows the OpenClaw gateway port and runtime state.
 
-### 🔁 Gateway Watchdog
+### Gateway Watchdog
 
 The plugin starts a lightweight watchdog daemon that periodically probes the local OpenClaw gateway and restarts it if needed.
 
@@ -152,15 +236,15 @@ The plugin starts a lightweight watchdog daemon that periodically probes the loc
 
 | Capability | Status | Notes |
 |-----------|--------|-------|
-| Browser pairing onboarding | ✅ | `POST /orgx/api/onboarding/start` + polling flow |
-| Manual API key fallback | ✅ | In onboarding gate and `manual-key` endpoint |
-| Live sessions + activity + handoffs | ✅ | SSE with local fallback paths |
-| Mission Control hierarchy view | ✅ | Initiative → workstream → milestone → task |
-| Run control shortcuts | ✅ | Pause/resume/cancel/checkpoint/rollback in Session Detail |
-| Outbox buffering + replay | ✅ | Local queue + auto replay on sync |
-| Outbox observability in dashboard | ✅ | Pending/replay indicators in header/notifications |
-| Plugin diagnostics (`doctor`) | ✅ | CLI + `GET /orgx/api/health` |
-| Full-auto codex dispatch | ✅ | `npm run job:dispatch` with retries + rollups |
+| Browser pairing onboarding | Done | `POST /orgx/api/onboarding/start` + polling flow |
+| Manual API key fallback | Done | In onboarding gate and `manual-key` endpoint |
+| Live sessions + activity + handoffs | Done | SSE with local fallback paths |
+| Mission Control hierarchy view | Done | Initiative -> workstream -> milestone -> task |
+| Run control shortcuts | Done | Pause/resume/cancel/checkpoint/rollback in Session Detail |
+| Outbox buffering + replay | Done | Local queue + auto replay on sync |
+| Outbox observability in dashboard | Done | Pending/replay indicators in header/notifications |
+| Plugin diagnostics (`doctor`) | Done | CLI + `GET /orgx/api/health` |
+| Full-auto codex dispatch | Done | `npm run job:dispatch` with retries + rollups |
 
 ## CLI Commands
 
@@ -187,7 +271,7 @@ export ORGX_API_KEY=oxk_...
 
 npm run job:dispatch -- \
   --initiative_id=aa6d16dc-d450-417f-8a17-fd89bd597195 \
-  --plan_file=/Users/hopeatina/Code/orgx-openclaw-plugin/docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md \
+  --plan_file=docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md \
   --codex_args="--full-auto" \
   --concurrency=6
 ```
@@ -248,6 +332,208 @@ When the plugin is loaded, these HTTP endpoints are available:
 | `GET /orgx/api/live/stream` | Live SSE stream |
 | `GET /orgx/api/handoffs` | Handoff summaries |
 | `POST /orgx/mcp` | Local MCP bridge (tools/list, tools/call) |
+
+## Contributing
+
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+- An OrgX account (free tier works for development)
+
+### Dev Setup
+
+```bash
+git clone https://github.com/useorgx/openclaw-plugin.git
+cd openclaw-plugin
+
+# Install root dependencies (plugin core)
+npm install
+
+# Install dashboard dependencies
+cd dashboard && npm install && cd ..
+
+# Build everything
+npm run build
+
+# Run tests
+npm run test:hooks
+```
+
+### Development Workflow
+
+```bash
+# Type-check (must pass before any commit)
+npm run typecheck
+
+# Run tests (must pass before any commit)
+npm run test:hooks
+
+# Build core only (TypeScript -> dist/)
+npm run build:core
+
+# Build dashboard only (Vite)
+npm run build:dashboard
+
+# Dashboard dev server (hot reload at localhost:5173)
+cd dashboard && npm run dev
+
+# Full build (core + dashboard)
+npm run build
+```
+
+### Repository Structure
+
+```
+src/                              # Plugin core (TypeScript, ES modules)
+  index.ts                        # Entry point: config resolution, tool registration,
+                                  #   background sync, CLI commands (4.4k lines)
+  http-handler.ts                 # HTTP API: 33+ routes, dashboard serving,
+                                  #   MCP bridge, SSE streaming (12.3k lines)
+  contracts/
+    client.ts                     # OrgXClient — all cloud API calls
+    types.ts                      # Shared type contracts
+  auth-store.ts                   # Credential persistence (~/.orgx/plugin/auth.json)
+  snapshot-store.ts               # Cached org snapshot for offline fallback
+  outbox.ts                       # Offline event queue + auto-replay
+  activity-store.ts               # Paginated activity timeline persistence
+  agent-suite.ts                  # Agent provisioning (profiles, skills, managed files)
+  agent-run-store.ts              # Spawned agent run records
+  agent-context-store.ts          # Launch context for agent runs
+  mcp-http-handler.ts             # Local MCP bridge at /orgx/mcp
+  mcp-client-setup.ts             # Auto-config for Claude/Codex/Cursor
+  gateway-watchdog.ts             # Local gateway health monitor
+  local-openclaw.ts               # Fallback: read OpenClaw local state when cloud down
+  byok-store.ts                   # Provider key management (OpenAI, Anthropic, etc.)
+  runtime-instance-store.ts       # Runtime process tracking
+  next-up-queue-store.ts          # Task ordering for auto-dispatch
+  worker-supervisor.ts            # Detect failed agent handshakes
+  skill-pack-state.ts             # Skill pack download/install tracking
+  fs-utils.ts                     # Atomic file writes, corruption recovery
+  paths.ts                        # Config directory paths (~/.orgx/plugin/)
+
+dashboard/                        # React SPA (served at /orgx/live)
+  src/
+    App.tsx                       # Root component, view routing (2.3k lines)
+    components/
+      activity/                   # ActivityTimeline (live feed, 4.3k lines)
+      mission-control/            # Hierarchy view: initiative -> workstream -> task
+      sessions/                   # Session inspector, agent chats
+      decisions/                  # Decision queue (approve/reject with notes)
+      initiatives/                # Initiative detail + list
+      artifacts/                  # Artifact viewer modal
+      agents/                     # Agent panel, status indicators
+      handoffs/                   # Handoff list
+      onboarding/                 # Browser pairing gate
+      settings/                   # Connection, BYOK, agent suite panels
+      shared/                     # Modal, Badge, EntityIcon, MarkdownText
+    hooks/                        # 17 custom hooks
+      useLiveData.ts              # Core data hook (polling, state merge)
+      useConnection.ts            # Connection status
+      useOnboarding.ts            # Pairing flow
+      useMissionControlGraph.ts   # Hierarchy visualization
+      useEntityMutations.ts       # Entity CRUD operations
+    lib/
+      tokens.ts                   # Design tokens (lime, teal, background, etc.)
+
+scripts/                          # Orchestration and QA (not shipped in package)
+  run-codex-dispatch-job.mjs      # Full-auto agent dispatch
+  capture-qa-evidence.mjs         # Playwright QA screenshots
+  ship.mjs                        # Commit, PR, auto-merge
+
+skills/                           # Agent skill packs (9 domains)
+tests/                            # 26 test suites (Node test runner)
+docs/                             # ADRs, ops guides, launch plans
+```
+
+### Known Architecture Debt
+
+This is an honest accounting of where the codebase is messy. If you're looking for high-impact contributions, these are the places that need the most love.
+
+**1. God files**
+
+Three files account for most of the complexity:
+
+| File | Lines | Problem |
+|------|------:|---------|
+| `src/http-handler.ts` | 12,253 | 33 routes in one `if/else` chain inside a single 8,700-line closure. No router, no middleware, no controller separation. Business logic (auto-continue orchestration, LLM headline summarization, spawn guard enforcement) lives inline with route dispatch. |
+| `src/index.ts` | 4,355 | Plugin bootstrap, tool registration, config resolution, sync logic, and CLI commands all in one file. |
+| `dashboard/src/components/activity/ActivityTimeline.tsx` | 4,326 | Rendering, data transformation, outcome classification, and interaction logic in one component. |
+
+The HTTP handler is the worst offender. Every new endpoint means modifying a 12k-line file. A 25-line negated boolean guard (listing every known route) must be manually updated each time a route is added.
+
+**Ideal decomposition for `http-handler.ts`:**
+- `routes/onboarding.ts` — pairing, manual key, disconnect
+- `routes/live.ts` — sessions, activity, SSE streaming
+- `routes/entities.ts` — CRUD, comments, artifacts
+- `routes/mission-control.ts` — graph, next-up, auto-continue
+- `routes/decisions.ts` — approval queue, mutations
+- `routes/agents.ts` — launch, stop, suite provisioning
+- `routes/dashboard.ts` — SPA serving, asset caching
+- A thin router with route registration instead of the `if/else` cascade.
+
+**2. State store sprawl**
+
+Eight separate file-based stores under `~/.orgx/plugin/`:
+
+```
+auth-store.ts           → auth.json
+snapshot-store.ts        → snapshot.json
+activity-store.ts        → activity pages
+outbox.ts               → outbox/<session>.json
+agent-run-store.ts      → agent run records
+agent-context-store.ts  → launch context
+next-up-queue-store.ts  → task ordering
+skill-pack-state.ts     → skill checksums
+```
+
+Each has its own read/write/corruption-recovery logic. Some overlap (outbox events become activity items; agent-run and agent-context track the same runs from different angles). A unified local store with a single persistence layer would reduce duplication.
+
+**3. Type duplication**
+
+Two separate `types.ts` files that can desync:
+- `src/contracts/types.ts` — cloud API contract types
+- `dashboard/src/types.ts` — dashboard-specific types
+
+The `LiveDecision` interface exists in the dashboard types but has no shared definition with the server. The HTTP handler manually shapes responses to match what the dashboard expects, with no compile-time guarantee they agree.
+
+**4. No routing abstraction**
+
+The HTTP handler uses raw `if (method === "POST" && route === "...")` checks. Adding a new route requires:
+1. Adding a boolean variable to the route-matching block
+2. Adding it to the 25-line negated guard for unknown routes
+3. Adding the handler body somewhere in the 8,700-line function
+4. Hoping you don't accidentally shadow another route
+
+**5. Dashboard polls by default**
+
+SSE streaming exists (`/orgx/api/live/stream`) but the dashboard defaults to polling every 8 seconds. This works but means decisions and activity can feel delayed. The SSE path exists but isn't the primary code path.
+
+### Design Decisions (Why Things Are This Way)
+
+Not all of the above is accidental. Some context for why the architecture looks the way it does:
+
+- **Zero production dependencies**: The plugin ships with no npm runtime deps. This means no Express, no Fastify, no routing library. The HTTP handler is hand-rolled because adding a router would be the first external dependency. The tradeoff is clear: easy distribution vs. maintainability.
+
+- **File-based state over SQLite**: The plugin runs inside OpenClaw's process. Using SQLite would add a native dependency (build complexity, platform issues). JSON files are portable and inspectable with `cat`. The tradeoff: no queries, no transactions, more code for corruption recovery.
+
+- **Monolithic bootstrap**: `index.ts` does everything at startup because OpenClaw plugins have a single entry point. There's no lifecycle hook for "register tools in phase 1, start services in phase 2." Everything happens in `register()`.
+
+### What Makes a Good Contribution
+
+- **Splitting `http-handler.ts`** into route modules would be the single highest-impact refactor. Even extracting one domain (e.g., onboarding routes) into its own file would be a great start.
+- **Dashboard component extraction** — breaking `ActivityTimeline.tsx` into smaller components (OutcomeCard, ActivityItem, FilterBar) would make it approachable.
+- **Shared types** — creating a shared `types/` directory that both `src/` and `dashboard/src/` import from would catch desync bugs at compile time.
+- **Bug fixes and UX improvements** to the dashboard are always welcome. The design language is in `dashboard/src/lib/tokens.ts`.
+
+### Code Conventions
+
+- **TypeScript strict mode** — no `any`, no implicit returns, no unused variables
+- **ES modules only** — all imports use `import`, no `require()`
+- **Zero production dependencies** — if you need a library, implement the subset you need
+- **Node test runner** — tests use `node --test`, not Jest. Test files end in `.test.mjs`
+- **Dashboard design tokens** — use values from `dashboard/src/lib/tokens.ts`, not raw hex colors
+- **Read AGENTS.md** — it has guardrails for AI agents working on this repo, but the conventions apply to humans too
 
 ## Requirements
 
