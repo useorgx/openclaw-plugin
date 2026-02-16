@@ -63,6 +63,7 @@ export const statusColor = (status: string): string => {
   const s = normalizeStatus(status);
   if (s === 'blocked' || s === 'failed' || s === 'cancelled') return colors.red;
   if (s === 'active' || s === 'in_progress' || s === 'running') return colors.lime;
+  if (s === 'handoff' || s === 'review') return colors.teal;
   if (s === 'done' || s === 'completed') return colors.teal;
   if (s === 'paused') return colors.amber;
   if (s === 'queued' || s === 'pending' || s === 'working' || s === 'planning') return colors.amber;

@@ -129,7 +129,11 @@ test("live/snapshot injects runtime instances as sessions", async () => {
 
     assert.equal(resSnapshot.status, 200);
     const body = JSON.parse(resSnapshot.body);
-    assert.ok(body?.sessions?.nodes?.some((n) => n?.runId === "run_test_123"), "expected runtime session injected");
+    const injected = body?.sessions?.nodes?.find((n) => n?.runId === "run_test_123") ?? null;
+    assert.ok(injected, "expected runtime session injected");
+    assert.equal(injected.agentId, "main");
+    assert.equal(injected.agentName, "Engineering Agent");
+    assert.equal(injected.runtimeProvider, "openai");
   } finally {
     if (prevPluginDir == null) {
       delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
@@ -139,3 +143,69 @@ test("live/snapshot injects runtime instances as sessions", async () => {
   }
 });
 
+test("runtime session fallback identity and blocked reason are derived when agent info is missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-fallback-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const token = resolveRuntimeHookToken();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resHook = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/hooks/runtime",
+        headers: { "content-type": "application/json", "x-orgx-hook-token": token },
+        body: JSON.stringify({
+          source_client: "codex",
+          event: "session_start",
+          run_id: "run_test_blocked",
+          phase: "blocked",
+          message: "Agent execution failed",
+        }),
+      },
+      resHook
+    );
+    assert.equal(resHook.status, 200);
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const injected = body?.sessions?.nodes?.find((n) => n?.runId === "run_test_blocked") ?? null;
+    assert.ok(injected, "expected blocked runtime session injected");
+    assert.equal(injected.agentId, "runtime:codex");
+    assert.equal(injected.agentName, "Codex");
+    assert.equal(injected.status, "blocked");
+    assert.equal(injected.blockerReason, "Agent execution failed");
+    assert.deepEqual(injected.blockers, ["Agent execution failed"]);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});

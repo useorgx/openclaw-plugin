@@ -70,6 +70,8 @@ const SESSION_STATUS_PRIORITY: Record<string, number> = {
   in_progress: 1,
   working: 1,
   planning: 1,
+  handoff: 1,
+  review: 2,
   pending: 2,
   blocked: 3,
   failed: 4,
@@ -86,6 +88,8 @@ const LIVE_SESSION_STATUSES = new Set([
   'in_progress',
   'working',
   'planning',
+  'handoff',
+  'review',
   'pending',
   'blocked',
 ]);

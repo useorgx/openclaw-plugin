@@ -154,7 +154,7 @@ function normalizeHookEvent(value: unknown): RuntimeHookEvent {
 function toProviderLogo(
   sourceClient: RuntimeSourceClient
 ): RuntimeInstanceRecord["providerLogo"] {
-  if (sourceClient === "codex") return "codex";
+  if (sourceClient === "codex") return "openai";
   if (sourceClient === "claude-code") return "anthropic";
   if (sourceClient === "openclaw") return "openclaw";
   if (sourceClient === "api") return "orgx";
@@ -166,8 +166,8 @@ function normalizeProviderLogo(
   sourceClient: RuntimeSourceClient
 ): RuntimeInstanceRecord["providerLogo"] {
   const normalized = normalizeNullableString(value)?.toLowerCase();
-  if (normalized === "codex") return "codex";
-  if (normalized === "openai") return sourceClient === "codex" ? "codex" : "openai";
+  if (normalized === "codex") return sourceClient === "codex" ? "openai" : "codex";
+  if (normalized === "openai") return "openai";
   if (normalized === "anthropic") return "anthropic";
   if (normalized === "openclaw") return "openclaw";
   if (normalized === "orgx") return "orgx";

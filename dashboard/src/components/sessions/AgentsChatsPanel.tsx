@@ -45,6 +45,8 @@ const ACTIVE_STATUSES = new Set([
   'in_progress',
   'working',
   'planning',
+  'handoff',
+  'review',
 ]);
 const ATTENTION_STATUSES = new Set(['blocked', 'failed']);
 const ARCHIVED_PAGE_SIZE = 10;
@@ -75,14 +77,91 @@ function normalizeIdentity(value: string | null | undefined): string | null {
   return normalized && normalized.length > 0 ? normalized : null;
 }
 
+function inferRuntimeSourceFromNode(node: SessionTreeNode): 'codex' | 'claude-code' | 'openclaw' | 'api' | null {
+  const explicit = normalizeIdentity(node.runtimeClient);
+  if (explicit === 'codex') return 'codex';
+  if (explicit === 'claude-code') return 'claude-code';
+  if (explicit === 'openclaw') return 'openclaw';
+  if (explicit === 'api') return 'api';
+
+  const searchText = [
+    node.title,
+    node.lastEventSummary,
+    node.runtimeLabel,
+    node.runtimeProvider,
+    node.groupLabel,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (searchText.includes('claude-code') || searchText.includes('anthropic') || searchText.includes('claude')) {
+    return 'claude-code';
+  }
+  if (searchText.includes('openclaw')) return 'openclaw';
+  if (searchText.includes('codex') || searchText.includes('openai')) return 'codex';
+  if (searchText.includes('orgx api') || searchText.includes('source_client=api')) return 'api';
+  return null;
+}
+
+function inferredAgentIdentity(node: SessionTreeNode): { agentId: string | null; agentName: string | null } {
+  const normalizedId = normalizeIdentity(node.agentId);
+  const normalizedName = normalizeIdentity(node.agentName);
+  if (normalizedId || normalizedName) {
+    return {
+      agentId: node.agentId ?? null,
+      agentName: node.agentName ?? null,
+    };
+  }
+
+  const runtimeSource = inferRuntimeSourceFromNode(node);
+  if (runtimeSource === 'codex') {
+    return { agentId: 'runtime:codex', agentName: 'Codex' };
+  }
+  if (runtimeSource === 'claude-code') {
+    return { agentId: 'runtime:claude-code', agentName: 'Claude Code' };
+  }
+  if (runtimeSource === 'openclaw') {
+    return { agentId: 'runtime:openclaw', agentName: 'OpenClaw' };
+  }
+  if (runtimeSource === 'api') {
+    return { agentId: 'runtime:api', agentName: 'OrgX API' };
+  }
+  return { agentId: null, agentName: null };
+}
+
 function sessionGroupKey(node: SessionTreeNode): string {
-  const id = normalizeIdentity(node.agentId);
+  const inferred = inferredAgentIdentity(node);
+  const id = normalizeIdentity(inferred.agentId);
   if (id) return `id:${id}`;
 
-  const name = normalizeIdentity(node.agentName);
+  const name = normalizeIdentity(inferred.agentName);
   if (name) return `name:${name}`;
 
   return 'unassigned';
+}
+
+function effectiveSessionStatus(node: SessionTreeNode): string {
+  const status = normalizeIdentity(node.status) ?? 'archived';
+  if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
+    return status;
+  }
+  if (Array.isArray(node.blockers) && node.blockers.length > 0) {
+    return 'blocked';
+  }
+
+  const phase = normalizeIdentity(node.phase);
+  if (phase === 'blocked') return 'blocked';
+  if (phase === 'handoff') return 'handoff';
+  if (phase === 'completed') return 'completed';
+  if (phase === 'review') return 'review';
+
+  const state = normalizeIdentity(node.state);
+  if (state === 'error') return 'failed';
+  if (state === 'stopped') return 'paused';
+  if (state === 'stale') return 'queued';
+
+  return status;
 }
 
 function isLiveStatus(status: string | null | undefined): boolean {
@@ -231,9 +310,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     const map = new Map<string, AgentGroup>();
 
     for (const node of sessions.nodes) {
+      const inferred = inferredAgentIdentity(node);
       const preferredKey = sessionGroupKey(node);
-      const normalizedId = normalizeIdentity(node.agentId);
-      const normalizedName = normalizeIdentity(node.agentName);
+      const normalizedId = normalizeIdentity(inferred.agentId);
+      const normalizedName = normalizeIdentity(inferred.agentName);
       let existing = map.get(preferredKey) ?? null;
 
       if (!existing && normalizedId && normalizedName) {
@@ -258,20 +338,20 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
       if (existing) {
         existing.nodes.push(node);
-        if (!existing.agentId && node.agentId) {
-          existing.agentId = node.agentId;
+        if (!existing.agentId && inferred.agentId) {
+          existing.agentId = inferred.agentId;
         }
         if (
           (existing.agentName === 'Unassigned' || !existing.agentName) &&
-          node.agentName
+          inferred.agentName
         ) {
-          existing.agentName = node.agentName;
+          existing.agentName = inferred.agentName;
         }
       } else {
         map.set(preferredKey, {
           groupKey: preferredKey,
-          agentId: node.agentId,
-          agentName: node.agentName ?? node.agentId ?? 'Unassigned',
+          agentId: inferred.agentId,
+          agentName: inferred.agentName ?? inferred.agentId ?? 'Unassigned',
           nodes: [node],
           latest: node,
           runtime: null,
@@ -417,8 +497,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
 
       if (isLiveWindow) {
-        const visibleNodes = group.nodes.filter((node) => isLiveStatus(node.status));
-        const archivedNodes = group.nodes.filter((node) => !isLiveStatus(node.status));
+        const visibleNodes = group.nodes.filter((node) =>
+          isLiveStatus(effectiveSessionStatus(node))
+        );
+        const archivedNodes = group.nodes.filter((node) =>
+          !isLiveStatus(effectiveSessionStatus(node))
+        );
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
         if (visibleNodes.length === 0) {
@@ -461,7 +545,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       const visibleNodes = group.nodes.filter((node) => {
         // Treat only actively progressing runs as "always visible" within time windows.
         // Blocked/failed runs should respect the selected time filter so "24h/7d" feels real.
-        if (isActiveStatus(node.status)) return true;
+        if (isActiveStatus(effectiveSessionStatus(node))) return true;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch >= cutoffEpoch;
       });
@@ -484,7 +568,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
 
       const archivedNodes = group.nodes.filter((node) => {
-        if (isActiveStatus(node.status)) return false;
+        if (isActiveStatus(effectiveSessionStatus(node))) return false;
         const nodeEpoch = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         return nodeEpoch < cutoffEpoch;
       });
@@ -764,6 +848,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const agentKey = group.groupKey;
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
+          const leadStatus = lead ? effectiveSessionStatus(lead) : null;
           const hasSessions = group.nodes.length > 0;
           const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
           const runtime = group.runtime ?? null;
@@ -811,7 +896,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <span
                         className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
                         style={{
-                          backgroundColor: statusColor(lead.status),
+                          backgroundColor: statusColor(leadStatus ?? lead.status),
                           borderColor: colors.cardBg,
                         }}
                       />
@@ -858,7 +943,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
                         {(() => {
                           const counts: Record<string, number> = {};
-                          for (const node of group.nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
+                          for (const node of group.nodes) {
+                            const nodeStatus = effectiveSessionStatus(node);
+                            counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
+                          }
                           const total = group.nodes.length;
                           return Object.entries(counts).map(([status, count]) => (
                             <span
@@ -954,6 +1042,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     <div className="max-h-[500px] space-y-1.5 overflow-y-auto p-2">
                       {visibleChildren.map((node, index) => {
                         const childActive = selectedSessionId === node.id;
+                        const nodeStatus = effectiveSessionStatus(node);
                         const childProvider = resolveProvider(
                           node.agentName,
                           node.title,
@@ -989,7 +1078,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                   >
                                     {childProvider.label}
                                   </span>
-                                  <span className="uppercase tracking-[0.08em]">{node.status}</span>
+                                  <span className="uppercase tracking-[0.08em]">{nodeStatus}</span>
                                   <span title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
                                     {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                                   </span>
@@ -1008,9 +1097,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         </div>
                               <span
                                 className="h-2 w-2 flex-shrink-0 rounded-full"
-                                style={{ backgroundColor: statusColor(node.status) }}
-                                aria-label={node.status}
-                                title={node.status}
+                                style={{ backgroundColor: statusColor(nodeStatus) }}
+                                aria-label={nodeStatus}
+                                title={nodeStatus}
                               />
                             </div>
                           </motion.button>
@@ -1107,6 +1196,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 >
               <div className="space-y-1.5 border-t border-subtle p-2">
                 {paginatedArchivedSessions.map(({ node, agentName }) => {
+                  const nodeStatus = effectiveSessionStatus(node);
                   const provider = node.runtimeProvider
                     ? { id: runtimeProviderIdFromLogo(node.runtimeProvider) }
                     : resolveProvider(node.agentName, node.title, node.lastEventSummary, node);
@@ -1125,7 +1215,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           </span>
                         </div>
                         <p className="truncate text-micro text-secondary">{node.title}</p>
-                        <span className="text-micro uppercase tracking-[0.08em] text-muted">{node.status}</span>
+                        <span className="text-micro uppercase tracking-[0.08em] text-muted">{nodeStatus}</span>
                       </div>
                     </button>
                   );
