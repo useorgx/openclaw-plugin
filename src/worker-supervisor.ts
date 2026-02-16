@@ -14,6 +14,18 @@ function pickString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function parseIgnoredMcpServers(raw: string | undefined): Set<string> {
+  if (typeof raw !== "string") return new Set(["codex_apps"]);
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.toLowerCase() === "none") return new Set();
+  return new Set(
+    trimmed
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 export function detectMcpHandshakeFailure(logText: unknown): McpHandshakeFailure | null {
   const text = String(logText ?? "");
   const lower = text.toLowerCase();
@@ -44,6 +56,10 @@ export function detectMcpHandshakeFailure(logText: unknown): McpHandshakeFailure
     null;
 
   const server = serverMatch ? pickString(serverMatch[1]) ?? null : null;
+  const ignoredServers = parseIgnoredMcpServers(process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS);
+  if (server && ignoredServers.has(server.toLowerCase())) {
+    return null;
+  }
 
   return {
     kind: "mcp_handshake",
@@ -85,4 +101,3 @@ export function shouldKillWorker(
 
   return { kill: false, elapsedMs, idleMs };
 }
-
