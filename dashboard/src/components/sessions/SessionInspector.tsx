@@ -24,9 +24,34 @@ interface SessionInspectorProps {
 }
 
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
+const ACTIVE_SESSION_STATUSES = new Set([
+  'running',
+  'active',
+  'queued',
+  'pending',
+  'in_progress',
+  'working',
+  'planning',
+  'handoff',
+  'review',
+]);
+const GENERIC_FAILURE_REASONS = new Set([
+  'agent execution failed',
+  'execution failed',
+  'run failed',
+  'failed',
+]);
 
 function normalizeStatus(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeReason(value: string | null | undefined): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isGenericFailureReason(value: string): boolean {
+  return GENERIC_FAILURE_REASONS.has(normalizeReason(value));
 }
 
 function resolveRunId(item: LiveActivityItem): string | null {
@@ -48,7 +73,6 @@ function effectiveSessionStatus(session: SessionTreeNode): string {
   if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
     return status;
   }
-  if (session.blockers.length > 0) return 'blocked';
 
   const phase = normalizeStatus(session.phase);
   if (phase === 'blocked') return 'blocked';
@@ -61,7 +85,42 @@ function effectiveSessionStatus(session: SessionTreeNode): string {
   if (state === 'stopped') return 'paused';
   if (state === 'stale') return 'queued';
 
+  if (ACTIVE_SESSION_STATUSES.has(status)) return status;
+  if (session.blockers.length > 0) return 'blocked';
+
   return status || 'unknown';
+}
+
+function resolveStatusReason(
+  session: SessionTreeNode,
+  sessionStatus: string,
+  sessionSummary: string | null
+): string | null {
+  const candidates = [
+    session.blockerReason ?? null,
+    ...session.blockers,
+    sessionStatus === 'blocked' || sessionStatus === 'failed' || sessionStatus === 'handoff'
+      ? sessionSummary
+      : null,
+  ]
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0);
+
+  if (candidates.length > 0) {
+    const specific = candidates.find((entry) => !isGenericFailureReason(entry));
+    return specific ?? candidates[0];
+  }
+
+  if (sessionStatus === 'handoff') {
+    return 'Waiting for handoff acceptance by the next agent.';
+  }
+  if (sessionStatus === 'blocked') {
+    return 'Blocked without an explicit reason from runtime.';
+  }
+  if (sessionStatus === 'failed') {
+    return 'Run failed without explicit error details.';
+  }
+  return null;
 }
 
 export const SessionInspector = memo(function SessionInspector({
@@ -224,12 +283,15 @@ export const SessionInspector = memo(function SessionInspector({
 
   const progressValue = session.progress === null ? null : Math.round(session.progress);
   const sessionStatus = effectiveSessionStatus(session);
-  const statusReason =
-    (session.blockerReason ?? '').trim() ||
-    session.blockers.find((entry) => typeof entry === 'string' && entry.trim().length > 0) ||
-    ((sessionStatus === 'blocked' || sessionStatus === 'failed') && sessionSummary
-      ? sessionSummary
-      : null);
+  const statusReason = resolveStatusReason(session, sessionStatus, sessionSummary);
+  const statusReasonLabel =
+    sessionStatus === 'handoff'
+      ? 'Handoff'
+      : sessionStatus === 'blocked'
+        ? 'Blocker reason'
+        : sessionStatus === 'failed'
+          ? 'Failure reason'
+          : 'Status note';
   const canPause = ['running', 'active', 'queued', 'pending'].includes(sessionStatus);
   const canResume = ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
   const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
@@ -326,7 +388,10 @@ export const SessionInspector = memo(function SessionInspector({
                 )}
               </div>
               {statusReason && (
-                <p className="mt-2 text-body text-secondary">{statusReason}</p>
+                <div className="mt-2 space-y-1">
+                  <p className="text-micro uppercase tracking-[0.08em] text-muted">{statusReasonLabel}</p>
+                  <p className="text-body text-secondary">{statusReason}</p>
+                </div>
               )}
             </div>
           )}

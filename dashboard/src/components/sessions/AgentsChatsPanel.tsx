@@ -146,9 +146,6 @@ function effectiveSessionStatus(node: SessionTreeNode): string {
   if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
     return status;
   }
-  if (Array.isArray(node.blockers) && node.blockers.length > 0) {
-    return 'blocked';
-  }
 
   const phase = normalizeIdentity(node.phase);
   if (phase === 'blocked') return 'blocked';
@@ -160,6 +157,9 @@ function effectiveSessionStatus(node: SessionTreeNode): string {
   if (state === 'error') return 'failed';
   if (state === 'stopped') return 'paused';
   if (state === 'stale') return 'queued';
+
+  if (ACTIVE_STATUSES.has(status)) return status;
+  if (Array.isArray(node.blockers) && node.blockers.length > 0) return 'blocked';
 
   return status;
 }

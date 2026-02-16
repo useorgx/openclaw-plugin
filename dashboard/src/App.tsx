@@ -483,7 +483,20 @@ function DashboardShell({
   );
 
   const blockedCount = useMemo(
-    () => data.sessions.nodes.filter((node) => node.status === 'blocked' || node.blockers.length > 0).length,
+    () =>
+      data.sessions.nodes.filter((node) => {
+        const status = normalizeStatus(node.status);
+        const phase = normalizeStatus(node.phase ?? '');
+        const state = normalizeStatus(node.state ?? '');
+
+        if (status === 'blocked' || status === 'failed' || phase === 'blocked' || state === 'error') {
+          return true;
+        }
+        if (ACTIVE_SESSION_METRIC_STATUSES.has(status) || status === 'handoff' || status === 'review') {
+          return false;
+        }
+        return node.blockers.length > 0;
+      }).length,
     [data.sessions.nodes]
   );
 
