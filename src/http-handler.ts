@@ -124,12 +124,16 @@ import {
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "./skill-pack-state.js";
 import { posthogCapture } from "./telemetry/posthog.js";
 import { createRouter } from "./http/router.js";
+import { createLocalArtifactDetailFallbackBuilder } from "./http/helpers/artifact-fallback.js";
+import { createRuntimeSseHub } from "./http/helpers/runtime-sse.js";
 import { registerAgentControlRoutes } from "./http/routes/agent-control.js";
 import { registerAgentSuiteRoutes } from "./http/routes/agent-suite.js";
 import { registerAgentsCatalogRoutes } from "./http/routes/agents-catalog.js";
 import { registerBillingRoutes } from "./http/routes/billing.js";
+import { registerDecisionActionsRoutes } from "./http/routes/decision-actions.js";
 import { registerDelegationRoutes } from "./http/routes/delegation.js";
 import { registerDebugRoutes } from "./http/routes/debug.js";
+import { registerEntityDynamicRoutes } from "./http/routes/entity-dynamic.js";
 import { registerEntitiesRoutes } from "./http/routes/entities.js";
 import { registerHealthRoutes } from "./http/routes/health.js";
 import { registerLiveLegacyRoutes } from "./http/routes/live-legacy.js";
@@ -138,9 +142,11 @@ import { registerLiveSnapshotRoutes } from "./http/routes/live-snapshot.js";
 import { registerMissionControlActionsRoutes } from "./http/routes/mission-control-actions.js";
 import { registerMissionControlReadRoutes } from "./http/routes/mission-control-read.js";
 import { registerOnboardingRoutes } from "./http/routes/onboarding.js";
+import { registerRunControlRoutes } from "./http/routes/run-control.js";
 import { registerRuntimeHookRoutes } from "./http/routes/runtime-hooks.js";
 import { registerSettingsByokRoutes } from "./http/routes/settings-byok.js";
 import { registerSummaryRoutes } from "./http/routes/summary.js";
+import { registerWorkArtifactsRoutes } from "./http/routes/work-artifacts.js";
 
 // =============================================================================
 // Helpers
@@ -397,166 +403,9 @@ function parseJsonSafe<T>(value: string): T | null {
   }
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function flattenActivityMetadata(value: unknown): Record<string, unknown> | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const nested = asRecord(record.metadata);
-  if (!nested) return record;
-  return { ...record, ...nested };
-}
-
-function metadataString(
-  metadata: Record<string, unknown> | null,
-  keys: string[]
-): string | null {
-  if (!metadata) return null;
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function metadataNumber(
-  metadata: Record<string, unknown> | null,
-  keys: string[]
-): number | null {
-  if (!metadata) return null;
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value.trim());
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
-}
-
-function resolveArtifactIdFromActivityItem(item: LiveActivityItem): string | null {
-  const metadata = flattenActivityMetadata(item.metadata);
-  if (!metadata) return null;
-  const rawId = metadataString(metadata, ["artifact_id", "artifactId", "work_artifact_id"]);
-  return rawId && rawId.length > 0 ? rawId : null;
-}
-
-function resolveArtifactHref(value: string | null): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(trimmed)}`;
-}
-
-function buildLocalArtifactDetailFallback(
-  artifactId: string,
-  warning: string
-): Record<string, unknown> | null {
-  let cursor: string | null = null;
-  const maxPages = 8;
-  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
-    const page = listActivityPage({ limit: 500, cursor });
-    const activities = Array.isArray(page.activities) ? page.activities : [];
-    for (const item of activities) {
-      const matchId = resolveArtifactIdFromActivityItem(item);
-      if (!matchId || matchId !== artifactId) continue;
-
-      const metadata = flattenActivityMetadata(item.metadata) ?? {};
-      const rawPath =
-        metadataString(metadata, [
-          "url",
-          "path",
-          "file_path",
-          "filepath",
-          "artifact_path",
-          "output_path",
-          "external_url",
-          "artifact_url",
-        ]) ?? null;
-      const artifactHref = resolveArtifactHref(rawPath);
-      const artifactType =
-        metadataString(metadata, ["artifact_type", "artifactType", "type"]) ?? "report";
-      const artifactName =
-        metadataString(metadata, ["artifact_name", "artifactName", "name", "title"]) ??
-        item.title?.trim() ??
-        `Artifact ${artifactId.slice(0, 8)}`;
-      const status =
-        metadataString(metadata, ["artifact_status", "status", "state"]) ??
-        (typeof metadata.event === "string" && metadata.event.includes("buffered")
-          ? "buffered"
-          : "draft");
-      const entityType =
-        metadataString(metadata, ["entity_type", "entityType"]) ??
-        (metadataString(metadata, ["initiative_id", "initiativeId"]) ? "initiative" : "task");
-      const entityId =
-        metadataString(metadata, [
-          "entity_id",
-          "entityId",
-          "task_id",
-          "taskId",
-          "workstream_id",
-          "workstreamId",
-          "initiative_id",
-          "initiativeId",
-          "run_id",
-          "runId",
-        ]) ?? "local";
-      const description =
-        metadataString(metadata, ["description", "summary", "message"]) ??
-        item.summary ??
-        item.description ??
-        null;
-      const version = Math.max(
-        1,
-        Math.round(metadataNumber(metadata, ["version", "artifact_version"]) ?? 1)
-      );
-      const createdAt = item.timestamp ?? new Date().toISOString();
-      const updatedAt = item.timestamp ?? createdAt;
-
-      return {
-        artifact: {
-          id: artifactId,
-          name: artifactName,
-          description,
-          artifact_url: artifactHref ?? "",
-          artifact_type: artifactType,
-          status,
-          version,
-          entity_type: entityType,
-          entity_id: entityId,
-          metadata: {
-            ...metadata,
-            local_fallback: true,
-            local_warning: warning,
-            local_activity_event_id: item.id,
-            local_activity_type: item.type,
-            local_activity_timestamp: item.timestamp,
-            local_source_path: rawPath,
-          },
-          created_at: createdAt,
-          updated_at: updatedAt,
-          catalog: null,
-          cached_metadata: null,
-        },
-        relationships: [],
-        localFallback: true,
-        warning,
-      };
-    }
-
-    if (!page.nextCursor) break;
-    cursor = page.nextCursor;
-  }
-
-  return null;
-}
+const buildLocalArtifactDetailFallback = createLocalArtifactDetailFallbackBuilder({
+  listActivityPage: ({ limit, cursor }) => listActivityPage({ limit, cursor }),
+});
 
 function maskSecret(value: string | null): string | null {
   if (!value) return null;
@@ -566,125 +415,15 @@ function maskSecret(value: string | null): string | null {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 }
 
-type RuntimeStreamSubscriber = {
-  id: string;
-  write: (chunk: Buffer) => boolean;
-  end: () => void;
-};
-
-const runtimeStreamSubscribers = new Map<string, RuntimeStreamSubscriber>();
-let runtimeStreamKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
-let runtimeStreamStalenessTimer: ReturnType<typeof setInterval> | null = null;
-let runtimeStreamFingerprintById: Map<string, string> = new Map();
-
-function runtimeStreamFingerprint(instance: RuntimeInstanceRecord): string {
-  return [
-    instance.state,
-    instance.lastHeartbeatAt ?? "",
-    instance.lastEventAt ?? "",
-    instance.progressPct ?? "",
-    instance.phase ?? "",
-  ].join("|");
-}
-
-function writeRuntimeSseEvent(
-  subscriber: RuntimeStreamSubscriber,
-  event: string,
-  payload: unknown
-): void {
-  const data = JSON.stringify(payload ?? null);
-  subscriber.write(Buffer.from(`event: ${event}
-data: ${data}
-
-`, "utf8"));
-}
-
-function stopRuntimeStreamTimers(): void {
-  if (runtimeStreamKeepaliveTimer) {
-    clearInterval(runtimeStreamKeepaliveTimer);
-    runtimeStreamKeepaliveTimer = null;
-  }
-  if (runtimeStreamStalenessTimer) {
-    clearInterval(runtimeStreamStalenessTimer);
-    runtimeStreamStalenessTimer = null;
-  }
-  runtimeStreamFingerprintById = new Map();
-}
-
-function broadcastRuntimeSse(event: string, payload: unknown): void {
-  if (runtimeStreamSubscribers.size === 0) return;
-
-  for (const subscriber of runtimeStreamSubscribers.values()) {
-    try {
-      writeRuntimeSseEvent(subscriber, event, payload);
-    } catch {
-      try {
-        subscriber.end();
-      } catch {
-        // ignore
-      }
-      runtimeStreamSubscribers.delete(subscriber.id);
-    }
-  }
-
-  if (runtimeStreamSubscribers.size === 0) {
-    stopRuntimeStreamTimers();
-  }
-}
-
-function ensureRuntimeStreamTimers(): void {
-  if (runtimeStreamKeepaliveTimer || runtimeStreamStalenessTimer) return;
-
-  runtimeStreamKeepaliveTimer = setInterval(() => {
-    if (runtimeStreamSubscribers.size === 0) {
-      stopRuntimeStreamTimers();
-      return;
-    }
-
-    const payload = Buffer.from(`: ping ${Date.now()}
-`, "utf8");
-    for (const subscriber of runtimeStreamSubscribers.values()) {
-      try {
-        subscriber.write(payload);
-      } catch {
-        try {
-          subscriber.end();
-        } catch {
-          // ignore
-        }
-        runtimeStreamSubscribers.delete(subscriber.id);
-      }
-    }
-  }, 20_000);
-  runtimeStreamKeepaliveTimer.unref?.();
-
-  runtimeStreamStalenessTimer = setInterval(() => {
-    if (runtimeStreamSubscribers.size === 0) {
-      stopRuntimeStreamTimers();
-      return;
-    }
-
-    // listRuntimeInstances applies staleness before returning.
-    const instances = listRuntimeInstances({ limit: 600 });
-    const nextFingerprintById = new Map<string, string>();
-
-    for (const instance of instances) {
-      const fingerprint = runtimeStreamFingerprint(instance);
-      nextFingerprintById.set(instance.id, fingerprint);
-
-      const previous = runtimeStreamFingerprintById.get(instance.id);
-      if (previous && previous === fingerprint) {
-        continue;
-      }
-
-      runtimeStreamFingerprintById.set(instance.id, fingerprint);
-      broadcastRuntimeSse("runtime.updated", instance);
-    }
-
-    runtimeStreamFingerprintById = nextFingerprintById;
-  }, 15_000);
-  runtimeStreamStalenessTimer.unref?.();
-}
+const {
+  runtimeStreamSubscribers,
+  writeRuntimeSseEvent,
+  stopRuntimeStreamTimers,
+  broadcastRuntimeSse,
+  ensureRuntimeStreamTimers,
+} = createRuntimeSseHub({
+  listRuntimeInstances: ({ limit }) => listRuntimeInstances({ limit }),
+});
 
 function modelImpliesByok(model: string | null): boolean {
   const lower = (model ?? "").trim().toLowerCase();
@@ -7825,6 +7564,44 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  registerDecisionActionsRoutes(apiRouter, {
+    parseJsonRequest,
+    bulkDecideDecisions: (ids, action, note) => client.bulkDecideDecisions(ids, action, note),
+    sendJson,
+    safeErrorMessage,
+  });
+  registerRunControlRoutes(apiRouter, {
+    parseJsonRequest,
+    pickString,
+    listRunCheckpoints: (runId) => client.listRunCheckpoints(runId),
+    createRunCheckpoint: (runId, input) => client.createRunCheckpoint(runId, input),
+    restoreRunCheckpoint: (runId, input) => client.restoreRunCheckpoint(runId, input),
+    runAction: (runId, action, input) => client.runAction(runId, action, input),
+    sendJson,
+    safeErrorMessage,
+  });
+  registerWorkArtifactsRoutes(apiRouter, {
+    rawRequest: (requestMethod, requestPath, body) =>
+      client.rawRequest(requestMethod, requestPath, body),
+    buildLocalArtifactDetailFallback,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerEntityDynamicRoutes(apiRouter, {
+    parseJsonRequest,
+    pickString,
+    rawRequest: (requestMethod, requestPath, body) =>
+      client.rawRequest(requestMethod, requestPath, body),
+    listEntityComments,
+    mergeEntityComments: (remote, local) => mergeEntityComments(remote, local as any),
+    appendEntityComment,
+    updateEntity: (type, id, updates) => client.updateEntity(type, id, updates),
+    setLocalInitiativeStatusOverride,
+    clearLocalInitiativeStatusOverride,
+    isUnauthorizedOrgxError,
+    sendJson,
+    safeErrorMessage,
+  });
   registerMissionControlActionsRoutes(apiRouter, {
     parseJsonRequest,
     pickString,
@@ -8069,23 +7846,6 @@ export function createHttpHandler(
       }
 
       const route = url.replace("/orgx/api/", "").replace(/\/+$/, "");
-      const decisionApproveMatch = route.match(
-        /^live\/decisions\/([^/]+)\/approve$/
-      );
-      const runActionMatch = route.match(/^runs\/([^/]+)\/actions\/([^/]+)$/);
-      const runCheckpointsMatch = route.match(/^runs\/([^/]+)\/checkpoints$/);
-      const runCheckpointRestoreMatch = route.match(
-        /^runs\/([^/]+)\/checkpoints\/([^/]+)\/restore$/
-      );
-      const entityCommentsMatch = route.match(
-        /^entities\/([^/]+)\/([^/]+)\/comments$/
-      );
-      const entityActionMatch = route.match(
-        /^entities\/([^/]+)\/([^/]+)\/([^/]+)$/
-      );
-      const isArtifactsByEntityRoute = route === "work-artifacts/by-entity";
-      const artifactDetailMatch = route.match(/^artifacts\/([^/]+)$/);
-
       const routed = apiRouter.match(method, route);
       if (routed) {
         await routed.handler({
@@ -8098,387 +7858,9 @@ export function createHttpHandler(
         });
         return true;
       }
-      if (
-        method === "POST" &&
-        (route === "live/decisions/approve" || decisionApproveMatch)
-      ) {
-        try {
-          const payload = await parseJsonRequest(req);
-          const action = payload.action === "reject" ? "reject" : "approve";
-          const note =
-            typeof payload.note === "string" && payload.note.trim().length > 0
-              ? payload.note.trim()
-              : undefined;
 
-          const ids = decisionApproveMatch
-            ? [decodeURIComponent(decisionApproveMatch[1])]
-            : Array.isArray(payload.ids)
-              ? payload.ids
-                  .filter((id): id is string => typeof id === "string")
-                  .map((id) => id.trim())
-                  .filter(Boolean)
-              : [];
-
-          if (ids.length === 0) {
-            sendJson(res, 400, {
-              error: "Decision IDs are required.",
-              expected: {
-                route: "/orgx/api/live/decisions/approve",
-                body: { ids: ["decision-id"], action: "approve|reject" },
-              },
-            });
-            return true;
-          }
-
-          const results = await client.bulkDecideDecisions(ids, action, note);
-          const updated = results.filter((result) => result.ok).length;
-          const failed = results.length - updated;
-
-          sendJson(res, failed > 0 ? 207 : 200, {
-            action,
-            requested: ids.length,
-            updated,
-            failed,
-            results,
-          });
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (runCheckpointsMatch && method === "POST") {
-        try {
-          const runId = decodeURIComponent(runCheckpointsMatch[1]);
-          const payload = await parseJsonRequest(req);
-          const reason = pickString(payload, ["reason"]) ?? undefined;
-          const rawPayload = payload.payload;
-          const checkpointPayload =
-            rawPayload && typeof rawPayload === "object" && !Array.isArray(rawPayload)
-              ? (rawPayload as Record<string, unknown>)
-              : undefined;
-
-          const data = await client.createRunCheckpoint(runId, {
-            reason,
-            payload: checkpointPayload,
-          });
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (runCheckpointRestoreMatch && method === "POST") {
-        try {
-          const runId = decodeURIComponent(runCheckpointRestoreMatch[1]);
-          const checkpointId = decodeURIComponent(runCheckpointRestoreMatch[2]);
-          const payload = await parseJsonRequest(req);
-          const reason = pickString(payload, ["reason"]) ?? undefined;
-          const data = await client.restoreRunCheckpoint(runId, {
-            checkpointId,
-            reason,
-          });
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (runActionMatch && method === "POST") {
-        try {
-          const runId = decodeURIComponent(runActionMatch[1]);
-          const action = decodeURIComponent(runActionMatch[2]) as
-            | "pause"
-            | "resume"
-            | "cancel"
-            | "rollback";
-          const payload = await parseJsonRequest(req);
-          const checkpointId = pickString(payload, ["checkpointId", "checkpoint_id"]);
-          const reason = pickString(payload, ["reason"]);
-
-          const data = await client.runAction(runId, action, {
-            checkpointId: checkpointId ?? undefined,
-            reason: reason ?? undefined,
-          });
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      // Work artifacts by entity: GET /orgx/api/work-artifacts/by-entity?entity_type=...&entity_id=...&limit=...&status=...
-      if (isArtifactsByEntityRoute && method === "GET") {
-        try {
-          const qs = rawUrl.includes("?") ? rawUrl.split("?")[1] : "";
-          const path = `/api/work-artifacts/by-entity${qs ? `?${qs}` : ""}`;
-          const data = await client.rawRequest("GET", path);
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          sendJson(res, 502, { error: safeErrorMessage(err) });
-        }
-        return true;
-      }
-
-      // Artifact detail: GET /orgx/api/artifacts/:artifactId
-      if (artifactDetailMatch && method === "GET") {
-        try {
-          const artifactId = decodeURIComponent(artifactDetailMatch[1]);
-          const path = `/api/artifacts/${encodeURIComponent(artifactId)}`;
-          const data = await client.rawRequest("GET", path);
-          sendJson(res, 200, data);
-        } catch (err: unknown) {
-          const warning = safeErrorMessage(err);
-          const artifactId = decodeURIComponent(artifactDetailMatch[1]);
-          const fallback = buildLocalArtifactDetailFallback(artifactId, warning);
-          if (fallback) {
-            sendJson(res, 200, fallback);
-          } else {
-            sendJson(res, 502, { error: warning });
-          }
-        }
-        return true;
-      }
-
-      // Entity comments route: GET/POST /orgx/api/entities/{type}/{id}/comments
-      if (entityCommentsMatch && (method === "GET" || method === "POST")) {
-        try {
-          const entityType = decodeURIComponent(entityCommentsMatch[1]);
-          const entityId = decodeURIComponent(entityCommentsMatch[2]);
-          if (!entityType || !entityId) {
-            sendJson(res, 400, {
-              ok: false,
-              error: "entity type and id are required",
-            });
-            return true;
-          }
-
-          const path = `/api/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/comments`;
-          if (method === "GET") {
-            const local = listEntityComments(entityType, entityId);
-            try {
-              const data = (await client.rawRequest("GET", path)) as any;
-              const comments = mergeEntityComments(data?.comments, local);
-              if (data && typeof data === "object") {
-                sendJson(res, 200, { ...data, comments });
-              } else {
-                sendJson(res, 200, { status: "success", comments, nextCursor: null });
-              }
-            } catch (err: unknown) {
-              sendJson(res, 200, {
-                status: "success",
-                comments: local,
-                nextCursor: null,
-                localFallback: true,
-                warning: safeErrorMessage(err),
-              });
-            }
-            return true;
-          }
-
-          const payload = await parseJsonRequest(req);
-          const body = pickString(payload, ["body", "comment", "text", "message"]) ?? "";
-          if (!body.trim()) {
-            sendJson(res, 400, { ok: false, error: "comment body is required" });
-            return true;
-          }
-          const commentType =
-            pickString(payload, ["comment_type", "commentType", "type"]) ?? "note";
-          const severity = pickString(payload, ["severity", "level"]) ?? "info";
-          const tags = (payload as any)?.tags;
-
-          const normalizedPayload: Record<string, unknown> = {
-            body,
-            comment_type: commentType,
-            severity,
-            tags,
-            parent_comment_id: null,
-          };
-
-          try {
-            const data = await client.rawRequest("POST", path, normalizedPayload);
-            sendJson(res, 200, data);
-          } catch (err: unknown) {
-            const warning = safeErrorMessage(err);
-            try {
-              const comment = appendEntityComment({
-                entityType,
-                entityId,
-                body,
-                commentType,
-                severity,
-                tags,
-              });
-              sendJson(res, 200, {
-                status: "success",
-                comment,
-                localFallback: true,
-                warning,
-              });
-            } catch (localErr: unknown) {
-              sendJson(res, 500, {
-                ok: false,
-                error: warning || "Unable to save comment",
-                localError: safeErrorMessage(localErr),
-              });
-            }
-          }
-        } catch (err: unknown) {
-          sendJson(res, 500, { ok: false, error: safeErrorMessage(err) });
-        }
-        return true;
-      }
-
-      // Entity action / delete route: POST /orgx/api/entities/{type}/{id}/{action}
-      if (entityActionMatch && method === "POST") {
-        try {
-          const entityType = decodeURIComponent(entityActionMatch[1]);
-          const entityId = decodeURIComponent(entityActionMatch[2]);
-          const entityAction = decodeURIComponent(entityActionMatch[3]);
-          const payload = await parseJsonRequest(req);
-
-          if (entityAction === "delete") {
-            // Delete via status update. Initiatives use `archived` in OrgX.
-            const deleteStatus =
-              entityType.trim().toLowerCase() === "initiative"
-                ? "archived"
-                : "deleted";
-            try {
-              const entity = await client.updateEntity(entityType, entityId, {
-                status: deleteStatus,
-              });
-              if (entityType.trim().toLowerCase() === "initiative") {
-                clearLocalInitiativeStatusOverride(entityId);
-              }
-              sendJson(res, 200, { ok: true, entity, deletedAsStatus: deleteStatus });
-            } catch (err: unknown) {
-              if (
-                entityType.trim().toLowerCase() === "initiative" &&
-                isUnauthorizedOrgxError(err)
-              ) {
-                setLocalInitiativeStatusOverride(entityId, deleteStatus);
-                sendJson(res, 200, {
-                  ok: true,
-                  localFallback: true,
-                  warning: safeErrorMessage(err),
-                  entity: {
-                    id: entityId,
-                    type: entityType,
-                    status: deleteStatus,
-                  },
-                  deletedAsStatus: deleteStatus,
-                });
-                return true;
-              }
-              throw err;
-            }
-          } else {
-            // Map action to status update
-            const statusMap: Record<string, string> = {
-              start: "in_progress",
-              complete: "done",
-              block: "blocked",
-              unblock: "in_progress",
-              pause: "paused",
-              resume: "active",
-            };
-            const newStatus = statusMap[entityAction];
-            if (!newStatus) {
-              sendJson(res, 400, {
-                error: `Unknown entity action: ${entityAction}`,
-              });
-              return true;
-            }
-            try {
-              const entity = await client.updateEntity(entityType, entityId, {
-                status: newStatus,
-                ...(payload.force ? { force: true } : {}),
-              });
-              if (entityType.trim().toLowerCase() === "initiative") {
-                clearLocalInitiativeStatusOverride(entityId);
-              }
-              sendJson(res, 200, { ok: true, entity });
-            } catch (err: unknown) {
-              if (
-                entityType.trim().toLowerCase() === "initiative" &&
-                isUnauthorizedOrgxError(err)
-              ) {
-                setLocalInitiativeStatusOverride(entityId, newStatus);
-                sendJson(res, 200, {
-                  ok: true,
-                  localFallback: true,
-                  warning: safeErrorMessage(err),
-                  entity: {
-                    id: entityId,
-                    type: entityType,
-                    status: newStatus,
-                  },
-                });
-                return true;
-              }
-              throw err;
-            }
-          }
-        } catch (err: unknown) {
-          sendJson(res, 500, {
-            error: safeErrorMessage(err),
-          });
-        }
-        return true;
-      }
-
-      if (
-        method !== "GET" &&
-        method !== "HEAD" &&
-        !(runCheckpointsMatch && method === "POST") &&
-        !(runCheckpointRestoreMatch && method === "POST") &&
-        !(runActionMatch && method === "POST") &&
-        !(entityCommentsMatch && method === "POST") &&
-        !(entityActionMatch && method === "POST")
-      ) {
-        res.writeHead(405, {
-          "Content-Type": "text/plain",
-          ...SECURITY_HEADERS,
-          ...CORS_HEADERS,
-        });
-        res.end("Method Not Allowed");
-        return true;
-      }
-
-      switch (route) {
-        default: {
-          if (runCheckpointsMatch) {
-            try {
-              const runId = decodeURIComponent(runCheckpointsMatch[1]);
-              const data = await client.listRunCheckpoints(runId);
-              sendJson(res, 200, data);
-            } catch (err: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-              });
-            }
-            return true;
-          }
-
-          if (runActionMatch || runCheckpointRestoreMatch) {
-            sendJson(res, 405, { error: "Use POST for this endpoint" });
-            return true;
-          }
-
-          sendJson(res, 404, { error: "Unknown API endpoint" });
-          return true;
-        }
-      }
+      sendJson(res, 404, { error: "Unknown API endpoint" });
+      return true;
     }
 
     // ── Dashboard SPA + static assets ──────────────────────────────────────
