@@ -64,6 +64,7 @@ import {
   resolveRuntimeUserId,
   type ResolvedConfig,
 } from "./config/resolution.js";
+import { refreshResolvedConfig } from "./config/refresh.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -425,65 +426,20 @@ export default function register(api: PluginAPI): void {
     reason?: string;
     allowApiKeyChanges?: boolean;
   }): boolean {
-    const allowApiKeyChanges = input?.allowApiKeyChanges !== false;
-    const previousApiKey = config.apiKey;
-    const previousBaseUrl = config.baseUrl;
-    const previousUserId = config.userId;
-    const previousDocsUrl = config.docsUrl;
-    const previousKeySource = config.apiKeySource;
-
-    const latestPersisted = loadAuthStore();
-    const next = resolveConfig(api, {
-      installationId: config.installationId,
-      persistedApiKey: latestPersisted?.apiKey ?? null,
-      persistedUserId: latestPersisted?.userId ?? null,
-    });
-
-    const nextApiKey = allowApiKeyChanges ? next.apiKey : previousApiKey;
-    const nextUserId = allowApiKeyChanges ? next.userId : previousUserId;
-
-    const changed =
-      nextApiKey !== previousApiKey ||
-      next.baseUrl !== previousBaseUrl ||
-      nextUserId !== previousUserId ||
-      next.docsUrl !== previousDocsUrl ||
-      next.apiKeySource !== previousKeySource;
-
-    if (!changed) {
-      return false;
-    }
-
-    if (allowApiKeyChanges) {
-      config.apiKey = nextApiKey;
-      config.userId = nextUserId;
-      config.apiKeySource = next.apiKeySource;
-    }
-    config.baseUrl = next.baseUrl;
-    config.docsUrl = next.docsUrl;
-    baseApiUrl = config.baseUrl.replace(/\/+$/, "");
-
-    client.setCredentials({
-      apiKey: config.apiKey,
-      userId: config.userId,
-      baseUrl: config.baseUrl,
-    });
-
-    // Keep onboarding state aligned with what's actually configured (without forcing a status transition).
-    updateOnboardingState({
-      hasApiKey: Boolean(config.apiKey),
-      keySource: config.apiKeySource,
-      docsUrl: config.docsUrl,
-      installationId: config.installationId,
-    });
-
-    api.log?.info?.("[orgx] Config refreshed", {
-      reason: input?.reason ?? "runtime_refresh",
-      baseUrl: config.baseUrl,
-      hasApiKey: Boolean(config.apiKey),
-      apiKeySource: config.apiKeySource,
-    });
-
-    return true;
+    const refreshed = refreshResolvedConfig(
+      {
+        api,
+        config,
+        loadAuthStore,
+        resolveConfig,
+        updateOnboardingState,
+        setCredentials: (credentials) => client.setCredentials(credentials),
+        logInfo: api.log?.info,
+      },
+      input
+    );
+    baseApiUrl = refreshed.baseApiUrl;
+    return refreshed.changed;
   }
 
   function resolveReportingContext(
