@@ -1,3 +1,85 @@
+import { saveAuthStore } from "../auth-store.js";
+import {
+  resolveRuntimeUserId,
+  type ResolvedConfig,
+} from "../config/resolution.js";
+import { autoConfigureDetectedMcpClients } from "../mcp-client-setup.js";
+import {
+  readOpenClawGatewayPort,
+  readOpenClawSettingsSnapshot,
+} from "../openclaw-settings.js";
+import type { OnboardingState } from "../types.js";
+
+type LoggerLike = {
+  info?: (msg: string, meta?: Record<string, unknown>) => void;
+  warn?: (msg: string, meta?: Record<string, unknown>) => void;
+  debug?: (msg: string, meta?: Record<string, unknown>) => void;
+};
+
+type RuntimeConfigState = Pick<
+  ResolvedConfig,
+  "apiKey" | "apiKeySource" | "userId" | "baseUrl" | "installationId"
+>;
+
+export function applyRuntimeApiKey(input: {
+  config: RuntimeConfigState;
+  apiKey: string;
+  source: "manual" | "browser_pairing";
+  workspaceName?: string | null;
+  keyPrefix?: string | null;
+  userId?: string | null;
+  currentWorkspaceName: string | null;
+  updateOnboardingState: (updates: Partial<OnboardingState>) => unknown;
+  setCredentials: (credentials: { apiKey: string; userId: string; baseUrl: string }) => void;
+  logger?: LoggerLike;
+}): void {
+  const nextApiKey = input.apiKey.trim();
+  input.config.apiKey = nextApiKey;
+  input.config.apiKeySource = "persisted";
+  input.config.userId = resolveRuntimeUserId(nextApiKey, [input.userId, input.config.userId]);
+
+  input.setCredentials({
+    apiKey: input.config.apiKey,
+    userId: input.config.userId,
+    baseUrl: input.config.baseUrl,
+  });
+
+  saveAuthStore({
+    installationId: input.config.installationId,
+    apiKey: nextApiKey,
+    userId: input.config.userId || null,
+    workspaceName: input.workspaceName ?? null,
+    keyPrefix: input.keyPrefix ?? null,
+    source: input.source,
+  });
+
+  input.updateOnboardingState({
+    hasApiKey: true,
+    keySource: "persisted",
+    installationId: input.config.installationId,
+    workspaceName: input.workspaceName ?? input.currentWorkspaceName,
+  });
+
+  if (
+    input.source === "browser_pairing" &&
+    process.env.ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG !== "1"
+  ) {
+    try {
+      const snapshot = readOpenClawSettingsSnapshot();
+      const port = readOpenClawGatewayPort(snapshot.raw);
+      const localMcpUrl = `http://127.0.0.1:${port}/orgx/mcp`;
+      void autoConfigureDetectedMcpClients({
+        localMcpUrl,
+        logger: input.logger ?? {},
+      }).catch(() => {
+        // best effort
+      });
+    } catch {
+      // best effort
+    }
+  }
+}
+
 export function isAuthRequiredError(result: {
   status: number;
   error: string;

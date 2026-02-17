@@ -32,7 +32,6 @@ import {
   clearPersistedApiKey,
   loadAuthStore,
   resolveInstallationId,
-  saveAuthStore,
 } from "./auth-store.js";
 import {
   clearPersistedSnapshot,
@@ -55,8 +54,6 @@ import {
   type RegisteredPrompt,
   type RegisteredTool,
 } from "./mcp-http-handler.js";
-import { autoConfigureDetectedMcpClients } from "./mcp-client-setup.js";
-import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 import { posthogCapture } from "./telemetry/posthog.js";
 import { readSkillPackState, refreshSkillPackState } from "./skill-pack-state.js";
 import {
@@ -66,6 +63,7 @@ import {
 } from "./config/resolution.js";
 import { refreshResolvedConfig } from "./config/refresh.js";
 import {
+  applyRuntimeApiKey,
   buildManualKeyConnectUrl as buildManualKeyConnectUrlForBase,
   fetchOrgxJson as fetchOrgxJsonRequest,
   isAuthRequiredError,
@@ -585,51 +583,18 @@ export default function register(api: PluginAPI): void {
     keyPrefix?: string | null;
     userId?: string | null;
   }) {
-    const nextApiKey = input.apiKey.trim();
-    config.apiKey = nextApiKey;
-    config.apiKeySource = "persisted";
-    config.userId = resolveRuntimeUserId(nextApiKey, [input.userId, config.userId]);
-
-    client.setCredentials({
-      apiKey: config.apiKey,
-      userId: config.userId,
-      baseUrl: config.baseUrl,
-    });
-
-    saveAuthStore({
-      installationId: config.installationId,
-      apiKey: nextApiKey,
-      userId: config.userId || null,
-      workspaceName: input.workspaceName ?? null,
-      keyPrefix: input.keyPrefix ?? null,
+    applyRuntimeApiKey({
+      config,
+      apiKey: input.apiKey,
       source: input.source,
+      workspaceName: input.workspaceName,
+      keyPrefix: input.keyPrefix,
+      userId: input.userId,
+      currentWorkspaceName: onboardingState.workspaceName,
+      updateOnboardingState,
+      setCredentials: (credentials) => client.setCredentials(credentials),
+      logger: api.log ?? {},
     });
-
-    updateOnboardingState({
-      hasApiKey: true,
-      keySource: "persisted",
-      installationId: config.installationId,
-      workspaceName: input.workspaceName ?? onboardingState.workspaceName,
-    });
-
-    if (
-      input.source === "browser_pairing" &&
-      process.env.ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG !== "1"
-    ) {
-      try {
-        const snapshot = readOpenClawSettingsSnapshot();
-        const port = readOpenClawGatewayPort(snapshot.raw);
-        const localMcpUrl = `http://127.0.0.1:${port}/orgx/mcp`;
-        void autoConfigureDetectedMcpClients({
-          localMcpUrl,
-          logger: api.log ?? {},
-        }).catch(() => {
-          // best effort
-        });
-      } catch {
-        // best effort
-      }
-    }
   }
 
   // ---------------------------------------------------------------------------
