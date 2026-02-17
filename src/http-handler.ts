@@ -37,7 +37,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
-import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
+import { writeFileAtomicSync } from "./fs-utils.js";
 import { getOrgxPluginConfigDir } from "./paths.js";
 import { registerArtifact } from "./artifacts/register-artifact.js";
 import {
@@ -135,6 +135,7 @@ import { registerHealthRoutes } from "./http/routes/health.js";
 import { registerLiveMiscRoutes } from "./http/routes/live-misc.js";
 import { registerMissionControlReadRoutes } from "./http/routes/mission-control-read.js";
 import { registerOnboardingRoutes } from "./http/routes/onboarding.js";
+import { registerRuntimeHookRoutes } from "./http/routes/runtime-hooks.js";
 import { registerSettingsByokRoutes } from "./http/routes/settings-byok.js";
 import { registerSummaryRoutes } from "./http/routes/summary.js";
 
@@ -7838,6 +7839,33 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  registerRuntimeHookRoutes(apiRouter, {
+    parseJsonRequest,
+    pickString,
+    pickNumber,
+    pickHeaderString,
+    resolveRuntimeHookToken,
+    maskSecret,
+    parseJsonSafe,
+    sendJson,
+    safeErrorMessage,
+    randomUUID,
+    listRuntimeInstances,
+    writeRuntimeSseEvent,
+    runtimeStreamSubscribers,
+    ensureRuntimeStreamTimers,
+    stopRuntimeStreamTimers,
+    upsertRuntimeInstanceFromHook,
+    broadcastRuntimeSse,
+    clearSnapshotResponseCache,
+    normalizeHookPhase,
+    normalizeRuntimeSourceForReporting: (value) =>
+      normalizeRuntimeSourceForReporting(value as RuntimeSourceClient),
+    emitActivity: (input) =>
+      client.emitActivity(input as Parameters<typeof client.emitActivity>[0]),
+    securityHeaders: SECURITY_HEADERS,
+    corsHeaders: CORS_HEADERS,
+  });
   registerHealthRoutes(apiRouter, {
     diagnostics,
     readOutboxSummary: () => outboxAdapter.readSummary(),
@@ -9595,9 +9623,7 @@ export function createHttpHandler(
         !(isMissionControlNextUpUnpinRoute && method === "POST") &&
         !(isMissionControlNextUpReorderRoute && method === "POST") &&
         !(entityCommentsMatch && method === "POST") &&
-        !(entityActionMatch && method === "POST") &&
-        !(route === "hooks/runtime" && method === "POST") &&
-        !(route === "hooks/runtime/setup" && method === "POST")
+        !(entityActionMatch && method === "POST")
       ) {
         res.writeHead(405, {
           "Content-Type": "text/plain",
@@ -9609,508 +9635,6 @@ export function createHttpHandler(
       }
 
       switch (route) {
-        case "hooks/runtime/config": {
-          try {
-            const snapshot = readOpenClawSettingsSnapshot();
-            const port = readOpenClawGatewayPort(snapshot.raw);
-            const runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
-            const hookToken = resolveRuntimeHookToken();
-
-            const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
-            const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
-            const hookScriptInstalled = existsSync(hookScriptPath);
-
-            const codexHome = (process.env.CODEX_HOME ?? "").trim();
-            const codexCandidates = [
-              codexHome ? join(codexHome, "config.toml") : null,
-              join(homedir(), ".codex", "config.toml"),
-              join(homedir(), ".config", "codex", "config.toml"),
-            ].filter(Boolean) as string[];
-            const codexConfigPath =
-              codexCandidates.find((candidate) => existsSync(candidate)) ??
-              (codexCandidates[0] ?? null);
-
-            let codexInstalled = false;
-            let codexHasNotify = false;
-            if (codexConfigPath && existsSync(codexConfigPath)) {
-              const raw = readFileSync(codexConfigPath, "utf8");
-              codexHasNotify = /^\s*notify\s*=/m.test(raw);
-              codexInstalled =
-                raw.includes("post-reporting-event.mjs") &&
-                raw.includes("--source_client=codex");
-            }
-            const codexNotifyConflict = Boolean(codexHasNotify && !codexInstalled);
-
-            const claudeCandidates = [
-              join(homedir(), ".claude", "settings.json"),
-              join(homedir(), ".config", "claude", "settings.json"),
-            ];
-            const claudeSettingsPath =
-              claudeCandidates.find((candidate) => existsSync(candidate)) ??
-              claudeCandidates[0];
-
-            let claudeInstalled = false;
-            if (claudeSettingsPath && existsSync(claudeSettingsPath)) {
-              const raw = readFileSync(claudeSettingsPath, "utf8");
-              claudeInstalled =
-                raw.includes("post-reporting-event.mjs") &&
-                raw.includes("--source_client=claude-code");
-            }
-
-            sendJson(res, 200, {
-              ok: true,
-              runtimeHookUrl,
-              hookToken,
-              hookTokenHint: maskSecret(hookToken),
-              paths: {
-                hookScriptPath,
-                codexConfigPath,
-                claudeSettingsPath,
-              },
-              installed: {
-                hookScript: hookScriptInstalled,
-                codex: codexInstalled,
-                claudeCode: claudeInstalled,
-              },
-              conflicts: {
-                codexNotify: codexNotifyConflict,
-              },
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "hooks/runtime/setup": {
-          if (method !== "POST") {
-            sendJson(res, 405, {
-              ok: false,
-              error: "Use POST /orgx/api/hooks/runtime/setup",
-            });
-            return true;
-          }
-
-          try {
-            const payloadRecord = await parseJsonRequest(req);
-            const requestedTargets = Array.isArray(payloadRecord.targets)
-              ? payloadRecord.targets
-              : [];
-            const requested = requestedTargets
-              .map((value) => (typeof value === "string" ? value.trim().toLowerCase() : ""))
-              .filter((value) => value.length > 0);
-
-            const targets = new Set<string>();
-            for (const value of requested) {
-              if (value === "codex") targets.add("codex");
-              if (
-                value === "claude" ||
-                value === "claude-code" ||
-                value === "claude_code"
-              ) {
-                targets.add("claude-code");
-              }
-            }
-            if (targets.size === 0) {
-              targets.add("codex");
-              targets.add("claude-code");
-            }
-
-            const snapshot = readOpenClawSettingsSnapshot();
-            const port = readOpenClawGatewayPort(snapshot.raw);
-            const runtimeHookUrl = `http://127.0.0.1:${port}/orgx/api/hooks/runtime`;
-            const hookToken = resolveRuntimeHookToken();
-
-            const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
-            mkdirSync(hooksDir, { recursive: true, mode: 0o700 });
-            const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
-
-            const handlerFilename = fileURLToPath(import.meta.url);
-            const distDir = resolve(join(handlerFilename, ".."));
-            const bundledScriptPath = resolve(distDir, "hooks", "post-reporting-event.mjs");
-            const fallbackScriptPath = resolve(
-              distDir,
-              "..",
-              "templates",
-              "hooks",
-              "scripts",
-              "post-reporting-event.mjs"
-            );
-
-            let scriptContent = "";
-            let hookScriptSourcePath = bundledScriptPath;
-            try {
-              scriptContent = readFileSync(bundledScriptPath, "utf8");
-            } catch {
-              hookScriptSourcePath = fallbackScriptPath;
-              scriptContent = readFileSync(fallbackScriptPath, "utf8");
-            }
-
-            writeFileAtomicSync(hookScriptPath, scriptContent, {
-              mode: 0o700,
-              encoding: "utf8",
-            });
-
-            const result = {
-              ok: true,
-              runtimeHookUrl,
-              hookTokenHint: maskSecret(hookToken),
-              hookScriptPath,
-              hookScriptSourcePath,
-              targets: {
-                codex: targets.has("codex"),
-                claudeCode: targets.has("claude-code"),
-              },
-              codex: {
-                path: null as string | null,
-                installed: false,
-                conflict: false,
-              },
-              claudeCode: {
-                path: null as string | null,
-                installed: false,
-              },
-            };
-
-            if (targets.has("codex")) {
-              const codexHome = (process.env.CODEX_HOME ?? "").trim();
-              const codexCandidates = [
-                codexHome ? join(codexHome, "config.toml") : null,
-                join(homedir(), ".codex", "config.toml"),
-                join(homedir(), ".config", "codex", "config.toml"),
-              ].filter(Boolean) as string[];
-              const codexConfigPath =
-                codexCandidates.find((candidate) => existsSync(candidate)) ??
-                codexCandidates[0];
-
-              result.codex.path = codexConfigPath;
-
-              const notifySnippet = [
-                "",
-                "# OrgX runtime telemetry (installed by OpenClaw plugin)",
-                "notify = [",
-                '  "node",',
-                `  "${hookScriptPath}",`,
-                '  "--event=heartbeat",',
-                '  "--source_client=codex",',
-                '  "--phase=execution",',
-                '  "--message=Codex heartbeat",',
-                `  "--runtime_hook_url=${runtimeHookUrl}",`,
-                `  "--hook_token=${hookToken}",`,
-                "]",
-                "",
-              ].join("\n");
-
-              if (!existsSync(codexConfigPath)) {
-                mkdirSync(dirname(codexConfigPath), { recursive: true, mode: 0o700 });
-                const initial = [
-                  "# Codex config.toml",
-                  "# Auto-generated OrgX hook wiring (safe to edit).",
-                  notifySnippet.trimEnd(),
-                  "",
-                ].join("\n");
-                writeFileAtomicSync(codexConfigPath, initial, {
-                  mode: 0o600,
-                  encoding: "utf8",
-                });
-                result.codex.installed = true;
-              } else {
-                const raw = readFileSync(codexConfigPath, "utf8");
-                const alreadyInstalled =
-                  raw.includes("post-reporting-event.mjs") &&
-                  raw.includes("--source_client=codex");
-                const hasNotify = /^\s*notify\s*=/m.test(raw);
-
-                if (alreadyInstalled) {
-                  result.codex.installed = true;
-                } else if (hasNotify) {
-                  result.codex.conflict = true;
-                } else {
-                  const next = raw.replace(/\s*$/, "") + notifySnippet;
-                  writeFileAtomicSync(codexConfigPath, next, {
-                    mode: 0o600,
-                    encoding: "utf8",
-                  });
-                  result.codex.installed = true;
-                }
-              }
-            }
-
-            if (targets.has("claude-code")) {
-              const claudeCandidates = [
-                join(homedir(), ".claude", "settings.json"),
-                join(homedir(), ".config", "claude", "settings.json"),
-              ];
-              const claudeSettingsPath =
-                claudeCandidates.find((candidate) => existsSync(candidate)) ??
-                claudeCandidates[0];
-
-              result.claudeCode.path = claudeSettingsPath;
-
-              mkdirSync(dirname(claudeSettingsPath), { recursive: true, mode: 0o700 });
-
-              let settings: Record<string, unknown> = {};
-              if (existsSync(claudeSettingsPath)) {
-                const raw = readFileSync(claudeSettingsPath, "utf8");
-                const parsed = parseJsonSafe<Record<string, unknown>>(raw);
-                if (!parsed) {
-                  backupCorruptFileSync(claudeSettingsPath);
-                } else {
-                  settings = parsed;
-                }
-              }
-
-              const hooksRoot =
-                settings.hooks &&
-                typeof settings.hooks === "object" &&
-                !Array.isArray(settings.hooks)
-                  ? (settings.hooks as Record<string, unknown>)
-                  : {};
-              settings.hooks = hooksRoot;
-
-              const ensureClaudeHook = (hookName: string, matcher: string, command: string) => {
-                const list = Array.isArray(hooksRoot[hookName])
-                  ? (hooksRoot[hookName] as Array<Record<string, unknown>>)
-                  : [];
-
-                let rule = list.find(
-                  (entry) => entry && (entry as any).matcher === matcher
-                ) as any;
-                if (!rule) {
-                  rule = { matcher, hooks: [] };
-                  list.push(rule);
-                }
-                if (!Array.isArray(rule.hooks)) {
-                  rule.hooks = [];
-                }
-
-                const already = rule.hooks.some(
-                  (entry: any) =>
-                    entry &&
-                    entry.type === "command" &&
-                    typeof entry.command === "string" &&
-                    entry.command.includes("post-reporting-event.mjs") &&
-                    entry.command.includes(command)
-                );
-
-                if (!already) {
-                  rule.hooks.push({ type: "command", command });
-                }
-
-                hooksRoot[hookName] = list;
-              };
-
-              const baseArgs = `--runtime_hook_url=${runtimeHookUrl} --hook_token=${hookToken}`;
-              const startCmd = `node ${hookScriptPath} --event=session_start --source_client=claude-code --phase=intent --message=\"Claude session started\" ${baseArgs}`;
-              const toolCmd = `node ${hookScriptPath} --event=task_update --source_client=claude-code --phase=execution --message=\"Claude tool completed\" ${baseArgs}`;
-              const stopCmd = `node ${hookScriptPath} --event=session_stop --source_client=claude-code --phase=completed --message=\"Claude session completed\" ${baseArgs}`;
-
-              ensureClaudeHook("SessionStart", "", startCmd);
-              ensureClaudeHook("PostToolUse", "Write|Edit|Bash", toolCmd);
-              ensureClaudeHook("Stop", "", stopCmd);
-
-              writeFileAtomicSync(
-                claudeSettingsPath,
-                `${JSON.stringify(settings, null, 2)}\n`,
-                {
-                  mode: 0o600,
-                  encoding: "utf8",
-                }
-              );
-
-              result.claudeCode.installed = true;
-            }
-
-            sendJson(res, 200, result);
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
-        case "hooks/runtime/stream": {
-          const write = res.write?.bind(res);
-          if (!write) {
-            sendJson(res, 501, { ok: false, error: "Streaming not supported" });
-            return true;
-          }
-
-          res.writeHead(200, {
-            "Content-Type": "text/event-stream; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            Connection: "keep-alive",
-            ...SECURITY_HEADERS,
-            ...CORS_HEADERS,
-          });
-
-          const subscriberId = randomUUID();
-          const subscriber: RuntimeStreamSubscriber = {
-            id: subscriberId,
-            write: (chunk: Buffer) => write(chunk) !== false,
-            end: () => {
-              if (!res.writableEnded) {
-                res.end();
-              }
-            },
-          };
-
-          runtimeStreamSubscribers.set(subscriberId, subscriber);
-          ensureRuntimeStreamTimers();
-
-          try {
-            const initial = listRuntimeInstances({ limit: 320 });
-            writeRuntimeSseEvent(subscriber, "runtime.updated", initial);
-          } catch {
-            // ignore
-          }
-
-          const close = () => {
-            runtimeStreamSubscribers.delete(subscriberId);
-            try {
-              subscriber.end();
-            } catch {
-              // ignore
-            }
-            if (runtimeStreamSubscribers.size === 0) {
-              stopRuntimeStreamTimers();
-            }
-          };
-
-          req.on?.("close", close);
-          req.on?.("aborted", close);
-          res.on?.("close", close);
-          res.on?.("finish", close);
-
-          return true;
-        }
-
-        case "hooks/runtime": {
-          if (method !== "POST") {
-            sendJson(res, 405, { ok: false, error: "Use POST /orgx/api/hooks/runtime" });
-            return true;
-          }
-
-          const expectedHookToken = resolveRuntimeHookToken();
-          const providedHookToken =
-            pickHeaderString(req.headers, ["x-orgx-hook-token", "x-hook-token"]) ??
-            searchParams.get("hook_token") ??
-            searchParams.get("token");
-
-          if (!providedHookToken || providedHookToken.trim() !== expectedHookToken) {
-            sendJson(res, 401, {
-              ok: false,
-              error: "Invalid hook token",
-            });
-            return true;
-          }
-
-          try {
-            const payloadRecord = await parseJsonRequest(req);
-            const payload: RuntimeHookPayload = {
-              source_client:
-                pickString(payloadRecord, ["source_client", "sourceClient"]) ??
-                "unknown",
-              event: pickString(payloadRecord, ["event", "hook_event"]) ?? "heartbeat",
-              run_id: pickString(payloadRecord, ["run_id", "runId", "session_id", "sessionId"]),
-              correlation_id: pickString(payloadRecord, ["correlation_id", "correlationId"]),
-              initiative_id: pickString(payloadRecord, ["initiative_id", "initiativeId"]),
-              workstream_id: pickString(payloadRecord, ["workstream_id", "workstreamId"]),
-              task_id: pickString(payloadRecord, ["task_id", "taskId"]),
-              agent_id: pickString(payloadRecord, ["agent_id", "agentId"]),
-              agent_name: pickString(payloadRecord, ["agent_name", "agentName"]),
-              phase: pickString(payloadRecord, ["phase"]),
-              progress_pct:
-                pickNumber(payloadRecord, ["progress_pct", "progressPct"]) ??
-                null,
-              message: pickString(payloadRecord, ["message", "summary"]),
-              metadata:
-                payloadRecord.metadata && typeof payloadRecord.metadata === "object"
-                  ? (payloadRecord.metadata as Record<string, unknown>)
-                  : null,
-              timestamp: pickString(payloadRecord, ["timestamp", "time", "ts"]),
-            };
-
-            const instance = upsertRuntimeInstanceFromHook(payload);
-            broadcastRuntimeSse("runtime.updated", instance);
-            clearSnapshotResponseCache();
-
-
-            const fallbackPhaseByEvent: Record<string, string> = {
-              session_start: "intent",
-              heartbeat: "execution",
-              progress: "execution",
-              task_update: "execution",
-              session_stop: "completed",
-              error: "blocked",
-            };
-            const phase = normalizeHookPhase(
-              payload.phase ??
-                fallbackPhaseByEvent[instance.event] ??
-                "execution"
-            );
-            const level: "info" | "warn" | "error" =
-              instance.event === "error" ? "error" : phase === "blocked" ? "warn" : "info";
-            const message =
-              payload.message ??
-              `${instance.displayName} ${instance.event.replace(/_/g, " ")}`;
-
-            let forwarded = false;
-            let forwardError: string | null = null;
-            if (instance.initiativeId) {
-              try {
-                await client.emitActivity({
-                  initiative_id: instance.initiativeId,
-                  run_id: instance.runId ?? undefined,
-                  correlation_id: instance.runId
-                    ? undefined
-                    : (instance.correlationId ?? undefined),
-                  source_client: normalizeRuntimeSourceForReporting(
-                    instance.sourceClient
-                  ),
-                  message,
-                  phase,
-                  progress_pct: instance.progressPct ?? undefined,
-                  level,
-                  metadata: {
-                    source: "runtime_hook_relay",
-                    hook_event: instance.event,
-                    instance_id: instance.id,
-                    runtime_client: instance.sourceClient,
-                    task_id: instance.taskId,
-                    workstream_id: instance.workstreamId,
-                    ...(instance.metadata ?? {}),
-                  },
-                });
-                forwarded = true;
-              } catch (err: unknown) {
-                forwardError = safeErrorMessage(err);
-              }
-            }
-
-            sendJson(res, 200, {
-              ok: true,
-              instance_id: instance.id,
-              state: instance.state,
-              last_seen_at: instance.lastHeartbeatAt ?? instance.lastEventAt,
-              run_id: instance.runId ?? null,
-              forwarded,
-              forward_error: forwardError,
-            });
-          } catch (err: unknown) {
-            sendJson(res, 500, {
-              ok: false,
-              error: safeErrorMessage(err),
-            });
-          }
-          return true;
-        }
-
         case "dashboard-bundle":
         case "live/snapshot": {
           const sessionsLimit = parsePositiveInt(
