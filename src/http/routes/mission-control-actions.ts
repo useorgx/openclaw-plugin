@@ -240,6 +240,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         if (!fastAck) {
           await deps.tickAutoContinueRun(run);
+          // Give short-lived workers a brief window to flush output so Play can resolve
+          // in one request/response cycle without requiring extra manual ticks.
+          if (run.activeRunId) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 140));
+            await deps.tickAutoContinueRun(run);
+          }
           fallbackDispatch = await maybeDispatchFallback();
         } else {
           const tickPromise = deps.tickAutoContinueRun(run);
@@ -279,6 +285,30 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           : fallbackStarted
             ? "fallback"
             : "none";
+        if (
+          dispatchMode === "none" &&
+          run.lastRunId &&
+          (run.stopReason === "completed" ||
+            run.stopReason === "blocked" ||
+            run.stopReason === "error")
+        ) {
+          const finalizedDispatchMode =
+            run.stopReason === "completed"
+              ? "slice_completed"
+              : run.stopReason === "blocked"
+                ? "slice_blocked"
+                : "slice_error";
+          deps.sendJson(res, 200, {
+            ok: true,
+            run,
+            initiativeId,
+            workstreamId,
+            agentId,
+            dispatchMode: finalizedDispatchMode,
+            sessionId: run.lastRunId,
+          });
+          return;
+        }
         if (dispatchMode === "none") {
           const fallbackBlockedReason = fallbackDispatch?.blockedReason ?? null;
           const reason =
