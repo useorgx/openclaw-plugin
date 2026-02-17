@@ -56,7 +56,6 @@ import type {
   LiveActivityItem,
   SessionTreeNode,
   SessionTreeResponse,
-  HandoffSummary,
   BillingStatus,
   KickoffContext,
   KickoffContextRequest,
@@ -132,7 +131,9 @@ import { registerDelegationRoutes } from "./http/routes/delegation.js";
 import { registerDebugRoutes } from "./http/routes/debug.js";
 import { registerEntitiesRoutes } from "./http/routes/entities.js";
 import { registerHealthRoutes } from "./http/routes/health.js";
+import { registerLiveLegacyRoutes } from "./http/routes/live-legacy.js";
 import { registerLiveMiscRoutes } from "./http/routes/live-misc.js";
+import { registerLiveSnapshotRoutes } from "./http/routes/live-snapshot.js";
 import { registerMissionControlReadRoutes } from "./http/routes/mission-control-read.js";
 import { registerOnboardingRoutes } from "./http/routes/onboarding.js";
 import { registerRuntimeHookRoutes } from "./http/routes/runtime-hooks.js";
@@ -7839,6 +7840,95 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  registerLiveLegacyRoutes(apiRouter, {
+    getLiveSessions: ({ initiative, limit }) => client.getLiveSessions({ initiative, limit }),
+    getLiveActivity: ({ run, since, limit }) => client.getLiveActivity({ run, since, limit }),
+    listRuntimeInstances,
+    injectRuntimeInstancesAsSessions,
+    enrichSessionsWithRuntime,
+    loadLocalOpenClawSnapshot,
+    toLocalSessionTree,
+    readAgentContexts,
+    applyAgentContextsToSessionTree,
+    listActivityPage,
+    applyAgentContextsToActivity,
+    appendActivityItems,
+    activityWarmByKey,
+    activityWarmThrottleMs: ACTIVITY_WARM_THROTTLE_MS,
+    outboxReadAllItems: () => outboxAdapter.readAllItems(),
+    toLocalLiveActivity,
+    loadLocalTurnDetail,
+    sendJson,
+    safeErrorMessage,
+    sendHtml,
+    resolveFilesystemOpenPath,
+    escapeHtml,
+    statSync,
+    readdirSync,
+    existsSync,
+    resolvePath: resolve,
+    readFilePreview,
+    filePreviewMaxBytes: FILE_PREVIEW_MAX_BYTES,
+    filePreviewMaxDirEntries: FILE_PREVIEW_MAX_DIR_ENTRIES,
+    securityHeaders: SECURITY_HEADERS,
+    corsHeaders: CORS_HEADERS,
+    config: {
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      userId: config.userId,
+    },
+    isUserScopedApiKey,
+    streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_MS,
+  });
+  registerLiveSnapshotRoutes(apiRouter, {
+    parsePositiveInt,
+    readSnapshotResponseCache,
+    writeSnapshotResponseCache,
+    safeErrorMessage,
+    readAgentContexts,
+    getScopedAgentIds,
+    readDiagnosticsOutboxStatus: async () => {
+      if (!diagnostics?.getHealth) return null;
+      const health = await diagnostics.getHealth({ probeRemote: false });
+      if (!health || typeof health !== "object") return null;
+      const maybeOutbox = (health as Record<string, unknown>).outbox;
+      if (!maybeOutbox || typeof maybeOutbox !== "object") return null;
+      return maybeOutbox as Record<string, unknown>;
+    },
+    readOutboxSummary: () => outboxAdapter.readSummary(),
+    readOutboxItems: () => outboxAdapter.readAllItems(),
+    loadLocalOpenClawSnapshot,
+    toLocalSessionTree,
+    toLocalLiveActivity,
+    toLocalLiveAgents,
+    getLiveSessions: ({ initiative, limit }) => client.getLiveSessions({ initiative, limit }),
+    getLiveActivity: ({ run, since, limit }) => client.getLiveActivity({ run, since, limit }),
+    getHandoffs: () => client.getHandoffs(),
+    getLiveDecisions: ({ status, limit }) => client.getLiveDecisions({ status, limit }),
+    getLiveAgents: ({ initiative, includeIdle }) =>
+      client.getLiveAgents({ initiative, includeIdle }),
+    mapDecisionEntity: (entry) => mapDecisionEntity(entry as Entity),
+    applyAgentContextsToSessionTree,
+    applyAgentContextsToActivity,
+    mergeSessionTrees,
+    mergeActivities,
+    listRuntimeInstances,
+    injectRuntimeInstancesAsSessions,
+    enrichSessionsWithRuntime,
+    enrichActivityWithRuntime,
+    snapshotActivityFingerprint,
+    appendActivityItems,
+    snapshotActivityPersistMinIntervalMs: SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS,
+    readSnapshotPersistState: () => ({
+      lastFingerprint: lastSnapshotActivityFingerprint,
+      lastPersistAt: lastSnapshotActivityPersistAt,
+    }),
+    writeSnapshotPersistState: (state) => {
+      lastSnapshotActivityFingerprint = state.lastFingerprint;
+      lastSnapshotActivityPersistAt = state.lastPersistAt;
+    },
+    sendJson,
+  });
   registerRuntimeHookRoutes(apiRouter, {
     parseJsonRequest,
     pickString,
@@ -9635,1080 +9725,6 @@ export function createHttpHandler(
       }
 
       switch (route) {
-        case "dashboard-bundle":
-        case "live/snapshot": {
-          const sessionsLimit = parsePositiveInt(
-            searchParams.get("sessionsLimit") ?? searchParams.get("sessions_limit"),
-            320
-          );
-          const activityLimit = parsePositiveInt(
-            searchParams.get("activityLimit") ?? searchParams.get("activity_limit"),
-            600
-          );
-          const decisionsLimit = parsePositiveInt(
-            searchParams.get("decisionsLimit") ?? searchParams.get("decisions_limit"),
-            120
-          );
-          const initiative = searchParams.get("initiative");
-          const run = searchParams.get("run");
-          const since = searchParams.get("since");
-          const decisionStatus = searchParams.get("status") ?? "pending";
-          const includeIdleRaw = searchParams.get("include_idle");
-          const includeIdle =
-            includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
-          const snapshotCacheKey = `${route}?${searchParams.toString()}`;
-          const cachedSnapshot = readSnapshotResponseCache(snapshotCacheKey);
-          if (cachedSnapshot) {
-            sendJson(res, 200, cachedSnapshot);
-            return true;
-          }
-          const degraded: string[] = [];
-          const contextStore = readAgentContexts();
-          const agentContexts = contextStore.agents;
-          const runContexts = contextStore.runs ?? {};
-          const scopedAgentIds = getScopedAgentIds(agentContexts);
-
-          let outboxStatus: Record<string, unknown> | null = null;
-          try {
-            if (diagnostics?.getHealth) {
-              const health = await diagnostics.getHealth({ probeRemote: false });
-              if (health && typeof health === "object") {
-                const maybeOutbox = (health as Record<string, unknown>).outbox;
-                if (maybeOutbox && typeof maybeOutbox === "object") {
-                  outboxStatus = maybeOutbox as Record<string, unknown>;
-                }
-              }
-            }
-            if (!outboxStatus) {
-              const outbox = await outboxAdapter.readSummary();
-              outboxStatus = {
-                pendingTotal: outbox.pendingTotal,
-                pendingByQueue: outbox.pendingByQueue,
-                oldestEventAt: outbox.oldestEventAt,
-                newestEventAt: outbox.newestEventAt,
-                replayStatus: "idle",
-                lastReplayAttemptAt: null,
-                lastReplaySuccessAt: null,
-                lastReplayFailureAt: null,
-                lastReplayError: null,
-              };
-            }
-          } catch (err: unknown) {
-            degraded.push(`outbox status unavailable (${safeErrorMessage(err)})`);
-            outboxStatus = {
-              pendingTotal: 0,
-              pendingByQueue: {},
-              oldestEventAt: null,
-              newestEventAt: null,
-              replayStatus: "idle",
-              lastReplayAttemptAt: null,
-              lastReplaySuccessAt: null,
-              lastReplayFailureAt: null,
-              lastReplayError: null,
-            };
-          }
-
-          let localSnapshot:
-            | Awaited<ReturnType<typeof loadLocalOpenClawSnapshot>>
-            | null = null;
-          const ensureLocalSnapshot = async (minimumLimit: number) => {
-            if (!localSnapshot || localSnapshot.sessions.length < minimumLimit) {
-              localSnapshot = await loadLocalOpenClawSnapshot(minimumLimit);
-            }
-            return localSnapshot;
-          };
-
-          const settled = await Promise.allSettled([
-            client.getLiveSessions({
-              initiative,
-              limit: sessionsLimit,
-            }),
-            client.getLiveActivity({
-              run,
-              since,
-              limit: activityLimit,
-            }),
-            client.getHandoffs(),
-            client.getLiveDecisions({
-              status: decisionStatus,
-              limit: decisionsLimit,
-            }),
-            client.getLiveAgents({
-              initiative,
-              includeIdle,
-            }),
-          ]);
-
-          // sessions
-          let sessions: SessionTreeResponse = {
-            nodes: [],
-            edges: [],
-            groups: [],
-          };
-          const sessionsResult = settled[0];
-          if (sessionsResult.status === "fulfilled") {
-            sessions = sessionsResult.value;
-          } else {
-            degraded.push(`sessions unavailable (${safeErrorMessage(sessionsResult.reason)})`);
-            try {
-              let local = toLocalSessionTree(
-                await ensureLocalSnapshot(Math.max(sessionsLimit, 200)),
-                sessionsLimit
-              );
-
-              local = applyAgentContextsToSessionTree(local, {
-                agents: agentContexts,
-                runs: runContexts,
-              });
-
-              if (initiative && initiative.trim().length > 0) {
-                const filteredNodes = local.nodes.filter(
-                  (node) => node.initiativeId === initiative || node.groupId === initiative
-                );
-                const filteredIds = new Set(filteredNodes.map((node) => node.id));
-                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
-
-                local = {
-                  nodes: filteredNodes,
-                  edges: local.edges.filter(
-                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
-                  ),
-                  groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
-                };
-              }
-
-              sessions = local;
-            } catch (localErr: unknown) {
-              degraded.push(`sessions local fallback failed (${safeErrorMessage(localErr)})`);
-            }
-          }
-
-          // activity
-          let activity: LiveActivityItem[] = [];
-          const activityResult = settled[1];
-          if (activityResult.status === "fulfilled") {
-            activity = Array.isArray(activityResult.value.activities)
-              ? activityResult.value.activities
-              : [];
-          } else {
-            degraded.push(`activity unavailable (${safeErrorMessage(activityResult.reason)})`);
-            try {
-              const local = await toLocalLiveActivity(
-                await ensureLocalSnapshot(Math.max(activityLimit, 240)),
-                Math.max(activityLimit, 240)
-              );
-              let filtered = local.activities;
-
-              if (run && run.trim().length > 0) {
-                filtered = filtered.filter((item) => item.runId === run);
-              }
-
-              if (since && since.trim().length > 0) {
-                const sinceEpoch = Date.parse(since);
-                if (Number.isFinite(sinceEpoch)) {
-                  filtered = filtered.filter(
-                    (item) => Date.parse(item.timestamp) >= sinceEpoch
-                  );
-                }
-              }
-
-              filtered = applyAgentContextsToActivity(filtered, {
-                agents: agentContexts,
-                runs: runContexts,
-              });
-              activity = filtered.slice(0, activityLimit);
-            } catch (localErr: unknown) {
-              degraded.push(`activity local fallback failed (${safeErrorMessage(localErr)})`);
-            }
-          }
-
-          // handoffs
-          let handoffs: HandoffSummary[] = [];
-          const handoffsResult = settled[2];
-          if (handoffsResult.status === "fulfilled") {
-            handoffs = Array.isArray(handoffsResult.value.handoffs)
-              ? handoffsResult.value.handoffs
-              : [];
-          } else {
-            degraded.push(`handoffs unavailable (${safeErrorMessage(handoffsResult.reason)})`);
-          }
-
-          // decisions
-          let decisions: Array<Record<string, unknown>> = [];
-          const decisionsResult = settled[3];
-          if (decisionsResult.status === "fulfilled") {
-            decisions = decisionsResult.value.decisions
-              .map(mapDecisionEntity)
-              .sort((a, b) => b.waitingMinutes - a.waitingMinutes) as Array<
-              Record<string, unknown>
-            >;
-          } else {
-            degraded.push(`decisions unavailable (${safeErrorMessage(decisionsResult.reason)})`);
-          }
-
-          // agents
-          let agents: Array<Record<string, unknown>> = [];
-          const agentsResult = settled[4];
-          if (agentsResult.status === "fulfilled") {
-            agents = Array.isArray(agentsResult.value.agents)
-              ? (agentsResult.value.agents as Array<Record<string, unknown>>)
-              : [];
-          } else {
-            degraded.push(`agents unavailable (${safeErrorMessage(agentsResult.reason)})`);
-            try {
-              const local = toLocalLiveAgents(
-                await ensureLocalSnapshot(Math.max(sessionsLimit, 240))
-              );
-              let localAgents = local.agents;
-              if (initiative && initiative.trim().length > 0) {
-                localAgents = localAgents.filter(
-                  (agent) => agent.initiativeId === initiative
-                );
-              }
-              if (includeIdle === false) {
-                localAgents = localAgents.filter((agent) => agent.status !== "idle");
-              }
-              agents = localAgents as Array<Record<string, unknown>>;
-            } catch (localErr: unknown) {
-              degraded.push(`agents local fallback failed (${safeErrorMessage(localErr)})`);
-            }
-          }
-
-          // Merge locally-launched OpenClaw agent sessions/activity into the snapshot so
-          // the UI reflects one-click launches even when the cloud reporting plane is reachable.
-          if (scopedAgentIds.size > 0) {
-            try {
-              const minimum = Math.max(Math.max(sessionsLimit, activityLimit), 240);
-              const snapshot = await ensureLocalSnapshot(minimum);
-              const scopedSnapshot = {
-                ...snapshot,
-                sessions: snapshot.sessions.filter(
-                  (session) => Boolean(session.agentId && scopedAgentIds.has(session.agentId))
-                ),
-                agents: snapshot.agents.filter((agent) => scopedAgentIds.has(agent.id)),
-              };
-
-              // Sessions
-              let localSessions = applyAgentContextsToSessionTree(
-                toLocalSessionTree(scopedSnapshot, sessionsLimit),
-                { agents: agentContexts, runs: runContexts }
-              );
-              if (initiative && initiative.trim().length > 0) {
-                const filteredNodes = localSessions.nodes.filter(
-                  (node) => node.initiativeId === initiative || node.groupId === initiative
-                );
-                const filteredIds = new Set(filteredNodes.map((node) => node.id));
-                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
-
-                localSessions = {
-                  nodes: filteredNodes,
-                  edges: localSessions.edges.filter(
-                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
-                  ),
-                  groups: localSessions.groups.filter((group) => filteredGroupIds.has(group.id)),
-                };
-              }
-              sessions = mergeSessionTrees(sessions, localSessions);
-
-              // Activity
-              const localActivity = await toLocalLiveActivity(
-                scopedSnapshot,
-                Math.max(activityLimit, 240)
-              );
-              let localItems = applyAgentContextsToActivity(localActivity.activities, {
-                agents: agentContexts,
-                runs: runContexts,
-              });
-              if (run && run.trim().length > 0) {
-                localItems = localItems.filter((item) => item.runId === run);
-              }
-              if (since && since.trim().length > 0) {
-                const sinceEpoch = Date.parse(since);
-                if (Number.isFinite(sinceEpoch)) {
-                  localItems = localItems.filter(
-                    (item) => Date.parse(item.timestamp) >= sinceEpoch
-                  );
-                }
-              }
-              activity = mergeActivities(activity, localItems, activityLimit);
-            } catch (err: unknown) {
-              degraded.push(`local agent merge failed (${safeErrorMessage(err)})`);
-            }
-          }
-
-          // include locally buffered events so offline-generated actions are visible
-          try {
-            const buffered = await outboxAdapter.readAllItems();
-            if (buffered.length > 0) {
-              const merged = [...activity, ...buffered]
-                .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-                .slice(0, activityLimit);
-              const deduped: LiveActivityItem[] = [];
-              const seen = new Set<string>();
-              for (const item of merged) {
-                if (seen.has(item.id)) continue;
-                seen.add(item.id);
-                deduped.push(item);
-              }
-              activity = deduped;
-            }
-          } catch (err: unknown) {
-            degraded.push(`outbox unavailable (${safeErrorMessage(err)})`);
-          }
-
-          let runtimeInstances = listRuntimeInstances({ limit: 320 });
-          if (initiative && initiative.trim().length > 0) {
-            runtimeInstances = runtimeInstances.filter(
-              (instance) => instance.initiativeId === initiative
-            );
-          }
-          if (run && run.trim().length > 0) {
-            runtimeInstances = runtimeInstances.filter(
-              (instance) => instance.runId === run || instance.correlationId === run
-            );
-          }
-          sessions = injectRuntimeInstancesAsSessions(sessions, runtimeInstances);
-          sessions = enrichSessionsWithRuntime(sessions, runtimeInstances);
-          activity = enrichActivityWithRuntime(activity, runtimeInstances);
-          activity = applyAgentContextsToActivity(activity, {
-            agents: agentContexts,
-            runs: runContexts,
-          });
-
-          try {
-            // Avoid reprocessing/storing large activity snapshots when the leading window
-            // is unchanged and we persisted recently.
-            const fingerprint = snapshotActivityFingerprint(activity);
-            const now = Date.now();
-            const shouldPersist =
-              fingerprint !== lastSnapshotActivityFingerprint ||
-              now - lastSnapshotActivityPersistAt >= SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS;
-            if (shouldPersist) {
-              appendActivityItems(activity);
-              lastSnapshotActivityFingerprint = fingerprint;
-              lastSnapshotActivityPersistAt = now;
-            }
-          } catch {
-            // best effort
-          }
-
-          const payload = {
-            sessions,
-            activity,
-            handoffs,
-            decisions,
-            agents,
-            runtimeInstances,
-            outbox: outboxStatus,
-            generatedAt: new Date().toISOString(),
-            degraded: degraded.length > 0 ? degraded : undefined,
-          } as Record<string, unknown>;
-          writeSnapshotResponseCache(snapshotCacheKey, payload);
-          sendJson(res, 200, payload);
-          return true;
-        }
-
-        // Legacy endpoints retained for backwards compatibility.
-        case "live/sessions": {
-          try {
-            const initiative = searchParams.get("initiative");
-            const limit = searchParams.get("limit")
-              ? Number(searchParams.get("limit"))
-              : undefined;
-            let data = await client.getLiveSessions({
-              initiative,
-              limit: Number.isFinite(limit) ? limit : undefined,
-            });
-            const runtimeInstances = (initiative && initiative.trim().length > 0)
-              ? listRuntimeInstances({ limit: 320 }).filter((instance) => instance.initiativeId === initiative)
-              : listRuntimeInstances({ limit: 320 });
-            data = injectRuntimeInstancesAsSessions(data, runtimeInstances);
-            data = enrichSessionsWithRuntime(data, runtimeInstances);
-            sendJson(res, 200, data);
-          } catch (err: unknown) {
-            try {
-              const initiative = searchParams.get("initiative");
-              const limitRaw = searchParams.get("limit")
-                ? Number(searchParams.get("limit"))
-                : undefined;
-              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
-
-              let local = toLocalSessionTree(
-                await loadLocalOpenClawSnapshot(Math.max(limit, 200)),
-                limit
-              );
-
-              {
-                const ctx = readAgentContexts();
-                local = applyAgentContextsToSessionTree(local, {
-                  agents: ctx.agents,
-                  runs: ctx.runs ?? {},
-                });
-              }
-
-              if (initiative && initiative.trim().length > 0) {
-                const filteredNodes = local.nodes.filter(
-                  (node) => node.initiativeId === initiative || node.groupId === initiative
-                );
-                const filteredIds = new Set(filteredNodes.map((node) => node.id));
-                const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
-
-                local = {
-                  nodes: filteredNodes,
-                  edges: local.edges.filter(
-                    (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
-                  ),
-                  groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
-                };
-              }
-
-              sendJson(res, 200, local);
-            } catch (localErr: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-                localFallbackError: safeErrorMessage(localErr),
-              });
-            }
-          }
-          return true;
-        }
-
-        case "live/activity/page": {
-          const run = searchParams.get("run");
-          const since = searchParams.get("since");
-          const until = searchParams.get("until");
-          const cursor = searchParams.get("cursor");
-          const limitRaw = searchParams.get("limit")
-            ? Number(searchParams.get("limit"))
-            : undefined;
-          const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.floor(Number(limitRaw))) : 200;
-
-          let page = listActivityPage({
-            limit,
-            runId: run,
-            since,
-            until,
-            cursor,
-          });
-          {
-            const ctx = readAgentContexts();
-            page = {
-              ...page,
-              activities: applyAgentContextsToActivity(page.activities, {
-                agents: ctx.agents,
-                runs: ctx.runs ?? {},
-              }),
-            };
-          }
-
-          // If the local store is empty or we haven't warmed enough history yet, opportunistically
-          // warm from the remote API (which only supports since+limit) and re-page.
-          const warmKey = `${run ?? ""}::${since ?? ""}::${until ?? ""}`;
-          const lastWarmAt = activityWarmByKey.get(warmKey) ?? 0;
-          const shouldWarm =
-            Date.now() - lastWarmAt > ACTIVITY_WARM_THROTTLE_MS &&
-            // Warm on first page or when the cursor indicates we want older history.
-            (cursor === null || cursor === "" || page.activities.length < limit);
-
-          if (shouldWarm) {
-            activityWarmByKey.set(warmKey, Date.now());
-            try {
-              const warmLimit = Math.max(800, Math.min(6_000, limit * 10));
-              const data = await client.getLiveActivity({
-                run,
-                since,
-                limit: warmLimit,
-              });
-              const remote = Array.isArray(data.activities) ? data.activities : [];
-              {
-                const ctx = readAgentContexts();
-                const withContexts = applyAgentContextsToActivity(remote, {
-                  agents: ctx.agents,
-                  runs: ctx.runs ?? {},
-                });
-                appendActivityItems(withContexts);
-              }
-              page = listActivityPage({
-                limit,
-                runId: run,
-                since,
-                until,
-                cursor,
-              });
-              {
-                const ctx = readAgentContexts();
-                page = {
-                  ...page,
-                  activities: applyAgentContextsToActivity(page.activities, {
-                    agents: ctx.agents,
-                    runs: ctx.runs ?? {},
-                  }),
-                };
-              }
-            } catch {
-              // best effort
-            }
-          }
-
-          sendJson(res, 200, page);
-          return true;
-        }
-
-        case "live/activity": {
-          try {
-            const run = searchParams.get("run");
-            const limit = searchParams.get("limit")
-              ? Number(searchParams.get("limit"))
-              : undefined;
-            const since = searchParams.get("since");
-            const data = await client.getLiveActivity({
-              run,
-              since,
-              limit: Number.isFinite(limit) ? limit : undefined,
-            });
-            let activities = Array.isArray(data.activities) ? data.activities : [];
-            let total =
-              typeof (data as any)?.total === "number" && Number.isFinite((data as any).total)
-                ? Number((data as any).total)
-                : activities.length;
-
-            // Include locally buffered outbox events so "Replay: error" still shows progress.
-            try {
-              const buffered = await outboxAdapter.readAllItems();
-              if (buffered.length > 0) {
-                let merged = [...activities, ...buffered];
-
-                if (run && run.trim().length > 0) {
-                  merged = merged.filter((item) => item.runId === run);
-                }
-                if (since && since.trim().length > 0) {
-                  const sinceEpoch = Date.parse(since);
-                  if (Number.isFinite(sinceEpoch)) {
-                    merged = merged.filter((item) => Date.parse(item.timestamp) >= sinceEpoch);
-                  }
-                }
-
-                merged.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-                const deduped: LiveActivityItem[] = [];
-                const seen = new Set<string>();
-                for (const item of merged) {
-                  if (seen.has(item.id)) continue;
-                  seen.add(item.id);
-                  deduped.push(item);
-                }
-
-                total = deduped.length;
-                if (Number.isFinite(limit)) {
-                  const cap = Math.max(1, Math.floor(Number(limit)));
-                  activities = deduped.slice(0, cap);
-                } else {
-                  activities = deduped;
-                }
-              }
-            } catch {
-              // best effort
-            }
-
-            try {
-              const ctx = readAgentContexts();
-              const withContexts = applyAgentContextsToActivity(activities, {
-                agents: ctx.agents,
-                runs: ctx.runs ?? {},
-              });
-              if (withContexts.length > 0) appendActivityItems(withContexts);
-              sendJson(res, 200, { ...(data as any), activities: withContexts, total });
-            } catch {
-              sendJson(res, 200, { ...(data as any), activities, total });
-            }
-          } catch (err: unknown) {
-            try {
-              const run = searchParams.get("run");
-              const limitRaw = searchParams.get("limit")
-                ? Number(searchParams.get("limit"))
-                : undefined;
-              const since = searchParams.get("since");
-              const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 240;
-
-              const localSnapshot = await loadLocalOpenClawSnapshot(Math.max(limit, 240));
-              let local = await toLocalLiveActivity(localSnapshot, Math.max(limit, 240));
-
-              if (run && run.trim().length > 0) {
-                local = {
-                  activities: local.activities.filter((item) => item.runId === run),
-                  total: local.activities.filter((item) => item.runId === run).length,
-                };
-              }
-
-              if (since && since.trim().length > 0) {
-                const sinceEpoch = Date.parse(since);
-                if (Number.isFinite(sinceEpoch)) {
-                  const filtered = local.activities.filter(
-                    (item) => Date.parse(item.timestamp) >= sinceEpoch
-                  );
-                  local = {
-                    activities: filtered,
-                    total: filtered.length,
-                  };
-                }
-              }
-
-              const ctx = readAgentContexts();
-              const activitiesWithContexts = applyAgentContextsToActivity(local.activities, {
-                agents: ctx.agents,
-                runs: ctx.runs ?? {},
-              });
-              let merged = activitiesWithContexts;
-              try {
-                const buffered = await outboxAdapter.readAllItems();
-                if (buffered.length > 0) {
-                  const byId = new Map<string, LiveActivityItem>();
-                  for (const item of [...merged, ...buffered]) {
-                    if (!item || typeof item.id !== "string") continue;
-                    byId.set(item.id, item);
-                  }
-                  merged = Array.from(byId.values()).sort(
-                    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
-                  );
-                }
-              } catch {
-                // best effort
-              }
-              try {
-                appendActivityItems(merged);
-              } catch {
-                // best effort
-              }
-              sendJson(res, 200, {
-                activities: merged.slice(0, limit),
-                total: merged.length,
-              });
-            } catch (localErr: unknown) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-                localFallbackError: safeErrorMessage(localErr),
-              });
-            }
-          }
-          return true;
-        }
-
-        case "live/activity/detail": {
-          const turnId =
-            searchParams.get("turnId") ?? searchParams.get("turn_id");
-          const sessionKey =
-            searchParams.get("sessionKey") ?? searchParams.get("session_key");
-          const run = searchParams.get("run");
-
-          if (!turnId || turnId.trim().length === 0) {
-            sendJson(res, 400, { error: "turnId is required" });
-            return true;
-          }
-
-          try {
-            const detail = await loadLocalTurnDetail({
-              turnId,
-              sessionKey,
-              runId: run,
-            });
-            if (!detail) {
-              sendJson(res, 404, {
-                error: "Turn detail unavailable",
-                turnId,
-              });
-              return true;
-            }
-            sendJson(res, 200, { detail });
-          } catch (err: unknown) {
-            sendJson(res, 500, { error: safeErrorMessage(err), turnId });
-          }
-          return true;
-        }
-
-        case "live/filesystem/open": {
-          if (method !== "GET") {
-            sendJson(res, 405, { error: "Use GET /orgx/api/live/filesystem/open?path=..." });
-            return true;
-          }
-
-          const rawPath = searchParams.get("path") ?? "";
-          if (!rawPath.trim()) {
-            sendJson(res, 400, { error: "path is required" });
-            return true;
-          }
-
-          const pathInput = rawPath.trim();
-          if (/^https?:\/\//i.test(pathInput)) {
-            res.writeHead(302, {
-              Location: pathInput,
-              ...SECURITY_HEADERS,
-              ...CORS_HEADERS,
-            });
-            res.end();
-            return true;
-          }
-
-          const resolvedPath = resolveFilesystemOpenPath(pathInput);
-          const escapedInput = escapeHtml(pathInput);
-          const escapedResolved = escapeHtml(resolvedPath);
-          const shellPath = resolvedPath.replaceAll("'", "'\\''");
-
-          if (!existsSync(resolvedPath)) {
-            sendHtml(
-              res,
-              404,
-              `<!doctype html><html><head><meta charset="utf-8"/><title>Path Not Found</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}a{color:#BFFF00}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Path not found</h1><p style="margin:0 0 12px;color:#9ca3af;">The evidence path no longer exists.</p><pre>${escapedInput}</pre><p style="margin:12px 0 0;color:#9ca3af;">Resolved as:</p><pre>${escapedResolved}</pre></body></html>`
-            );
-            return true;
-          }
-
-          try {
-            const stats = statSync(resolvedPath);
-            if (stats.isDirectory()) {
-              const entries = readdirSync(resolvedPath);
-              const visibleEntries = entries.slice(0, FILE_PREVIEW_MAX_DIR_ENTRIES);
-              const items = visibleEntries
-                .map((name) => {
-                  const nextPath = resolve(resolvedPath, name);
-                  const href = `/orgx/api/live/filesystem/open?path=${encodeURIComponent(nextPath)}`;
-                  return `<li style="margin:0 0 6px;"><a href="${href}" target="_blank" rel="noreferrer" style="color:#BFFF00;text-decoration:none;">${escapeHtml(name)}</a></li>`;
-                })
-                .join("");
-              const overflowNote =
-                entries.length > visibleEntries.length
-                  ? `<p style="margin:12px 0 0;color:#9ca3af;">Showing ${visibleEntries.length} of ${entries.length} entries.</p>`
-                  : "";
-
-              sendHtml(
-                res,
-                200,
-                `<!doctype html><html><head><meta charset="utf-8"/><title>Directory Preview</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre,ul{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px}ul{list-style:none;margin:0;max-height:70vh;overflow:auto}pre{white-space:pre-wrap;word-break:break-word}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Directory</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapedResolved}</p><ul>${items || "<li style=\"color:#9ca3af;\">(empty)</li>"}</ul>${overflowNote}<p style="margin:12px 0 0;color:#9ca3af;">Tip: open in terminal with <code>ls -la '${escapeHtml(shellPath)}'</code></p></body></html>`
-              );
-              return true;
-            }
-
-            if (!stats.isFile()) {
-              sendHtml(
-                res,
-                200,
-                `<!doctype html><html><head><meta charset="utf-8"/><title>Unsupported Path</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Unsupported path type</h1><p style="margin:0 0 12px;color:#9ca3af;">Only files and directories are previewable.</p><pre>${escapedResolved}</pre></body></html>`
-              );
-              return true;
-            }
-
-            const totalBytes = Number.isFinite(stats.size) ? Math.max(0, stats.size) : 0;
-            const { previewBuffer, truncated } = readFilePreview(resolvedPath, totalBytes);
-            const isBinary = previewBuffer.includes(0);
-            const sizeLabel = `${totalBytes.toLocaleString()} bytes`;
-
-            if (isBinary) {
-              sendHtml(
-                res,
-                200,
-                `<!doctype html><html><head><meta charset="utf-8"/><title>Binary File</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Binary file</h1><p style="margin:0 0 12px;color:#9ca3af;">Cannot render binary content in browser preview.</p><pre>${escapedResolved}\n${escapeHtml(sizeLabel)}</pre><p style="margin:12px 0 0;color:#9ca3af;">Inspect in terminal with <code>file '${escapeHtml(shellPath)}'</code></p></body></html>`
-              );
-              return true;
-            }
-
-            const previewText = previewBuffer.toString("utf8");
-            const truncationNote = truncated
-              ? `<p style="margin:12px 0 0;color:#9ca3af;">Preview truncated to first ${FILE_PREVIEW_MAX_BYTES.toLocaleString()} bytes.</p>`
-              : "";
-
-            sendHtml(
-              res,
-              200,
-              `<!doctype html><html><head><meta charset="utf-8"/><title>File Preview</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre;overflow:auto;max-height:75vh}code{color:#7dd3c0}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">File preview</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapedResolved}</p><p style="margin:0 0 12px;color:#9ca3af;">${escapeHtml(sizeLabel)}</p><pre>${escapeHtml(previewText)}</pre>${truncationNote}<p style="margin:12px 0 0;color:#9ca3af;">Open in terminal with <code>cat '${escapeHtml(shellPath)}'</code></p></body></html>`
-            );
-          } catch (err: unknown) {
-            sendHtml(
-              res,
-              500,
-              `<!doctype html><html><head><meta charset="utf-8"/><title>Preview Error</title><style>body{margin:0;padding:24px;background:#080808;color:#e5e7eb;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}pre{background:#0f0f0f;border:1px solid rgba(255,255,255,.08);padding:12px;border-radius:10px;white-space:pre-wrap;word-break:break-word}</style></head><body><h1 style="margin:0 0 8px;font-size:18px;">Unable to preview path</h1><p style="margin:0 0 12px;color:#9ca3af;">${escapeHtml(safeErrorMessage(err))}</p><pre>${escapedResolved}</pre></body></html>`
-            );
-          }
-          return true;
-        }
-
-        case "live/stream": {
-          const write = res.write?.bind(res);
-          if (!write) {
-            sendJson(res, 501, { error: "Streaming not supported" });
-            return true;
-          }
-          const target = `${config.baseUrl.replace(/\/+$/, "")}/api/client/live/stream${queryString ? `?${queryString}` : ""}`;
-          let upstreamAbortController: AbortController | null = null;
-          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-          let closed = false;
-          let streamOpened = false;
-          let idleTimer: ReturnType<typeof setTimeout> | null = null;
-          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-          let heartbeatBackpressure = false;
-            const sseDecoder = new TextDecoder("utf-8");
-            let sseBuffer = "";
-
-            const consumeSseText = (chunk: string) => {
-              if (!chunk) return;
-              // Normalize CRLF to LF so boundary detection works regardless of upstream formatting.
-              sseBuffer += chunk.replace(/\r\n/g, "\n");
-
-              while (true) {
-                const boundary = sseBuffer.indexOf("\n\n");
-                if (boundary === -1) return;
-                const rawEvent = sseBuffer.slice(0, boundary);
-                sseBuffer = sseBuffer.slice(boundary + 2);
-
-                const lines = rawEvent.split("\n").map((l) => l.replace(/\r$/, ""));
-                let eventName: string | null = null;
-                const dataLines: string[] = [];
-
-                for (const line of lines) {
-                  if (!line) continue;
-                  if (line.startsWith(":")) continue;
-                  if (line.startsWith("event:")) {
-                    eventName = line.slice("event:".length).trim() || null;
-                    continue;
-                  }
-                  if (line.startsWith("data:")) {
-                    dataLines.push(line.slice("data:".length).trimStart());
-                    continue;
-                  }
-                }
-
-                if (!eventName || dataLines.length === 0) continue;
-
-                const dataText = dataLines.join("\n").trim();
-                if (!dataText) continue;
-
-                try {
-                  if (eventName === "activity.appended") {
-                    const parsed = JSON.parse(dataText) as LiveActivityItem[];
-                    const list = Array.isArray(parsed) ? parsed : [];
-                    if (list.length > 0) {
-                      const ctx = readAgentContexts();
-                      appendActivityItems(
-                        applyAgentContextsToActivity(list, {
-                          agents: ctx.agents,
-                          runs: ctx.runs ?? {},
-                        })
-                      );
-                    }
-                  } else if (eventName === "snapshot") {
-                    const parsed = JSON.parse(dataText) as { activity?: LiveActivityItem[] };
-                    const list = Array.isArray(parsed?.activity) ? parsed.activity : [];
-                    if (list.length > 0) {
-                      const ctx = readAgentContexts();
-                      appendActivityItems(
-                        applyAgentContextsToActivity(list, {
-                          agents: ctx.agents,
-                          runs: ctx.runs ?? {},
-                        })
-                      );
-                    }
-                  }
-                } catch {
-                  // ignore malformed payloads
-                }
-              }
-            };
-
-	          const clearIdleTimer = () => {
-	            if (idleTimer) {
-	              clearTimeout(idleTimer);
-	              idleTimer = null;
-	            }
-	          };
-
-	          const clearHeartbeatTimer = () => {
-	            if (heartbeatTimer) {
-	              clearInterval(heartbeatTimer);
-	              heartbeatTimer = null;
-	            }
-	          };
-
-            const abortUpstream = () => {
-              try {
-                upstreamAbortController?.abort();
-              } catch {
-                // best effort
-              }
-              upstreamAbortController = null;
-            };
-
-	          const closeStream = () => {
-	            if (closed) return;
-	            closed = true;
-	            clearIdleTimer();
-	            clearHeartbeatTimer();
-              abortUpstream();
-	            if (reader) {
-	              void reader.cancel().catch(() => undefined);
-	            }
-            if (streamOpened && !res.writableEnded) {
-              res.end();
-            }
-          };
-
-          const resetIdleTimer = () => {
-            clearIdleTimer();
-            idleTimer = setTimeout(() => {
-              closeStream();
-            }, STREAM_IDLE_TIMEOUT_MS);
-          };
-
-          try {
-            const includeUserHeader =
-              Boolean(config.userId && config.userId.trim().length > 0) &&
-              !isUserScopedApiKey(config.apiKey);
-            res.writeHead(200, {
-              "Content-Type": "text/event-stream; charset=utf-8",
-              "Cache-Control": "no-cache, no-transform",
-              Connection: "keep-alive",
-              ...SECURITY_HEADERS,
-              ...CORS_HEADERS,
-            });
-            streamOpened = true;
-
-	            // Heartbeat comments keep intermediary proxies from timing out idle SSE.
-	            // They also prevent the dashboard from flickering into reconnect mode
-	            // during long quiet periods and upstream reconnect loops.
-	            heartbeatTimer = setInterval(() => {
-	              if (closed || heartbeatBackpressure) return;
-	              try {
-	                // Keepalive comment line (single newline to avoid terminating an upstream event mid-chunk).
-	                const accepted = write(Buffer.from(`: ping ${Date.now()}\n`, "utf8"));
-	                resetIdleTimer();
-	                if (accepted === false) {
-	                  heartbeatBackpressure = true;
-	                  if (typeof res.once === "function") {
-	                    res.once("drain", () => {
-	                      heartbeatBackpressure = false;
-	                      if (!closed) resetIdleTimer();
-	                    });
-	                  }
-	                }
-	              } catch {
-	                closeStream();
-	              }
-	            }, 20_000);
-	            heartbeatTimer.unref?.();
-
-            req.on?.("close", closeStream);
-            req.on?.("aborted", closeStream);
-            res.on?.("close", closeStream);
-            res.on?.("finish", closeStream);
-
-            const waitForDrain = async (): Promise<void> => {
-              if (typeof res.once === "function") {
-                await new Promise<void>((resolve) => {
-                  res.once?.("drain", () => resolve());
-                });
-              }
-            };
-
-            const sleep = async (ms: number): Promise<void> => {
-              await new Promise<void>((resolve) => setTimeout(resolve, ms));
-            };
-
-            const connectAndPump = async () => {
-              let attempt = 0;
-              while (!closed) {
-                abortUpstream();
-                upstreamAbortController = new AbortController();
-
-                let upstream: Response | null = null;
-                try {
-                  upstream = await fetch(target, {
-                    method: "GET",
-                    headers: {
-                      Authorization: `Bearer ${config.apiKey}`,
-                      Accept: "text/event-stream",
-                      ...(includeUserHeader ? { "X-Orgx-User-Id": config.userId } : {}),
-                    },
-                    signal: upstreamAbortController.signal,
-                  });
-                } catch {
-                  upstream = null;
-                }
-
-                const contentType = upstream?.headers.get("content-type")?.toLowerCase() ?? "";
-                if (!upstream || !upstream.ok || !contentType.includes("text/event-stream") || !upstream.body) {
-                  const status = upstream?.status ?? null;
-                  const preview = upstream
-                    ? (await upstream.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)
-                    : null;
-                  try {
-                    write(
-                      Buffer.from(
-                        `: upstream unavailable status=${status ?? "error"} ${preview ? `preview=${JSON.stringify(preview)}` : ""}\n`,
-                        "utf8"
-                      )
-                    );
-                  } catch {
-                    closeStream();
-                    return;
-                  }
-
-                  resetIdleTimer();
-                  attempt += 1;
-                  const backoffMs = Math.min(15_000, 750 * Math.pow(1.6, Math.min(attempt, 10)));
-                  await sleep(backoffMs);
-                  continue;
-                }
-
-                attempt = 0;
-                reader = upstream.body.getReader();
-                const streamReader = reader;
-                resetIdleTimer();
-
-                try {
-                  while (!closed) {
-                    const { done, value } = await streamReader.read();
-                    if (done) break;
-                    if (!value || value.byteLength === 0) continue;
-
-                    resetIdleTimer();
-                    try {
-                      consumeSseText(sseDecoder.decode(value, { stream: true }));
-                    } catch {
-                      // best effort
-                    }
-                    const accepted = write(Buffer.from(value));
-                    if (accepted === false) {
-                      await waitForDrain();
-                    }
-                  }
-                } catch {
-                  // swallow; we'll reconnect unless the client is gone
-                } finally {
-                  try {
-                    await streamReader.cancel();
-                  } catch {
-                    // ignore
-                  }
-                  if (reader === streamReader) {
-                    reader = null;
-                  }
-                }
-
-                if (!closed) {
-                  // Avoid hot-looping on immediate upstream closes.
-                  await sleep(300);
-                }
-              }
-            };
-
-            void connectAndPump();
-          } catch (err: unknown) {
-            closeStream();
-            if (!streamOpened && !res.writableEnded) {
-              sendJson(res, 500, {
-                error: safeErrorMessage(err),
-              });
-            }
-          }
-          return true;
-        }
-
         default: {
           if (runCheckpointsMatch) {
             try {
