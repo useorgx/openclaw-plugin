@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "../fs-utils.js";
+import { parseJsonSafe } from "../json-utils.js";
 
 export function ensureStoreDirSync(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -17,13 +18,7 @@ export function ensureStoreDirSync(dir: string): void {
   }
 }
 
-export function parseJsonSafe<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
+export { parseJsonSafe };
 
 export function readJsonFileOrDefault<T>(input: {
   file: string;
@@ -65,4 +60,3 @@ export function clearStoreFileSync(file: string): void {
     // best effort
   }
 }
-

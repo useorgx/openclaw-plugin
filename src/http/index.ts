@@ -97,6 +97,7 @@ import {
   type RuntimeInstanceRecord,
   type RuntimeSourceClient,
 } from "../runtime-instance-store.js";
+import { parseJsonSafe } from "../json-utils.js";
 import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "../skill-pack-state.js";
 import { posthogCapture } from "../telemetry/posthog.js";
 import { createRouter } from "./router.js";
@@ -408,14 +409,6 @@ function clearSnapshotResponseCache(): void {
 
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
-}
-
-function parseJsonSafe<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
 }
 
 const buildLocalArtifactDetailFallback = createLocalArtifactDetailFallbackBuilder({

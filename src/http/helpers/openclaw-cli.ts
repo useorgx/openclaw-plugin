@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 
 import type { OrgXClient } from "../../api.js";
 import { readByokKeys } from "../../byok-store.js";
+import { parseJsonSafe } from "../../json-utils.js";
 import {
   readOpenClawSettingsSnapshot,
   resolvePreferredOpenClawProvider,
@@ -9,14 +10,6 @@ import {
 import type { BillingStatus } from "../../types.js";
 
 export type OpenClawProvider = "anthropic" | "openrouter" | "openai";
-
-function parseJsonSafe<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
 
 export function resolveByokEnvOverrides(): Record<string, string> {
   const stored = readByokKeys();
