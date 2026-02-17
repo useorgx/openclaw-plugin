@@ -1,13 +1,15 @@
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
-  rmSync,
 } from "node:fs";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import {
+  clearStoreFileSync,
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 export type AgentRunStatus = "running" | "stopped";
 
@@ -43,21 +45,7 @@ function runFile(): string {
 }
 
 function ensureRunDir(): void {
-  const dir = runDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  ensureStoreDirSync(runDir());
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -91,7 +79,7 @@ export function readAgentRuns(): PersistedAgentRuns {
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<PersistedAgentRuns>(raw);
+    const parsed = parseJsonSafe<PersistedAgentRuns>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), runs: {} };
@@ -197,10 +185,5 @@ export function markAgentRunStopped(runId: string): AgentRunRecord | null {
 }
 
 export function clearAgentRuns(): void {
-  const file = runFile();
-  try {
-    rmSync(file, { force: true });
-  } catch {
-    // best effort
-  }
+  clearStoreFileSync(runFile());
 }

@@ -1,8 +1,13 @@
-import { mkdirSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from 'node:crypto';
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from './paths.js';
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from './fs-utils.js';
+import {
+  clearStoreFileSync,
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 function authDir(): string {
   return getOrgxPluginConfigDir();
@@ -44,21 +49,7 @@ function isUuid(value: string): boolean {
 }
 
 function ensureAuthDir(): void {
-  const dir = authDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  ensureStoreDirSync(authDir());
 }
 
 export function getAuthFilePath(): string {
@@ -70,7 +61,7 @@ export function readPersistedAuth(): PersistedAuthRecord | null {
   try {
     if (!existsSync(file)) return null;
     const raw = readFileSync(file, 'utf8');
-    const parsed = parseJson<PersistedAuthRecord>(raw);
+    const parsed = parseJsonSafe<PersistedAuthRecord>(raw);
     if (!parsed) {
       backupCorruptFileSync(file);
       return null;
@@ -115,12 +106,7 @@ export function writePersistedAuth(
 }
 
 export function clearPersistedAuth(): void {
-  const file = authFile();
-  try {
-    rmSync(file, { force: true });
-  } catch {
-    // best effort
-  }
+  clearStoreFileSync(authFile());
 }
 
 function readInstallationRecord(): InstallationRecord | null {
@@ -128,7 +114,7 @@ function readInstallationRecord(): InstallationRecord | null {
   try {
     if (!existsSync(file)) return null;
     const raw = readFileSync(file, 'utf8');
-    const parsed = parseJson<InstallationRecord>(raw);
+    const parsed = parseJsonSafe<InstallationRecord>(raw);
     if (!parsed) {
       backupCorruptFileSync(file);
       return null;

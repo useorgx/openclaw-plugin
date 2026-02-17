@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 
 import { writeFileAtomicSync } from "../../fs-utils.js";
+import { parseJsonSafe } from "../../json-utils.js";
 import { getOrgxPluginConfigDir } from "../../paths.js";
 
 function ensurePrivateDirForFile(pathname: string): void {
@@ -127,15 +128,6 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
       // ignore
     }
     return file;
-  }
-}
-
-function parseJsonSafe<T>(value: string): T | null {
-  if (!value) return null;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
   }
 }
 

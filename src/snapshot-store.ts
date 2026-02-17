@@ -1,9 +1,14 @@
-import { mkdirSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from "node:fs";
 
 import type { OrgSnapshot } from './types.js';
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from './paths.js';
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from './fs-utils.js';
+import {
+  clearStoreFileSync,
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 function snapshotDir(): string {
   return getOrgxPluginConfigDir();
@@ -19,21 +24,7 @@ interface PersistedSnapshot {
 }
 
 function ensureSnapshotDir(): void {
-  const dir = snapshotDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  ensureStoreDirSync(snapshotDir());
 }
 
 export function readPersistedSnapshot(): PersistedSnapshot | null {
@@ -41,7 +32,7 @@ export function readPersistedSnapshot(): PersistedSnapshot | null {
   try {
     if (!existsSync(file)) return null;
     const raw = readFileSync(file, 'utf8');
-    const parsed = parseJson<PersistedSnapshot>(raw);
+    const parsed = parseJsonSafe<PersistedSnapshot>(raw);
     if (!parsed) {
       backupCorruptFileSync(file);
       return null;
@@ -68,10 +59,5 @@ export function writePersistedSnapshot(snapshot: OrgSnapshot): PersistedSnapshot
 }
 
 export function clearPersistedSnapshot(): void {
-  const file = snapshotFile();
-  try {
-    rmSync(file, { force: true });
-  } catch {
-    // best effort
-  }
+  clearStoreFileSync(snapshotFile());
 }

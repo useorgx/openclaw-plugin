@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { writeFileAtomicSync } from "./fs-utils.js";
+import { parseJsonSafe } from "./json-utils.js";
 import { getOpenClawDir } from "./paths.js";
 
 type OpenClawAgentEntry = {
@@ -120,14 +121,6 @@ export type OrgxAgentSuitePlan = OrgxAgentSuiteStatus & {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function parseJsonSafe<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
 }
 
 function isSafeAgentId(value: string): boolean {

@@ -1,15 +1,17 @@
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import {
+  clearStoreFileSync,
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 export type RuntimeSourceClient =
   | "openclaw"
@@ -91,32 +93,13 @@ function hookTokenFile(): string {
 }
 
 function ensureRuntimeDir(): void {
-  const dir = runtimeDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
+  ensureStoreDirSync(runtimeDir());
 }
 
 function writeHookTokenFile(token: string): void {
   ensureRuntimeDir();
   const file = hookTokenFile();
   writeFileSync(file, `${token}\n`, { encoding: "utf8", mode: 0o600 });
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -267,7 +250,7 @@ export function readRuntimeInstances(): PersistedRuntimeInstances {
       return { updatedAt: new Date().toISOString(), instances: {} };
     }
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<PersistedRuntimeInstances>(raw);
+    const parsed = parseJsonSafe<PersistedRuntimeInstances>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), instances: {} };
@@ -438,12 +421,7 @@ export function listRuntimeInstances(options?: {
 }
 
 export function clearRuntimeInstances(): void {
-  const file = runtimeFile();
-  try {
-    rmSync(file, { force: true });
-  } catch {
-    // best effort
-  }
+  clearStoreFileSync(runtimeFile());
 }
 
 export function resolveRuntimeHookToken(): string {

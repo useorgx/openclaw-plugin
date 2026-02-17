@@ -1,12 +1,14 @@
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
 } from "node:fs";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import {
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 export type NextUpPinnedEntry = {
   initiativeId: string;
@@ -34,21 +36,7 @@ function storeFile(): string {
 }
 
 function ensureStoreDir(): void {
-  const dir = storeDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  ensureStoreDirSync(storeDir());
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -75,7 +63,7 @@ export function readNextUpQueuePins(): PersistedNextUpQueue {
       return { version: 1, updatedAt: new Date().toISOString(), pins: [] };
     }
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<PersistedNextUpQueue>(raw);
+    const parsed = parseJsonSafe<PersistedNextUpQueue>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
       return { version: 1, updatedAt: new Date().toISOString(), pins: [] };
