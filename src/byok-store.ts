@@ -1,7 +1,11 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getOpenClawDir } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import {
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 type AuthProfileEntry = {
   type: string;
@@ -32,14 +36,6 @@ function isSafePathSegment(value: string): boolean {
   return true;
 }
 
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
-
 function readObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -50,7 +46,7 @@ function resolveDefaultAgentId(): string {
   try {
     const configPath = join(getOpenClawDir(), "openclaw.json");
     if (!existsSync(configPath)) return "main";
-    const raw = parseJson<Record<string, unknown>>(readFileSync(configPath, "utf8"));
+    const raw = parseJsonSafe<Record<string, unknown>>(readFileSync(configPath, "utf8"));
     const agents = readObject(raw?.agents);
     const list = Array.isArray(agents.list) ? agents.list : [];
 
@@ -83,13 +79,7 @@ function authProfilesFile(): string {
 }
 
 function ensureAuthProfilesDir(): void {
-  const dir = authProfilesDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
+  ensureStoreDirSync(authProfilesDir());
 }
 
 function normalizeAuthProfileEntry(value: unknown): AuthProfileEntry | null {
@@ -107,7 +97,7 @@ function readAuthProfiles(): { file: string; parsed: AuthProfilesFile | null } {
   try {
     if (!existsSync(file)) return { file, parsed: null };
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<Partial<AuthProfilesFile>>(raw);
+    const parsed = parseJsonSafe<Partial<AuthProfilesFile>>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
       return { file, parsed: null };

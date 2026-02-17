@@ -1,7 +1,5 @@
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
 } from "node:fs";
 import { Buffer } from "node:buffer";
@@ -10,6 +8,7 @@ import type { LiveActivityItem } from "./contracts/types.js";
 import { enrichActivityActorFieldsList } from "./activity-actor-fields.js";
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import { ensureStoreDirSync, parseJsonSafe } from "./stores/json-store.js";
 
 type PersistedActivityStore = {
   version: 1;
@@ -52,25 +51,11 @@ let cached: {
 } | null = null;
 
 function ensureDir(): void {
-  const dir = getOrgxPluginConfigDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
+  ensureStoreDirSync(getOrgxPluginConfigDir());
 }
 
 function storePath(): string {
   return getOrgxPluginConfigPath(STORE_FILENAME);
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
 }
 
 function toEpoch(value: string | null | undefined): number {
@@ -117,7 +102,7 @@ function readPersistedStore(): PersistedActivityStore {
 
   try {
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<PersistedActivityStore>(raw);
+    const parsed = parseJsonSafe<PersistedActivityStore>(raw);
     if (!parsed || parsed.version !== STORE_VERSION || !Array.isArray(parsed.items)) {
       backupCorruptFileSync(file);
       return { version: STORE_VERSION, updatedAt: new Date().toISOString(), items: [] };

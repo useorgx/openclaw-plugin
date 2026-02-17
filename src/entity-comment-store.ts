@@ -1,14 +1,16 @@
 import {
-  chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
-  rmSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import {
+  clearStoreFileSync,
+  ensureStoreDirSync,
+  parseJsonSafe,
+} from "./stores/json-store.js";
 
 export type EntityCommentAuthorType = "human" | "agent" | "system";
 
@@ -42,21 +44,7 @@ function commentsFile(): string {
 }
 
 function ensureDir(): void {
-  const dir = commentsDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    chmodSync(dir, 0o700);
-  } catch {
-    // best effort
-  }
-}
-
-function parseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  ensureStoreDirSync(commentsDir());
 }
 
 function entityKey(entityType: string, entityId: string): string {
@@ -97,7 +85,7 @@ function readStore(): PersistedEntityComments {
       return { updatedAt: new Date().toISOString(), commentsByEntity: {} };
     }
     const raw = readFileSync(file, "utf8");
-    const parsed = parseJson<PersistedEntityComments>(raw);
+    const parsed = parseJsonSafe<PersistedEntityComments>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), commentsByEntity: {} };
@@ -241,11 +229,5 @@ export function mergeEntityComments(
 }
 
 export function clearEntityCommentsStore(): void {
-  const file = commentsFile();
-  try {
-    rmSync(file, { force: true });
-  } catch {
-    // best effort
-  }
+  clearStoreFileSync(commentsFile());
 }
-
