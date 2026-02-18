@@ -28,7 +28,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   clearPersistedApiKey,
   loadAuthStore,
@@ -69,6 +69,7 @@ import { instrumentPluginApi } from "./services/instrumentation.js";
 import { registerSyncService } from "./services/background.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
 import { registerCoreTools } from "./tools/core-tools.js";
+import { stableHash } from "./hash-utils.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -523,10 +524,6 @@ export default function register(api: PluginAPI): void {
   function toErrorMessage(err: unknown): string {
     if (err instanceof Error) return err.message;
     return typeof err === "string" ? err : "Unexpected error";
-  }
-
-  function stableHash(value: string): string {
-    return createHash("sha256").update(value).digest("hex");
   }
 
   function isAuthFailure(err: unknown): boolean {

@@ -41,6 +41,7 @@ import {
   readSliceOutputFile,
   type CodexBinInfo,
 } from "./autopilot-slice-utils.js";
+import { pickString } from "./value-utils.js";
 
 export interface CreateAutoContinueEngineDeps {
   client: OrgXClient;
@@ -138,17 +139,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
   const __filename = deps.filename;
-  const pickString = (record: Record<string, unknown>, keys: string[]): string | null => {
-    for (const key of keys) {
-      const value = record[key];
-      if (typeof value === "string") {
-        const trimmed = value.trim();
-        if (trimmed.length > 0) return trimmed;
-      }
-    }
-    return null;
-  };
-
   type AutoContinueStopReason =
     | "budget_exhausted"
     | "blocked"
