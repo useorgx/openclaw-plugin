@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import type { OrgXClient } from "../contracts/client.js";
 
-export type ArtifactEntityType = "initiative" | "milestone" | "task" | "decision" | "project";
+export type ArtifactEntityType =
+  | "initiative"
+  | "workstream"
+  | "milestone"
+  | "task"
+  | "decision"
+  | "project";
 
 export interface RegisterArtifactInput {
   /** Optional deterministic artifact id (UUID). Enables idempotent retries/outbox replay. */
@@ -28,8 +34,8 @@ export interface RegisterArtifactInput {
   metadata?: Record<string, unknown> | null;
   /**
    * When true, do a read-after-write check against:
-   * - GET /api/artifacts/:id
-   * - GET /api/work-artifacts/by-entity
+   * - GET /api/client/artifacts/:id
+   * - GET /api/client/artifacts/by-entity
    */
   validate_persistence?: boolean;
 }
@@ -125,6 +131,41 @@ function isArtifactTypeConstraintError(err: unknown): boolean {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractArtifactFromCreateResponse(payload: unknown): Record<string, unknown> | null {
+  if (!isRecord(payload)) return null;
+
+  if (isRecord(payload.artifact)) return payload.artifact;
+  if (isRecord(payload.data) && isRecord((payload.data as Record<string, unknown>).artifact)) {
+    return (payload.data as Record<string, unknown>).artifact as Record<string, unknown>;
+  }
+  if (isRecord(payload.data)) return payload.data as Record<string, unknown>;
+  return null;
+}
+
+function extractArtifactFromDetailResponse(payload: unknown): Record<string, unknown> | null {
+  if (!isRecord(payload)) return null;
+  if (isRecord(payload.artifact)) return payload.artifact;
+  if (isRecord(payload.data) && isRecord((payload.data as Record<string, unknown>).artifact)) {
+    return (payload.data as Record<string, unknown>).artifact as Record<string, unknown>;
+  }
+  if (isRecord(payload.data)) return payload.data as Record<string, unknown>;
+  return null;
+}
+
+function extractArtifactsFromListResponse(payload: unknown): Record<string, unknown>[] {
+  if (!isRecord(payload)) return [];
+  const direct = payload.artifacts;
+  if (Array.isArray(direct)) return direct.filter(isRecord);
+  if (isRecord(payload.data) && Array.isArray((payload.data as Record<string, unknown>).artifacts)) {
+    return ((payload.data as Record<string, unknown>).artifacts as unknown[]).filter(isRecord);
+  }
+  return [];
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
@@ -138,28 +179,34 @@ async function validateArtifactPersistence(client: OrgXClient, input: {
   entity_type: string;
   entity_id: string;
 }): Promise<{ artifact_detail_ok: boolean; linked_ok: boolean }> {
-  // Use API-key compatible entity CRUD endpoints for validation.
-  // The web UI endpoints (/api/artifacts/*, /api/work-artifacts/*) are session-authenticated (401 for API keys).
   const detail = await client.rawRequest<any>(
     "GET",
-    `/api/entities?type=artifact&id=${encodeURIComponent(input.artifactId)}`
+    `/api/client/artifacts/${encodeURIComponent(input.artifactId)}`
+  );
+  const detailArtifact = extractArtifactFromDetailResponse(detail);
+  const detailOk = Boolean(
+    detailArtifact && typeof detailArtifact.id === "string" && detailArtifact.id === input.artifactId
   );
 
-  const rows = detail && typeof detail === "object" ? (detail as any).data : null;
-  const artifact =
-    Array.isArray(rows) ? rows.find((r) => r && typeof r === "object" && r.id === input.artifactId) : null;
+  const list = await client.rawRequest<any>(
+    "GET",
+    `/api/client/artifacts/by-entity?entity_type=${encodeURIComponent(
+      input.entity_type
+    )}&entity_id=${encodeURIComponent(input.entity_id)}&limit=25`
+  );
+  const artifacts = extractArtifactsFromListResponse(list);
+  const linkedArtifact = artifacts.find((artifact) => {
+    return (
+      typeof artifact.id === "string" &&
+      artifact.id === input.artifactId &&
+      typeof artifact.entity_type === "string" &&
+      artifact.entity_type === input.entity_type &&
+      typeof artifact.entity_id === "string" &&
+      artifact.entity_id === input.entity_id
+    );
+  });
 
-  const artifactOk =
-    artifact && typeof artifact === "object" && typeof artifact.id === "string" && artifact.id === input.artifactId;
-
-  const linkedOk =
-    artifactOk &&
-    typeof (artifact as any).entity_type === "string" &&
-    typeof (artifact as any).entity_id === "string" &&
-    (artifact as any).entity_type === input.entity_type &&
-    (artifact as any).entity_id === input.entity_id;
-
-  return { artifact_detail_ok: Boolean(artifactOk), linked_ok: Boolean(linkedOk) };
+  return { artifact_detail_ok: detailOk, linked_ok: Boolean(linkedArtifact) };
 }
 
 export async function registerArtifact(
@@ -217,9 +264,39 @@ export async function registerArtifact(
 
   let entity: any = null;
   let created = false;
+  let usedLegacyCreate = false;
 
-  // Attempt idempotent create using a client-provided UUID id (preferred).
+  // Primary path: canonical client artifact contract.
   try {
+    const response = await client.rawRequest<any>("POST", "/api/client/artifacts", {
+      artifact_id: desiredId,
+      entity_type: input.entity_type,
+      entity_id: input.entity_id,
+      name: input.name,
+      artifact_type: input.artifact_type,
+      description: input.description ?? undefined,
+      artifact_url: artifactUrl,
+      external_url: input.external_url ?? undefined,
+      preview_markdown: input.preview_markdown ?? undefined,
+      status,
+      metadata,
+      ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
+      ...createdBy,
+    });
+
+    entity = extractArtifactFromCreateResponse(response);
+    if (!entity) {
+      warnings.push("client artifact create returned an unexpected payload shape");
+    } else {
+      created = true;
+    }
+  } catch (err: unknown) {
+    warnings.push(`client artifact create failed; falling back to legacy entities route: ${safeErrorMessage(err)}`);
+  }
+
+  // Compatibility path for older OrgX servers.
+  if (!entity) {
+    usedLegacyCreate = true;
     try {
       entity = await client.createEntity("artifact", {
         id: desiredId,
@@ -239,7 +316,7 @@ export async function registerArtifact(
       if (!isArtifactTypeConstraintError(err)) {
         throw err;
       }
-      warnings.push(`artifact_type rejected; retrying with shared.project_handbook`);
+      warnings.push(`artifact_type rejected on legacy route; retrying with shared.project_handbook`);
       metadata.requested_artifact_type = input.artifact_type;
       entity = await client.createEntity("artifact", {
         id: desiredId,
@@ -256,43 +333,6 @@ export async function registerArtifact(
       });
       created = true;
     }
-  } catch (err: unknown) {
-    warnings.push(`artifact create with explicit id failed: ${safeErrorMessage(err)}`);
-    // Fallback: create without id, then patch artifact_url once we know the server id.
-    try {
-      entity = await client.createEntity("artifact", {
-        name: input.name,
-        description: input.description ?? undefined,
-        artifact_type: input.artifact_type,
-        entity_type: input.entity_type,
-        entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
-        artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
-        status,
-        metadata,
-        ...createdBy,
-      });
-      created = true;
-    } catch (inner: unknown) {
-      if (!isArtifactTypeConstraintError(inner)) {
-        throw inner;
-      }
-      warnings.push(`artifact_type rejected; retrying with shared.project_handbook`);
-      metadata.requested_artifact_type = input.artifact_type;
-      entity = await client.createEntity("artifact", {
-        name: input.name,
-        description: input.description ?? undefined,
-        artifact_type: "shared.project_handbook",
-        entity_type: input.entity_type,
-        entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
-        artifact_url: input.external_url ?? `${normalizeBaseUrl(baseUrl)}/artifacts/pending`,
-        status,
-        metadata,
-        ...createdBy,
-      });
-      created = true;
-    }
   }
 
   const artifactId =
@@ -300,11 +340,14 @@ export async function registerArtifact(
       ? String((entity as any).id)
       : null;
 
-  let finalArtifactUrl: string | null = artifactId
-    ? `${normalizeBaseUrl(baseUrl)}/artifacts/${artifactId}`
-    : null;
+  let finalArtifactUrl: string | null =
+    entity && typeof entity === "object" && typeof (entity as any).artifact_url === "string"
+      ? String((entity as any).artifact_url)
+      : artifactId
+      ? `${normalizeBaseUrl(baseUrl)}/artifacts/${artifactId}`
+      : null;
 
-  if (artifactId) {
+  if (artifactId && usedLegacyCreate) {
     try {
       await client.updateEntity("artifact", artifactId, {
         artifact_url: finalArtifactUrl,
