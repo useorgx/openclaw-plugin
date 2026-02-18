@@ -1468,7 +1468,7 @@ function MissionControlInner({
             {sortedInitiatives.length > 0 && (
               <div
                 data-mc-selection-bar="true"
-                className={`mt-3 relative grid overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_560px] xl:gap-0 xl:items-stretch ${
+                className={`mt-3 relative grid overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_560px] xl:gap-0 xl:items-center ${
                   selectedInitiativeCount > 0
                     ? 'border-[#BFFF00]/14 bg-[#0A0E15]/72'
                     : 'border-white/[0.10] bg-[#0A0E15]/66'
@@ -1484,7 +1484,13 @@ function MissionControlInner({
                     }}
                   />
                 )}
-                <div className="min-w-0 px-3 py-2">
+                <div
+                  className={`min-w-0 px-3 py-2 transition-[padding,min-height] duration-200 ease-out xl:flex ${
+                    selectedInitiativeCount > 0
+                      ? 'xl:min-h-[92px] xl:items-start'
+                      : 'xl:min-h-[70px] xl:items-center'
+                  }`}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                   <label className="inline-flex flex-shrink-0 items-center gap-2 text-caption text-primary">
                     <input
@@ -1754,7 +1760,7 @@ function MissionControlInner({
                           </div>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-2.5">
+                      <div className="ml-auto flex flex-wrap items-center gap-2.5 xl:self-end">
                         {(nextActionMode === 'queued' || nextActionMode === 'running') && nextActionQueueItem ? (
                           <button
                             type="button"
