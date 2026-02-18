@@ -5,6 +5,7 @@ import { colors, getAgentRole } from '@/lib/tokens';
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
 import { statusColor } from '@/lib/entityStatusColors';
 import { resolveProvider, type ProviderId } from '@/lib/providers';
+import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import type {
   ConnectionStatus,
   LiveActivityItem,
@@ -32,6 +33,7 @@ interface AgentsChatsPanelProps {
   onReconnect?: () => void;
   connectionStatus?: ConnectionStatus;
   runtimeInstances?: RuntimeInstance[];
+  showSyntheticEntities?: boolean;
 }
 
 const MAX_VISIBLE_GROUPS = 120;
@@ -267,6 +269,18 @@ function compactAgentDisplayName(name: string): string {
   return trimmed;
 }
 
+function isSyntheticInitiativeForVisibility(value: string | null | undefined): boolean {
+  const normalized = (value ?? '').trim();
+  if (!normalized) return false;
+  return isSyntheticInitiativeId(normalized);
+}
+
+function isSyntheticCatalogAgent(agent: OpenClawCatalogAgent): boolean {
+  if (isSyntheticInitiativeForVisibility(agent.context?.initiativeId)) return true;
+  if (isSyntheticInitiativeForVisibility(agent.run?.initiativeId ?? null)) return true;
+  return false;
+}
+
 function isOrgxGroup(group: AgentGroup): boolean {
   const canonical = canonicalizeOrgxIdentity(group.agentId, group.agentName);
   if (canonical) return true;
@@ -370,6 +384,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   onReconnect,
   connectionStatus,
   runtimeInstances = [],
+  showSyntheticEntities = false,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
@@ -418,10 +433,25 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     filteredOutSessionsByDate,
     visibleSessionCount,
     archivedGroups,
+    sessionCountInScope,
   } = useMemo(() => {
+    const sessionNodes = showSyntheticEntities
+      ? sessions.nodes
+      : sessions.nodes.filter(
+          (node) => !isSyntheticInitiativeForVisibility(node.initiativeId)
+        );
+    const catalogAgentsInScope = showSyntheticEntities
+      ? catalogAgents
+      : catalogAgents.filter((agent) => !isSyntheticCatalogAgent(agent));
+    const runtimeInstancesInScope = showSyntheticEntities
+      ? runtimeInstances
+      : runtimeInstances.filter(
+          (runtime) => !isSyntheticInitiativeForVisibility(runtime.initiativeId)
+        );
+
     const runtimeByRunId = new Map<string, RuntimeInstance>();
     const runtimeByAgentId = new Map<string, RuntimeInstance[]>();
-    const sortedRuntime = [...runtimeInstances].sort(
+    const sortedRuntime = [...runtimeInstancesInScope].sort(
       (a, b) => toEpoch(b.lastEventAt ?? b.lastHeartbeatAt) - toEpoch(a.lastEventAt ?? a.lastHeartbeatAt)
     );
     for (const runtime of sortedRuntime) {
@@ -444,7 +474,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     const map = new Map<string, AgentGroup>();
 
-    for (const node of sessions.nodes) {
+    for (const node of sessionNodes) {
       const inferred = inferredAgentIdentity(node);
       const preferredKey = sessionGroupKey(node);
       const normalizedId = normalizeIdentity(inferred.agentId);
@@ -496,7 +526,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     }
 
     // Merge catalog agents: add groups for agents not already in the session map
-    for (const catAgent of catalogAgents) {
+    for (const catAgent of catalogAgentsInScope) {
       const canonicalCatalog = canonicalizeOrgxIdentity(catAgent.id, catAgent.name);
       const catalogId = canonicalCatalog?.agentId ?? catAgent.id;
       const catalogName = canonicalCatalog?.agentName ?? catAgent.name;
@@ -557,6 +587,60 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       }
     }
 
+    for (const canonical of CANONICAL_ORGX_AGENTS) {
+      const canonicalAgentId = `orgx:${canonical.id}`;
+      const canonicalKey = `id:${canonicalAgentId}`;
+      let group = map.get(canonicalKey) ?? null;
+
+      if (!group) {
+        const aliasMatch = Array.from(map.entries()).find(([, candidate]) => {
+          const matched = canonicalizeOrgxIdentity(
+            candidate.agentId,
+            candidate.agentName
+          );
+          return normalizeIdentity(matched?.agentId) === normalizeIdentity(canonicalAgentId);
+        });
+        if (aliasMatch) {
+          map.delete(aliasMatch[0]);
+          group = aliasMatch[1];
+          group.groupKey = canonicalKey;
+          map.set(canonicalKey, group);
+        }
+      }
+
+      if (!group) {
+        group = {
+          groupKey: canonicalKey,
+          agentId: canonicalAgentId,
+          agentName: canonical.name,
+          nodes: [],
+          latest: null,
+          runtime: null,
+          runtimeActiveCount: 0,
+        };
+        map.set(canonicalKey, group);
+      }
+
+      group.agentId = canonicalAgentId;
+      group.agentName = canonical.name;
+      if (!group.catalogAgent) {
+        const matchedCatalog = catalogAgentsInScope.find((agent) => {
+          const identity = canonicalizeOrgxIdentity(agent.id, agent.name);
+          return normalizeIdentity(identity?.agentId) === normalizeIdentity(canonicalAgentId);
+        });
+        if (matchedCatalog) {
+          group.catalogAgent = matchedCatalog;
+        }
+      }
+    }
+
+    const canonicalOrder = new Map(
+      CANONICAL_ORGX_AGENTS.map((candidate, index) => [
+        normalizeIdentity(`orgx:${candidate.id}`),
+        index,
+      ])
+    );
+
     for (const group of map.values()) {
       if (group.nodes.length > 0) {
         group.nodes.sort(sortByUpdated);
@@ -608,6 +692,15 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       const aOrgx = isOrgxGroup(a);
       const bOrgx = isOrgxGroup(b);
       if (aOrgx !== bOrgx) return aOrgx ? -1 : 1;
+      if (aOrgx && bOrgx) {
+        const aCanonical = canonicalizeOrgxIdentity(a.agentId, a.agentName);
+        const bCanonical = canonicalizeOrgxIdentity(b.agentId, b.agentName);
+        const aIdx =
+          canonicalOrder.get(normalizeIdentity(aCanonical?.agentId ?? a.agentId)) ?? 999;
+        const bIdx =
+          canonicalOrder.get(normalizeIdentity(bCanonical?.agentId ?? b.agentId)) ?? 999;
+        if (aIdx !== bIdx) return aIdx - bIdx;
+      }
       if (a.latest && b.latest) return sortByUpdated(a.latest, b.latest);
       if (a.latest && !b.latest) return -1;
       if (!a.latest && b.latest) return 1;
@@ -628,10 +721,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     for (const group of sortedGroups) {
       const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
+      const isOrgxCanonicalGroup = isOrgxGroup(group);
       // Keep zero-session roster noise out of historical views.
       if (group.nodes.length === 0) {
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
-        if (isLiveWindow && (catalogIsLive || runtimeIsLive)) {
+        if (isOrgxCanonicalGroup || (isLiveWindow && (catalogIsLive || runtimeIsLive))) {
           filteredGroups.push(group);
         }
         continue;
@@ -647,7 +741,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
         if (visibleNodes.length === 0) {
-          if (catalogIsLive || runtimeIsLive) {
+          if (isOrgxCanonicalGroup || catalogIsLive || runtimeIsLive) {
             filteredGroups.push({
               ...group,
               nodes: [],
@@ -694,7 +788,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
 
       if (visibleNodes.length === 0) {
-        if (catalogIsLive || runtimeIsLive) {
+        if (isOrgxCanonicalGroup || catalogIsLive || runtimeIsLive) {
           filteredGroups.push({
             ...group,
             nodes: [],
@@ -740,8 +834,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         .slice(0, MAX_VISIBLE_GROUPS)
         .reduce((sum, group) => sum + group.nodes.length, 0),
       archivedGroups: archivedGroupsList,
+      sessionCountInScope: sessionNodes.length,
     };
-  }, [timeFilterId, sessions.nodes, catalogAgents, runtimeInstances]);
+  }, [timeFilterId, sessions.nodes, catalogAgents, runtimeInstances, showSyntheticEntities]);
 
   // Reset archived disclosure when filter changes
   useEffect(() => {
@@ -840,7 +935,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     [activityWithinWindow, detailGroup]
   );
 
-  const hasNoSessions = sessions.nodes.length === 0;
+  const hasNoSessions = sessionCountInScope === 0;
   const hasCatalogAgents = catalogAgents.length > 0;
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   const [listScrollTop, setListScrollTop] = useState(0);
@@ -959,7 +1054,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               Agents
             </h2>
             <span className="chip flex-shrink-0 text-caption tabular-nums">
-              {visibleSessionCount}/{sessions.nodes.length}
+              {visibleSessionCount}/{sessionCountInScope}
             </span>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">

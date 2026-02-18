@@ -1577,20 +1577,18 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     autoContinueRuns.set(input.initiativeId, run);
 
-    try {
-      await client.updateEntity("initiative", input.initiativeId, { status: "active" });
-    } catch {
-      // best effort
-    }
-
-    try {
-      await updateInitiativeAutoContinueState({
-        initiativeId: input.initiativeId,
-        run,
+    void client
+      .updateEntity("initiative", input.initiativeId, { status: "active" })
+      .catch(() => {
+        // best effort
       });
-    } catch {
+
+    void updateInitiativeAutoContinueState({
+      initiativeId: input.initiativeId,
+      run,
+    }).catch(() => {
       // best effort
-    }
+    });
 
     return run;
   }

@@ -1838,6 +1838,25 @@ function syncReplaySummary(item: LiveActivityItem | null): string | null {
   return `${countLabel}${entityLabel} were synced from local replay.`;
 }
 
+function syncReplayDedupKey(item: LiveActivityItem): string | null {
+  if (!isOutboxSyncReplayEvent(item)) return null;
+  const metadata = metadataForItem(item);
+  if (!metadata) return null;
+
+  const idempotencyKey = metadataString(metadata, ['idempotency_key', 'idempotencyKey']);
+  if (idempotencyKey) {
+    return `idem:${idempotencyKey.toLowerCase()}`;
+  }
+
+  const eventName = metadataString(metadata, ['event', 'event_name', 'eventName']) ?? '';
+  const changesetId = metadataString(metadata, ['changeset_id', 'changesetId']) ?? '';
+  const entityType = metadataString(metadata, ['entity_type', 'entityType']) ?? '';
+  const entityId = metadataString(metadata, ['entity_id', 'entityId']) ?? '';
+  const runId = resolveRunId(item) ?? '';
+  const normalizedTitle = cleanSystemTitle(item).title.trim().toLowerCase();
+  return `fallback:${eventName.toLowerCase()}:${changesetId.toLowerCase()}:${entityType.toLowerCase()}:${entityId.toLowerCase()}:${runId.toLowerCase()}:${normalizedTitle}`;
+}
+
 function getLocalTurnReference(item: LiveActivityItem | null): {
   turnId: string;
   sessionKey: string | null;
@@ -2087,6 +2106,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
     let filteredSyncEvents = 0;
+    const seenSyncReplayKeys = new Set<string>();
     const normalizedQuery = query.trim().toLowerCase();
 
     for (const decorated of decoratedActivity) {
@@ -2109,7 +2129,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         continue;
       }
 
-      if (!showSyncEvents && isOutboxSyncReplayEvent(decorated.item)) {
+      const syncReplayKey = syncReplayDedupKey(decorated.item);
+      if (syncReplayKey) {
+        if (seenSyncReplayKeys.has(syncReplayKey)) {
+          filteredSyncEvents += 1;
+          continue;
+        }
+        seenSyncReplayKeys.add(syncReplayKey);
+        if (!showSyncEvents) {
+          filteredSyncEvents += 1;
+          continue;
+        }
+      } else if (!showSyncEvents && isOutboxSyncReplayEvent(decorated.item)) {
         filteredSyncEvents += 1;
         continue;
       }
@@ -2194,7 +2225,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       const clusterMap = new Map<string, DeduplicatedCluster>();
       for (const decorated of group.items) {
         const normalizedClusterTitle = cleanSystemTitle(decorated.item).title.trim().toLowerCase();
-        const clusterKey = `${decorated.item.type}::${normalizedClusterTitle}`;
+        const syncReplayKey = syncReplayDedupKey(decorated.item);
+        const clusterKey = syncReplayKey
+          ? `${decorated.item.type}::sync::${syncReplayKey}`
+          : `${decorated.item.type}::${normalizedClusterTitle}`;
         const existing = clusterMap.get(clusterKey);
         if (existing) {
           existing.count += 1;
@@ -2716,10 +2750,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     : null;
   const singleSessionItems = useMemo(() => {
     if (!isSingleSession) return [];
-    return decoratedActivity
-      .filter((d) => d.runId && selectedRunIdSet.has(d.runId))
-      .map((d) => d.item);
-  }, [isSingleSession, decoratedActivity, selectedRunIdSet]);
+    const items: LiveActivityItem[] = [];
+    const seenSyncReplayKeys = new Set<string>();
+    for (const decorated of decoratedActivity) {
+      if (!decorated.runId || !selectedRunIdSet.has(decorated.runId)) continue;
+
+      const syncReplayKey = syncReplayDedupKey(decorated.item);
+      if (syncReplayKey) {
+        if (seenSyncReplayKeys.has(syncReplayKey)) continue;
+        seenSyncReplayKeys.add(syncReplayKey);
+        if (!showSyncEvents) continue;
+      } else if (!showSyncEvents && isOutboxSyncReplayEvent(decorated.item)) {
+        continue;
+      }
+
+      items.push(decorated.item);
+    }
+    return items;
+  }, [isSingleSession, decoratedActivity, selectedRunIdSet, showSyncEvents]);
 
   const enableItemMotion = !prefersReducedMotion && filtered.length <= 160;
 

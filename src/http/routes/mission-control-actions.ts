@@ -70,6 +70,32 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   safeErrorMessage: (err: unknown) => string;
 };
 
+const PLAY_QUEUE_LOOKUP_TIMEOUT_MS = (() => {
+  const raw = process.env.ORGX_PLAY_QUEUE_LOOKUP_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 350;
+  return Math.max(200, Math.floor(parsed));
+})();
+
+async function withSoftTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function registerMissionControlActionsRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterMissionControlActionsRoutesDeps<TReq, TRes>
@@ -108,9 +134,33 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             "")
             .trim();
 
-        const queue = await deps.buildNextUpQueue({ initiativeId });
-        const matchedQueueItem =
-          queue.items.find((item) => item.workstreamId === workstreamId) ?? null;
+        const fastAckRaw =
+          (payload as Record<string, unknown>).fastAck ??
+          (payload as Record<string, unknown>).fast_ack ??
+          query.get("fastAck") ??
+          query.get("fast_ack") ??
+          null;
+        const fastAck =
+          typeof fastAckRaw === "boolean"
+            ? fastAckRaw
+            : deps.parseBooleanQuery(typeof fastAckRaw === "string" ? fastAckRaw : null);
+
+        let matchedQueueItem: NextUpQueue["items"][number] | null = null;
+        const shouldLookupQueue = !fastAck || !agentIdRaw;
+        if (shouldLookupQueue) {
+          try {
+            const queue = fastAck
+              ? await withSoftTimeout(
+                  deps.buildNextUpQueue({ initiativeId }),
+                  PLAY_QUEUE_LOOKUP_TIMEOUT_MS
+                )
+              : await deps.buildNextUpQueue({ initiativeId });
+            matchedQueueItem =
+              queue.items.find((item) => item.workstreamId === workstreamId) ?? null;
+          } catch {
+            // Best effort: Play/Autopilot dispatch should still proceed even if queue refresh is slow.
+          }
+        }
 
         if (!agentIdRaw && matchedQueueItem?.runnerAgentId) {
           agentIdRaw = matchedQueueItem.runnerAgentId;
@@ -163,17 +213,6 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                   ? includeVerificationRaw
                   : null
               );
-
-        const fastAckRaw =
-          (payload as Record<string, unknown>).fastAck ??
-          (payload as Record<string, unknown>).fast_ack ??
-          query.get("fastAck") ??
-          query.get("fast_ack") ??
-          null;
-        const fastAck =
-          typeof fastAckRaw === "boolean"
-            ? fastAckRaw
-            : deps.parseBooleanQuery(typeof fastAckRaw === "string" ? fastAckRaw : null);
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         if (

@@ -583,7 +583,10 @@ export async function listEntitiesSafe(
 
 export async function buildMissionControlGraph(
   client: OrgXClient,
-  initiativeId: string
+  initiativeId: string,
+  options?: {
+    initiativeEntity?: Entity | null;
+  }
 ): Promise<{
   initiative: {
     id: string;
@@ -598,23 +601,27 @@ export async function buildMissionControlGraph(
   degraded: string[];
 }> {
   const degraded: string[] = [];
-
-  const [initiativeResult, workstreamResult, milestoneResult, taskResult] =
-    await Promise.all([
-      listEntitiesSafe(client, "initiative", { limit: 300 }),
-      listEntitiesSafe(client, "workstream", {
-        initiative_id: initiativeId,
-        limit: 500,
-      }),
-      listEntitiesSafe(client, "milestone", {
-        initiative_id: initiativeId,
-        limit: 700,
-      }),
-      listEntitiesSafe(client, "task", {
-        initiative_id: initiativeId,
-        limit: 1200,
-      }),
-    ]);
+  const preloadedInitiative = options?.initiativeEntity ?? null;
+  const [initiativeResult, workstreamResult, milestoneResult, taskResult] = await Promise.all([
+    preloadedInitiative
+      ? Promise.resolve<{ items: Entity[]; warning: string | null }>({
+          items: [preloadedInitiative],
+          warning: null,
+        })
+      : listEntitiesSafe(client, "initiative", { limit: 300 }),
+    listEntitiesSafe(client, "workstream", {
+      initiative_id: initiativeId,
+      limit: 500,
+    }),
+    listEntitiesSafe(client, "milestone", {
+      initiative_id: initiativeId,
+      limit: 700,
+    }),
+    listEntitiesSafe(client, "task", {
+      initiative_id: initiativeId,
+      limit: 1200,
+    }),
+  ]);
 
   for (const warning of [
     initiativeResult.warning,

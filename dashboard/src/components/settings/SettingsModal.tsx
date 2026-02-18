@@ -8,11 +8,58 @@ import { LegalLinks } from '@/components/shared/LegalLinks';
 
 export type SettingsTab = 'orgx' | 'providers';
 
+function PreferenceToggle({
+  label,
+  description,
+  enabled,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  enabled: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-body font-semibold text-primary">{label}</p>
+        <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        onClick={() => onToggle(!enabled)}
+        className={cn(
+          'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border transition-colors',
+          enabled
+            ? 'border-lime/35 bg-lime/[0.20]'
+            : 'border-white/[0.12] bg-white/[0.06]'
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            'absolute top-0.5 h-5 w-5 rounded-full transition-all',
+            enabled
+              ? 'left-[20px] bg-lime'
+              : 'left-0.5 bg-white/70'
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 export function SettingsModal({
   open,
   onClose,
   activeTab,
   onChangeTab,
+  demoMode,
+  onToggleDemoMode,
+  showSyntheticEntities,
+  onToggleShowSyntheticEntities,
   onboarding,
   authToken = null,
   embedMode = false,
@@ -21,6 +68,10 @@ export function SettingsModal({
   onClose: () => void;
   activeTab: SettingsTab;
   onChangeTab: (tab: SettingsTab) => void;
+  demoMode: boolean;
+  onToggleDemoMode: (next: boolean) => void;
+  showSyntheticEntities: boolean;
+  onToggleShowSyntheticEntities: (next: boolean) => void;
   onboarding: {
     state: OnboardingState;
     isStarting: boolean;
@@ -102,6 +153,26 @@ export function SettingsModal({
         <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {activeTab === 'orgx' ? (
             <div className="grid gap-4">
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+                <h3 className="text-heading font-semibold text-white">Dashboard visibility</h3>
+                <p className="mt-1 text-body leading-relaxed text-secondary">
+                  Control demo data and synthetic entities in the activity and agent surfaces.
+                </p>
+                <div className="mt-3 grid gap-3">
+                  <PreferenceToggle
+                    label="Demo mode"
+                    description="Use local demo initiatives and sessions for walkthroughs."
+                    enabled={demoMode}
+                    onToggle={onToggleDemoMode}
+                  />
+                  <PreferenceToggle
+                    label="Show demo/synthetic entities"
+                    description="Include synthetic initiative IDs (for QA/demo data) in the agent column."
+                    enabled={showSyntheticEntities}
+                    onToggle={onToggleShowSyntheticEntities}
+                  />
+                </div>
+              </div>
               <OrgxConnectionPanel
                 state={onboarding.state}
                 isStarting={onboarding.isStarting}

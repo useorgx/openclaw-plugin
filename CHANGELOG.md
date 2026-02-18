@@ -2,6 +2,16 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.4.9 - 2026-02-18
+
+### Pairing + Mission Control Reliability
+- Hardened HTTP mission-control action handling and auto-continue guard behavior to reduce false starts and improve routing consistency.
+- Expanded auto-continue guarding tests for mission-control flows and edge-case execution paths.
+
+### Dashboard UX Updates
+- Refined app shell/session views and settings interactions for clearer mission state and smoother operator workflows.
+- Improved activity timeline and agent chat panel behavior to better surface current run context.
+
 ## 0.4.8 - 2026-02-16
 
 ### Activity Timeline Clarity
