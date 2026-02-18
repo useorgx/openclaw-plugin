@@ -7,6 +7,7 @@ import { buildOrgxHeaders } from '@/lib/http';
 import { useArtifactViewer } from './ArtifactViewerContext';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Skeleton } from '@/components/shared/Skeleton';
+import { Pill } from '@/components/shared/Pill';
 
 interface ArtifactData {
   id: string;
@@ -91,7 +92,7 @@ export function ArtifactViewerModal() {
   const embedMode = false;
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery<ArtifactDetailResponse>({
+  const { data, isLoading, isFetching, error, refetch } = useQuery<ArtifactDetailResponse>({
     queryKey: queryKeys.artifactDetail({
       artifactId: state.artifactId ?? '',
       authToken,
@@ -106,11 +107,24 @@ export function ArtifactViewerModal() {
       );
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as
-          | { error?: string }
+          | {
+              error?: string | { code?: string; message?: string };
+              message?: string;
+            }
           | null;
-        throw new Error(
-          payload?.error?.trim() || `Failed to fetch artifact: ${response.status}`
-        );
+        const errorText =
+          (typeof payload?.error === 'string' ? payload.error : null) ??
+          (payload?.error &&
+          typeof payload.error === 'object' &&
+          typeof payload.error.message === 'string'
+            ? payload.error.message
+            : null) ??
+          (typeof payload?.message === 'string' ? payload.message : null);
+        const fallback =
+          response.status === 401
+            ? 'Authentication required to view this artifact.'
+            : `Failed to fetch artifact (${response.status}).`;
+        throw new Error(errorText?.trim().length ? errorText.trim() : fallback);
       }
       return response.json();
     },
@@ -178,9 +192,28 @@ export function ArtifactViewerModal() {
       )}
 
       {error && (
-        <div className="p-6">
-          <p className="text-body font-medium text-red-300">Failed to load artifact</p>
-          <p className="mt-1 text-caption text-red-200/80">{error.message}</p>
+        <div className="space-y-4 p-6">
+          <div className="rounded-xl border border-red-300/22 bg-red-500/[0.08] p-4">
+            <p className="text-body font-semibold text-red-200">Failed to load artifact</p>
+            <p className="mt-1 text-caption leading-relaxed text-red-100/80">{error.message}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={close}
+              className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08]"
+            >
+              Back to activity
+            </button>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="rounded-full border border-red-300/22 bg-red-500/[0.08] px-3 py-1.5 text-caption font-semibold text-red-100 transition-colors hover:bg-red-500/[0.14] disabled:opacity-45"
+            >
+              {isFetching ? 'Retrying…' : 'Retry'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -196,28 +229,30 @@ export function ArtifactViewerModal() {
                 </h3>
                 <div className="flex items-center gap-2 mt-0.5">
                   {/* Type badge */}
-                  <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-wider text-secondary">
+                  <Pill tone="muted" className="text-micro uppercase tracking-[0.06em]">
                     {artifact.catalog?.label ?? artifact.artifact_type}
-                  </span>
+                  </Pill>
                   {/* Status badge */}
-                  <span
-                    className="rounded-full px-2 py-0.5 text-micro font-medium uppercase tracking-wider"
+                  <Pill
+                    tone="neutral"
+                    className="text-micro font-semibold uppercase tracking-[0.06em]"
                     style={{
                       color: statusColors[artifact.status] ?? colors.textMuted,
-                      backgroundColor: `${statusColors[artifact.status] ?? colors.textMuted}15`,
+                      backgroundColor: `${statusColors[artifact.status] ?? colors.textMuted}20`,
+                      borderColor: `${statusColors[artifact.status] ?? colors.textMuted}44`,
                     }}
                   >
                     {statusLabels[artifact.status] ?? artifact.status}
-                  </span>
+                  </Pill>
                   {artifact.catalog?.domain && (
                     <span className="text-micro text-faint">
                       {artifact.catalog.domain} / {artifact.catalog.stage}
                     </span>
                   )}
                   {copyNotice && (
-                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-secondary">
+                    <Pill tone="neutral" className="text-micro text-secondary">
                       {copyNotice}
-                    </span>
+                    </Pill>
                   )}
                 </div>
               </div>

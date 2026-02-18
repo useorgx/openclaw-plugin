@@ -9,6 +9,7 @@ import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } 
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
@@ -3543,9 +3544,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
                 </span>
                 {copyNotice && (
-	                  <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro font-semibold tracking-[0.02em] text-secondary">
-	                    {copyNotice}
-	                  </span>
+                  <Pill tone="neutral" className="text-micro font-semibold tracking-[0.02em]">
+                    {copyNotice}
+                  </Pill>
                 )}
               </div>
 
@@ -3657,28 +3658,30 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 text-caption">
-	                      <span
-	                        className="rounded-full border px-2 py-0.5 font-semibold tracking-[0.02em]"
-	                        style={{
-	                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
-	                          color: bucketColor(activeDecorated.bucket),
-	                        }}
-	                      >
-	                        {bucketLabel(activeDecorated.bucket)}
-	                      </span>
-                      <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
+                    <div className="flex flex-wrap items-center gap-2 text-caption">
+                      <Pill
+                        tone="neutral"
+                        className="font-semibold tracking-[0.02em]"
+                        style={{
+                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
+                          color: bucketColor(activeDecorated.bucket),
+                          backgroundColor: `${bucketColor(activeDecorated.bucket)}12`,
+                        }}
+                      >
+                        {bucketLabel(activeDecorated.bucket)}
+                      </Pill>
+                      <Pill tone="muted">
                         {labelForType(activeDecorated.item.type)}
-                      </span>
+                      </Pill>
                       {activeIsSyncReplay && (
-                        <span className="rounded-full border border-lime/25 bg-lime/[0.10] px-2 py-0.5 text-[#D8FFA1]">
+                        <Pill tone="lime">
                           Sync replay
-                        </span>
+                        </Pill>
                       )}
                       {activeActorFlow?.mode === 'handoff' &&
                         activeActorFlow.requester &&
                         activeActorFlow.executor && (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-300/25 bg-cyan-500/[0.10] px-1.5 py-0.5 text-cyan-100">
+                          <Pill tone="cyan">
                             <AgentAvatar
                               name={activeActorFlow.requester.label}
                               hint={actorAvatarHint(activeActorFlow.requester)}
@@ -3690,22 +3693,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               hint={actorAvatarHint(activeActorFlow.executor)}
                               size="xs"
                             />
-                          </span>
+                          </Pill>
                         )}
                       {activeActorFlow?.mode !== 'handoff' && activeIdentity.agentName && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-strong px-1.5 py-0.5 text-secondary">
+                        <Pill tone="muted">
                           <AgentAvatar
                             name={activeIdentity.agentName ?? 'Agent'}
                             hint={`${activeIdentity.agentId ?? ''} ${activeDecorated.item.title ?? ''}`}
                             size="xs"
                           />
                           <span>{activeIdentity.agentName}</span>
-                        </span>
+                        </Pill>
                       )}
                       {activeDecorated.runId && (
-                        <span className="rounded-full border border-strong px-2 py-0.5 text-secondary">
+                        <Pill tone="muted">
                           {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
-                        </span>
+                        </Pill>
                       )}
                     </div>
 
