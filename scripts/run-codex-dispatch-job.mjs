@@ -1357,6 +1357,29 @@ export function detectMcpHandshakeFailure(logText) {
   if (server && ignoredServers.has(server.toLowerCase())) {
     return null;
   }
+  const requiredServerEnv = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  const requiredServers =
+    typeof requiredServerEnv === "string"
+      ? (() => {
+          const trimmed = requiredServerEnv.trim().toLowerCase();
+          if (!trimmed) return new Set(["orgx-openclaw", "orgx"]);
+          if (trimmed === "all") return null;
+          if (trimmed === "none") return new Set();
+          return new Set(
+            trimmed
+              .split(",")
+              .map((entry) => entry.trim().toLowerCase())
+              .filter(Boolean)
+          );
+        })()
+      : new Set(["orgx-openclaw", "orgx"]);
+  if (
+    server &&
+    requiredServers &&
+    (requiredServers.size === 0 || !requiredServers.has(server.toLowerCase()))
+  ) {
+    return null;
+  }
 
   return {
     kind: "mcp_handshake",

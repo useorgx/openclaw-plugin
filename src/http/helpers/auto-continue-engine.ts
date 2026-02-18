@@ -445,6 +445,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run: AutoContinueRun;
     reason: AutoContinueStopReason;
     error?: string | null;
+    decisionRequired?: boolean;
   }): Promise<void> {
     const now = new Date().toISOString();
     const activeRunId = input.run.activeRunId;
@@ -480,10 +481,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       // best effort
     }
 
-    const scopeSuffix =
+    const scopedWorkstreamId =
       Array.isArray(input.run.allowedWorkstreamIds) && input.run.allowedWorkstreamIds.length === 1
-        ? ` (${input.run.allowedWorkstreamIds[0]})`
-        : "";
+        ? input.run.allowedWorkstreamIds[0]
+        : null;
+    const scopeSuffix = scopedWorkstreamId ? ` [workstream ${scopedWorkstreamId}]` : "";
+    const decisionRequired = input.reason === "blocked" && input.decisionRequired === true;
     const message =
       input.reason === "completed"
         ? `Autopilot stopped: current dispatch scope completed${scopeSuffix}.`
@@ -492,7 +495,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           : input.reason === "stopped"
             ? `Autopilot stopped by user request${scopeSuffix}.`
             : input.reason === "blocked"
-              ? `Autopilot stopped: blocked pending decision${scopeSuffix}.`
+              ? decisionRequired
+                ? `Autopilot stopped: blocked awaiting decision${scopeSuffix}.`
+                : `Autopilot stopped: blocked${scopeSuffix}.`
               : `Autopilot stopped due to error${scopeSuffix}.`;
     const phase =
       input.reason === "completed"
@@ -524,6 +529,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         token_budget: input.run.tokenBudget,
         tokens_used: input.run.tokensUsed,
         allowed_workstream_ids: input.run.allowedWorkstreamIds,
+        scope_workstream_id: scopedWorkstreamId,
+        decision_required: decisionRequired,
         last_error: input.run.lastError,
       },
     });
@@ -680,6 +687,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
+                  decisionRequired: true,
 	              });
 	              return;
 	            }
@@ -758,6 +766,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
+                  decisionRequired: true,
 	              });
 	              return;
 	            }
@@ -957,6 +966,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              parsed?.summary ??
               slice.lastError ??
               `Slice returned status: ${effectiveParsedStatus}`,
+              decisionRequired: blockingDecisionCount > 0,
           });
           return;
         }
@@ -998,6 +1008,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               (completionHadNoOutcome
                 ? "Slice completed without verifiable outcomes."
                 : "Slice failed or returned invalid output."),
+            decisionRequired: completionHadNoOutcome,
           });
           return;
         }
@@ -1261,7 +1272,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           ],
           blocking: true,
         });
-        await stopAutoContinueRun({ run, reason: "blocked", error: blockedReason });
+        await stopAutoContinueRun({
+          run,
+          reason: "blocked",
+          error: blockedReason,
+          decisionRequired: true,
+        });
         return;
       }
     }

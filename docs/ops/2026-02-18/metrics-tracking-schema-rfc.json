@@ -1,0 +1,109 @@
+{
+  "title": "RFC: Metrics Tracking Schema per Platform for Content Engine Dogfood",
+  "summary": "Define a canonical, platform-aware metrics schema so weekly performance reviews and compound-learning loops can compare outcomes across channels without ad-hoc spreadsheets. This RFC standardizes identifiers, time windows, and metric definitions while allowing platform-specific extensions in a controlled envelope.",
+  "background": "The Feb 14, 2026 launch-day checklist requires hourly metrics snapshots (one per hour) for signups, checkout attempts, paid conversions, and error counts, but the repository contains no canonical snapshot schema or stored metrics files under docs/ops/2026-02-14. This indicates that performance data is currently captured inconsistently, making it difficult to compare outcomes across platforms or compute week-over-week deltas reliably. The Content Engine dogfood initiative needs a consistent foundation to support a weekly review cadence and compound learning.",
+  "proposal": {
+    "description": "Adopt a single JSON schema for performance snapshots that is keyed by platform, content object, and time window. The schema is normalized enough to support cross-platform rollups while allowing a controlled set of platform-specific fields for edge cases. Snapshots are stored as append-only records with explicit attribution and data-source metadata.",
+    "schema": {
+      "snapshot_id": "string (uuid)",
+      "captured_at": "ISO-8601 timestamp",
+      "window_start": "ISO-8601 timestamp",
+      "window_end": "ISO-8601 timestamp",
+      "platform": "enum (x | linkedin | youtube | newsletter | website)",
+      "account_id": "string",
+      "content_id": "string",
+      "content_type": "enum (post | thread | video | article | landing_page | email)",
+      "url": "string",
+      "metrics": {
+        "impressions": "number",
+        "views": "number",
+        "clicks": "number",
+        "likes": "number",
+        "comments": "number",
+        "shares": "number",
+        "saves": "number",
+        "followers_gained": "number",
+        "replies": "number",
+        "engagement_rate": "number (0-1)",
+        "ctr": "number (0-1)",
+        "conversions": "number",
+        "revenue": "number"
+      },
+      "source": {
+        "system": "enum (manual | api | export)",
+        "collector": "string",
+        "collected_by": "string"
+      },
+      "extensions": {
+        "notes": "string",
+        "platform_fields": "object (platform-specific, optional)"
+      }
+    },
+    "data_quality_rules": [
+      "window_start < window_end; no overlapping windows for the same content_id + platform.",
+      "metrics are non-negative numbers; ratios are 0-1 inclusive.",
+      "source.system must be set for every record; manual entries require collected_by."
+    ]
+  },
+  "alternatives_considered": [
+    {
+      "option": "Keep platform-specific spreadsheets with manual weekly consolidation",
+      "pros": [
+        "No engineering work to start",
+        "Flexibility for each platform owner"
+      ],
+      "cons": [
+        "High error rate in rollups",
+        "Hard to automate weekly review"
+      ],
+      "why_not": "The initiative calls for compound learning; manual consolidation cannot scale and weakens comparability."
+    },
+    {
+      "option": "Store raw platform exports only and derive metrics later",
+      "pros": [
+        "Preserves full fidelity",
+        "Avoids premature schema constraints"
+      ],
+      "cons": [
+        "Derivation logic becomes scattered",
+        "Review cadence slows due to processing overhead"
+      ],
+      "why_not": "Weekly review requires fast, comparable rollups; raw-only storage delays analysis and increases drift."
+    }
+  ],
+  "migration_plan": {
+    "steps": [
+      "Create a versioned snapshot directory under docs/ops (starting 2026-02-18) and store one JSON file per platform per week.",
+      "Backfill the last two weeks of available data (manual entry acceptable) using the new schema.",
+      "Add a small validator script or checklist to ensure required fields are present before weekly review."
+    ],
+    "rollback": "If schema adoption blocks reporting, revert to the previous spreadsheet-only workflow for that week and record the reason in the weekly review notes; keep new schema files for later reconciliation."
+  },
+  "risks": [
+    {
+      "risk": "Platform list or metric definitions differ from current playbook expectations.",
+      "mitigation": "Confirm platform scope and metric definitions with the initiative owner before first backfill; treat unknown metrics as optional extensions."
+    },
+    {
+      "risk": "Manual data entry introduces inconsistent units or missing fields.",
+      "mitigation": "Require source.system and add a lightweight validation checklist for weekly review."
+    },
+    {
+      "risk": "Over-normalization hides platform nuances.",
+      "mitigation": "Allow platform-specific fields in extensions.platform_fields while keeping core metrics standardized."
+    }
+  ],
+  "success_metrics": [
+    "Weekly review uses the schema for all in-scope platforms for two consecutive weeks.",
+    "Time to compile weekly performance report is under 30 minutes end-to-end.",
+    "At least 90% of snapshots include source.system and non-null impressions or views."
+  ],
+  "assumptions": [
+    "In-scope platforms include X, LinkedIn, YouTube, newsletter, and website until confirmed otherwise.",
+    "Weekly review cadence is 7 days with one snapshot per platform per week."
+  ],
+  "non_goals": [
+    "Automating data collection in this phase.",
+    "Defining attribution models beyond basic conversions/revenue fields."
+  ]
+}

@@ -26,6 +26,22 @@ function parseIgnoredMcpServers(raw: string | undefined): Set<string> {
   );
 }
 
+function parseRequiredMcpServers(raw: string | undefined): Set<string> | null {
+  // Default to OrgX-critical servers only. Most user-installed MCP servers are optional
+  // for autopilot slices and should not hard-fail dispatch on handshake issues.
+  if (typeof raw !== "string") return new Set(["orgx-openclaw", "orgx"]);
+  const trimmed = raw.trim();
+  if (!trimmed) return new Set(["orgx-openclaw", "orgx"]);
+  if (trimmed.toLowerCase() === "all") return null;
+  if (trimmed.toLowerCase() === "none") return new Set();
+  return new Set(
+    trimmed
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 export function detectMcpHandshakeFailure(logText: unknown): McpHandshakeFailure | null {
   const text = String(logText ?? "");
   const lower = text.toLowerCase();
@@ -58,6 +74,16 @@ export function detectMcpHandshakeFailure(logText: unknown): McpHandshakeFailure
   const server = serverMatch ? pickString(serverMatch[1]) ?? null : null;
   const ignoredServers = parseIgnoredMcpServers(process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS);
   if (server && ignoredServers.has(server.toLowerCase())) {
+    return null;
+  }
+  const requiredServers = parseRequiredMcpServers(
+    process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS
+  );
+  if (
+    server &&
+    requiredServers &&
+    (requiredServers.size === 0 || !requiredServers.has(server.toLowerCase()))
+  ) {
     return null;
   }
 
