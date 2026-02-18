@@ -30,7 +30,7 @@ import {
 import { homedir } from "node:os";
 import { join, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import {
   readNextUpQueuePins,
@@ -108,6 +108,8 @@ import {
 import {
   createAutopilotOperations,
 } from "./helpers/autopilot-operations.js";
+import { mapDecisionEntity } from "./helpers/decision-mapper.js";
+import { idempotencyKey, stableHash } from "./helpers/hash-utils.js";
 import {
   createCodexBinResolver,
   type CodexBinInfo,
@@ -142,6 +144,13 @@ import {
 import { fetchKickoffContextSafe, renderKickoffMessage } from "./helpers/kickoff-context.js";
 import { createDispatchLifecycle } from "./helpers/dispatch-lifecycle.js";
 import { createRuntimeSseHub } from "./helpers/runtime-sse.js";
+import {
+  parseBooleanQuery,
+  parsePositiveInt,
+  pickHeaderString,
+  pickNumber,
+  pickString,
+} from "./helpers/value-utils.js";
 import { registerAgentControlRoutes } from "./routes/agent-control.js";
 import { registerAgentSuiteRoutes } from "./routes/agent-suite.js";
 import { registerAgentsCatalogRoutes } from "./routes/agents-catalog.js";
@@ -1475,141 +1484,6 @@ async function parseJsonRequest(req: PluginRequest): Promise<Record<string, unkn
     return {};
   }
   return parseJsonBody(streamed);
-}
-
-function pickString(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return null;
-}
-
-function pickHeaderString(
-  headers: Record<string, string | string[] | undefined>,
-  keys: string[]
-): string | null {
-  for (const key of keys) {
-    const candidates = [key, key.toLowerCase(), key.toUpperCase()];
-    for (const candidate of candidates) {
-      const raw = headers[candidate];
-      if (typeof raw === "string" && raw.trim().length > 0) {
-        return raw.trim();
-      }
-      if (Array.isArray(raw)) {
-        const first = raw.find(
-          (value) => typeof value === "string" && value.trim().length > 0
-        );
-        if (first) return first.trim();
-      }
-    }
-  }
-  return null;
-}
-
-function pickNumber(record: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-}
-
-function toIsoString(value: string | null): string | null {
-  if (!value) return null;
-  const epoch = Date.parse(value);
-  if (!Number.isFinite(epoch)) return null;
-  return new Date(epoch).toISOString();
-}
-
-function mapDecisionEntity(entity: Entity) {
-  const record = entity as Record<string, unknown>;
-  const requestedAt = toIsoString(
-    pickString(record, [
-      "requestedAt",
-      "requested_at",
-      "createdAt",
-      "created_at",
-      "updatedAt",
-      "updated_at",
-    ])
-  );
-  const updatedAt = toIsoString(
-    pickString(record, ["updatedAt", "updated_at", "createdAt", "created_at"])
-  );
-
-  const waitingMinutesFromEntity = pickNumber(record, [
-    "waitingMinutes",
-    "waiting_minutes",
-    "ageMinutes",
-    "age_minutes",
-  ]);
-  const waitingMinutes =
-    waitingMinutesFromEntity ??
-    (requestedAt
-      ? Math.max(0, Math.floor((Date.now() - Date.parse(requestedAt)) / 60_000))
-      : 0);
-
-  return {
-    id: String(record.id ?? ""),
-    title: pickString(record, ["title", "name"]) ?? "Decision",
-    context: pickString(record, ["context", "summary", "description", "details"]),
-    status: pickString(record, ["status", "decision_status"]) ?? "pending",
-    agentName: pickString(record, [
-      "agentName",
-      "agent_name",
-      "requestedBy",
-      "requested_by",
-      "ownerName",
-      "owner_name",
-      "assignee",
-      "createdBy",
-      "created_by",
-    ]),
-    requestedAt,
-    updatedAt,
-    waitingMinutes,
-    metadata: record,
-  };
-}
-
-function parsePositiveInt(raw: string | null, fallback: number): number {
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(1, Math.floor(parsed));
-}
-
-function parseBooleanQuery(raw: string | null): boolean {
-  if (!raw) return false;
-  const normalized = raw.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
-}
-
-function stableHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function idempotencyKey(parts: Array<string | null | undefined>): string {
-  const raw = parts.filter((part): part is string => typeof part === "string" && part.length > 0).join(":");
-  const cleaned = raw.replace(/[^a-zA-Z0-9:_-]/g, "-").slice(0, 84);
-  const suffix = stableHash(raw).slice(0, 20);
-  return `${cleaned}:${suffix}`.slice(0, 120);
 }
 
 // =============================================================================

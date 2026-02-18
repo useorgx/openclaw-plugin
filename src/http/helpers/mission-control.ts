@@ -1,5 +1,6 @@
 import type { OrgXClient } from "../../api.js";
 import type { Entity } from "../../types.js";
+import { pickNumber, pickString, toIsoString } from "./value-utils.js";
 
 export type MissionControlNodeType = "initiative" | "workstream" | "milestone" | "task";
 
@@ -49,38 +50,6 @@ function safeErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "Unexpected error";
-}
-
-function pickString(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (trimmed.length > 0) return trimmed;
-    }
-  }
-  return null;
-}
-
-function pickNumber(record: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
-}
-
-function toIsoString(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed).toISOString();
 }
 
 interface BudgetEnvBounds {

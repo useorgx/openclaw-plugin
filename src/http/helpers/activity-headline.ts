@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { pickString } from "./value-utils.js";
 
 const ACTIVITY_HEADLINE_TIMEOUT_MS = 4_000;
 const ACTIVITY_HEADLINE_CACHE_TTL_MS = 12 * 60 * 60_000;
@@ -77,14 +78,6 @@ function trimActivityHeadlineCache(): void {
     if (!firstKey) break;
     activityHeadlineCache.delete(firstKey);
   }
-}
-
-function pickString(record: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
 }
 
 function extractCompletionText(payload: Record<string, unknown>): string | null {
