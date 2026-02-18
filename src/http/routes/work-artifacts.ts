@@ -22,13 +22,23 @@ export function registerWorkArtifactsRoutes<TReq, TRes>(
     "GET",
     "work-artifacts/by-entity",
     async ({ query, res }) => {
+      const qs = query.toString();
       try {
-        const qs = query.toString();
-        const path = `/api/work-artifacts/by-entity${qs ? `?${qs}` : ""}`;
+        const path = `/api/client/artifacts/by-entity${qs ? `?${qs}` : ""}`;
         const data = await deps.rawRequest("GET", path);
         deps.sendJson(res, 200, data);
       } catch (err: unknown) {
-        deps.sendJson(res, 502, { error: deps.safeErrorMessage(err) });
+        const warning = deps.safeErrorMessage(err);
+        try {
+          const fallbackPath = `/api/work-artifacts/by-entity${qs ? `?${qs}` : ""}`;
+          const fallback = await deps.rawRequest("GET", fallbackPath);
+          deps.sendJson(res, 200, fallback);
+        } catch (fallbackErr: unknown) {
+          deps.sendJson(res, 502, {
+            error: deps.safeErrorMessage(fallbackErr),
+            warning,
+          });
+        }
       }
     },
     "Work artifacts by entity"
@@ -46,16 +56,23 @@ export function registerWorkArtifactsRoutes<TReq, TRes>(
 
       const artifactId = decodeURIComponent(artifactDetailMatch[1]);
       try {
-        const upstreamPath = `/api/artifacts/${encodeURIComponent(artifactId)}`;
+        const upstreamPath = `/api/client/artifacts/${encodeURIComponent(artifactId)}`;
         const data = await deps.rawRequest("GET", upstreamPath);
         deps.sendJson(res, 200, data);
       } catch (err: unknown) {
         const warning = deps.safeErrorMessage(err);
-        const fallback = deps.buildLocalArtifactDetailFallback(artifactId, warning);
-        if (fallback) {
-          deps.sendJson(res, 200, fallback);
-        } else {
-          deps.sendJson(res, 502, { error: warning });
+        try {
+          const legacyPath = `/api/artifacts/${encodeURIComponent(artifactId)}`;
+          const legacyData = await deps.rawRequest("GET", legacyPath);
+          deps.sendJson(res, 200, legacyData);
+        } catch (legacyErr: unknown) {
+          const legacyWarning = `${warning}; legacy route failed: ${deps.safeErrorMessage(legacyErr)}`;
+          const fallback = deps.buildLocalArtifactDetailFallback(artifactId, legacyWarning);
+          if (fallback) {
+            deps.sendJson(res, 200, fallback);
+          } else {
+            deps.sendJson(res, 502, { error: legacyWarning });
+          }
         }
       }
     },
