@@ -414,22 +414,34 @@ test("evaluateResourceGuard throttles when load or memory exceeds thresholds", (
 });
 
 test("detectMcpHandshakeFailure extracts server and reason from worker logs", () => {
+  const prevRequired = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = "all";
   const payload = [
     "OpenAI Codex v0.98.0",
     "mcp: Github failed: MCP client for `Github` failed to start: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response",
     "other output",
   ].join("\n");
 
-  const detected = detectMcpHandshakeFailure(payload);
-  assert.ok(detected);
-  assert.equal(detected.kind, "mcp_handshake");
-  assert.equal(detected.server?.toLowerCase(), "github");
-  assert.match(detected.line, /handshaking with mcp server failed/i);
+  try {
+    const detected = detectMcpHandshakeFailure(payload);
+    assert.ok(detected);
+    assert.equal(detected.kind, "mcp_handshake");
+    assert.equal(detected.server?.toLowerCase(), "github");
+    assert.match(detected.line, /handshaking with mcp server failed/i);
+  } finally {
+    if (typeof prevRequired === "string") {
+      process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = prevRequired;
+    } else {
+      delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+    }
+  }
 });
 
 test("detectMcpHandshakeFailure ignores codex_apps by default", () => {
   const prev = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  const prevRequired = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
   delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
   try {
     const payload = [
       "OpenAI Codex v0.101.0",
@@ -440,12 +452,16 @@ test("detectMcpHandshakeFailure ignores codex_apps by default", () => {
   } finally {
     if (typeof prev === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prev;
     else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+    if (typeof prevRequired === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = prevRequired;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
   }
 });
 
 test("detectMcpHandshakeFailure can enforce strict mode via env override", () => {
   const prev = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  const prevRequired = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
   process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = "none";
+  process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = "all";
   try {
     const payload = [
       "OpenAI Codex v0.101.0",
@@ -457,6 +473,49 @@ test("detectMcpHandshakeFailure can enforce strict mode via env override", () =>
   } finally {
     if (typeof prev === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prev;
     else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+    if (typeof prevRequired === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = prevRequired;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  }
+});
+
+test("detectMcpHandshakeFailure ignores non-critical servers by default", () => {
+  const prevIgnore = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  const prevRequired = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  try {
+    const payload = [
+      "OpenAI Codex v0.101.0",
+      "mcp: vercel failed: MCP client for `vercel` failed to start: MCP startup failed: handshaking with MCP server failed: initialize response",
+    ].join("\n");
+    const detected = detectMcpHandshakeFailure(payload);
+    assert.equal(detected, null);
+  } finally {
+    if (typeof prevIgnore === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prevIgnore;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+    if (typeof prevRequired === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = prevRequired;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  }
+});
+
+test("detectMcpHandshakeFailure can require specific server via env override", () => {
+  const prevIgnore = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+  const prevRequired = process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
+  process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = "none";
+  process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = "vercel";
+  try {
+    const payload = [
+      "OpenAI Codex v0.101.0",
+      "mcp: vercel failed: MCP client for `vercel` failed to start: MCP startup failed: handshaking with MCP server failed: initialize response",
+    ].join("\n");
+    const detected = detectMcpHandshakeFailure(payload);
+    assert.ok(detected);
+    assert.equal(detected.server?.toLowerCase(), "vercel");
+  } finally {
+    if (typeof prevIgnore === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS = prevIgnore;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_IGNORE_SERVERS;
+    if (typeof prevRequired === "string") process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS = prevRequired;
+    else delete process.env.ORGX_AUTOPILOT_MCP_HANDSHAKE_REQUIRED_SERVERS;
   }
 });
 

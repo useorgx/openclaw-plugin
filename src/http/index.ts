@@ -28,7 +28,7 @@ import {
   closeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, extname, normalize, resolve, relative, sep } from "node:path";
+import { join, dirname, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -236,12 +236,95 @@ function isUnauthorizedOrgxError(err: unknown): boolean {
   return message.includes("401") || message.includes("unauthorized");
 }
 
+function readPositiveIntEnv(
+  name: string,
+  fallback: number,
+  bounds?: { min?: number; max?: number }
+): number {
+  const raw = process.env[name];
+  if (typeof raw !== "string" || raw.trim().length === 0) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  const clamped = Math.floor(parsed);
+  if (typeof bounds?.min === "number" && clamped < bounds.min) return fallback;
+  if (typeof bounds?.max === "number" && clamped > bounds.max) return fallback;
+  return clamped;
+}
+
+async function withSoftTimeout<T>(
+  label: string,
+  timeoutMs: number,
+  work: Promise<T>
+): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 const ACTIVITY_WARM_THROTTLE_MS = 30_000;
 const activityWarmByKey = new Map<string, number>();
 const SNAPSHOT_RESPONSE_CACHE_TTL_MS = 1_500;
 const SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES = 16;
 const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
+const NEXT_UP_QUEUE_CACHE_TTL_MS = readPositiveIntEnv(
+  "ORGX_NEXT_UP_QUEUE_CACHE_TTL_MS",
+  4_000,
+  { min: 250, max: 120_000 }
+);
+const NEXT_UP_QUEUE_STALE_TTL_MS = readPositiveIntEnv(
+  "ORGX_NEXT_UP_QUEUE_STALE_TTL_MS",
+  45_000,
+  { min: 1_000, max: 600_000 }
+);
+const NEXT_UP_GRAPH_CONCURRENCY = readPositiveIntEnv(
+  "ORGX_NEXT_UP_GRAPH_CONCURRENCY",
+  20,
+  { min: 1, max: 32 }
+);
+const NEXT_UP_LIVE_AGENTS_TIMEOUT_MS = readPositiveIntEnv(
+  "ORGX_NEXT_UP_LIVE_AGENTS_TIMEOUT_MS",
+  1_500,
+  { min: 200, max: 20_000 }
+);
+const NEXT_UP_AGENT_CATALOG_TIMEOUT_MS = readPositiveIntEnv(
+  "ORGX_NEXT_UP_AGENT_CATALOG_TIMEOUT_MS",
+  900,
+  { min: 100, max: 20_000 }
+);
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
 const snapshotResponseCache = new Map<
@@ -1159,8 +1242,8 @@ const STREAM_IDLE_TIMEOUT_MS = 60_000;
 // =============================================================================
 
 const __filename = fileURLToPath(import.meta.url);
-// src/http-handler.ts → up to plugin root → dashboard/dist
-const DIST_DIR = join(__filename, "..", "..", "dashboard", "dist");
+const __dirname = dirname(__filename);
+const DIST_DIR = resolve(__dirname, "..", "..", "dashboard", "dist");
 const RESOLVED_DIST_DIR = resolve(DIST_DIR);
 const RESOLVED_DIST_ASSETS_DIR = resolve(DIST_DIR, "assets");
 
@@ -1644,7 +1727,59 @@ export function createHttpHandler(
     randomUUID,
   });
 
-  async function buildNextUpQueue(input?: {
+  const nextUpQueueCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      staleUntil: number;
+      payload: { items: NextUpQueueItem[]; degraded: string[] };
+    }
+  >();
+  const nextUpQueueInFlight = new Map<
+    string,
+    Promise<{ items: NextUpQueueItem[]; degraded: string[] }>
+  >();
+
+  const nextUpQueueCacheKeyFor = (initiativeId: string | null): string =>
+    initiativeId?.trim() || "__all__";
+
+  const readNextUpQueueCache = (
+    key: string,
+    opts?: { allowStale?: boolean }
+  ): { items: NextUpQueueItem[]; degraded: string[] } | null => {
+    const entry = nextUpQueueCache.get(key);
+    if (!entry) return null;
+    const now = Date.now();
+    const allowStale = Boolean(opts?.allowStale);
+    const stillFresh = entry.expiresAt > now;
+    const stillStale = entry.staleUntil > now;
+    if (!stillFresh && !stillStale) {
+      nextUpQueueCache.delete(key);
+      return null;
+    }
+    if (!stillFresh && !allowStale) return null;
+    return {
+      items: entry.payload.items,
+      degraded: [...entry.payload.degraded],
+    };
+  };
+
+  const writeNextUpQueueCache = (
+    key: string,
+    payload: { items: NextUpQueueItem[]; degraded: string[] }
+  ): void => {
+    const now = Date.now();
+    nextUpQueueCache.set(key, {
+      expiresAt: now + NEXT_UP_QUEUE_CACHE_TTL_MS,
+      staleUntil: now + NEXT_UP_QUEUE_STALE_TTL_MS,
+      payload: {
+        items: payload.items,
+        degraded: [...payload.degraded],
+      },
+    });
+  };
+
+  async function buildNextUpQueueUncached(input?: {
     initiativeId?: string | null;
   }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
     const degraded: string[] = [];
@@ -1901,7 +2036,11 @@ export function createHttpHandler(
 
     const agentCatalogById = new Map<string, { id: string; name: string }>();
     try {
-      const catalog = await listAgents();
+      const catalog = await withSoftTimeout(
+        "listAgents",
+        NEXT_UP_AGENT_CATALOG_TIMEOUT_MS,
+        listAgents()
+      );
       for (const entry of catalog) {
         if (!entry || typeof entry !== "object") continue;
         const id = typeof entry.id === "string" ? entry.id.trim() : "";
@@ -1918,10 +2057,14 @@ export function createHttpHandler(
 
     const liveAgentsByInitiative = new Map<string, MissionControlAssignedAgent[]>();
     try {
-      const data = await client.getLiveAgents({
-        initiative: requestedInitiativeId,
-        includeIdle: true,
-      });
+      const data = await withSoftTimeout(
+        "live agents",
+        NEXT_UP_LIVE_AGENTS_TIMEOUT_MS,
+        client.getLiveAgents({
+          initiative: requestedInitiativeId,
+          includeIdle: true,
+        })
+      );
       for (const raw of Array.isArray(data.agents) ? data.agents : []) {
         if (!raw || typeof raw !== "object") continue;
         const row = raw as Record<string, unknown>;
@@ -1947,12 +2090,10 @@ export function createHttpHandler(
       degraded.push(`live agents unavailable (${safeErrorMessage(err)})`);
     }
 
-    const items: NextUpQueueItem[] = [];
-
-    for (const initiativeEntity of scopedInitiatives) {
+    const processInitiative = async (initiativeEntity: Entity): Promise<NextUpQueueItem[]> => {
       const initiativeRecord = initiativeEntity as Record<string, unknown>;
       const initiativeId = pickString(initiativeRecord, ["id"]);
-      if (!initiativeId) continue;
+      if (!initiativeId) return [];
       const initiativeTitle =
         pickString(initiativeRecord, ["title", "name"]) ?? initiativeId;
       const initiativeStatus = pickString(initiativeRecord, ["status"]) ?? "active";
@@ -1960,15 +2101,16 @@ export function createHttpHandler(
       let graph: Awaited<ReturnType<typeof buildMissionControlGraph>>;
       try {
         graph = applyLocalInitiativeOverrideToGraph(
-          await buildMissionControlGraph(client, initiativeId)
+          await buildMissionControlGraph(client, initiativeId, { initiativeEntity })
         );
       } catch (err: unknown) {
         degraded.push(
           `graph unavailable for ${initiativeId} (${safeErrorMessage(err)})`
         );
-        continue;
+        return [];
       }
 
+      const itemsForInitiative: NextUpQueueItem[] = [];
       const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
       const workstreamNodes = graph.nodes.filter((node) => node.type === "workstream");
       const runningWorkstreams = new Set<string>();
@@ -2009,7 +2151,12 @@ export function createHttpHandler(
             ? nodeById.get(pin.preferredMilestoneId) ?? null
             : null;
         const preferredCandidates: MissionControlNode[] = [];
-        if (preferredTask && preferredTask.type === "task" && preferredTask.workstreamId === workstream.id && isTodoStatus(preferredTask.status)) {
+        if (
+          preferredTask &&
+          preferredTask.type === "task" &&
+          preferredTask.workstreamId === workstream.id &&
+          isTodoStatus(preferredTask.status)
+        ) {
           preferredCandidates.push(preferredTask);
         }
         if (preferredMilestone && preferredMilestone.type === "milestone") {
@@ -2087,7 +2234,7 @@ export function createHttpHandler(
           agentCatalogById.get(runnerAgentId)?.name ??
           runnerAgentId;
 
-        items.push({
+        itemsForInitiative.push({
           initiativeId,
           initiativeTitle,
           initiativeStatus,
@@ -2134,7 +2281,7 @@ export function createHttpHandler(
           if (runningWorkstreams.has(workstreamId)) continue;
           const workstream = nodeById.get(workstreamId);
           if (!workstream || workstream.type !== "workstream") continue;
-          items.push({
+          itemsForInitiative.push({
             initiativeId,
             initiativeTitle,
             initiativeStatus,
@@ -2165,7 +2312,16 @@ export function createHttpHandler(
           });
         }
       }
-    }
+
+      return itemsForInitiative;
+    };
+
+    const byInitiative = await mapWithConcurrency(
+      scopedInitiatives,
+      NEXT_UP_GRAPH_CONCURRENCY,
+      processInitiative
+    );
+    const items: NextUpQueueItem[] = byInitiative.flat();
 
     if (items.length === 0) {
       const fallbackItems = await buildSessionFallbackQueue();
@@ -2178,6 +2334,55 @@ export function createHttpHandler(
     items.sort(sortQueueItems);
 
     return { items, degraded };
+  }
+
+  async function buildNextUpQueue(input?: {
+    initiativeId?: string | null;
+  }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
+    const key = nextUpQueueCacheKeyFor(input?.initiativeId?.trim() || null);
+    const fresh = readNextUpQueueCache(key, { allowStale: false });
+    if (fresh) return fresh;
+
+    const inFlight = nextUpQueueInFlight.get(key) ?? null;
+    if (inFlight) {
+      const stale = readNextUpQueueCache(key, { allowStale: true });
+      if (stale) {
+        return {
+          ...stale,
+          degraded: dedupeStrings([
+            ...stale.degraded,
+            "Refreshing Next Up queue in background.",
+          ]),
+        };
+      }
+      return await inFlight;
+    }
+
+    const work = (async () => {
+      const result = await buildNextUpQueueUncached(input);
+      writeNextUpQueueCache(key, result);
+      return result;
+    })();
+
+    nextUpQueueInFlight.set(key, work);
+    try {
+      const stale = readNextUpQueueCache(key, { allowStale: true });
+      if (stale) {
+        void work.catch(() => {
+          // best effort refresh
+        });
+        return {
+          ...stale,
+          degraded: dedupeStrings([
+            ...stale.degraded,
+            "Using recent Next Up queue while refreshing.",
+          ]),
+        };
+      }
+      return await work;
+    } finally {
+      nextUpQueueInFlight.delete(key);
+    }
   }
 
   const autoContinueTimer = setInterval(() => {

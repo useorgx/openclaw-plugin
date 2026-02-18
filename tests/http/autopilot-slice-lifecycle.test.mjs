@@ -317,6 +317,16 @@ function latestSliceResultActivity(calls) {
   return null;
 }
 
+function latestAutoContinueStoppedActivity(calls) {
+  for (let i = calls.emitActivity.length - 1; i >= 0; i -= 1) {
+    const payload = calls.emitActivity[i];
+    if (payload?.metadata?.event === "auto_continue_stopped") {
+      return payload;
+    }
+  }
+  return null;
+}
+
 test("autopilot slice lifecycle: success registers artifact and completes run", async () => {
   const result = await runPlayTickStatus({ scenario: "success" });
   assert.equal(result.status.ok, true);
@@ -378,6 +388,10 @@ test("autopilot slice lifecycle: completed without outputs blocks and requests d
   assert.equal(sliceResult.metadata?.parsed_status, "completed");
   assert.equal(sliceResult.metadata?.decision_required, false);
   assert.equal(sliceResult.metadata?.activity_bucket, "message");
+  const stoppedActivity = latestAutoContinueStoppedActivity(result.calls);
+  assert.ok(stoppedActivity, "expected auto_continue_stopped activity");
+  assert.equal(stoppedActivity.metadata?.decision_required, true);
+  assert.match(String(stoppedActivity.message ?? ""), /awaiting decision/i);
 });
 
 test("autopilot slice lifecycle: needs_decision blocks and requests decision", async () => {

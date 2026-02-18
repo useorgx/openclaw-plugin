@@ -59,6 +59,7 @@ const CONNECTION_COLOR: Record<string, string> = {
 
 const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
 const DEMO_MODE_KEY = 'orgx.demo_mode';
+const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
 const FIRST_RUN_GUIDE_SESSION_KEY = 'orgx.first_run_guide.shown_session';
 const NEXTUP_SIDEBAR_COMPACT_KEY = 'orgx.dashboard.sidebar.nextup.compact';
 
@@ -216,6 +217,14 @@ function DashboardShell({
       return false;
     }
   });
+  const [showSyntheticEntities, setShowSyntheticEntities] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(SHOW_SYNTHETIC_ENTITIES_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // Dashboard view toggle: Activity (3-column) vs Mission Control
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
@@ -365,6 +374,19 @@ function DashboardShell({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    try {
+      if (showSyntheticEntities) {
+        window.localStorage.setItem(SHOW_SYNTHETIC_ENTITIES_KEY, '1');
+      } else {
+        window.localStorage.removeItem(SHOW_SYNTHETIC_ENTITIES_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  }, [showSyntheticEntities]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     if (firstRunGuideOpen) return;
     if (getFirstRunGuideDismissed()) return;
     // Auto-open only once per browser session so users can dismiss without
@@ -389,6 +411,22 @@ function DashboardShell({
       open: true,
       tab: tab ?? previous.tab,
     }));
+  }, []);
+
+  const setDemoModeEnabled = useCallback((next: boolean) => {
+    setDemoMode(next);
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      if (next) {
+        url.searchParams.set('demo', '1');
+      } else {
+        url.searchParams.delete('demo');
+      }
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const handleReconnect = useCallback(() => {
@@ -1567,7 +1605,7 @@ function DashboardShell({
               <button
                 type="button"
                 onClick={() => {
-                  setDemoMode(false);
+                  setDemoModeEnabled(false);
                   handleReconnect();
                 }}
                 className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-caption font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
@@ -1891,6 +1929,7 @@ function DashboardShell({
 	            sessions={data.sessions}
 	            activity={data.activity}
             runtimeInstances={data.runtimeInstances ?? []}
+            showSyntheticEntities={demoMode || showSyntheticEntities}
 	            selectedSessionId={selectedSessionId}
 	            onSelectSession={handleSelectSession}
 	            onAgentFilter={setAgentFilter}
@@ -2190,6 +2229,15 @@ function DashboardShell({
         onClose={() => setSettingsState((previous) => ({ ...previous, open: false }))}
         activeTab={settingsState.tab}
         onChangeTab={(tab) => setSettingsState((previous) => ({ ...previous, tab }))}
+        demoMode={demoMode}
+        onToggleDemoMode={(next) => {
+          setDemoModeEnabled(next);
+          if (!next) {
+            handleReconnect();
+          }
+        }}
+        showSyntheticEntities={showSyntheticEntities}
+        onToggleShowSyntheticEntities={setShowSyntheticEntities}
         onboarding={onboarding}
         authToken={null}
         embedMode={false}

@@ -55,6 +55,23 @@ function createNoopOnboarding() {
   };
 }
 
+function withEnv(patch, fn) {
+  const prev = {};
+  for (const [key, value] of Object.entries(patch)) {
+    prev[key] = process.env[key];
+    if (value == null) delete process.env[key];
+    else process.env[key] = String(value);
+  }
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of Object.entries(prev)) {
+        if (value == null) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+}
+
 test("Next-up play blocks on spawn-guard denial and raises decision", async () => {
   const config = {
     apiKey: "oxk_test",
@@ -223,5 +240,92 @@ test("Next-up play blocks on spawn-guard denial and raises decision", async () =
       (entry) => entry?.metadata?.event === "auto_continue_spawn_guard_blocked"
     ),
     "expected blocked activity event"
+  );
+});
+
+test("Next-up play fastAck responds pending even when queue/graph lookups are slow", async () => {
+  await withEnv(
+    {
+      ORGX_PLAY_QUEUE_LOOKUP_TIMEOUT_MS: "50",
+    },
+    async () => {
+      const config = {
+        apiKey: "oxk_test",
+        userId: "",
+        baseUrl: "https://www.useorgx.com",
+        syncIntervalMs: 300_000,
+        enabled: true,
+        dashboardEnabled: true,
+      };
+
+      const slow = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const client = {
+        getBaseUrl: () => config.baseUrl,
+        listEntities: async (type) => {
+          await slow(2_500);
+          if (type === "initiative") {
+            return {
+              data: [{ id: "init-1", title: "Initiative 1", status: "active" }],
+              pagination: { total: 1, has_more: false },
+            };
+          }
+          if (type === "workstream") {
+            return {
+              data: [{ id: "ws-1", name: "Workstream 1", status: "active", initiative_id: "init-1" }],
+              pagination: { total: 1, has_more: false },
+            };
+          }
+          return { data: [], pagination: { total: 0, has_more: false } };
+        },
+        updateEntity: async (_type, id) => ({ ok: true, id }),
+        applyChangeset: async () => ({
+          ok: true,
+          changeset_id: "cs_1",
+          replayed: false,
+          run_id: "run_1",
+          applied_count: 0,
+          results: [],
+          event_id: null,
+        }),
+        emitActivity: async () => ({ ok: true, run_id: "run_1", event_id: null, reused_run: false }),
+        getLiveAgents: async () => ({ agents: [], summary: {} }),
+        getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+        getLiveActivity: async () => ({ activities: [] }),
+        getHandoffs: async () => ({ handoffs: [] }),
+        getLiveDecisions: async () => ({ decisions: [] }),
+        bulkDecideDecisions: async () => [],
+      };
+
+      const handler = createHttpHandler(
+        config,
+        client,
+        () => null,
+        createNoopOnboarding(),
+        undefined,
+        {
+          openclaw: {
+            listAgents: async () => [],
+            spawnAgentTurn: async () => ({ sessionId: "session_1", pid: null }),
+          },
+        }
+      );
+
+      const req = {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=main&fastAck=true",
+        headers: {},
+      };
+      const res = createStubResponse();
+      const startedAt = Date.now();
+      await handler(req, res);
+      const elapsedMs = Date.now() - startedAt;
+      const body = JSON.parse(res.body);
+
+      assert.equal(res.status, 202);
+      assert.equal(body?.ok, true);
+      assert.equal(body?.dispatchMode, "pending");
+      assert.ok(elapsedMs < 4_000, `expected fast-ack under 4s, got ${elapsedMs}ms`);
+    }
   );
 });
