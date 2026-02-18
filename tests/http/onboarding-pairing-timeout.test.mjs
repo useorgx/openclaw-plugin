@@ -138,3 +138,65 @@ test("Onboarding pairing start uses an extended timeout for /api/plugin/openclaw
     }
   }
 });
+
+test("Onboarding pairing start surfaces request tracing on failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-pairing-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  const prevFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (url, init) => {
+      assert.equal(init?.method, "POST");
+      assert.ok(String(url).includes("/api/plugin/openclaw/pairings"));
+
+      return {
+        ok: false,
+        status: 500,
+        headers: {
+          get: (name) => {
+            const key = String(name || "").toLowerCase();
+            if (key === "x-request-id") return "req_test_123";
+            if (key === "x-vercel-id") return "vercel_test_456";
+            if (key === "cf-ray") return "cf_ray_test";
+            if (key === "x-clerk-auth-status") return "signed-out";
+            if (key === "x-clerk-auth-reason") return "session-token-and-uat-missing";
+            return null;
+          },
+        },
+        text: async () =>
+          JSON.stringify({ error: "Failed to create pairing session" }),
+      };
+    };
+
+    const api = createApiStub();
+    register(api);
+    assert.equal(typeof api._httpHandler, "function");
+
+    const res = createStubResponse();
+    await api._httpHandler(
+      {
+        method: "POST",
+        url: "/orgx/api/onboarding/start",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ platform: "darwin", openclawVersion: "0.0-test" }),
+      },
+      res
+    );
+
+    assert.equal(res.status, 400);
+    const payload = JSON.parse(res.body);
+    assert.equal(payload.ok, false);
+    assert.ok(String(payload.error).includes("Pairing start failed (HTTP 500)"));
+    assert.ok(String(payload.error).includes("req=req_test_123"));
+    assert.ok(String(payload.error).includes("clerk=signed-out"));
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevPluginDir === undefined) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});

@@ -235,7 +235,19 @@ function resolveActorFromMetadata(
 
 function sameActor(a: ActivityActor | null, b: ActivityActor | null): boolean {
   if (!a || !b) return false;
-  if (a.id && b.id) return a.id.trim().toLowerCase() === b.id.trim().toLowerCase();
+  if (a.id && b.id) {
+    const aId = a.id.trim().toLowerCase();
+    const bId = b.id.trim().toLowerCase();
+    if (aId === bId) {
+      const aName = a.name?.trim().toLowerCase() ?? null;
+      const bName = b.name?.trim().toLowerCase() ?? null;
+      if (aName && bName && aName !== bName) return false;
+      if (['unknown', 'system', 'agent', 'none', 'null', 'undefined'].includes(aId)) {
+        return Boolean(aName && bName && aName === bName);
+      }
+      return true;
+    }
+  }
   if (!a.name || !b.name) return false;
   return a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
 }
@@ -2345,6 +2357,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () => (activeDecorated ? resolveActivityActorFlow(activeDecorated.item) : null),
     [activeDecorated]
   );
+  const activePrimaryActor = useMemo(
+    () => (activeActorFlow ? activeActorFlow.executor ?? activeActorFlow.requester : null),
+    [activeActorFlow]
+  );
   const activeAutopilotContext = activeAutopilotSlice ?? activeRelatedAutopilotSlice?.detail ?? null;
   const activeAutopilotRequesterLabel = useMemo(
     () =>
@@ -2716,13 +2732,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const renderKey = keyOverride ?? item.id;
     const identity = resolveAgentIdentity(item);
     const actorFlow = resolveActivityActorFlow(item);
-    const displayAgentName = actorFlow.primaryLabel || identity.agentName || identity.agentId || item.agentName || 'OrgX';
+    const primaryActor = actorFlow.executor ?? actorFlow.requester;
+    const displayAgentName =
+      primaryActor?.label ||
+      actorFlow.primaryLabel ||
+      identity.agentName ||
+      identity.agentId ||
+      item.agentName ||
+      'OrgX';
     const severity = activitySeverity(item);
     const railColor = severityColor(severity);
     const isRecent = sortOrder === 'newest' && index < 2;
     const bucket = decorated.bucket;
     const runId = decorated.runId;
-    const runLabel = runId ? runLabelById.get(runId) ?? humanizeText(runId) : 'Workspace';
     const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
     const syncSummary = syncReplaySummary(item);
     const isSyncReplay = syncSummary !== null;
@@ -2783,7 +2805,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           ) : (
             <AgentAvatar
               name={displayAgentName}
-              hint={`${identity.agentId ?? ''} ${runLabel} ${item.title ?? ''}`}
+              hint={
+                actorAvatarHint(primaryActor) ||
+                [identity.agentId, identity.agentName, displayAgentName].filter(Boolean).join(' ')
+              }
               size="xs"
             />
           )}
@@ -3695,14 +3720,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             />
                           </Pill>
                         )}
-                      {activeActorFlow?.mode !== 'handoff' && activeIdentity.agentName && (
+                      {activeActorFlow?.mode !== 'handoff' && activePrimaryActor && (
                         <Pill tone="muted">
                           <AgentAvatar
-                            name={activeIdentity.agentName ?? 'Agent'}
-                            hint={`${activeIdentity.agentId ?? ''} ${activeDecorated.item.title ?? ''}`}
+                            name={activePrimaryActor.label}
+                            hint={actorAvatarHint(activePrimaryActor)}
                             size="xs"
                           />
-                          <span>{activeIdentity.agentName}</span>
+                          <span>{activePrimaryActor.label}</span>
                         </Pill>
                       )}
                       {activeDecorated.runId && (
