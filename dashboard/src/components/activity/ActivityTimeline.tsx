@@ -44,6 +44,7 @@ interface ActivityTimelineProps {
   onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
+  onOpenDecision?: (decisionId?: string | null) => void;
   requestedActivityItemId?: string | null;
   onActivityItemRequestHandled?: (itemId: string) => void;
   onPlayNextUp?: () => Promise<void> | void;
@@ -731,6 +732,94 @@ function metadataPercent(metadata: Record<string, unknown>, keys: string[]): num
   return null;
 }
 
+function metadataStringArray(
+  metadata: Record<string, unknown>,
+  keys: string[]
+): string[] {
+  const values: string[] = [];
+  const seen = new Set<string>();
+  const pushValue = (raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const normalized = raw.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    values.push(normalized);
+  };
+
+  for (const key of keys) {
+    const value = metadata[key];
+    if (Array.isArray(value)) {
+      for (const entry of value) pushValue(entry);
+      continue;
+    }
+    pushValue(value);
+  }
+
+  return values;
+}
+
+function extractDecisionIdsFromMetadata(
+  metadata: Record<string, unknown> | undefined
+): {
+  decisionIds: string[];
+  blockingDecisionIds: string[];
+  nonBlockingDecisionIds: string[];
+} {
+  if (!metadata) {
+    return {
+      decisionIds: [],
+      blockingDecisionIds: [],
+      nonBlockingDecisionIds: [],
+    };
+  }
+
+  const blockingDecisionIds = metadataStringArray(metadata, [
+    'blocking_decision_ids',
+    'blockingDecisionIds',
+  ]);
+  const nonBlockingDecisionIds = metadataStringArray(metadata, [
+    'non_blocking_decision_ids',
+    'nonBlockingDecisionIds',
+  ]);
+
+  const directDecisionIds = metadataStringArray(metadata, [
+    'decision_id',
+    'decisionId',
+    'decision_ids',
+    'decisionIds',
+  ]);
+
+  const decisionIds = new Set<string>([
+    ...directDecisionIds,
+    ...blockingDecisionIds,
+    ...nonBlockingDecisionIds,
+  ]);
+
+  const decisionsNeededRaw = metadata.decisions_needed ?? metadata.decisionsNeeded;
+  if (Array.isArray(decisionsNeededRaw)) {
+    for (const entry of decisionsNeededRaw) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const record = entry as Record<string, unknown>;
+      const ids = metadataStringArray(record, ['id', 'decision_id', 'decisionId']);
+      const isBlocking = record.blocking !== false;
+      for (const id of ids) {
+        decisionIds.add(id);
+        if (isBlocking) {
+          if (!blockingDecisionIds.includes(id)) blockingDecisionIds.push(id);
+        } else if (!nonBlockingDecisionIds.includes(id)) {
+          nonBlockingDecisionIds.push(id);
+        }
+      }
+    }
+  }
+
+  return {
+    decisionIds: Array.from(decisionIds),
+    blockingDecisionIds,
+    nonBlockingDecisionIds,
+  };
+}
+
 type AutopilotSliceDetail = {
   event: string;
   agentId: string | null;
@@ -759,6 +848,9 @@ type AutopilotSliceDetail = {
   decisions: number | null;
   blockingDecisions: number | null;
   nonBlockingDecisions: number | null;
+  decisionIds: string[];
+  blockingDecisionIds: string[];
+  nonBlockingDecisionIds: string[];
   statusUpdatesApplied: number | null;
   statusUpdatesBuffered: number | null;
   stopReason: string | null;
@@ -900,6 +992,7 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
 
   const artifacts = countFromValue(metadata.artifacts ?? metadata.artifact_count ?? metadata.artifactCount);
   const decisions = countFromValue(metadata.decisions ?? metadata.decision_count ?? metadata.decisionCount);
+  const decisionIdState = extractDecisionIdsFromMetadata(metadata);
   const decisionsNeededRaw = (metadata.decisions_needed ?? metadata.decisionsNeeded) as unknown;
   let blockingDecisions = countFromValue(
     metadata.blocking_decisions ??
@@ -1002,6 +1095,9 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
     decisions,
     blockingDecisions,
     nonBlockingDecisions,
+    decisionIds: decisionIdState.decisionIds,
+    blockingDecisionIds: decisionIdState.blockingDecisionIds,
+    nonBlockingDecisionIds: decisionIdState.nonBlockingDecisionIds,
     statusUpdatesApplied,
     statusUpdatesBuffered,
     stopReason,
@@ -1412,6 +1508,8 @@ function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
     'taskId',
     'milestone_id',
     'milestoneId',
+    'decision_id',
+    'decisionId',
     'outbox_event_id',
     'outboxEventId',
     'requester_id',
@@ -1423,6 +1521,12 @@ function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
     'taskIds',
     'milestone_ids',
     'milestoneIds',
+    'decision_ids',
+    'decisionIds',
+    'blocking_decision_ids',
+    'blockingDecisionIds',
+    'non_blocking_decision_ids',
+    'nonBlockingDecisionIds',
     'allowed_workstream_ids',
     'allowedWorkstreamIds',
   ];
@@ -1446,6 +1550,12 @@ function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
   }
 
   return ids;
+}
+
+function extractActivityDecisionIds(item: LiveActivityItem | null): string[] {
+  if (!item) return [];
+  const metadata = metadataForItem(item);
+  return extractDecisionIdsFromMetadata(metadata).decisionIds;
 }
 
 function extractNearestRelatedFileEvidencePaths(
@@ -1716,7 +1826,7 @@ function describeDetailOutcome(
 ): DetailOutcome | null {
   const metadata = metadataForItem(item);
   const eventName = normalizeStatusKey(
-    metadataString(metadata, ['event', 'event_name', 'eventName'])
+    metadataString(metadata, ['event', 'event_name', 'eventName']) ?? detail?.event ?? ''
   );
   const status = normalizeStatusKey(item.state ?? item.phase ?? item.kind ?? item.type);
   const parsedStatus = normalizeStatusKey(breakdown?.parsedStatus ?? detail?.parsedStatus ?? status);
@@ -1751,6 +1861,64 @@ function describeDetailOutcome(
     eventName.includes('spawn_guard_rate_limited') ||
     Boolean(blockedReason && /rate limit/i.test(blockedReason));
   const spawnGuardBlocked = eventName.includes('spawn_guard_blocked');
+
+  if (eventName === 'auto_continue_stopped') {
+    if (stopReason === 'budget_exhausted') {
+      return {
+        label: 'Budget exhausted',
+        summary:
+          humanizeActivityBody(item.title) ??
+          'Autopilot stopped because the configured token budget was exhausted.',
+        hint: 'Increase token budget in settings or restart with a narrower workstream scope.',
+        tone: 'warning',
+      };
+    }
+    if (stopReason === 'completed') {
+      return {
+        label: 'Completed',
+        summary:
+          humanizeActivityBody(item.title) ??
+          'Autopilot stopped because the current dispatch scope is complete.',
+        hint: null,
+        tone: 'positive',
+      };
+    }
+    if (stopReason === 'stopped') {
+      return {
+        label: 'Stopped',
+        summary:
+          humanizeActivityBody(item.title) ??
+          'Autopilot was stopped by request.',
+        hint: 'Start again to resume continuous dispatch.',
+        tone: 'neutral',
+      };
+    }
+    if (stopReason === 'blocked') {
+      return {
+        label: decisionsNeeded ? 'Needs decision' : 'Blocked',
+        summary:
+          humanizeActivityBody(item.title) ??
+          (decisionsNeeded
+            ? 'Autopilot is paused pending a decision.'
+            : 'Autopilot is blocked and needs intervention.'),
+        hint: decisionsNeeded
+          ? 'Open the Decisions panel and approve the pending item to continue.'
+          : 'Resolve the blocker, then restart autopilot.',
+        tone: decisionsNeeded ? 'warning' : 'critical',
+      };
+    }
+    if (stopReason === 'error') {
+      return {
+        label: 'Error',
+        summary:
+          humanizeActivityBody(item.title) ??
+          blockedReason ??
+          'Autopilot stopped because of an error.',
+        hint: 'Open evidence and logs, then retry or pause the workstream.',
+        tone: 'critical',
+      };
+    }
+  }
 
   if (spawnGuardRateLimited) {
     return {
@@ -2136,6 +2304,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearWorkstreamFilter,
   onClearAgentFilter,
   onFocusRunId,
+  onOpenDecision,
   requestedActivityItemId = null,
   onActivityItemRequestHandled,
   onPlayNextUp,
@@ -2286,24 +2455,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
     return copy;
   }, [sessions]);
-  const nowWorkingSession = useMemo(
-    () =>
-      sessionsByRecency.find((session) => {
-        const key = normalizeStatusKey(session.status);
-        return key === 'running' || key === 'active' || key === 'in_progress' || key === 'blocked';
-      }) ?? null,
-    [sessionsByRecency]
-  );
-  const nextQueuedSession = useMemo(
-    () =>
-      sessionsByRecency.find((session) => {
-        if (nowWorkingSession && session.id === nowWorkingSession.id) return false;
-        const key = normalizeStatusKey(session.status);
-        return key === 'queued' || key === 'pending' || key === 'paused' || key === 'todo';
-      }) ?? null,
-    [sessionsByRecency, nowWorkingSession]
-  );
-
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
       const runId = resolveRunId(item);
@@ -2779,6 +2930,35 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         : null,
     [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]
   );
+  const activeDecisionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of extractActivityDecisionIds(activeDecorated?.item ?? null)) {
+      ids.add(id);
+    }
+    for (const id of activeAutopilotContext?.decisionIds ?? []) {
+      ids.add(id);
+    }
+    for (const id of activeAutopilotContext?.blockingDecisionIds ?? []) {
+      ids.add(id);
+    }
+    for (const id of activeAutopilotContext?.nonBlockingDecisionIds ?? []) {
+      ids.add(id);
+    }
+    return Array.from(ids);
+  }, [activeAutopilotContext, activeDecorated]);
+  const canOpenDecisionFromDetail = useMemo(() => {
+    if (!onOpenDecision) return false;
+    if (activeDecisionIds.length > 0) return true;
+    if (activeDecorated?.item.decisionRequired === true) return true;
+    if ((activeExecutionBreakdown?.blockingDecisions ?? 0) > 0) return true;
+    return activeOutcome?.label === 'Needs decision';
+  }, [
+    activeDecisionIds,
+    activeDecorated,
+    activeExecutionBreakdown,
+    activeOutcome,
+    onOpenDecision,
+  ]);
   const activeAutopilotProgressColor = useMemo(() => {
     if (!activeAutopilotProgress) return colors.teal;
     if (activeAutopilotProgress.tone === 'positive') return colors.lime;
@@ -3670,51 +3850,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-micro uppercase tracking-[0.08em] text-muted">Now working</p>
-                    <p
-                      className="truncate text-body font-semibold text-primary"
-                      title={nowWorkingSession?.title ?? 'No active workstream'}
-                    >
-                      {nowWorkingSession?.title ?? 'No active workstream'}
-                    </p>
-                    <p
-                      className="truncate text-caption text-secondary"
-                      title={nextQueuedSession?.title ?? 'Queue is empty'}
-                    >
-                      Up next: {nextQueuedSession?.title ?? 'Queue is empty'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void runEmptyAction(
-                          'pause',
-                          nowWorkingSession && onPauseWorkstream
-                            ? () => onPauseWorkstream(nowWorkingSession)
-                            : undefined
-                        )
-                      }
-                      disabled={!nowWorkingSession || !onPauseWorkstream || emptyActionPending !== null}
-                      className="rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.08] disabled:opacity-45"
-                    >
-                      {emptyActionPending === 'pause' ? 'Pausing...' : 'Pause'}
-                    </button>
-                    {onOpenMissionControl && (
-                      <button
-                        type="button"
-                        onClick={onOpenMissionControl}
-                        className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
-                      >
-                        Queue
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              {/* Now Working card removed — status is in the top header */}
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -4334,6 +4470,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.1]"
                             >
                               Open session
+                            </button>
+                          )}
+                          {canOpenDecisionFromDetail && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onOpenDecision?.(activeDecisionIds[0] ?? null);
+                                closeDetail();
+                              }}
+                              className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-3 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
+                            >
+                              {activeDecisionIds.length > 0 ? 'Open decision' : 'Open decisions'}
                             </button>
                           )}
                           {activeArtifactId && (

@@ -52,7 +52,7 @@ function createLifecycle(clientOverrides = {}) {
 
 test("requestDecisionSafe returns true when decision applies directly", async () => {
   const lifecycle = createLifecycle();
-  const ok = await lifecycle.requestDecisionSafe({
+  const result = await lifecycle.requestDecisionSafe({
     initiativeId: "init-1",
     correlationId: "corr-1",
     title: "Need approval",
@@ -61,7 +61,8 @@ test("requestDecisionSafe returns true when decision applies directly", async ()
     options: ["Approve", "Pause"],
     blocking: true,
   });
-  assert.equal(ok, true);
+  assert.equal(result?.queued, true);
+  assert.ok(Array.isArray(result?.decisionIds));
 });
 
 test("requestDecisionSafe returns true when API fails but outbox buffering succeeds", async () => {
@@ -78,13 +79,14 @@ test("requestDecisionSafe returns true when API fails but outbox buffering succe
       ORGX_OUTBOX_DIR: null,
     },
     async () => {
-      const ok = await lifecycle.requestDecisionSafe({
+      const result = await lifecycle.requestDecisionSafe({
         initiativeId: "init-2",
         correlationId: "corr-2",
         title: "Need fallback",
         blocking: true,
       });
-      assert.equal(ok, true);
+      assert.equal(result?.queued, true);
+      assert.ok(Array.isArray(result?.decisionIds));
       const outboxPath = join(openclawHome, "orgx-outbox", "init-2.json");
       assert.equal(existsSync(outboxPath), true);
       const raw = readFileSync(outboxPath, "utf8");
@@ -141,13 +143,14 @@ test("requestDecisionSafe returns false when API and outbox buffering both fail"
       ORGX_OUTBOX_DIR: null,
     },
     async () => {
-      const ok = await lifecycle.requestDecisionSafe({
+      const result = await lifecycle.requestDecisionSafe({
         initiativeId: "init-3",
         correlationId: "corr-3",
         title: "Need fallback but storage is broken",
         blocking: true,
       });
-      assert.equal(ok, false);
+      assert.equal(result?.queued, false);
+      assert.ok(Array.isArray(result?.decisionIds));
     }
   );
 });

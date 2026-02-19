@@ -1,0 +1,257 @@
+{
+  "startedAt": "2026-02-19T18:28:59.688Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "timeoutMs": 120000,
+  "target": {
+    "initiativeId": "e0acebc6-d047-44f2-87ad-49669685c7e9",
+    "workstreamId": "f14b8334-2449-4ac8-b69a-a41849a54438",
+    "workstreamTitle": "[Version Harness][Operations] 5",
+    "initiativeTitle": "[Version Harness] Queue Play Auto (20260219-074039Z)"
+  },
+  "actions": {
+    "missionControlOpened": true,
+    "queueOpened": true,
+    "startClicked": true,
+    "autoClicked": true,
+    "autoOnVisible": false,
+    "startApi": null,
+    "autoApi": {
+      "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/stop",
+      "status": 200,
+      "ok": true,
+      "body": {
+        "ok": true,
+        "run": {
+          "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+          "agentId": "main",
+          "agentName": "main",
+          "includeVerification": false,
+          "allowedWorkstreamIds": null,
+          "stopAfterSlice": false,
+          "ignoreSpawnGuardRateLimit": true,
+          "tokenBudget": 6240000,
+          "tokensUsed": 0,
+          "status": "stopping",
+          "stopReason": null,
+          "stopRequested": true,
+          "startedAt": "2026-02-19T18:29:16.371Z",
+          "stoppedAt": null,
+          "updatedAt": "2026-02-19T18:29:27.924Z",
+          "lastError": null,
+          "lastTaskId": "63226f4f-d1d7-4b11-9f21-4efe3e5957ee",
+          "lastRunId": "8e532da0-ade1-42a8-a92a-6f8099112bd9",
+          "activeTaskId": "63226f4f-d1d7-4b11-9f21-4efe3e5957ee",
+          "activeRunId": "8e532da0-ade1-42a8-a92a-6f8099112bd9",
+          "activeTaskTokenEstimate": 3120000
+        }
+      }
+    }
+  },
+  "baseline": {
+    "snapshotAt": "2026-02-19T18:29:07.207Z",
+    "dispatchedCount": 0,
+    "completedCount": 0
+  },
+  "validation": {
+    "dispatchedAfterAction": false,
+    "completedAfterAction": false,
+    "continuationAfterCompletion": false,
+    "blockedByRateLimit": false,
+    "stoppedWithoutDispatch": false,
+    "passed": false
+  },
+  "observed": {
+    "actionAt": "2026-02-19T18:29:28.708Z",
+    "snapshotAt": "2026-02-19T18:31:34.578Z",
+    "dispatchedCount": 0,
+    "completedCount": 0,
+    "dispatchedSample": [],
+    "completedSample": [],
+    "rateLimitedSample": [],
+    "stoppedSample": [],
+    "errorSample": [],
+    "continuationEvidenceTitle": null,
+    "missionApiRequests": [
+      {
+        "at": "2026-02-19T18:29:11.262Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:11.263Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=e0acebc6-d047-44f2-87ad-49669685c7e9"
+      },
+      {
+        "at": "2026-02-19T18:29:11.874Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=496af225-e136-4e91-8460-eebf0259ca03"
+      },
+      {
+        "at": "2026-02-19T18:29:11.897Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:16.352Z",
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/start"
+      },
+      {
+        "at": "2026-02-19T18:29:16.376Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:18.893Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:19.892Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:21.407Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:23.921Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:26.448Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:27.909Z",
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/stop"
+      },
+      {
+        "at": "2026-02-19T18:29:27.947Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:28.698Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      }
+    ],
+    "missionApiResponses": [
+      {
+        "at": "2026-02-19T18:29:11.891Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:11.897Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=e0acebc6-d047-44f2-87ad-49669685c7e9"
+      },
+      {
+        "at": "2026-02-19T18:29:11.897Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=496af225-e136-4e91-8460-eebf0259ca03"
+      },
+      {
+        "at": "2026-02-19T18:29:11.902Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:16.374Z",
+        "status": 200,
+        "ok": true,
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/start"
+      },
+      {
+        "at": "2026-02-19T18:29:16.390Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:18.905Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:19.946Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:21.416Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:23.948Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:26.488Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:29:27.961Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:29:28.696Z",
+        "status": 200,
+        "ok": true,
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/stop"
+      },
+      {
+        "at": "2026-02-19T18:29:28.710Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      }
+    ]
+  },
+  "screenshots": {
+    "beforeAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-before-1771525756030.png",
+    "afterAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-after-1771525770248.png"
+  },
+  "errors": [
+    "No API response observed for Start click (expected /mission-control/next-up/play)."
+  ],
+  "finishedAt": "2026-02-19T18:31:34.578Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-1771525894578.json"
+}

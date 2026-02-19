@@ -34,6 +34,68 @@ type DispatchLifecycleDeps = {
 };
 
 export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
+  type DecisionRequestResult = {
+    queued: boolean;
+    decisionIds: string[];
+  };
+
+  const asRecord = (value: unknown): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  };
+
+  const extractDecisionIdsFromChangesetResults = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    const ids: string[] = [];
+    const seen = new Set<string>();
+
+    const pushId = (candidate: unknown) => {
+      if (typeof candidate !== "string") return;
+      const id = candidate.trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      ids.push(id);
+    };
+
+    for (const entry of value) {
+      const record = asRecord(entry);
+      if (!record) continue;
+
+      pushId(record.decision_id);
+      pushId(record.decisionId);
+
+      const directDecision = asRecord(record.decision);
+      if (directDecision) {
+        pushId(directDecision.id);
+        pushId(directDecision.decision_id);
+        pushId(directDecision.decisionId);
+      }
+
+      const entityType =
+        (typeof record.entity_type === "string" ? record.entity_type : null) ??
+        (typeof record.entityType === "string" ? record.entityType : null);
+      if (entityType && entityType.trim().toLowerCase() === "decision") {
+        pushId(record.entity_id);
+        pushId(record.entityId);
+        pushId(record.id);
+      }
+
+      const created = asRecord(record.created);
+      if (created) {
+        const createdType =
+          (typeof created.entity_type === "string" ? created.entity_type : null) ??
+          (typeof created.entityType === "string" ? created.entityType : null);
+        if (createdType && createdType.trim().toLowerCase() === "decision") {
+          pushId(created.entity_id);
+          pushId(created.entityId);
+          pushId(created.id);
+        }
+      }
+    }
+
+    return ids;
+  };
+
   function withProvenanceMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
     const input = metadata ?? {};
     const out: Record<string, unknown> = { ...input };
@@ -256,13 +318,15 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     urgency?: "low" | "medium" | "high" | "urgent";
     options?: string[];
     blocking?: boolean;
-  }): Promise<boolean> {
+  }): Promise<DecisionRequestResult> {
     const initiativeId = input.initiativeId?.trim() ?? "";
     const title = input.title.trim();
-    if (!initiativeId || !title) return false;
+    if (!initiativeId || !title) {
+      return { queued: false, decisionIds: [] };
+    }
 
     try {
-      await deps.client.applyChangeset({
+      const response = await deps.client.applyChangeset({
         initiative_id: initiativeId,
         correlation_id: input.correlationId?.trim() || undefined,
         source_client: "openclaw",
@@ -284,7 +348,10 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           },
         ],
       });
-      return true;
+      return {
+        queued: true,
+        decisionIds: extractDecisionIdsFromChangesetResults(response?.results),
+      };
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       const correlationId = input.correlationId?.trim() || undefined;
@@ -346,9 +413,9 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           },
           activityItem,
         });
-        return true;
+        return { queued: true, decisionIds: [] };
       } catch {
-        return false;
+        return { queued: false, decisionIds: [] };
       }
     }
   }

@@ -132,3 +132,76 @@ test("registerArtifact falls back to legacy /api/entities path when client route
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, "/api/client/artifacts");
 });
+
+test("registerArtifact sends confidence_score via metadata for client contract compatibility", async () => {
+  const artifactId = "66666666-6666-4666-8666-666666666666";
+  const entityId = "77777777-7777-4777-8777-777777777777";
+  const baseUrl = "https://www.useorgx.com";
+  const calls = [];
+
+  const client = {
+    getUserId: () => "",
+    rawRequest: async (method, path, body) => {
+      calls.push({ method, path, body });
+      if (method === "POST" && path === "/api/client/artifacts") {
+        return {
+          ok: true,
+          artifact: {
+            id: artifactId,
+            artifact_url: `${baseUrl}/artifacts/${artifactId}`,
+            entity_type: "initiative",
+            entity_id: entityId,
+          },
+        };
+      }
+      if (method === "GET" && path === `/api/client/artifacts/${artifactId}`) {
+        return {
+          ok: true,
+          artifact: {
+            id: artifactId,
+            entity_type: "initiative",
+            entity_id: entityId,
+          },
+        };
+      }
+      if (method === "GET" && path.startsWith("/api/client/artifacts/by-entity?")) {
+        return {
+          ok: true,
+          artifacts: [
+            {
+              id: artifactId,
+              entity_type: "initiative",
+              entity_id: entityId,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    },
+    createEntity: async () => {
+      throw new Error("createEntity should not be called");
+    },
+    updateEntity: async () => {
+      throw new Error("updateEntity should not be called");
+    },
+  };
+
+  const result = await registerArtifact(client, baseUrl, {
+    entity_type: "initiative",
+    entity_id: entityId,
+    name: "Confidence Metadata Contract",
+    artifact_type: "shared.project_handbook",
+    description: "Ensure client contract remains compatible with confidence metadata.",
+    confidence_score: 0.67,
+    external_url: "https://example.com/artifacts/confidence",
+    validate_persistence: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.warnings.length, 0);
+
+  const createCall = calls.find((call) => call.method === "POST" && call.path === "/api/client/artifacts");
+  assert.ok(createCall);
+  assert.equal(createCall.body.confidence_score, undefined);
+  assert.equal(createCall.body.metadata.confidence_score, 0.67);
+});

@@ -1103,16 +1103,24 @@ function MissionControlInner({
       () =>
         autoEnabled
           ? nextActionQueue.stopInitiativeAutoContinue({ initiativeId: target.initiativeId })
-          : nextActionQueue.startWorkstreamAutoContinue({
-              initiativeId: target.initiativeId,
-              workstreamId: target.workstreamId,
-              agentId: target.runnerAgentId,
-            }),
+          : (async () => {
+              await nextUpActions.move({
+                initiativeId: target.initiativeId,
+                workstreamId: target.workstreamId,
+                placement: 'top',
+              });
+              return nextActionQueue.startWorkstreamAutoContinue({
+                initiativeId: target.initiativeId,
+                workstreamId: target.workstreamId,
+                agentId: target.runnerAgentId,
+                scope: 'initiative',
+              });
+            })(),
       autoEnabled
         ? `Stopped auto-continue for ${target.initiativeTitle}.`
-        : `Auto-continue enabled for ${target.workstreamTitle}.`
+        : `Auto-continue enabled for ${target.initiativeTitle}; starting with ${target.workstreamTitle}.`
     );
-  }, [nextActionQueue, nextActionQueueItem, nextQueuedItem, nowWorkingItem, runRailAction]);
+  }, [nextActionQueue, nextActionQueueItem, nextQueuedItem, nextUpActions, nowWorkingItem, runRailAction]);
   const openNextActionInitiative = useCallback(() => {
     if (!nextActionInitiative) return;
     openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);

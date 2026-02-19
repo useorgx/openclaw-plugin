@@ -289,7 +289,6 @@ export async function registerArtifact(
       entity_id: input.entity_id,
       name: input.name,
       artifact_type: input.artifact_type,
-      confidence_score: confidenceScore ?? undefined,
       description: input.description ?? undefined,
       artifact_url: artifactUrl,
       external_url: input.external_url ?? undefined,

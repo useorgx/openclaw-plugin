@@ -15,6 +15,8 @@ interface UseAutoContinueOptions {
 type AutoContinueStartInput = {
   tokenBudgetTokens?: number;
   agentId?: string;
+  maxParallelSlices?: number;
+  parallelMode?: 'iwmt';
 };
 
 export function useAutoContinue({
@@ -57,7 +59,7 @@ export function useAutoContinue({
           ok: false,
           initiativeId,
           run: null,
-          defaults: { tokenBudget: 0, tickMs: 0 },
+          defaults: { tokenBudget: null, tickMs: 0 },
           error: message,
         };
       }
@@ -106,6 +108,12 @@ export function useAutoContinue({
         if (typeof input.agentId === 'string' && input.agentId.trim().length > 0) {
           payload.agentId = input.agentId.trim();
         }
+        if (typeof input.maxParallelSlices === 'number' && Number.isFinite(input.maxParallelSlices)) {
+          payload.maxParallelSlices = input.maxParallelSlices;
+        }
+        if (input.parallelMode === 'iwmt') {
+          payload.parallelMode = input.parallelMode;
+        }
       }
 
       const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
@@ -136,7 +144,7 @@ export function useAutoContinue({
           ok: true,
           initiativeId,
           run: (body as any).run ?? null,
-          defaults: status?.defaults ?? { tokenBudget: 0, tickMs: 0 },
+          defaults: status?.defaults ?? { tokenBudget: null, tickMs: 0 },
         };
       }
 
@@ -179,7 +187,7 @@ export function useAutoContinue({
           ok: true,
           initiativeId,
           run: (body as any).run ?? null,
-          defaults: status?.defaults ?? { tokenBudget: 0, tickMs: 0 },
+          defaults: status?.defaults ?? { tokenBudget: null, tickMs: 0 },
         };
       }
 

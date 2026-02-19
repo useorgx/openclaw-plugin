@@ -31,6 +31,8 @@ type DecisionBulkScope = 'selected' | 'visible';
 
 interface DecisionQueueProps {
   decisions: LiveDecision[];
+  focusDecisionId?: string | null;
+  onFocusDecisionHandled?: (decisionId: string) => void;
   onApproveDecision: (
     decisionId: string,
     input?: DecisionActionInput
@@ -62,6 +64,8 @@ function urgencyAccent(waitingMinutes: number): { border: string; glow: string }
 
 export const DecisionQueue = memo(function DecisionQueue({
   decisions,
+  focusDecisionId = null,
+  onFocusDecisionHandled,
   onApproveDecision,
   onRejectDecision,
   onApproveAll,
@@ -78,6 +82,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   const [notice, setNotice] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [detailDecisionId, setDetailDecisionId] = useState<string | null>(null);
+  const focusHandledRef = useRef<string | null>(null);
 
   const sorted = useMemo(
     () =>
@@ -145,6 +150,20 @@ export const DecisionQueue = memo(function DecisionQueue({
       return Math.min(Math.max(PAGE_SIZE, prev), sorted.length);
     });
   }, [sorted.length]);
+
+  useEffect(() => {
+    const targetId = (focusDecisionId ?? '').trim();
+    if (!targetId) {
+      focusHandledRef.current = null;
+      return;
+    }
+    if (focusHandledRef.current === targetId) return;
+    const exists = sorted.some((decision) => decision.id === targetId);
+    if (!exists) return;
+    focusHandledRef.current = targetId;
+    setDetailDecisionId(targetId);
+    onFocusDecisionHandled?.(targetId);
+  }, [focusDecisionId, onFocusDecisionHandled, sorted]);
 
   const toggleSelect = (decisionId: string) => {
     setSelected((prev) => {

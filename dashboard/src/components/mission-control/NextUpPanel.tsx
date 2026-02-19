@@ -16,6 +16,7 @@ interface NextUpPanelProps {
   authToken?: string | null;
   embedMode?: boolean;
   title?: string;
+  showHeader?: boolean;
   compact?: boolean;
   className?: string;
   disableEnterAnimation?: boolean;
@@ -212,7 +213,11 @@ function isAutoRunningForItem(item: NextUpQueueItem): boolean {
   const status = item.autoContinue.status;
   if (status !== 'running' && status !== 'stopping') return false;
   // Avoid ghost "Auto on" states from stale status snapshots.
-  if (!item.autoContinue.activeRunId && !item.autoContinue.activeTaskId) return false;
+  const hasLegacyPointer = Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
+  const hasLanePointer = Boolean(
+    Array.isArray(item.autoContinue.activeRunIds) && item.autoContinue.activeRunIds.length > 0
+  );
+  if (!hasLegacyPointer && !hasLanePointer) return false;
   return item.queueState === 'running' || item.queueState === 'blocked';
 }
 
@@ -306,6 +311,7 @@ export function NextUpPanel({
   authToken = null,
   embedMode = false,
   title = 'Next Up',
+  showHeader = true,
   compact = false,
   className,
   disableEnterAnimation = false,
@@ -375,6 +381,18 @@ export function NextUpPanel({
       null,
     [queueItems]
   );
+  const autoEnabledInitiativeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of queueItems) {
+      if (isAutoRunningForItem(item)) ids.add(item.initiativeId);
+    }
+    return Array.from(ids);
+  }, [queueItems]);
+  const autoInfinityContext = useMemo(
+    () => nowPlaying ?? playableItem ?? queueItems[0] ?? null,
+    [nowPlaying, playableItem, queueItems]
+  );
+  const autoInfinityActive = autoEnabledInitiativeIds.length > 0;
 
   const [orderedKeys, setOrderedKeys] = useState<string[]>([]);
   const orderedKeysRef = useRef<string[]>([]);
@@ -490,48 +508,94 @@ export function NextUpPanel({
         disableEnterAnimation ? '' : 'card-enter'
       } ${className ?? ''}`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
-          {isLoading ? (
-            <Skeleton className="h-5 w-10 rounded-full" />
-          ) : (
-            <span className="chip text-micro">{queueItems.length}</span>
-          )}
-          {!isLoading && hiddenCount > 0 && (
-            <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
-          )}
-          {isFetching && !isLoading && (
-            <span className="text-micro text-muted">refreshing…</span>
-          )}
+      {showHeader ? (
+        <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
+            {isLoading ? (
+              <Skeleton className="h-5 w-10 rounded-full" />
+            ) : (
+              <span className="chip text-micro">{queueItems.length}</span>
+            )}
+            {!isLoading && hiddenCount > 0 && (
+              <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
+            )}
+            {isFetching && !isLoading && (
+              <span className="text-micro text-muted">refreshing…</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {!isLoading && hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDismissedKeys([]);
+                  setNotice('Restored hidden queue items.');
+                }}
+                className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+                title="Show queue items removed from this view"
+              >
+                Show hidden
+              </button>
+            )}
+            {allowCompactToggle ? (
+              <button
+                type="button"
+                onClick={() => setCompact(!isCompact)}
+                className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+                title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
+                aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
+              >
+                {isCompact ? 'Expand' : 'Compact'}
+              </button>
+            ) : null}
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          {!isLoading && hiddenCount > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setDismissedKeys([]);
-                setNotice('Restored hidden queue items.');
-              }}
-              className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
-              title="Show queue items removed from this view"
-            >
-              Show hidden
-            </button>
-          )}
-          {allowCompactToggle ? (
-            <button
-              type="button"
-              onClick={() => setCompact(!isCompact)}
-              className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
-              title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
-              aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
-            >
-              {isCompact ? 'Expand' : 'Compact'}
-            </button>
-          ) : null}
+      ) : (
+        <div className="border-b border-subtle px-4 py-2.5">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              {isLoading ? (
+                <Skeleton className="h-5 w-10 rounded-full" />
+              ) : (
+                <span className="chip text-micro">{queueItems.length}</span>
+              )}
+              {!isLoading && hiddenCount > 0 && (
+                <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
+              )}
+              {isFetching && !isLoading && (
+                <span className="text-micro text-muted">refreshing…</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {!isLoading && hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDismissedKeys([]);
+                    setNotice('Restored hidden queue items.');
+                  }}
+                  className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+                  title="Show queue items removed from this view"
+                >
+                  Show hidden
+                </button>
+              )}
+              {allowCompactToggle ? (
+                <button
+                  type="button"
+                  onClick={() => setCompact(!isCompact)}
+                  className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+                  title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
+                  aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
+                >
+                  {isCompact ? 'Expand' : 'Compact'}
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {showStatusBanner && (
         <div className="px-3 pt-2">
@@ -752,6 +816,51 @@ export function NextUpPanel({
               >
                 Clear blocked
               </button>
+              <button
+                type="button"
+                disabled={!autoInfinityContext || actionKey === 'triage-auto'}
+                onClick={() =>
+                  void runAction(
+                    'triage-auto',
+                    () =>
+                      autoInfinityActive
+                        ? (async () => {
+                            for (const id of autoEnabledInitiativeIds) {
+                              await stopInitiativeAutoContinue({ initiativeId: id });
+                            }
+                          })()
+                        : (async () => {
+                            await nextUpActions.move({
+                              initiativeId: autoInfinityContext!.initiativeId,
+                              workstreamId: autoInfinityContext!.workstreamId,
+                              placement: 'top',
+                            });
+                            return startWorkstreamAutoContinue({
+                              initiativeId: autoInfinityContext!.initiativeId,
+                              workstreamId: autoInfinityContext!.workstreamId,
+                              agentId: autoInfinityContext!.runnerAgentId,
+                              scope: 'initiative',
+                            });
+                          })(),
+                    autoInfinityActive
+                      ? 'Continuous work disabled.'
+                      : `Continuous work enabled for ${sanitizeDisplayText(autoInfinityContext!.initiativeTitle)}.`
+                  )
+                }
+                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+                data-state={autoInfinityActive ? 'active' : 'idle'}
+                data-tone="teal"
+                title={
+                  autoInfinityActive
+                    ? 'Disable continuous work'
+                    : 'Enable continuous work (auto dispatch)'
+                }
+              >
+                <span className="inline-flex items-center gap-1">
+                  <AutoGlyph className="h-3 w-3 opacity-85" />
+                  <span>{autoInfinityActive ? 'Auto ∞ On' : 'Auto ∞'}</span>
+                </span>
+              </button>
             </div>
           </div>
         ) : null}
@@ -921,14 +1030,22 @@ export function NextUpPanel({
                           () =>
                             isAutoRunning
                               ? stopInitiativeAutoContinue({ initiativeId: item.initiativeId })
-                              : startWorkstreamAutoContinue({
-                                  initiativeId: item.initiativeId,
-                                  workstreamId: item.workstreamId,
-                                  agentId: item.runnerAgentId,
-                                }),
+                              : (async () => {
+                                  await nextUpActions.move({
+                                    initiativeId: item.initiativeId,
+                                    workstreamId: item.workstreamId,
+                                    placement: 'top',
+                                  });
+                                  return startWorkstreamAutoContinue({
+                                    initiativeId: item.initiativeId,
+                                    workstreamId: item.workstreamId,
+                                    agentId: item.runnerAgentId,
+                                    scope: 'initiative',
+                                  });
+                                })(),
                           isAutoRunning
                             ? `Stopped auto-continue for ${initiativeTitle}.`
-                            : `Automatic continuation enabled for ${workstreamTitle}.`
+                            : `Automatic continuation enabled for ${initiativeTitle}; starting with ${workstreamTitle}.`
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -1062,7 +1179,12 @@ function NextUpReorderRow({
   onFollowWorkstream?: (item: NextUpQueueItem) => void;
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
   playWorkstream: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
-  startWorkstreamAutoContinue: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
+  startWorkstreamAutoContinue: (input: {
+    initiativeId: string;
+    workstreamId: string;
+    agentId?: string | null;
+    scope?: 'initiative' | 'workstream';
+  }) => Promise<unknown>;
   stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;
   triagePlacement: QueuePlacement;
   onPauseWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
@@ -1122,7 +1244,9 @@ function NextUpReorderRow({
       >
         <div
           className={`absolute left-1/2 top-1 z-20 -translate-x-1/2 transition-opacity ${
-            isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            isDragging
+              ? 'pointer-events-auto opacity-100'
+              : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
           }`}
         >
           <button
@@ -1305,14 +1429,18 @@ function NextUpReorderRow({
                 () =>
                   isAutoRunning
                     ? stopInitiativeAutoContinue({ initiativeId: item.initiativeId })
-                    : startWorkstreamAutoContinue({
-                        initiativeId: item.initiativeId,
-                        workstreamId: item.workstreamId,
-                        agentId: item.runnerAgentId,
-                      }),
+                    : (async () => {
+                        await onMoveWorkstream(item, 'top');
+                        return startWorkstreamAutoContinue({
+                          initiativeId: item.initiativeId,
+                          workstreamId: item.workstreamId,
+                          agentId: item.runnerAgentId,
+                          scope: 'initiative',
+                        });
+                      })(),
                 isAutoRunning
                   ? `Stopped auto-continue for ${initiativeTitle}.`
-                  : `Automatic continuation enabled for ${workstreamTitle}.`
+                  : `Automatic continuation enabled for ${initiativeTitle}; starting with ${workstreamTitle}.`
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"

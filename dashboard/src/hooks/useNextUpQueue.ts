@@ -21,6 +21,9 @@ interface NextUpActionInput {
 
 interface StartAutoContinueInput extends NextUpActionInput {
   tokenBudgetTokens?: number;
+  scope?: 'initiative' | 'workstream';
+  maxParallelSlices?: number;
+  parallelMode?: 'iwmt';
 }
 
 interface NextUpPlayResponse {
@@ -89,7 +92,11 @@ function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
   if (!item.autoContinue) return false;
   const status = item.autoContinue.status;
   if (status !== 'running' && status !== 'stopping') return false;
-  return Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
+  const hasLegacyPointer = Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
+  const hasLanePointer = Boolean(
+    Array.isArray(item.autoContinue.activeRunIds) && item.autoContinue.activeRunIds.length > 0
+  );
+  return hasLegacyPointer || hasLanePointer;
 }
 
 function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
@@ -241,17 +248,27 @@ export function useNextUpQueue({
 
   const startAutoContinueMutation = useMutation({
     mutationFn: async (input: StartAutoContinueInput) => {
+      const payload: Record<string, unknown> = {
+        initiativeId: input.initiativeId,
+        agentId: input.agentId ?? undefined,
+        tokenBudgetTokens: input.tokenBudgetTokens,
+        // Explicit user auto-enable should bypass soft spawn-guard rate limits.
+        ignoreSpawnGuardRateLimit: true,
+      };
+      if (input.scope === 'workstream' && input.workstreamId) {
+        payload.workstreamIds = [input.workstreamId];
+      }
+      if (typeof input.maxParallelSlices === 'number' && Number.isFinite(input.maxParallelSlices)) {
+        payload.maxParallelSlices = input.maxParallelSlices;
+      }
+      if (input.parallelMode === 'iwmt') {
+        payload.parallelMode = input.parallelMode;
+      }
+
       const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify({
-          initiativeId: input.initiativeId,
-          agentId: input.agentId ?? undefined,
-          tokenBudgetTokens: input.tokenBudgetTokens,
-          workstreamIds: [input.workstreamId],
-          // Explicit user auto-enable should bypass soft spawn-guard rate limits.
-          ignoreSpawnGuardRateLimit: true,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const body = await readResponseJson<unknown>(response);

@@ -217,11 +217,14 @@ export function BulkSessionsModal({
     setBusy({ action, processed: 0, total: selectedSessions.length });
 
     let failed = 0;
+    const errors: string[] = [];
     for (const session of selectedSessions) {
       try {
         await onRunAction(session, action);
-      } catch {
+      } catch (err: unknown) {
         failed += 1;
+        const msg = err instanceof Error ? err.message : 'unknown error';
+        errors.push(`${session.title || session.runId}: ${msg}`);
       } finally {
         setBusy((prev) =>
           prev
@@ -234,7 +237,10 @@ export function BulkSessionsModal({
     const succeeded = selectedSessions.length - failed;
     setBusy(null);
     if (failed > 0) {
-      setNotice(`${action} finished: ${succeeded} ok, ${failed} failed.`);
+      const detail = errors.length > 0
+        ? ` — ${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}`
+        : '';
+      setNotice(`${action} finished: ${succeeded} ok, ${failed} failed.${detail}`);
     } else {
       setNotice(`${action} finished: ${succeeded} session${succeeded === 1 ? '' : 's'}.`);
     }
@@ -264,11 +270,14 @@ export function BulkSessionsModal({
     setConfirmCancel(null);
 
     let failed = 0;
+    const errors: string[] = [];
     for (const session of selectedSessions) {
       try {
         await onRunAction(session, 'cancel');
-      } catch {
+      } catch (err: unknown) {
         failed += 1;
+        const msg = err instanceof Error ? err.message : 'unknown error';
+        errors.push(`${session.title || session.runId}: ${msg}`);
       } finally {
         setBusy((prev) =>
           prev
@@ -280,7 +289,10 @@ export function BulkSessionsModal({
 
     const succeeded = selectedSessions.length - failed;
     setBusy(null);
-    setNotice(`cancel finished: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.`);
+    const cancelDetail = errors.length > 0
+      ? ` — ${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}`
+      : '';
+    setNotice(`cancel finished: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.${cancelDetail}`);
     onSetNotice(`Bulk cancel requested: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.`);
 
     try {

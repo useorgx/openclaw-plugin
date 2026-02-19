@@ -127,6 +127,9 @@ export function registerRunControlRoutes<TReq, TRes>(
           });
           deps.sendJson(res, 200, data);
         } catch (err: unknown) {
+          const actionLabel = runActionMatch ? runActionMatch[2] : "unknown";
+          const runLabel = runActionMatch ? runActionMatch[1] : "unknown";
+          console.error(`[run-control] ${actionLabel} failed for run ${runLabel}:`, err);
           deps.sendJson(res, 500, { error: deps.safeErrorMessage(err) });
         }
         return;

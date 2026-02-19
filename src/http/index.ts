@@ -787,16 +787,101 @@ function mergeActivities(
   extra: LiveActivityItem[],
   limit: number
 ): LiveActivityItem[] {
+  const asMetadataRecord = (value: unknown): Record<string, unknown> | null => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  };
+
+  const metadataString = (
+    metadata: Record<string, unknown> | null,
+    keys: string[]
+  ): string | null => {
+    if (!metadata) return null;
+    for (const key of keys) {
+      const value = metadata[key];
+      if (typeof value !== "string") continue;
+      const normalized = value.trim();
+      if (normalized.length > 0) return normalized;
+    }
+    return null;
+  };
+
+  const semanticEvents = new Set([
+    "autopilot_slice_result",
+    "auto_continue_stopped",
+    "next_up_manual_dispatch_started",
+    "autopilot_slice_mcp_handshake_failed",
+    "autopilot_slice_timeout",
+    "autopilot_slice_log_stall",
+    "auto_continue_spawn_guard_blocked",
+    "auto_continue_spawn_guard_rate_limited",
+    "autopilot_autofix_scheduled",
+    "autopilot_autofix_executed",
+    "autopilot_autofix_skipped",
+  ]);
+
+  const semanticActivityKey = (item: LiveActivityItem): string | null => {
+    const metadata = asMetadataRecord(item.metadata);
+    const eventRaw = metadata?.event;
+    const event =
+      typeof eventRaw === "string" ? eventRaw.trim().toLowerCase() : "";
+    if (!event || !semanticEvents.has(event)) return null;
+
+    const runLike =
+      (typeof item.runId === "string" && item.runId.trim().length > 0
+        ? item.runId.trim()
+        : null) ??
+      metadataString(metadata, [
+        "run_id",
+        "runId",
+        "slice_run_id",
+        "sliceRunId",
+        "active_run_id",
+        "activeRunId",
+        "last_run_id",
+        "lastRunId",
+      ]);
+    const correlationId = metadataString(metadata, ["correlation_id", "correlationId"]);
+    const initiativeId =
+      (typeof item.initiativeId === "string" && item.initiativeId.trim().length > 0
+        ? item.initiativeId.trim()
+        : null) ??
+      metadataString(metadata, ["initiative_id", "initiativeId"]);
+    const workstreamId = metadataString(metadata, ["workstream_id", "workstreamId"]);
+    const taskId = metadataString(metadata, ["task_id", "taskId"]);
+    const stopReason = metadataString(metadata, ["stop_reason", "stopReason"]);
+    const parsedStatus = metadataString(metadata, ["parsed_status", "parsedStatus"]);
+    const title = (item.title ?? "").trim().toLowerCase();
+
+    if (!runLike && !correlationId && !workstreamId && !taskId) return null;
+
+    return [
+      event,
+      initiativeId ?? "",
+      workstreamId ?? "",
+      taskId ?? "",
+      runLike ?? "",
+      correlationId ?? "",
+      stopReason ?? "",
+      parsedStatus ?? "",
+      title,
+    ].join("|");
+  };
+
   const merged = [...(base ?? []), ...(extra ?? [])].sort((a, b) => {
     const timestampDelta = Date.parse(b.timestamp) - Date.parse(a.timestamp);
     if (timestampDelta !== 0) return timestampDelta;
     return b.id.localeCompare(a.id);
   });
   const deduped: LiveActivityItem[] = [];
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenSemantic = new Set<string>();
   for (const item of merged) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
+    if (seenIds.has(item.id)) continue;
+    seenIds.add(item.id);
+    const semanticKey = semanticActivityKey(item);
+    if (semanticKey && seenSemantic.has(semanticKey)) continue;
+    if (semanticKey) seenSemantic.add(semanticKey);
     deduped.push(item);
     if (deduped.length >= limit) break;
   }

@@ -360,6 +360,7 @@ async function runAutoContinue({
   scenario = "success",
   extraEnv = {},
   workstreamIds = null,
+  maxParallelSlices = null,
   maxTicks = 40,
   tickDelay = 80,
   sleepBeforeTick = 100,
@@ -390,6 +391,9 @@ async function runAutoContinue({
       };
       if (workstreamIds) {
         startBody.workstreamIds = workstreamIds;
+      }
+      if (typeof maxParallelSlices === "number" && Number.isFinite(maxParallelSlices)) {
+        startBody.maxParallelSlices = maxParallelSlices;
       }
       const resStart = await call(handler, {
         method: "POST",
@@ -428,6 +432,46 @@ async function runAutoContinue({
     }
   );
 }
+
+test("iwmt cascade: maxParallelSlices keeps multiple workstream slices running in parallel", async () => {
+  const { handler, lastStatus } = await runAutoContinue({
+    scenario: "stall",
+    maxParallelSlices: 2,
+    maxTicks: 3,
+    tickDelay: 25,
+    sleepBeforeTick: 40,
+    extraEnv: {
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "10000",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "60000",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "60000",
+    },
+  });
+
+  assert.equal(lastStatus?.run?.status, "running");
+  const activeSliceRunIds = Array.isArray(lastStatus?.run?.activeSliceRunIds)
+    ? lastStatus.run.activeSliceRunIds
+    : [];
+  assert.equal(activeSliceRunIds.length, 2, "expected two active slice runs");
+  assert.equal(lastStatus?.run?.maxParallelSlices, 2);
+  assert.equal(lastStatus?.run?.laneByWorkstreamId?.["ws-eng"]?.state, "running");
+  assert.equal(lastStatus?.run?.laneByWorkstreamId?.["ws-prod"]?.state, "running");
+
+  // Cleanup stalled children so test process exits cleanly.
+  const resStop = await call(handler, {
+    method: "POST",
+    url: "/orgx/api/mission-control/auto-continue/stop?initiativeId=init-1",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ initiativeId: "init-1" }),
+  });
+  assert.equal(resStop.status, 200);
+  const resTick = await call(handler, {
+    method: "POST",
+    url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ initiativeId: "init-1" }),
+  });
+  assert.equal(resTick.status, 200);
+});
 
 // ---------------------------------------------------------------------------
 // Test 1: Auto-continue completes all tasks in a workstream sequentially
