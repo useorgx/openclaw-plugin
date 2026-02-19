@@ -65,7 +65,6 @@ const DEMO_MODE_KEY = 'orgx.demo_mode';
 const DEV_MODE_KEY = 'orgx.dev_mode';
 const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
 const FIRST_RUN_GUIDE_SESSION_KEY = 'orgx.first_run_guide.shown_session';
-const NEXTUP_SIDEBAR_COMPACT_KEY = 'orgx.dashboard.sidebar.nextup.compact';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -368,10 +367,6 @@ function DashboardShell({
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('decisions');
-  const [nextUpSidebarCompact, setNextUpSidebarCompact] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(NEXTUP_SIDEBAR_COMPACT_KEY) === '1';
-  });
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
   );
@@ -405,19 +400,6 @@ function DashboardShell({
       setInitiativesSidebarTab('next_up');
     }
   }, [initiativesSidebarTab, inProgressCount]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      if (nextUpSidebarCompact) {
-        window.localStorage.setItem(NEXTUP_SIDEBAR_COMPACT_KEY, '1');
-      } else {
-        window.localStorage.removeItem(NEXTUP_SIDEBAR_COMPACT_KEY);
-      }
-    } catch {
-      // ignore
-    }
-  }, [nextUpSidebarCompact]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -669,6 +651,9 @@ function DashboardShell({
         const status = normalizeStatus(node.status);
         const phase = normalizeStatus(node.phase ?? '');
         const state = normalizeStatus(node.state ?? '');
+        if (status === 'completed' || status === 'cancelled' || status === 'archived') {
+          return false;
+        }
 
         if (status === 'blocked' || status === 'failed' || phase === 'blocked' || state === 'error') {
           return true;
@@ -1186,6 +1171,7 @@ function DashboardShell({
         workstreamId: candidate.workstreamId,
         agentId: candidate.runnerAgentId,
         fastAck: true,
+        ignoreSpawnGuardRateLimit: true,
       }),
     });
 
@@ -1219,6 +1205,7 @@ function DashboardShell({
         initiativeId: candidate.initiativeId,
         workstreamIds: [candidate.workstreamId],
         agentId: candidate.runnerAgentId,
+        ignoreSpawnGuardRateLimit: true,
       }),
     });
 
@@ -1253,6 +1240,7 @@ function DashboardShell({
           workstreamId,
           agentId: session.agentId ?? undefined,
           fastAck: true,
+          ignoreSpawnGuardRateLimit: true,
         }),
       });
       if (!response.ok) {
@@ -1347,7 +1335,7 @@ function DashboardShell({
   const runControlAction = useCallback(
     async (
       session: SessionTreeNode,
-      action: 'pause' | 'resume' | 'cancel' | 'rollback',
+      action: 'pause' | 'resume' | 'cancel' | 'rollback' | 'complete',
       payload: Record<string, unknown> = {}
     ) => {
       const response = await fetch(
@@ -2170,9 +2158,7 @@ function DashboardShell({
                     <NextUpPanel
                       title="Next Up"
                       className="h-full"
-                      compact={nextUpSidebarCompact}
-                      allowCompactToggle
-                      onToggleCompact={setNextUpSidebarCompact}
+                      compact={false}
                       onFollowWorkstream={followQueuedWorkstream}
                       onOpenInitiative={openInitiativeFromNextUp}
                     />

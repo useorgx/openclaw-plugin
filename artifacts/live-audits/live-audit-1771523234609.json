@@ -1,0 +1,74 @@
+{
+  "startedAt": "2026-02-19T17:44:59.656Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "timeoutMs": 120000,
+  "target": {
+    "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+    "workstreamId": "a4948a7e-fe2a-47b1-b2f0-e4cce0b1602d",
+    "workstreamTitle": "Integration Showcase Content",
+    "initiativeTitle": "Content Engine: Dogfood the Larry Playbook"
+  },
+  "actions": {
+    "missionControlOpened": true,
+    "queueOpened": true,
+    "startClicked": true,
+    "autoClicked": true,
+    "autoOnVisible": false
+  },
+  "baseline": {
+    "snapshotAt": "2026-02-19T17:45:04.968Z",
+    "dispatchedCount": 4,
+    "completedCount": 1
+  },
+  "validation": {
+    "dispatchedAfterAction": true,
+    "completedAfterAction": false,
+    "continuationAfterCompletion": false,
+    "blockedByRateLimit": true,
+    "stoppedWithoutDispatch": false,
+    "passed": false
+  },
+  "observed": {
+    "actionAt": "2026-02-19T17:45:12.540Z",
+    "snapshotAt": "2026-02-19T17:47:14.608Z",
+    "dispatchedCount": 2,
+    "completedCount": 0,
+    "dispatchedSample": [
+      {
+        "timestamp": "2026-02-19T17:45:34.004Z",
+        "title": "Autopilot dispatched slice for Integration Showcase Content.",
+        "runId": "6fa1a0e2-5fc1-4220-9966-0b3012b69694"
+      },
+      {
+        "timestamp": "2026-02-19T17:45:35.030Z",
+        "title": "Autopilot dispatched slice for Integration Showcase Content.",
+        "runId": "e1af2ae4-553d-45b4-a771-2534555a2821"
+      }
+    ],
+    "completedSample": [],
+    "rateLimitedSample": [
+      {
+        "timestamp": "2026-02-19T17:45:14.156Z",
+        "title": "Autopilot spawn guard rate-limited Integration Showcase Content; retrying shortly.",
+        "runId": "1fb57386-3e1b-42b7-86da-6eae7550e508"
+      }
+    ],
+    "stoppedSample": [
+      {
+        "timestamp": "2026-02-19T17:45:13.991Z",
+        "title": "Autopilot stopped by user request.",
+        "runId": "60e347ff-3156-4d0a-91bd-c2d8b342f329"
+      }
+    ],
+    "errorSample": [],
+    "continuationEvidenceTitle": null
+  },
+  "screenshots": {
+    "beforeAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-before-1771523110638.png",
+    "afterAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-after-1771523114080.png"
+  },
+  "errors": [],
+  "finishedAt": "2026-02-19T17:47:14.609Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-1771523234609.json"
+}

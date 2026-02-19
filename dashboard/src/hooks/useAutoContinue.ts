@@ -97,6 +97,8 @@ export function useAutoContinue({
       if (initiativeId) {
         payload.initiativeId = initiativeId;
       }
+      // Explicit user start from UI should bypass soft spawn-guard rate limits.
+      payload.ignoreSpawnGuardRateLimit = true;
       if (input && typeof input === 'object') {
         if (typeof input.tokenBudgetTokens === 'number') {
           payload.tokenBudgetTokens = input.tokenBudgetTokens;

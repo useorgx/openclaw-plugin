@@ -1,0 +1,36 @@
+{
+  "campaign_id": "vercel_orgx_integration_showcase_2026_02",
+  "primary_goal_metric": "Book 12 qualified integration demos by March 31, 2026 from solo founder and lean startup teams shipping on Vercel.",
+  "audience": {
+    "primary_icp": "Full-stack solo founders and small product teams deploying Next.js apps on Vercel",
+    "buying_stage": "Problem-aware to solution-aware",
+    "pain_points": [
+      "AI feature experiments ship fast, but execution tracking breaks after launch week.",
+      "Cross-functional work gets buried across chats, tickets, and ad-hoc docs.",
+      "Leaders cannot quickly answer what is blocked, what is done, and what needs approval."
+    ]
+  },
+  "positioning": {
+    "problem": "Teams can deploy UI quickly on Vercel but still lack an execution command layer for agentic and human workflows.",
+    "value_prop": "OrgX adds mission control, decisions, and progress telemetry so Vercel teams can ship fast without losing operational clarity.",
+    "proof_points": [
+      "Live dashboard with initiative-workstream-milestone-task hierarchy",
+      "Decision checkpoint workflow with explicit approval states",
+      "Progress updates and artifact logging designed for autonomous runs"
+    ]
+  },
+  "content_items": [
+    {
+      "channel": "linkedin",
+      "title": "Full-Stack Solo Founder Showcase: Vercel speed, OrgX execution control",
+      "cta": "See the integration workflow and request a walkthrough: https://useorgx.com/integrations/openclaw?utm_source=linkedin&utm_medium=organic&utm_campaign=vercel_orgx_showcase&utm_content=solo_founder_post",
+      "content": "You can launch a polished product on Vercel in days. The harder part starts after launch: coordinating execution while features, bugs, and growth work pile up across channels.\n\nFor solo founders, this is where momentum usually leaks.\n\nOrgX gives your Vercel workflow an execution command layer:\n- Mission Control view for initiatives, milestones, and tasks\n- Decision checkpoints so approvals are explicit\n- Progress + artifact tracking from autonomous and human contributors\n\nResult: you keep Vercel-level shipping speed, but with clear operational visibility instead of ad-hoc status hunting.\n\nIf you are building as a full-stack founder and want a tighter execution loop, this integration pattern is worth copying."
+    },
+    {
+      "channel": "twitter",
+      "title": "Vercel + OrgX Thread: deploy fast, execute with control",
+      "cta": "Explore the workflow: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=vercel_orgx_showcase&utm_content=deploy_fast_execute_control",
+      "content": "1/ Vercel makes shipping product fast.\n\n2/ But speed without execution control turns into chaos by week 2.\n\n3/ You still need clear answers: what is done, what is blocked, and what decision is waiting.\n\n4/ OrgX adds that control layer:\n- mission control hierarchy\n- decision checkpoints\n- run progress + artifact trail\n\n5/ This is the stack for lean teams: Vercel for delivery velocity, OrgX for execution clarity.\n\n6/ If you are a solo founder, this is how you avoid becoming the human scheduler.\n\n7/ Workflow + demo path: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=vercel_orgx_showcase&utm_content=deploy_fast_execute_control"
+    }
+  ]
+}

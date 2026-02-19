@@ -1228,7 +1228,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           </div>
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {virtualizationEnabled && topVirtualSpacerPx > 0 && (
             <div
               aria-hidden="true"
@@ -1294,7 +1294,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               )}
             >
               {/* Agent group header: avatar + name + status dot + session count + detail + collapse */}
-              <div className="flex items-center gap-2.5 px-3 py-2.5">
+              <div className="flex items-center gap-2 px-2.5 py-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1364,24 +1364,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     )}
                   </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-baseline gap-1.5">
-                        <span
-                          className={cn(
-                            'min-w-0 truncate text-body font-semibold text-white',
-                            roleLabel ? 'flex-[1.15]' : 'flex-1'
-                          )}
-                          title={displayNameRaw}
-                        >
+                      <div
+                        className="flex min-w-0 items-baseline"
+                        title={roleLabel ? `${displayNameRaw} — ${roleLabel}` : displayNameRaw}
+                      >
+                        <span className="truncate text-body font-semibold text-white">
                           {displayName}
+                          {roleLabel && (
+                            <span className="ml-1.5 font-normal text-muted">
+                              — {roleLabel}
+                            </span>
+                          )}
                         </span>
-                        {roleLabel && (
-                          <span
-                            className="min-w-0 flex-1 truncate text-caption font-normal text-muted"
-                            title={roleLabel}
-                          >
-                            — {roleLabel}
-                          </span>
-                        )}
                       </div>
                     </div>
                   {hasSessions ? (
@@ -1446,7 +1440,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   type="button"
                   onClick={() => setDetailAgentKey(agentKey)}
                   aria-label={`View ${displayName} details`}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.05] hover:text-primary"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.05] hover:text-primary"
                 >
                   <svg
                     width="13"
@@ -1479,7 +1473,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       : 'No sessions to expand'
                   }
                   className={cn(
-                    'flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors',
+                    'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors',
                     hasExpandableContent
                       ? 'hover:bg-white/[0.05] hover:text-primary'
                       : 'cursor-default opacity-35'

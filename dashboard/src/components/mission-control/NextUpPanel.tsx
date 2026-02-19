@@ -7,6 +7,7 @@ import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
+import { sanitizeDisplayText } from '@/lib/humanize';
 import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 
@@ -31,6 +32,37 @@ interface ActionGlyphProps {
 }
 
 type QueuePlacement = 'top' | 'bottom';
+const NEXT_UP_DISMISSED_KEY = 'orgx.dashboard.nextup.dismissed.v1';
+
+function readDismissedQueueKeys(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(NEXT_UP_DISMISSED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 400);
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedQueueKeys(keys: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (keys.length === 0) {
+      window.localStorage.removeItem(NEXT_UP_DISMISSED_KEY);
+      return;
+    }
+    window.localStorage.setItem(NEXT_UP_DISMISSED_KEY, JSON.stringify(keys.slice(0, 400)));
+  } catch {
+    // ignore persistence issues
+  }
+}
 
 function FollowGlyph({ className = '' }: ActionGlyphProps) {
   return (
@@ -190,6 +222,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
+  const workstreamLabel = sanitizeDisplayText(item.workstreamTitle);
   const record = asRecord(payload);
   const dispatchMode =
     record && typeof record.dispatchMode === 'string' ? record.dispatchMode : null;
@@ -202,15 +235,15 @@ function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
         : null;
 
   if (stopReason === 'budget_exhausted') {
-    return `Dispatch acknowledged for ${item.workstreamTitle}, but autopilot stopped: budget exhausted.`;
+    return `Dispatch acknowledged for ${workstreamLabel}, but autopilot stopped: budget exhausted.`;
   }
   if (dispatchMode === 'pending') {
-    return `Dispatching ${item.workstreamTitle}; waiting for slice start…`;
+    return `Dispatching ${workstreamLabel}; waiting for slice start…`;
   }
   if (dispatchMode === 'fallback') {
-    return `Dispatched ${item.workstreamTitle} using fallback runner.`;
+    return `Dispatched ${workstreamLabel} using fallback runner.`;
   }
-  return `Dispatched ${item.workstreamTitle}.`;
+  return `Dispatched ${workstreamLabel}.`;
 }
 
 function nextUpClearNotice(payload: unknown, defaultCount: number): string {
@@ -296,9 +329,9 @@ export function NextUpPanel({
     null
   );
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [dismissedKeys, setDismissedKeys] = useState<string[]>(() => readDismissedQueueKeys());
   const {
     items,
-    total,
     degraded,
     isLoading,
     isFetching,
@@ -314,26 +347,34 @@ export function NextUpPanel({
   });
 
   const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
+  const dismissedKeySet = useMemo(() => new Set(dismissedKeys), [dismissedKeys]);
+  const queueItems = useMemo(
+    () => items.filter((item) => !dismissedKeySet.has(itemKey(item))),
+    [dismissedKeySet, items]
+  );
+  const hiddenCount = Math.max(0, items.length - queueItems.length);
 
   const visibleItems = useMemo(
-    () => (isCompact ? items.slice(0, 5) : items),
-    [isCompact, items]
+    () => (isCompact ? queueItems.slice(0, 5) : queueItems),
+    [isCompact, queueItems]
   );
   const nowPlaying = useMemo(
-    () => items.find((item) => item.queueState === 'running' || item.queueState === 'blocked') ?? null,
-    [items]
+    () =>
+      queueItems.find((item) => item.queueState === 'running' || item.queueState === 'blocked') ??
+      null,
+    [queueItems]
   );
   const blockedCount = useMemo(
-    () => items.filter((item) => item.queueState === 'blocked').length,
-    [items]
+    () => queueItems.filter((item) => item.queueState === 'blocked').length,
+    [queueItems]
   );
   const playableItem = useMemo(
     () =>
-      items.find((item) => item.queueState === 'queued' || item.queueState === 'idle') ?? null,
-    [items]
+      queueItems.find((item) => item.queueState === 'queued' || item.queueState === 'idle') ??
+      null,
+    [queueItems]
   );
-
-  const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
 
   const [orderedKeys, setOrderedKeys] = useState<string[]>([]);
   const orderedKeysRef = useRef<string[]>([]);
@@ -364,6 +405,40 @@ export function NextUpPanel({
   useEffect(() => {
     orderedKeysRef.current = orderedKeys;
   }, [orderedKeys]);
+
+  useEffect(() => {
+    writeDismissedQueueKeys(dismissedKeys);
+  }, [dismissedKeys]);
+
+  useEffect(() => {
+    if (dismissedKeys.length === 0) return;
+    const liveKeys = new Set(items.map(itemKey));
+    const filtered = dismissedKeys.filter((key) => liveKeys.has(key));
+    if (filtered.length !== dismissedKeys.length) {
+      setDismissedKeys(filtered);
+    }
+  }, [dismissedKeys, items]);
+
+  const removeQueueItem = async (item: NextUpQueueItem) => {
+    const key = itemKey(item);
+    const label = sanitizeDisplayText(item.workstreamTitle);
+    // Optimistic: hide immediately in the UI
+    setDismissedKeys((previous) => {
+      if (previous.includes(key)) return previous;
+      return [key, ...previous].slice(0, 400);
+    });
+    try {
+      await nextUpActions.remove({
+        initiativeId: item.initiativeId,
+        workstreamId: item.workstreamId,
+      });
+      setNotice(`Removed ${label} from queue.`);
+    } catch (err) {
+      // Revert optimistic dismiss on failure
+      setDismissedKeys((previous) => previous.filter((k) => k !== key));
+      setNotice(err instanceof Error ? err.message : 'Failed to remove from queue');
+    }
+  };
 
   const persistOrder = async () => {
     const order = orderedKeysRef.current
@@ -421,23 +496,41 @@ export function NextUpPanel({
           {isLoading ? (
             <Skeleton className="h-5 w-10 rounded-full" />
           ) : (
-            <span className="chip text-micro">{total}</span>
+            <span className="chip text-micro">{queueItems.length}</span>
+          )}
+          {!isLoading && hiddenCount > 0 && (
+            <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
           )}
           {isFetching && !isLoading && (
             <span className="text-micro text-muted">refreshing…</span>
           )}
         </div>
-        {allowCompactToggle ? (
-          <button
-            type="button"
-            onClick={() => setCompact(!isCompact)}
-            className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
-            title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
-            aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
-          >
-            {isCompact ? 'Expand' : 'Compact'}
-          </button>
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          {!isLoading && hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setDismissedKeys([]);
+                setNotice('Restored hidden queue items.');
+              }}
+              className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+              title="Show queue items removed from this view"
+            >
+              Show hidden
+            </button>
+          )}
+          {allowCompactToggle ? (
+            <button
+              type="button"
+              onClick={() => setCompact(!isCompact)}
+              className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
+              title={isCompact ? 'Switch to expanded cards' : 'Switch to compact list'}
+              aria-label={isCompact ? 'Expand Next Up queue' : 'Compact Next Up queue'}
+            >
+              {isCompact ? 'Expand' : 'Compact'}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {showStatusBanner && (
@@ -553,20 +646,23 @@ export function NextUpPanel({
       )}
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
-        {!isLoading && items.length > 0 ? (
+        {!isLoading && queueItems.length > 0 ? (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-micro uppercase tracking-[0.08em] text-muted">Now working</p>
-                <p className="truncate text-caption font-semibold text-white" title={nowPlaying?.workstreamTitle ?? ''}>
-                  {nowPlaying ? nowPlaying.workstreamTitle : 'No active workstream'}
+                <p
+                  className="truncate text-caption font-semibold text-white"
+                  title={nowPlaying ? sanitizeDisplayText(nowPlaying.workstreamTitle) : ''}
+                >
+                  {nowPlaying ? sanitizeDisplayText(nowPlaying.workstreamTitle) : 'No active workstream'}
                 </p>
                 {!nowPlaying && playableItem && (
                   <p
                     className="truncate text-micro text-secondary"
-                    title={`Next: ${playableItem.workstreamTitle}`}
+                    title={`Next: ${sanitizeDisplayText(playableItem.workstreamTitle)}`}
                   >
-                    Next: {playableItem.workstreamTitle}
+                    Next: {sanitizeDisplayText(playableItem.workstreamTitle)}
                   </p>
                 )}
               </div>
@@ -611,7 +707,7 @@ export function NextUpPanel({
                         placement: triagePlacement,
                         resetToTodo: false,
                       }),
-                    `Paused ${nowPlaying!.workstreamTitle}.`
+                    `Paused ${sanitizeDisplayText(nowPlaying!.workstreamTitle)}.`
                   )
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
@@ -678,6 +774,12 @@ export function NextUpPanel({
               const isRunningRow = item.queueState === 'running';
               const isAutoRunning = isAutoRunningForItem(item);
               const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
+                const initiativeTitle = sanitizeDisplayText(item.initiativeTitle);
+                const workstreamTitle = sanitizeDisplayText(item.workstreamTitle);
+                const nextTaskTitle = item.nextTaskTitle
+                  ? sanitizeDisplayText(item.nextTaskTitle)
+                  : null;
+                const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
 
               return (
                 <motion.article
@@ -713,27 +815,27 @@ export function NextUpPanel({
                             onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
                           }
                           className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
-                          title={item.initiativeTitle}
+                          title={initiativeTitle}
                         >
-                          {item.initiativeTitle}
+                          {initiativeTitle}
                         </button>
                       </div>
-                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption font-semibold leading-snug text-white" title={item.workstreamTitle}>
+                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption font-semibold leading-snug text-white" title={workstreamTitle}>
                         <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-                        <span className="line-clamp-2">{item.workstreamTitle}</span>
+                        <span className="line-clamp-2">{workstreamTitle}</span>
                       </p>
-                      {item.nextTaskTitle ? (
-                        <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary" title={`Next: ${item.nextTaskTitle}${dueText ? ` · ${dueText}` : ''}`}>
-                          Next: {item.nextTaskTitle}
+                      {nextTaskTitle ? (
+                        <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary" title={`Next: ${nextTaskTitle}${dueText ? ` · ${dueText}` : ''}`}>
+                          Next: {nextTaskTitle}
                           {dueText ? ` · ${dueText}` : ''}
                         </p>
                       ) : null}
                     </div>
                   </div>
 
-                  {item.blockReason && (
+                  {blockReason && (
                     <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">
-                      Blocked: {item.blockReason}
+                      Blocked: {blockReason}
                     </div>
                   )}
 
@@ -772,7 +874,7 @@ export function NextUpPanel({
                           },
                           (result) =>
                             isRunningRow
-                              ? `Paused ${item.workstreamTitle}.`
+                              ? `Paused ${workstreamTitle}.`
                               : playDispatchNotice(item, result)
                         )
                       }
@@ -800,7 +902,7 @@ export function NextUpPanel({
                               workstreamId: item.workstreamId,
                               placement: triagePlacement,
                             }),
-                          `Queued ${item.workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
+                          `Queued ${workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -825,8 +927,8 @@ export function NextUpPanel({
                                   agentId: item.runnerAgentId,
                                 }),
                           isAutoRunning
-                            ? `Stopped auto-continue for ${item.initiativeTitle}.`
-                            : `Automatic continuation enabled for ${item.workstreamTitle}.`
+                            ? `Stopped auto-continue for ${initiativeTitle}.`
+                            : `Automatic continuation enabled for ${workstreamTitle}.`
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -838,6 +940,15 @@ export function NextUpPanel({
                         <AutoGlyph className="h-3 w-3 opacity-85" />
                         <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isRowBusy || isRunningRow || nextUpActions.isRemoving}
+                      onClick={() => void removeQueueItem(item)}
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+                      title={isRunningRow ? 'Pause before removing' : 'Remove from queue'}
+                    >
+                      Remove
                     </button>
                   </div>
                 </motion.article>
@@ -894,15 +1005,18 @@ export function NextUpPanel({
                         initiativeId: item!.initiativeId,
                         workstreamId: item!.workstreamId,
                       });
-                      setNotice(`Pinned ${item!.workstreamTitle}. Drag to reorder.`);
+                      setNotice(
+                        `Pinned ${sanitizeDisplayText(item!.workstreamTitle)}. Drag to reorder.`
+                      );
                     } else {
                       await nextUpActions.unpin({
                         initiativeId: item!.initiativeId,
                         workstreamId: item!.workstreamId,
                       });
-                      setNotice(`Unpinned ${item!.workstreamTitle}.`);
+                      setNotice(`Unpinned ${sanitizeDisplayText(item!.workstreamTitle)}.`);
                     }
                   }}
+                  onDismiss={removeQueueItem}
                   runAction={runAction}
                 />
               ))}
@@ -936,6 +1050,7 @@ function NextUpReorderRow({
   onMoveWorkstream,
   onCommitReorder,
   onPinToggle,
+  onDismiss,
   runAction,
 }: {
   item: NextUpQueueItem;
@@ -954,6 +1069,7 @@ function NextUpReorderRow({
   onMoveWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
   onCommitReorder: () => void;
   onPinToggle: (desiredPinned: boolean) => Promise<void>;
+  onDismiss: (item: NextUpQueueItem) => void;
   runAction: (
     key: string,
     action: () => Promise<unknown>,
@@ -968,6 +1084,10 @@ function NextUpReorderRow({
   const isAutoRunning = isAutoRunningForItem(item);
   const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
   const isPinned = item.isPinned === true;
+  const initiativeTitle = sanitizeDisplayText(item.initiativeTitle);
+  const workstreamTitle = sanitizeDisplayText(item.workstreamTitle);
+  const nextTaskTitle = item.nextTaskTitle ? sanitizeDisplayText(item.nextTaskTitle) : null;
+  const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
 
   return (
     <Reorder.Item
@@ -1044,15 +1164,15 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => onOpenInitiative?.(item.initiativeId, item.initiativeTitle)}
                   className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
-                  title={item.initiativeTitle}
+                  title={initiativeTitle}
                 >
-                  {item.initiativeTitle}
+                  {initiativeTitle}
                 </button>
               </div>
               <div className="mt-0.5 flex min-w-0 items-start gap-1.5">
                 <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-95" />
-                <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={item.workstreamTitle}>
-                  {item.workstreamTitle}
+                <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={workstreamTitle}>
+                  {workstreamTitle}
                 </p>
               </div>
             </div>
@@ -1084,7 +1204,7 @@ function NextUpReorderRow({
         </div>
 
         <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2 text-caption text-white/68">
-          {item.nextTaskTitle ? (
+          {nextTaskTitle ? (
             <div className="space-y-1">
               <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
                 <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
@@ -1095,8 +1215,8 @@ function NextUpReorderRow({
                   </span>
                 ) : null}
               </div>
-              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84" title={item.nextTaskTitle}>
-                {item.nextTaskTitle}
+              <p className="line-clamp-2 break-words text-caption leading-snug text-white/84" title={nextTaskTitle}>
+                {nextTaskTitle}
               </p>
             </div>
           ) : (
@@ -1111,9 +1231,9 @@ function NextUpReorderRow({
           </span>
         </div>
 
-        {item.blockReason && (
+        {blockReason && (
           <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">
-            Blocked: {item.blockReason}
+            Blocked: {blockReason}
           </div>
         )}
 
@@ -1145,7 +1265,7 @@ function NextUpReorderRow({
                 },
                 (result) =>
                   isRunningRow
-                    ? `Paused ${item.workstreamTitle}.`
+                    ? `Paused ${workstreamTitle}.`
                     : playDispatchNotice(item, result)
               )
             }
@@ -1168,7 +1288,7 @@ function NextUpReorderRow({
               void runAction(
                 key,
                 () => onMoveWorkstream(item, triagePlacement),
-                `Queued ${item.workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
+                `Queued ${workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -1191,8 +1311,8 @@ function NextUpReorderRow({
                         agentId: item.runnerAgentId,
                       }),
                 isAutoRunning
-                  ? `Stopped auto-continue for ${item.initiativeTitle}.`
-                  : `Automatic continuation enabled for ${item.workstreamTitle}.`
+                  ? `Stopped auto-continue for ${initiativeTitle}.`
+                  : `Automatic continuation enabled for ${workstreamTitle}.`
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -1208,6 +1328,15 @@ function NextUpReorderRow({
               <AutoGlyph className="h-3 w-3 opacity-85" />
               <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
             </span>
+          </button>
+          <button
+            type="button"
+            disabled={isRowBusy || isRunningRow}
+            onClick={() => void onDismiss(item)}
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+            title={isRunningRow ? 'Pause before removing' : 'Remove from queue'}
+          >
+            Remove
           </button>
         </div>
       </motion.article>

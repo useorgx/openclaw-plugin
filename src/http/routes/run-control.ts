@@ -2,7 +2,7 @@ import type { Router } from "../router.js";
 
 type JsonRecord = Record<string, unknown>;
 
-type RunAction = "pause" | "resume" | "cancel" | "rollback";
+type RunAction = "pause" | "resume" | "cancel" | "rollback" | "complete";
 
 type RegisterRunControlRoutesDeps<TReq, TRes> = {
   parseJsonRequest: (req: TReq) => Promise<JsonRecord>;
@@ -18,8 +18,12 @@ type RegisterRunControlRoutesDeps<TReq, TRes> = {
   ) => Promise<unknown>;
   runAction: (
     runId: string,
-    action: RunAction,
+    action: Exclude<RunAction, "complete">,
     input: { checkpointId?: string; reason?: string }
+  ) => Promise<unknown>;
+  markRunCompleted: (
+    runId: string,
+    input: { reason?: string }
   ) => Promise<unknown>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
@@ -110,6 +114,13 @@ export function registerRunControlRoutes<TReq, TRes>(
           const payload = await deps.parseJsonRequest(req);
           const checkpointId = deps.pickString(payload, ["checkpointId", "checkpoint_id"]);
           const reason = deps.pickString(payload, ["reason"]);
+          if (action === "complete") {
+            const data = await deps.markRunCompleted(runId, {
+              reason: reason ?? undefined,
+            });
+            deps.sendJson(res, 200, data);
+            return;
+          }
           const data = await deps.runAction(runId, action, {
             checkpointId: checkpointId ?? undefined,
             reason: reason ?? undefined,

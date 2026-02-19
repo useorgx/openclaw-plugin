@@ -7,7 +7,7 @@ import { formatRelativeTime } from '@/lib/time';
 
 export type BulkSessionsMode = 'sessions' | 'active' | 'blocked' | 'failed';
 
-type BulkAction = 'resume' | 'pause' | 'cancel';
+type BulkAction = 'resume' | 'pause' | 'cancel' | 'complete';
 
 const SESSION_STATUS_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -249,6 +249,8 @@ export function BulkSessionsModal({
       onSetNotice(`Bulk resume requested: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.`);
     } else if (action === 'pause') {
       onSetNotice(`Bulk pause requested: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.`);
+    } else if (action === 'complete') {
+      onSetNotice(`Bulk mark completed requested: ${succeeded} ok${failed ? `, ${failed} failed` : ''}.`);
     }
   };
 
@@ -532,6 +534,15 @@ export function BulkSessionsModal({
 
             <button
               type="button"
+              onClick={() => void performBulkAction('complete')}
+              disabled={selectedCount === 0 || Boolean(busy)}
+              className="rounded-md border border-teal/25 bg-teal/10 px-3 py-1.5 text-caption font-semibold text-teal transition-colors hover:bg-teal/20 disabled:opacity-45"
+            >
+              Mark completed
+            </button>
+
+            <button
+              type="button"
               onClick={() => void performBulkAction('pause')}
               disabled={selectedCount === 0 || Boolean(busy)}
               className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
@@ -553,4 +564,3 @@ export function BulkSessionsModal({
     </Modal>
   );
 }
-

@@ -1,0 +1,57 @@
+{
+  "startedAt": "2026-02-19T18:04:51.090Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "timeoutMs": 180000,
+  "target": {
+    "initiativeId": "e0acebc6-d047-44f2-87ad-49669685c7e9",
+    "workstreamId": "9f11d05c-4f31-43ac-ac11-d70582d4661c",
+    "workstreamTitle": "[Version Harness][Design] 3",
+    "initiativeTitle": "[Version Harness] Queue Play Auto (20260219-074039Z)"
+  },
+  "actions": {
+    "missionControlOpened": true,
+    "queueOpened": true,
+    "startClicked": true,
+    "autoClicked": true,
+    "autoOnVisible": false
+  },
+  "baseline": {
+    "snapshotAt": "2026-02-19T18:04:51.848Z",
+    "dispatchedCount": 0,
+    "completedCount": 0
+  },
+  "validation": {
+    "dispatchedAfterAction": true,
+    "completedAfterAction": false,
+    "continuationAfterCompletion": false,
+    "blockedByRateLimit": false,
+    "stoppedWithoutDispatch": false,
+    "passed": false
+  },
+  "observed": {
+    "actionAt": "2026-02-19T18:04:59.591Z",
+    "snapshotAt": "2026-02-19T18:08:04.184Z",
+    "dispatchedCount": 1,
+    "completedCount": 0,
+    "dispatchedSample": [
+      {
+        "timestamp": "2026-02-19T18:07:04.814Z",
+        "title": "Autopilot dispatched slice for [Version Harness][Design] 3.",
+        "runId": "bbfe0f06-b0e1-4169-a046-519bd874149a"
+      }
+    ],
+    "completedSample": [],
+    "rateLimitedSample": [],
+    "stoppedSample": [],
+    "errorSample": [],
+    "continuationEvidenceTitle": null
+  },
+  "screenshots": {
+    "beforeAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-before-1771524297697.png",
+    "afterAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-after-1771524301131.png"
+  },
+  "errors": [],
+  "finishedAt": "2026-02-19T18:08:04.184Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-1771524484184.json"
+}

@@ -121,7 +121,7 @@ test("live/snapshot injects runtime instances as sessions", async () => {
     await handler(
       {
         method: "GET",
-        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-injection",
         headers: {},
       },
       resSnapshot
@@ -186,7 +186,7 @@ test("runtime session fallback identity and blocked reason are derived when agen
     await handler(
       {
         method: "GET",
-        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-fallback-blocked",
         headers: {},
       },
       resSnapshot
@@ -260,7 +260,7 @@ test("stale runtime instances are not injected as synthetic fresh sessions", asy
     await handler(
       {
         method: "GET",
-        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-stale-not-injected",
         headers: {},
       },
       resSnapshot
@@ -348,7 +348,7 @@ test("stale runtime reconciles an existing running session to queued with stale 
     await handler(
       {
         method: "GET",
-        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-stale-reconcile",
         headers: {},
       },
       resSnapshot
@@ -438,7 +438,7 @@ test("completed runtime reconciles stale blocked session to completed and clears
     await handler(
       {
         method: "GET",
-        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-completed-reconcile",
         headers: {},
       },
       resSnapshot
@@ -448,6 +448,251 @@ test("completed runtime reconciles stale blocked session to completed and clears
     const body = JSON.parse(resSnapshot.body);
     const session = body?.sessions?.nodes?.find((node) => node?.id === "sess-completed-1") ?? null;
     assert.ok(session, "expected existing session node");
+    assert.equal(session?.status, "completed");
+    assert.deepEqual(session?.blockers ?? [], []);
+    assert.equal(session?.blockerReason, null);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
+test("live/snapshot reclassifies stale reporting-only blocked sessions to completed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-reporting-reclassify-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const staleUpdatedAt = new Date(Date.now() - 45 * 60_000).toISOString();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-reporting-1",
+            runId: "run_reporting_reclassify",
+            title: "Reporting · codex",
+            status: "blocked",
+            phase: "blocked",
+            state: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: null,
+            agentId: null,
+            agentName: null,
+            blockers: [],
+            blockerReason: null,
+            lastEventSummary: null,
+            startedAt: staleUpdatedAt,
+            updatedAt: staleUpdatedAt,
+            lastEventAt: staleUpdatedAt,
+            parentId: null,
+            progress: null,
+            groupId: "init_test_1",
+            groupLabel: "Init Test",
+          },
+        ],
+        edges: [],
+        groups: [{ id: "init_test_1", label: "Init Test", status: "blocked" }],
+      }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=reporting-reclassify",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const session = body?.sessions?.nodes?.find((node) => node?.id === "sess-reporting-1") ?? null;
+    assert.ok(session, "expected reporting session node");
+    assert.equal(session?.status, "completed");
+    assert.equal(session?.phase, "completed");
+    assert.equal(session?.state, "completed");
+    assert.equal(session?.blockerReason, null);
+    assert.deepEqual(session?.blockers ?? [], []);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
+test("live/snapshot keeps reporting blocked sessions blocked when blocker evidence exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-reporting-blocked-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const staleUpdatedAt = new Date(Date.now() - 45 * 60_000).toISOString();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-reporting-2",
+            runId: "run_reporting_should_stay_blocked",
+            title: "Reporting · openclaw",
+            status: "blocked",
+            phase: "blocked",
+            state: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: null,
+            agentId: null,
+            agentName: null,
+            blockers: ["Waiting on decision"],
+            blockerReason: "Waiting on decision",
+            lastEventSummary: null,
+            startedAt: staleUpdatedAt,
+            updatedAt: staleUpdatedAt,
+            lastEventAt: staleUpdatedAt,
+            parentId: null,
+            progress: null,
+            groupId: "init_test_1",
+            groupLabel: "Init Test",
+          },
+        ],
+        edges: [],
+        groups: [{ id: "init_test_1", label: "Init Test", status: "blocked" }],
+      }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=reporting-stays-blocked",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const session = body?.sessions?.nodes?.find((node) => node?.id === "sess-reporting-2") ?? null;
+    assert.ok(session, "expected reporting session node");
+    assert.equal(session?.status, "blocked");
+    assert.equal(session?.phase, "blocked");
+    assert.equal(session?.state, "blocked");
+    assert.equal(session?.blockerReason, "Waiting on decision");
+    assert.deepEqual(session?.blockers ?? [], ["Waiting on decision"]);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
+test("run action complete marks a blocked session as completed in live snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-run-complete-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const staleUpdatedAt = new Date(Date.now() - 30 * 60_000).toISOString();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-manual-complete-1",
+            runId: "run_manual_complete",
+            title: "Reporting · codex",
+            status: "blocked",
+            phase: "blocked",
+            state: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: null,
+            agentId: null,
+            agentName: null,
+            blockers: ["stuck"],
+            blockerReason: "stuck",
+            lastEventSummary: null,
+            startedAt: staleUpdatedAt,
+            updatedAt: staleUpdatedAt,
+            lastEventAt: staleUpdatedAt,
+            parentId: null,
+            progress: null,
+            groupId: "init_test_1",
+            groupLabel: "Init Test",
+          },
+        ],
+        edges: [],
+        groups: [{ id: "init_test_1", label: "Init Test", status: "blocked" }],
+      }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+      runAction: async () => ({ ok: true }),
+      listRunCheckpoints: async () => ({ ok: true, data: [] }),
+      createRunCheckpoint: async () => ({ ok: true, data: { id: "cp-1" } }),
+      restoreRunCheckpoint: async () => ({ ok: true }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resComplete = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/runs/run_manual_complete/actions/complete",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "bulk_complete_test" }),
+      },
+      resComplete
+    );
+    assert.equal(resComplete.status, 200);
+    const completeBody = JSON.parse(resComplete.body);
+    assert.equal(completeBody?.data?.action, "complete");
+    assert.equal(completeBody?.data?.status, "completed");
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=run-action-complete",
+        headers: {},
+      },
+      resSnapshot
+    );
+    assert.equal(resSnapshot.status, 200);
+
+    const body = JSON.parse(resSnapshot.body);
+    const session = body?.sessions?.nodes?.find((node) => node?.id === "sess-manual-complete-1") ?? null;
+    assert.ok(session, "expected session node");
     assert.equal(session?.status, "completed");
     assert.deepEqual(session?.blockers ?? [], []);
     assert.equal(session?.blockerReason, null);

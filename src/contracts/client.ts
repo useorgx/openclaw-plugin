@@ -769,7 +769,6 @@ export class OrgXClient {
         status: resolvedStatus,
         resolution: resolvedStatus,
         resolved_at: resolvedAt,
-        decided_at: resolvedAt,
         decided_by: this.userId || undefined,
         note: note ?? undefined,
       });
@@ -780,7 +779,6 @@ export class OrgXClient {
         decision_status: resolvedStatus,
         resolution: resolvedStatus,
         resolved_at: resolvedAt,
-        decided_at: resolvedAt,
         note: note ?? undefined,
       });
     }

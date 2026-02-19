@@ -2592,6 +2592,76 @@ export function createHttpHandler(
     createRunCheckpoint: (runId, input) => client.createRunCheckpoint(runId, input),
     restoreRunCheckpoint: (runId, input) => client.restoreRunCheckpoint(runId, input),
     runAction: (runId, action, input) => client.runAction(runId, action, input),
+    markRunCompleted: async (runId, input) => {
+      const normalizedRunId = runId.trim();
+      if (!normalizedRunId) {
+        throw new Error("runId is required");
+      }
+
+      const nowIso = new Date().toISOString();
+      const reason = input.reason?.trim() || null;
+      const message = reason
+        ? `Marked completed from dashboard (${reason}).`
+        : "Marked completed from dashboard.";
+      const existingRun = getAgentRun(normalizedRunId);
+
+      const runtimeRecord = upsertRuntimeInstanceFromHook({
+        source_client: "api",
+        event: "session_stop",
+        run_id: normalizedRunId,
+        correlation_id: normalizedRunId,
+        initiative_id: existingRun?.initiativeId ?? null,
+        workstream_id: existingRun?.workstreamId ?? null,
+        task_id: existingRun?.taskId ?? null,
+        agent_id: existingRun?.agentId ?? null,
+        phase: "completed",
+        message,
+        timestamp: nowIso,
+        metadata: {
+          source: "dashboard_manual_complete",
+          reason,
+        },
+      });
+
+      markAgentRunStopped(normalizedRunId);
+      broadcastRuntimeSse("runtime.updated", runtimeRecord);
+      clearSnapshotResponseCache();
+
+      appendActivityItems([
+        {
+          id: randomUUID(),
+          type: "run_completed",
+          title: message,
+          description: reason,
+          agentId: runtimeRecord.agentId ?? null,
+          agentName: runtimeRecord.agentName ?? null,
+          requesterAgentId: runtimeRecord.agentId ?? null,
+          requesterAgentName: runtimeRecord.agentName ?? null,
+          executorAgentId: runtimeRecord.agentId ?? null,
+          executorAgentName: runtimeRecord.agentName ?? null,
+          runId: normalizedRunId,
+          initiativeId: runtimeRecord.initiativeId ?? null,
+          timestamp: nowIso,
+          phase: "completed",
+          state: "done",
+          summary: message,
+          metadata: {
+            source: "dashboard_manual_complete",
+            reason,
+            event: "dashboard_run_mark_completed",
+          },
+        } satisfies LiveActivityItem,
+      ]);
+
+      return {
+        ok: true,
+        data: {
+          runId: normalizedRunId,
+          action: "complete",
+          status: "completed",
+        },
+      };
+    },
     sendJson,
     safeErrorMessage,
   });

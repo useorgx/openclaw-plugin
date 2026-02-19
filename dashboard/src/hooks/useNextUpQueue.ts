@@ -197,6 +197,8 @@ export function useNextUpQueue({
           workstreamId: input.workstreamId,
           agentId: input.agentId ?? undefined,
           fastAck: true,
+          // Explicit user play action should bypass soft spawn-guard rate limits.
+          ignoreSpawnGuardRateLimit: true,
         }),
       });
 
@@ -247,6 +249,8 @@ export function useNextUpQueue({
           agentId: input.agentId ?? undefined,
           tokenBudgetTokens: input.tokenBudgetTokens,
           workstreamIds: [input.workstreamId],
+          // Explicit user auto-enable should bypass soft spawn-guard rate limits.
+          ignoreSpawnGuardRateLimit: true,
         }),
       });
 
