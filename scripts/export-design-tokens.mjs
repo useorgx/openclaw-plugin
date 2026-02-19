@@ -22,6 +22,17 @@ const tokensModule = await import(moduleUrl);
 
 const payload = {
   colors: tokensModule.colors,
+  spacing: tokensModule.spacing,
+  radius: tokensModule.radius,
+  typography: tokensModule.typography,
+  border: tokensModule.border,
+  elevation: tokensModule.elevation,
+  blur: tokensModule.blur,
+  breakpoints: tokensModule.breakpoints,
+  zIndex: tokensModule.zIndex,
+  interaction: tokensModule.interaction,
+  stateTones: tokensModule.stateTones,
+  motion: tokensModule.motion,
   agentColors: tokensModule.agentColors,
   agentRoles: tokensModule.agentRoles,
   helpers: {

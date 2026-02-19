@@ -774,10 +774,20 @@ export class OrgXClient {
     const optionId = input?.optionId;
     const resolvedStatus = action === "approve" ? "approved" : "declined";
 
+    // Explicitly null out legacy fields that older versions may have written
+    // onto the entity.  The OrgX API now rejects updates when these stale
+    // fields are present on the stored document, so we clear them here.
+    const clearLegacy = {
+      decided_at: null,
+      decided_by: null,
+      resolved_at: null,
+    };
+
     try {
       return await this.updateEntity("decision", id, {
         status: resolvedStatus,
         resolution: resolvedStatus,
+        ...clearLegacy,
         note: note ?? undefined,
         ...(optionId ? { option_id: optionId } : {}),
       });
@@ -787,6 +797,7 @@ export class OrgXClient {
         status: "resolved",
         decision_status: resolvedStatus,
         resolution: resolvedStatus,
+        ...clearLegacy,
         note: note ?? undefined,
         ...(optionId ? { option_id: optionId } : {}),
       });
