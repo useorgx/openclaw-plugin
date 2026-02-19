@@ -136,6 +136,17 @@ export interface LiveActivityItem {
   metadata?: Record<string, unknown>;
 }
 
+export type LiveDecisionOptionStatus = 'approved' | 'declined' | 'cancelled';
+
+export interface LiveDecisionOption {
+  id: string;
+  label: string;
+  description: string | null;
+  impliedStatus: LiveDecisionOptionStatus | null;
+  actionType: string | null;
+  requiresNote: boolean;
+}
+
 export interface LiveDecision {
   id: string;
   title: string;
@@ -146,6 +157,8 @@ export interface LiveDecision {
   updatedAt: string | null;
   waitingMinutes: number;
   metadata?: Record<string, unknown>;
+  options?: LiveDecisionOption[];
+  selectedOptionId?: string | null;
 }
 
 export interface SessionTreeNode {

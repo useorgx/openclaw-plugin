@@ -9,6 +9,12 @@ import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 interface DecisionActionSummary {
   updated: number;
   failed: number;
+  firstError?: string;
+}
+
+interface DecisionActionInput {
+  note?: string;
+  optionId?: string;
 }
 
 export function BulkDecisionsModal({
@@ -23,8 +29,14 @@ export function BulkDecisionsModal({
   open: boolean;
   onClose: () => void;
   decisions: LiveDecision[];
-  onApproveDecision: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
-  onRejectDecision?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
+  onApproveDecision: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
+  onRejectDecision?: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
   onApproveAll: () => Promise<DecisionActionSummary>;
   onBulkDecisionAction?: (
     decisionIds: string[],

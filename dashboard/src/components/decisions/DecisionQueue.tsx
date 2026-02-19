@@ -14,6 +14,12 @@ const PAGE_SIZE = 40;
 interface DecisionActionSummary {
   updated: number;
   failed: number;
+  firstError?: string;
+}
+
+interface DecisionActionInput {
+  note?: string;
+  optionId?: string;
 }
 
 type DecisionBulkActionId =
@@ -25,8 +31,14 @@ type DecisionBulkScope = 'selected' | 'visible';
 
 interface DecisionQueueProps {
   decisions: LiveDecision[];
-  onApproveDecision: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
-  onRejectDecision?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
+  onApproveDecision: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
+  onRejectDecision?: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
   onApproveAll: () => Promise<DecisionActionSummary>;
   onBulkDecisionAction?: (
     decisionIds: string[],
@@ -111,15 +123,18 @@ export const DecisionQueue = memo(function DecisionQueue({
     [detailDecisionId, sorted]
   );
 
-  const handleApproveFromDetail = async (decisionId: string, note?: string) => {
-    const result = await onApproveDecision(decisionId, note);
+  const handleApproveFromDetail = async (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => {
+    const result = await onApproveDecision(decisionId, input);
     // Auto-close is handled by the detail modal's success state
     return result;
   };
 
   const handleRejectFromDetail = onRejectDecision
-    ? async (decisionId: string, note?: string) => {
-        const result = await onRejectDecision(decisionId, note);
+    ? async (decisionId: string, input?: DecisionActionInput) => {
+        const result = await onRejectDecision(decisionId, input);
         return result;
       }
     : undefined;
@@ -211,21 +226,25 @@ export const DecisionQueue = memo(function DecisionQueue({
 
     let updated = 0;
     let failed = 0;
+    let firstError: string | undefined;
     for (const decisionId of ids) {
       try {
         const result =
           action === 'approve'
-            ? await onApproveDecision(decisionId, note)
+            ? await onApproveDecision(decisionId, note ? { note } : undefined)
             : onRejectDecision
-              ? await onRejectDecision(decisionId, note)
+              ? await onRejectDecision(decisionId, note ? { note } : undefined)
               : { updated: 0, failed: 1 };
         updated += result.updated;
         failed += result.failed;
+        if (!firstError && result.firstError) {
+          firstError = result.firstError;
+        }
       } catch {
         failed += 1;
       }
     }
-    return { updated, failed };
+    return { updated, failed, firstError };
   };
 
   const handleApplyBulkAction = async () => {
@@ -255,7 +274,8 @@ export const DecisionQueue = memo(function DecisionQueue({
           );
       const verb = selectedBulkOption.action === 'approve' ? 'Approved' : 'Rejected';
       if (result.failed > 0) {
-        setNotice(`${verb} ${result.updated}; ${result.failed} failed.`);
+        const reason = result.firstError ? ` ${result.firstError}` : '';
+        setNotice(`${verb} ${result.updated}; ${result.failed} failed.${reason}`);
       } else if (result.updated > 0) {
         setNotice(`${verb} ${result.updated} decision${result.updated === 1 ? '' : 's'}.`);
       } else {
@@ -283,7 +303,11 @@ export const DecisionQueue = memo(function DecisionQueue({
     try {
       const result = await onApproveDecision(decisionId);
       if (result.failed > 0) {
-        setNotice(`Approval failed for ${result.failed} decision.`);
+        setNotice(
+          result.firstError
+            ? `Approval failed: ${result.firstError}`
+            : `Approval failed for ${result.failed} decision.`
+        );
       } else if (result.updated > 0) {
         setNotice('Decision approved.');
       }
