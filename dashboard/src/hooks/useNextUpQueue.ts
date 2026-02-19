@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NextUpQueueItem, NextUpQueueResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
+import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 
 interface UseNextUpQueueOptions {
@@ -59,6 +60,21 @@ function normalizeErrorMessage(
     (typeof body?.message === 'string' && body.message.trim()) ||
     `${fallback} (${response.status})`
   );
+}
+
+function shouldIncludeSyntheticEntities(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('demo') === '1') return true;
+  } catch {
+    // ignore
+  }
+  try {
+    return window.localStorage.getItem('orgx.show_synthetic_entities') === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function useNextUpQueue({
@@ -118,7 +134,17 @@ export function useNextUpQueue({
           degraded: ['next-up queue response missing expected payload'],
         } satisfies NextUpQueueResponse;
       }
-      return normalized;
+      if (shouldIncludeSyntheticEntities()) {
+        return normalized;
+      }
+      const visibleItems = normalized.items.filter(
+        (item) => !isSyntheticInitiativeId(item.initiativeId)
+      );
+      return {
+        ...normalized,
+        items: visibleItems,
+        total: visibleItems.length,
+      };
     },
     refetchInterval: (state) => {
       const payload = state.state.data;

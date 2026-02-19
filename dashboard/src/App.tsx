@@ -6,8 +6,9 @@ import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
+import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
-import type { Agent, Initiative, NextUpQueueItem, SessionTreeNode } from '@/types';
+import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
@@ -129,6 +130,22 @@ function toAgentStatus(value: string): Agent['status'] {
   if (normalized === 'pending' || normalized === 'queued') return 'waiting';
   if (normalized === 'completed' || normalized === 'done') return 'done';
   return 'idle';
+}
+
+function isSyntheticSessionNode(node: SessionTreeNode): boolean {
+  if (isSyntheticInitiativeId(node.initiativeId)) return true;
+  const runId = (node.runId ?? '').trim().toLowerCase();
+  if (/^run-\d+$/.test(runId)) return true;
+  if (runId.startsWith('mock-')) return true;
+  return false;
+}
+
+function isSyntheticActivityItem(item: LiveActivityItem): boolean {
+  if (isSyntheticInitiativeId(item.initiativeId)) return true;
+  const runId = (item.runId ?? '').trim().toLowerCase();
+  if (/^run-\d+$/.test(runId)) return true;
+  if (runId.startsWith('mock-')) return true;
+  return false;
 }
 
 export function App() {
@@ -284,6 +301,21 @@ function DashboardShell({
     enableDecisions: shouldAttemptDecisions,
     ...liveDataOptions,
   });
+  const includeSyntheticEntities = demoMode || showSyntheticEntities;
+  const sessionNodesInScope = useMemo(
+    () =>
+      includeSyntheticEntities
+        ? data.sessions.nodes
+        : data.sessions.nodes.filter((node) => !isSyntheticSessionNode(node)),
+    [data.sessions.nodes, includeSyntheticEntities]
+  );
+  const activityInScope = useMemo(
+    () =>
+      includeSyntheticEntities
+        ? data.activity
+        : data.activity.filter((item) => !isSyntheticActivityItem(item)),
+    [data.activity, includeSyntheticEntities]
+  );
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
@@ -332,13 +364,13 @@ function DashboardShell({
     ]);
 
     let count = 0;
-    for (const session of data.sessions.nodes) {
+    for (const session of sessionNodesInScope) {
       const status = normalizeStatus(session.status ?? '');
       if (status === 'queued' || status === 'pending') continue;
       if (inProgressStatuses.has(status) || Boolean(session.lastHeartbeatAt)) count += 1;
     }
     return count;
-  }, [data.sessions.nodes]);
+  }, [sessionNodesInScope]);
 
   useEffect(() => {
     if (initiativesSidebarTab === 'in_progress' && inProgressCount === 0) {
@@ -487,7 +519,7 @@ function DashboardShell({
   }, []);
 
   useEffect(() => {
-    const firstSessionId = data.sessions.nodes[0]?.id ?? null;
+    const firstSessionId = sessionNodesInScope[0]?.id ?? null;
     if (!firstSessionId) {
       if (selectedSessionId !== null) {
         setSelectedSessionId(null);
@@ -500,19 +532,19 @@ function DashboardShell({
       return;
     }
 
-    const selectedExists = data.sessions.nodes.some((node) => node.id === selectedSessionId);
+    const selectedExists = sessionNodesInScope.some((node) => node.id === selectedSessionId);
     if (!selectedExists) {
       setSelectedSessionId(firstSessionId);
     }
-  }, [data.sessions.nodes, selectedSessionId]);
+  }, [sessionNodesInScope, selectedSessionId]);
 
   useEffect(() => {
     if (!activityFilterSessionId) return;
-    const stillExists = data.sessions.nodes.some((node) => node.id === activityFilterSessionId);
+    const stillExists = sessionNodesInScope.some((node) => node.id === activityFilterSessionId);
     if (!stillExists) {
       setActivityFilterSessionId(null);
     }
-  }, [activityFilterSessionId, data.sessions.nodes]);
+  }, [activityFilterSessionId, sessionNodesInScope]);
 
   const handleSelectSession = useCallback((sessionId: string) => {
     void import('@/components/sessions/SessionInspector');
@@ -528,17 +560,17 @@ function DashboardShell({
       const trimmed = runId.trim();
       if (!trimmed) return;
       const session =
-        data.sessions.nodes.find((node) => node.runId === trimmed || node.id === trimmed) ?? null;
+        sessionNodesInScope.find((node) => node.runId === trimmed || node.id === trimmed) ?? null;
       if (!session) return;
       handleSelectSession(session.id);
       setOpsNotice(`Focused session: ${session.title}`);
     },
-    [data.sessions.nodes, handleSelectSession]
+    [sessionNodesInScope, handleSelectSession]
   );
 
   const selectedActivitySession = useMemo(
-    () => data.sessions.nodes.find((n) => n.id === activityFilterSessionId) ?? null,
-    [activityFilterSessionId, data.sessions.nodes]
+    () => sessionNodesInScope.find((n) => n.id === activityFilterSessionId) ?? null,
+    [activityFilterSessionId, sessionNodesInScope]
   );
 
   const selectedActivityRunIds = useMemo(() => {
@@ -549,26 +581,26 @@ function DashboardShell({
   }, [selectedActivitySession?.id, selectedActivitySession?.runId]);
 
   const activityFeed = useActivityFeed({
-    seed: data.activity,
+    seed: activityInScope,
     timeFilterId: activityTimeFilterId,
     runId: selectedActivitySession?.runId ?? null,
     pageSize: 50,
   });
 
   const selectedSession = useMemo(
-    () => data.sessions.nodes.find((n) => n.id === selectedSessionId) ?? null,
-    [data.sessions.nodes, selectedSessionId]
+    () => sessionNodesInScope.find((n) => n.id === selectedSessionId) ?? null,
+    [sessionNodesInScope, selectedSessionId]
   );
 
   const activeSessionCount = useMemo(
     () =>
-      data.sessions.nodes.filter((node) => ACTIVE_SESSION_METRIC_STATUSES.has(node.status)).length,
-    [data.sessions.nodes]
+      sessionNodesInScope.filter((node) => ACTIVE_SESSION_METRIC_STATUSES.has(node.status)).length,
+    [sessionNodesInScope]
   );
 
   const blockedCount = useMemo(
     () =>
-      data.sessions.nodes.filter((node) => {
+      sessionNodesInScope.filter((node) => {
         const status = normalizeStatus(node.status);
         const phase = normalizeStatus(node.phase ?? '');
         const state = normalizeStatus(node.state ?? '');
@@ -581,12 +613,12 @@ function DashboardShell({
         }
         return node.blockers.length > 0;
       }).length,
-    [data.sessions.nodes]
+    [sessionNodesInScope]
   );
 
   const failedCount = useMemo(
-    () => data.sessions.nodes.filter((node) => node.status === 'failed').length,
-    [data.sessions.nodes]
+    () => sessionNodesInScope.filter((node) => node.status === 'failed').length,
+    [sessionNodesInScope]
   );
 
   const compactMetrics = useMemo(() => {
@@ -600,7 +632,7 @@ function DashboardShell({
       {
         id: 'sessions',
         label: 'Sessions',
-        value: data.sessions.nodes.length,
+        value: sessionNodesInScope.length,
         color: colors.teal,
         icon: 'session',
       },
@@ -666,7 +698,7 @@ function DashboardShell({
     data.handoffs.length,
     data.outbox.pendingTotal,
     data.outbox.replayStatus,
-    data.sessions.nodes.length,
+    sessionNodesInScope.length,
     decisionsVisible,
   ]);
 
@@ -811,7 +843,7 @@ function DashboardShell({
 
     const map = new Map<string, InitiativeAccumulator>();
 
-    for (const node of data.sessions.nodes) {
+    for (const node of sessionNodesInScope) {
       const id = node.initiativeId ?? node.groupId ?? 'unscoped';
       const name =
         node.groupLabel && node.groupLabel.trim().length > 0
@@ -926,7 +958,7 @@ function DashboardShell({
       if (aPriority !== bPriority) return aPriority - bPriority;
       return b.health - a.health;
     });
-  }, [data.sessions.nodes, data.sessions.groups]);
+  }, [sessionNodesInScope, data.sessions.groups]);
 
   // Merge session-derived + entity-based initiatives for Mission Control
   const mcInitiatives = useMemo(() => {
@@ -951,6 +983,10 @@ function DashboardShell({
     // Apply live snapshot first, then entity records so user-initiated status
     // mutations (pause/resume/delete/archive) win immediately in Mission Control.
     for (const init of [...(liveInitiatives ?? []), ...(entityInitiatives ?? [])]) {
+      if (!includeSyntheticEntities && isSyntheticInitiativeId(init.id)) {
+        merged.delete(init.id);
+        continue;
+      }
       const incomingRawStatus = init.rawStatus ?? init.status;
       if (!isVisibleInitiativeStatus(incomingRawStatus)) {
         merged.delete(init.id);
@@ -983,7 +1019,7 @@ function DashboardShell({
 
       return a.name.localeCompare(b.name);
     });
-  }, [initiatives, entityInitiatives, liveInitiatives, initiativeTombstones]);
+  }, [initiatives, entityInitiatives, includeSyntheticEntities, liveInitiatives, initiativeTombstones]);
 
   const selectedActivitySessionLabel = useMemo(() => {
     if (!selectedActivitySession) return null;
@@ -994,7 +1030,7 @@ function DashboardShell({
     // Try agent name first
     if (agentName) {
       // Find latest activity summary for this session
-      const latestActivity = data.activity.find(
+      const latestActivity = activityInScope.find(
         (a) => a.runId === selectedActivitySession.runId && a.summary?.trim()
       );
       if (latestActivity?.summary) {
@@ -1013,12 +1049,12 @@ function DashboardShell({
     }
 
     return title ?? null;
-  }, [data.activity, selectedActivitySession]);
+  }, [activityInScope, selectedActivitySession]);
 
   const missionControlAgents = useMemo<Agent[]>(() => {
     const byAgentId = new Map<string, Agent>();
 
-    for (const node of data.sessions.nodes) {
+    for (const node of sessionNodesInScope) {
       const id = (node.agentId ?? '').trim() || `name:${(node.agentName ?? '').trim()}`;
       const name = (node.agentName ?? '').trim() || (node.agentId ?? '').trim();
       if (!name) continue;
@@ -1047,18 +1083,18 @@ function DashboardShell({
     }
 
     return Array.from(byAgentId.values());
-  }, [data.sessions.nodes]);
+  }, [sessionNodesInScope]);
 
   const showMissionControlWelcome =
     onboarding.state.connectionVerified && !dismissedMissionControlWelcome;
 
   const continueHighestPriority = useCallback(async () => {
-    if (data.sessions.nodes.length === 0) {
+    if (sessionNodesInScope.length === 0) {
       setOpsNotice('No sessions available to continue.');
       return;
     }
 
-    const target = [...data.sessions.nodes].sort(compareSessionPriority)[0];
+    const target = [...sessionNodesInScope].sort(compareSessionPriority)[0];
     setSelectedSessionId(target.id);
     setActivityFilterSessionId(target.id);
     setActivityFilterWorkstreamId(null);
@@ -1078,7 +1114,7 @@ function DashboardShell({
 
     setOpsNotice(`Focused highest priority session: ${target.title}`);
     await refetch();
-  }, [data.sessions.nodes, refetch]);
+  }, [sessionNodesInScope, refetch]);
 
   const readApiErrorMessage = useCallback(
     async (response: Response, fallback: string): Promise<string> => {
@@ -1496,7 +1532,7 @@ function DashboardShell({
 
   const handleInitiativeClick = useCallback(
     (initiative: Initiative) => {
-      const candidate = [...data.sessions.nodes]
+      const candidate = [...sessionNodesInScope]
         .filter((node) => (node.initiativeId ?? node.groupId) === initiative.id)
         .sort(compareSessionPriority)[0];
       if (candidate) {
@@ -1507,7 +1543,7 @@ function DashboardShell({
         setOpsNotice(`Focused initiative: ${initiative.name}`);
       }
     },
-    [data.sessions.nodes]
+    [sessionNodesInScope]
   );
 
   const followQueuedWorkstream = useCallback(
@@ -1538,7 +1574,7 @@ function DashboardShell({
   const focusActivitySessionByStatus = useCallback(
     (statuses: string[]) => {
       const statusSet = new Set(statuses);
-      const candidate = [...data.sessions.nodes]
+      const candidate = [...sessionNodesInScope]
         .filter((node) => statusSet.has(node.status))
         .sort(compareSessionPriority)[0];
       if (!candidate) {
@@ -1548,7 +1584,7 @@ function DashboardShell({
       handleSelectSession(candidate.id);
       setMobileTab('activity');
     },
-    [data.sessions.nodes, handleSelectSession]
+    [sessionNodesInScope, handleSelectSession]
   );
 
   const handleCompactMetricClick = useCallback(
@@ -1984,7 +2020,7 @@ function DashboardShell({
 	          >
 	            <LazyMissionControlView
 	              initiatives={mcInitiatives}
-	              activities={data.activity}
+	              activities={activityInScope}
 	              agents={missionControlAgents}
               runtimeInstances={data.runtimeInstances ?? []}
 	              isLoading={isLoading}
@@ -2035,7 +2071,7 @@ function DashboardShell({
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
 	          <AgentsChatsPanel
 	            sessions={data.sessions}
-	            activity={data.activity}
+	            activity={activityInScope}
             runtimeInstances={data.runtimeInstances ?? []}
             showSyntheticEntities={demoMode || showSyntheticEntities}
 	            selectedSessionId={selectedSessionId}
@@ -2051,7 +2087,7 @@ function DashboardShell({
         <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
 	          <ActivityTimeline
 	            activity={activityFeed.items}
-	            sessions={data.sessions.nodes}
+	            sessions={sessionNodesInScope}
 	            initiatives={initiatives}
 	            selectedRunIds={selectedActivityRunIds}
 	            selectedSessionLabel={selectedActivitySessionLabel}
@@ -2122,7 +2158,7 @@ function DashboardShell({
                   {initiativesSidebarTab === 'in_progress' ? (
                     <InProgressPanel
                       className="h-full min-h-0"
-                      sessions={data.sessions.nodes}
+                      sessions={sessionNodesInScope}
                       onOpenSession={handleSelectSession}
                       onFocusRunId={focusActivityRunId}
                       onPlayWorkstream={playSessionWorkstream}
@@ -2259,7 +2295,7 @@ function DashboardShell({
 	                >
 	                  <LazySessionInspector
 	                    session={selectedSession}
-	                    activity={data.activity}
+	                    activity={activityInScope}
 	                    initiatives={initiatives}
 	                    onContinueHighestPriority={continueHighestPriority}
 	                    onDispatchSession={dispatchSession}
@@ -2367,7 +2403,7 @@ function DashboardShell({
             ? bulkModal
             : 'sessions'
         }
-        sessions={data.sessions.nodes}
+        sessions={sessionNodesInScope}
         onOpenSession={(session) => {
           handleSelectSession(session.id);
           setBulkModal(null);
@@ -2419,7 +2455,7 @@ function DashboardShell({
         }}
         demoMode={demoMode}
         connectionVerified={onboarding.state.connectionVerified}
-        hasSessions={data.sessions.nodes.length > 0}
+        hasSessions={sessionNodesInScope.length > 0}
       />
 
       <ArtifactViewerModal />
