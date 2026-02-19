@@ -1154,6 +1154,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const lead = group.latest;
           const leadStatus = lead ? effectiveSessionStatus(lead) : null;
           const hasSessions = group.nodes.length > 0;
+          const hasSingleSession = group.nodes.length === 1;
           const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
           const runtime = group.runtime ?? null;
           const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
@@ -1205,7 +1206,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                 <button
                   type="button"
                   onClick={() => {
-                    if (onAgentFilter) {
+                    if (hasSingleSession) {
+                      onSelectSession(group.nodes[0].id);
+                    } else if (!hasSessions && (catalogIsLive || runtimeIsLive)) {
+                      setDetailAgentKey(agentKey);
+                    } else if (onAgentFilter) {
                       onAgentFilter(isFiltered ? null : displayName);
                     } else if (lead) {
                       onSelectSession(lead.id);
