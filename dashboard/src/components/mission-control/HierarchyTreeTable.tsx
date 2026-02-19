@@ -825,7 +825,7 @@ export function HierarchyTreeTable({
                 onChange={toggleSelectAllVisibleRows}
                 className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
               />
-              Select all visible
+              Select all
             </label>
             <span className="flex-shrink-0 text-caption text-white/58">
               {selectedRowCount > 0 ? `${selectedRowCount} selected` : `${rows.length} visible`}

@@ -152,7 +152,7 @@ export function AgentSuitePanel({
             </Tag>
             <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
             <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>{changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}</Tag>
-            {conflictFiles > 0 && <Tag tone="warn">{pluralize(conflictFiles, 'conflict')}</Tag>}
+            {conflictFiles > 0 && <Tag tone="neutral">{pluralize(conflictFiles, 'file to review')}</Tag>}
             {plan.skillPackUpdateAvailable && <Tag tone="warn">skill update available</Tag>}
             {plan.skillPackPolicy?.frozen && <Tag tone="neutral">skills frozen</Tag>}
           </>
