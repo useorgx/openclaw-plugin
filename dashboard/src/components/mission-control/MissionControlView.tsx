@@ -1907,7 +1907,7 @@ function MissionControlInner({
                     />
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-[240px]">
-                        <p className="section-kicker">Playback context</p>
+                        <p className="section-kicker">Current context</p>
                         <p className="mt-1 text-heading font-semibold leading-snug tracking-tight text-bright">
                           {nextActionSummary.headline}
                         </p>

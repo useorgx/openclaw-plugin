@@ -803,7 +803,7 @@ export function HierarchyTreeTable({
             data-state={allVisibleSelected ? 'active' : 'idle'}
             className="control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold"
           >
-            {allVisibleSelected ? 'Clear visible' : 'Select visible'}
+            {allVisibleSelected ? 'Clear all' : 'Select all'}
           </button>
         </div>
       </div>
@@ -1119,9 +1119,9 @@ export function HierarchyTreeTable({
                                     void onUpdateNode(node, { status: 'in_progress' });
                                   }}
                                   aria-label={`Start task: ${node.title}`}
-                                  className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                                  className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                                 >
-                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                                 </button>
                               ) : ['in_progress', 'active'].includes(node.status.toLowerCase()) ? (
                                 <button
@@ -1132,9 +1132,9 @@ export function HierarchyTreeTable({
                                     void onUpdateNode(node, { status: 'done' });
                                   }}
                                   aria-label={`Mark task done: ${node.title}`}
-                                  className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                                  className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                                 >
-                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
                                 </button>
                               ) : null}
                             </>
@@ -1148,9 +1148,9 @@ export function HierarchyTreeTable({
                               void playNow(node);
                             }}
                             aria-label={`Play now: ${node.type} ${node.title}`}
-                            className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-teal-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                            className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-teal-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                           >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                           </button>
 
                           <button
@@ -1161,9 +1161,9 @@ export function HierarchyTreeTable({
                               void addToNextUp(node);
                             }}
                             aria-label={`Add to queue: ${node.type} ${node.title}`}
-                            className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                            className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                           >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
                               <path d="M12 5v14" />
                               <path d="M5 12h14" />
                             </svg>

@@ -371,3 +371,91 @@ test("stale runtime reconciles an existing running session to queued with stale 
     }
   }
 });
+
+test("completed runtime reconciles stale blocked session to completed and clears blockers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-completed-reconcile-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const token = resolveRuntimeHookToken();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-completed-1",
+            runId: "run_completed_reconcile",
+            title: "Version harness session",
+            status: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: "ws_test_1",
+            agentId: "main",
+            agentName: "Engineering Agent",
+            blockers: ["waiting on stale blocker"],
+            blockerReason: "waiting on stale blocker",
+            lastEventSummary: "autopilot blocked",
+          },
+        ],
+        edges: [],
+        groups: [],
+      }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resHook = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/hooks/runtime",
+        headers: { "content-type": "application/json", "x-orgx-hook-token": token },
+        body: JSON.stringify({
+          source_client: "codex",
+          event: "session_stop",
+          run_id: "run_completed_reconcile",
+          initiative_id: "init_test_1",
+          workstream_id: "ws_test_1",
+          task_id: "task_test_1",
+          agent_id: "main",
+          agent_name: "Engineering Agent",
+          phase: "completed",
+          message: "session completed cleanly",
+        }),
+      },
+      resHook
+    );
+    assert.equal(resHook.status, 200);
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        headers: {},
+      },
+      resSnapshot
+    );
+    assert.equal(resSnapshot.status, 200);
+
+    const body = JSON.parse(resSnapshot.body);
+    const session = body?.sessions?.nodes?.find((node) => node?.id === "sess-completed-1") ?? null;
+    assert.ok(session, "expected existing session node");
+    assert.equal(session?.status, "completed");
+    assert.deepEqual(session?.blockers ?? [], []);
+    assert.equal(session?.blockerReason, null);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});

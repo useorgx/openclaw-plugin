@@ -20,6 +20,14 @@ const LABEL_DICTIONARY: Record<string, string> = {
   'replay': '',
   'system': 'OrgX',
   'unassigned': 'OrgX',
+  'auto_continue_stopped': 'Paused',
+  'next_up_manual_dispatch_started': 'Started',
+  'dispatch_lifecycle': '',
+  'execution context': 'Session status',
+  'estimated from dispatch lifecycle': 'Progress',
+  'delegation flow': 'Routing',
+  'playback context': 'Current context',
+  'runner': '',
 };
 
 /** Replace internal jargon with consumer-friendly labels. */
@@ -151,4 +159,68 @@ export function humanizeText(raw: string): string {
   );
 
   return result;
+}
+
+/**
+ * Aggressively clean text for consumer display.
+ * Strips UUIDs entirely (not even short tags), file paths, raw IDs.
+ */
+export function sanitizeDisplayText(text: string): string {
+  let result = text;
+  // Strip UUIDs entirely
+  result = result.replace(/\[?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\]?/gi, '');
+  // Strip [workstream ...] wrapper noise
+  result = result.replace(/\[workstream\s*\]/gi, '');
+  result = result.replace(/\[workstream\b[^\]]*\]/gi, '');
+  // Strip file paths
+  result = result.replace(/\/var\/folders\/[^\s"']*/g, '(local file)');
+  result = result.replace(/\/tmp\/[^\s"']*/g, '(temp file)');
+  result = result.replace(/\/Users\/[^\s"']*/g, (m) => humanizePath(m));
+  // Strip telegram/discord raw IDs
+  result = result.replace(/telegram:\d+/g, 'Telegram session');
+  result = result.replace(/discord:\d+/g, 'Discord session');
+  // Clean double spaces from removals
+  result = result.replace(/\s{2,}/g, ' ').trim();
+  return result || 'Untitled session';
+}
+
+/**
+ * Map raw actor names to consumer-friendly identities.
+ * "main" → "You", "system" → "OrgX", etc.
+ */
+export function humanizeActorName(name: string): string {
+  const lower = name.toLowerCase().trim();
+  if (lower === 'main') return 'You';
+  if (lower === 'system' || lower === 'system / unknown') return 'OrgX';
+  if (lower === 'openclaw' || lower === 'local_openclaw') return 'OrgX';
+  if (lower === 'not assigned' || lower === 'unassigned') return 'Pending';
+  return name;
+}
+
+/**
+ * Consumer-friendly warning messages.
+ */
+export function humanizeWarning(raw: string): string {
+  if (/agent catalog unavailable/i.test(raw)) return 'Some agent details are temporarily unavailable';
+  if (/timed out/i.test(raw)) return 'Loading agent details...';
+  if (/budget.*exhaust/i.test(raw)) return 'Token budget reached';
+  return humanizeText(raw);
+}
+
+/**
+ * Format token counts for display: "1.2M / 6.2M (19%)" or null if hidden.
+ */
+export function formatTokens(used: number | null, budget: number | null): string | null {
+  if (used == null && budget == null) return null;
+  if (used === 0 && budget) return null; // hide when no usage
+  const u = used ?? 0;
+  const b = budget ?? 0;
+  const fmtNum = (n: number) =>
+    n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1_000
+        ? `${Math.round(n / 1_000)}K`
+        : `${n}`;
+  if (b > 0) return `${fmtNum(u)} / ${fmtNum(b)} (${Math.round((u / b) * 100)}%)`;
+  return fmtNum(u);
 }

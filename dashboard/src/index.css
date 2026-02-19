@@ -78,7 +78,8 @@
   a:focus-visible,
   input:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(191, 255, 0, 0.45);
+    box-shadow: 0 0 0 2px rgba(191, 255, 0, 0.35);
+    transition: box-shadow 150ms var(--orgx-ease-standard);
   }
 }
 

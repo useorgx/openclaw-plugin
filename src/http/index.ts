@@ -917,6 +917,10 @@ function enrichSessionsWithRuntime(
     const agentId = (node.agentId ?? "").trim() || fallbackAgent.agentId;
     const agentName = (node.agentName ?? "").trim() || fallbackAgent.agentName;
     const nodeStatus = (node.status ?? "").trim().toLowerCase();
+    const isTerminalNodeStatus =
+      nodeStatus === "completed" ||
+      nodeStatus === "cancelled" ||
+      nodeStatus === "archived";
     const isLiveLikeNodeStatus =
       nodeStatus === "running" ||
       nodeStatus === "active" ||
@@ -926,23 +930,55 @@ function enrichSessionsWithRuntime(
       nodeStatus === "dispatching";
     const shouldDowngradeStatusFromRuntime =
       isLiveLikeNodeStatus && (runtimeStatus === "queued" || runtimeStatus === "paused");
-    const blockerReason =
-      (node.blockerReason ?? "").trim() ||
-      (node.status?.toLowerCase() === "blocked" || match.phase?.toLowerCase() === "blocked"
-        ? (match.lastMessage ?? "").trim()
-        : "");
+    const shouldPromoteStatusFromRuntime =
+      runtimeStatus === "completed" ||
+      runtimeStatus === "blocked" ||
+      runtimeStatus === "review" ||
+      runtimeStatus === "handoff" ||
+      (runtimeStatus === "running" &&
+        (nodeStatus === "blocked" ||
+          nodeStatus === "failed" ||
+          nodeStatus === "queued" ||
+          nodeStatus === "paused"));
+    const nextStatus =
+      shouldDowngradeStatusFromRuntime ||
+      (!isTerminalNodeStatus && shouldPromoteStatusFromRuntime)
+        ? runtimeStatus
+        : node.status;
+    const runtimeExplicitlyBlocked =
+      runtimeStatus === "blocked" || match.phase?.toLowerCase() === "blocked";
+    const runtimeExplicitlyUnblocked =
+      !runtimeExplicitlyBlocked && typeof match.phase === "string" && match.phase.trim().length > 0;
+    const runtimeBlockedReason = (match.lastMessage ?? "").trim();
+    const nextBlockerReason = runtimeExplicitlyBlocked
+      ? runtimeBlockedReason || (node.blockerReason ?? "").trim() || null
+      : runtimeExplicitlyUnblocked
+        ? null
+        : node.blockerReason ?? null;
+    const nextBlockers = runtimeExplicitlyBlocked
+      ? runtimeBlockedReason
+        ? [runtimeBlockedReason]
+        : Array.isArray(node.blockers)
+          ? node.blockers
+          : []
+      : runtimeExplicitlyUnblocked
+        ? []
+        : Array.isArray(node.blockers)
+          ? node.blockers
+          : [];
 
     return {
       ...node,
       agentId: agentId || null,
       agentName: agentName || null,
-      status: shouldDowngradeStatusFromRuntime ? runtimeStatus : node.status,
+      status: nextStatus,
       state: node.state ?? match.state ?? null,
       lastEventSummary:
         shouldDowngradeStatusFromRuntime && runtimeStatus === "queued"
           ? node.lastEventSummary ?? "Recovered stale runtime; awaiting next dispatch."
           : node.lastEventSummary,
-      blockerReason: blockerReason || node.blockerReason || null,
+      blockers: nextBlockers,
+      blockerReason: nextBlockerReason,
       runtimeClient: normalizeRuntimeSource(match.sourceClient),
       runtimeLabel: match.displayName,
       runtimeProvider: match.providerLogo,

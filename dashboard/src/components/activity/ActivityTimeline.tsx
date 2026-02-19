@@ -4,13 +4,15 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeText, humanizeModel } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/lib/humanize';
 import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Modal } from '@/components/shared/Modal';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { ProviderLogo } from '@/components/shared/ProviderLogo';
+import { resolveProvider, type ProviderId } from '@/lib/providers';
 import { ActivityEventIcon } from './activityVisuals';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
@@ -42,6 +44,8 @@ interface ActivityTimelineProps {
   onClearWorkstreamFilter?: () => void;
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
+  requestedActivityItemId?: string | null;
+  onActivityItemRequestHandled?: (itemId: string) => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
   onPauseWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
@@ -84,6 +88,26 @@ const filterLabels: Record<ActivityFilterId, string> = {
   artifacts: 'Artifacts',
   decisions: 'Decisions',
 };
+
+function runtimeProviderIdFromLogo(
+  provider: SessionTreeNode['runtimeProvider'] | null | undefined
+): ProviderId {
+  if (provider === 'codex') return 'codex';
+  if (provider === 'openai') return 'openai';
+  if (provider === 'anthropic') return 'anthropic';
+  if (provider === 'openclaw') return 'openclaw';
+  if (provider === 'orgx') return 'orgx';
+  return 'unknown';
+}
+
+function shouldUseProviderLogo(provider: ProviderId): boolean {
+  return (
+    provider === 'codex' ||
+    provider === 'openai' ||
+    provider === 'anthropic' ||
+    provider === 'openclaw'
+  );
+}
 
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
@@ -2112,6 +2136,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearWorkstreamFilter,
   onClearAgentFilter,
   onFocusRunId,
+  requestedActivityItemId = null,
+  onActivityItemRequestHandled,
   onPlayNextUp,
   onStartAutopilot,
   onPauseWorkstream,
@@ -2151,6 +2177,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const handledRequestedItemIdRef = useRef<string | null>(null);
 
   const timeWindow = useMemo(() => resolveActivityTimeFilter(timeFilterId), [timeFilterId]);
 
@@ -2332,6 +2359,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return null;
   }, [hasSessionFilter, selectedRunIdSet, sessions]);
+  const filteredSessionProvider = useMemo(() => {
+    if (!hasSessionFilter) return resolveProvider();
+    if (filteredSession?.runtimeProvider) {
+      return { id: runtimeProviderIdFromLogo(filteredSession.runtimeProvider) };
+    }
+    return resolveProvider(
+      filteredSession?.agentId,
+      filteredSession?.agentName,
+      filteredSession?.title,
+      filteredSession?.lastEventSummary,
+      filteredSession?.runtimeClient,
+      selectedSessionLabel
+    );
+  }, [filteredSession, hasSessionFilter, selectedSessionLabel]);
+  const agentFilterProvider = useMemo(
+    () => (agentFilter ? resolveProvider(agentFilter) : resolveProvider()),
+    [agentFilter]
+  );
 
   const { filtered, filteredTotal, hiddenCount, hiddenSyncCount } = useMemo(() => {
     const matched: DecoratedActivityItem[] = [];
@@ -2946,6 +2991,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     setEmptyActionError(null);
   }, [activeFilter, query, timeFilterId]);
 
+  useEffect(() => {
+    if (!requestedActivityItemId) {
+      handledRequestedItemIdRef.current = null;
+      return;
+    }
+
+    const requestedId = requestedActivityItemId.trim();
+    if (!requestedId || handledRequestedItemIdRef.current === requestedId) {
+      return;
+    }
+
+    const exists = activity.some((item) => item.id === requestedId);
+    if (!exists) return;
+
+    handledRequestedItemIdRef.current = requestedId;
+    setCollapsed(false);
+    setActiveFilter('all');
+    setQuery('');
+    setDetailDirection(1);
+    setActiveItemId(requestedId);
+    onActivityItemRequestHandled?.(requestedId);
+  }, [activity, onActivityItemRequestHandled, requestedActivityItemId]);
+
   const copyText = useCallback(async (label: string, value: string) => {
     if (!value) return;
     try {
@@ -3343,6 +3411,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           session={singleSession}
           agentName={singleSessionItems[0]?.agentName ?? null}
           onBack={onClearSelection}
+          onOpenItem={(item) => {
+            setDetailDirection(1);
+            setActiveItemId(item.id);
+          }}
         />
       ) : (
         <>
@@ -3670,11 +3742,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           className="chip inline-flex min-w-0 items-center gap-2"
                           aria-label="Clear session filter"
                         >
-                          <AgentAvatar
-                            name={filteredSession?.agentName ?? 'OrgX'}
-                            hint={selectedSessionLabel ?? null}
-                            size="xs"
-                          />
+                          {shouldUseProviderLogo(filteredSessionProvider.id) ? (
+                            <ProviderLogo provider={filteredSessionProvider.id} size="xs" />
+                          ) : (
+                            <AgentAvatar
+                              name={filteredSession?.agentName ?? 'OrgX'}
+                              hint={selectedSessionLabel ?? null}
+                              size="xs"
+                            />
+                          )}
                           <span className="min-w-0 truncate">
                             Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
                           </span>
@@ -3708,7 +3784,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
                           aria-label="Clear agent filter"
                         >
-                          <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                          {shouldUseProviderLogo(agentFilterProvider.id) ? (
+                            <ProviderLogo provider={agentFilterProvider.id} size="xs" />
+                          ) : (
+                            <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                          )}
                           <span className="min-w-0 truncate">Agent: {agentFilter}</span>
                           <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
                             ×
@@ -3825,35 +3905,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     disabled={emptyActionPending !== null}
                     className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
                   >
-                    {emptyActionPending === 'play' ? 'Starting...' : 'Start next'}
+                    {emptyActionPending === 'play' ? 'Starting...' : 'Start next session'}
                   </button>
                 )}
-                {onStartAutopilot && (
-                  <button
-                    type="button"
-                    onClick={() => void runEmptyAction('autopilot', onStartAutopilot)}
-                    disabled={emptyActionPending !== null}
-                    className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-3 py-1.5 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
-                  >
-                    {emptyActionPending === 'autopilot' ? 'Enabling...' : 'Auto'}
-                  </button>
-                )}
-                {onCreateInitiative && (
-                  <button
-                    type="button"
-                    onClick={onCreateInitiative}
-                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
-                  >
-                    Create initiative
-                  </button>
-                )}
-                {onOpenMissionControl && (
+                {!onPlayNextUp && onOpenMissionControl && (
                   <button
                     type="button"
                     onClick={onOpenMissionControl}
-                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
+                    className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
                   >
-                    Open queue
+                    Browse initiatives
                   </button>
                 )}
               </div>
@@ -4429,7 +4490,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   <span>{activeActorFlow.requester.label}</span>
                                 </>
                               ) : (
-                                <span className="text-secondary">System / unknown</span>
+                                <span className="text-secondary">{humanizeActorName('System / unknown')}</span>
                               )}
                             </div>
                           </div>
@@ -4459,7 +4520,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   <span>{activeActorFlow.executor.label}</span>
                                 </>
                               ) : (
-                                <span className="text-secondary">Not assigned</span>
+                                <span className="text-secondary">{humanizeActorName('Not assigned')}</span>
                               )}
                             </div>
                           </div>
@@ -4471,7 +4532,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">
 	                        <div className="flex flex-wrap items-center justify-between gap-2">
 	                          <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">
-	                            {activeRelatedAutopilotSlice ? 'Related execution context' : 'Execution context'}
+	                            {activeRelatedAutopilotSlice ? 'Related session status' : 'Session status'}
 	                          </p>
 	                          <span className="rounded-full border border-lime/30 bg-black/20 px-2 py-0.5 text-micro font-semibold text-lime/85">
 	                            {humanizeText(activeAutopilotContext.event)}
@@ -4546,7 +4607,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              <div className="mt-1 text-body text-primary">
 	                                {activeAutopilotContext.dispatcherClient
 	                                  ? humanizeText(activeAutopilotContext.dispatcherClient)
-	                                  : 'OpenClaw'}
+	                                  : 'OrgX'}
 	                              </div>
 	                            </div>
 	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
@@ -4615,63 +4676,44 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              )}
 	                            </div>
 
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-	                              <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
-	                                <ActivityEventIcon icon="check_circle" size={12} className="text-lime/80" />
-	                                Outcomes
-	                              </div>
-	                              <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
-	                                <div>
-	                                  <div className="text-micro text-secondary">Tasks in slice</div>
-	                                  <div className="mt-0.5 tabular-nums">
-	                                    {activeExecutionBreakdown.scopedTaskCount}
+	                            {(() => {
+	                              const outcomeItems: Array<{ label: string; value: number | string }> = [];
+	                              if (activeExecutionBreakdown.scopedTaskCount)
+	                                outcomeItems.push({ label: 'Tasks', value: activeExecutionBreakdown.scopedTaskCount });
+	                              if (activeExecutionBreakdown.scopedMilestoneCount)
+	                                outcomeItems.push({ label: 'Milestones', value: activeExecutionBreakdown.scopedMilestoneCount });
+	                              if (activeExecutionBreakdown.statusUpdatesApplied)
+	                                outcomeItems.push({ label: 'Status updates', value: activeExecutionBreakdown.statusUpdatesApplied });
+	                              if (activeExecutionBreakdown.artifacts)
+	                                outcomeItems.push({ label: 'Artifacts', value: activeExecutionBreakdown.artifacts });
+	                              if (activeExecutionBreakdown.decisions)
+	                                outcomeItems.push({ label: 'Decisions', value: activeExecutionBreakdown.decisions });
+	                              const tokenLabel = formatTokens(
+	                                activeExecutionBreakdown.tokensUsed,
+	                                activeExecutionBreakdown.tokenBudget,
+	                              );
+	                              if (tokenLabel)
+	                                outcomeItems.push({ label: 'Token usage', value: tokenLabel });
+
+	                              if (outcomeItems.length === 0) return null;
+
+	                              return (
+	                                <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+	                                  <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
+	                                    <ActivityEventIcon icon="check_circle" size={12} className="text-lime/80" />
+	                                    Outcomes
+	                                  </div>
+	                                  <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
+	                                    {outcomeItems.map((item) => (
+	                                      <div key={item.label}>
+	                                        <div className="text-micro text-secondary">{item.label}</div>
+	                                        <div className="mt-0.5 tabular-nums">{item.value}</div>
+	                                      </div>
+	                                    ))}
 	                                  </div>
 	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Milestones in slice</div>
-	                                  <div className="mt-0.5 tabular-nums">
-	                                    {activeExecutionBreakdown.scopedMilestoneCount}
-	                                  </div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Status updates</div>
-	                                  <div className="mt-0.5 tabular-nums">
-	                                    {activeExecutionBreakdown.statusUpdatesApplied ?? '—'}
-	                                  </div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Buffered updates</div>
-	                                  <div className="mt-0.5 tabular-nums">
-	                                    {activeExecutionBreakdown.statusUpdatesBuffered ?? 0}
-	                                  </div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Artifacts</div>
-	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.artifacts ?? 0}</div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Decisions</div>
-	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.decisions ?? 0}</div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Blocking decisions</div>
-	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.blockingDecisions ?? 0}</div>
-	                                </div>
-	                                <div>
-	                                  <div className="text-micro text-secondary">Non-blocking decisions</div>
-	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.nonBlockingDecisions ?? 0}</div>
-	                                </div>
-	                                <div className="col-span-2">
-	                                  <div className="text-micro text-secondary">Token usage</div>
-	                                  <div className="mt-0.5 tabular-nums">
-	                                    {activeExecutionBreakdown.tokensUsed !== null &&
-	                                    activeExecutionBreakdown.tokenBudget !== null
-	                                      ? `${Math.round(activeExecutionBreakdown.tokensUsed)}/${Math.round(activeExecutionBreakdown.tokenBudget)}`
-	                                      : '—'}
-	                                  </div>
-	                                </div>
-	                              </div>
-	                            </div>
+	                              );
+	                            })()}
 	                          </div>
 	                        )}
 
