@@ -71,6 +71,7 @@ import { createOutboxReplayer } from "./sync/outbox-replay.js";
 import { buildLocalSyncAgentsFromRuns } from "./sync/local-agent-telemetry.js";
 import { registerCoreTools } from "./tools/core-tools.js";
 import { stableHash } from "./hash-utils.js";
+import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -1006,6 +1007,7 @@ export default function register(api: PluginAPI): void {
           title: stopped.taskId ?? stopped.runId,
           idempotency_key: `retro:${stopped.runId}`,
           retro: {
+            schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
             summary: retroSummary,
             what_went_well: success ? ["Completed without runtime error."] : [],
             what_went_wrong: success

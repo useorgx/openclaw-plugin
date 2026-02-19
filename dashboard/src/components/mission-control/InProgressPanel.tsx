@@ -231,7 +231,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                       {(progressValue !== null || showEstimatedProgress) && (
                         <div className="mt-2">
                           <div className="mb-1 flex items-center justify-between text-micro">
-                            <span className="text-secondary">Slice progress</span>
+                            <span className="text-secondary">Progress</span>
                             <span className="font-semibold text-primary tabular-nums">
                               {progressValue === null ? 'Tracking…' : `${progressValue}%`}
                             </span>

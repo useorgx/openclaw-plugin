@@ -229,6 +229,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     urgency?: "low" | "medium" | "high" | "urgent";
     blocking?: boolean | null;
   };
+  type AutoContinueSliceSkillEvidence = {
+    skill: string;
+    skill_file?: string | null;
+    skill_sha256?: string | null;
+    skill_heading?: string | null;
+  };
   type AutoContinueSliceArtifact = {
     name: string;
     artifact_type?: string | null;
@@ -244,6 +250,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     summary: string;
     artifacts?: AutoContinueSliceArtifact[] | null;
     decisions_needed?: AutoContinueSliceDecision[] | null;
+    skill_evidence?: AutoContinueSliceSkillEvidence[] | null;
     task_updates?: Array<{ task_id: string; status: string; reason?: string | null }> | null;
     milestone_updates?: Array<{ milestone_id: string; status: string; reason?: string | null }> | null;
     next_actions?: string[] | null;
@@ -612,7 +619,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   // Helpers used by previous task-level auto-continue implementation were removed in v2.
 
   // readOpenClawSessionSummary was used by the previous task-level auto-continue implementation.
-  // Autopilot v2 dispatches workstream slices via codex and does not rely on OpenClaw session JSONL.
+  // Autopilot v2 dispatches workstream slices via runtime workers (codex/claude-code)
+  // and does not rely on OpenClaw session JSONL.
 
   async function fetchInitiativeEntity(initiativeId: string): Promise<Entity | null> {
     try {
@@ -1076,6 +1084,38 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                   Boolean(item && typeof item.name === "string" && item.name.trim())
               )
           : [];
+        const skillEvidence = Array.isArray((parsed as any)?.skill_evidence)
+          ? ((parsed as any).skill_evidence as AutoContinueSliceSkillEvidence[])
+              .map((item) => ({
+                skill:
+                  typeof item?.skill === "string"
+                    ? item.skill.trim()
+                    : "",
+                skill_file:
+                  typeof item?.skill_file === "string"
+                    ? item.skill_file.trim()
+                    : null,
+                skill_sha256:
+                  typeof item?.skill_sha256 === "string"
+                    ? item.skill_sha256.trim().toLowerCase()
+                    : null,
+                skill_heading:
+                  typeof item?.skill_heading === "string"
+                    ? item.skill_heading.trim()
+                    : null,
+              }))
+              .filter((item) => item.skill.length > 0)
+          : [];
+        const reportedSkillNames = Array.from(
+          new Set(
+            skillEvidence
+              .map((entry) => entry.skill.replace(/^\$/, "").trim())
+              .filter(Boolean)
+          )
+        );
+        const reportedSkillSha256Count = skillEvidence.filter((entry) =>
+          typeof entry.skill_sha256 === "string" && entry.skill_sha256.length > 0
+        ).length;
 
         const taskUpdates = Array.isArray((parsed as any)?.task_updates)
           ? ((parsed as any).task_updates as Array<{ task_id: string; status: string; reason?: string | null }>)
@@ -1160,6 +1200,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               non_blocking_decisions: nonBlockingDecisionCount,
               status_updates: statusUpdateResult.applied,
               status_updates_buffered: statusUpdateResult.buffered,
+              reported_skill_evidence_count: skillEvidence.length,
+              reported_skill_sha256_count: reportedSkillSha256Count,
+              reported_skill_names: reportedSkillNames,
             },
           });
         } catch {
@@ -1204,6 +1247,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             decision_required: blockingDecisionQueued,
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
+            reported_skill_evidence_count: skillEvidence.length,
+            reported_skill_sha256_count: reportedSkillSha256Count,
+            reported_skill_names: reportedSkillNames,
             output_path: slice.outputPath,
             log_path: slice.logPath,
             error: slice.lastError,
@@ -1731,6 +1777,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	            ORGX_WORKSTREAM_ID: selectedWorkstreamId,
 	            ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
 	            ORGX_TASK_ID: primaryTask.id,
+              ORGX_REQUIRED_SKILLS: executionPolicy.requiredSkills.join(","),
 	            ORGX_AGENT_ID: sliceAgent.id,
 	            ORGX_AGENT_NAME: sliceAgent.name,
 	            ORGX_OUTPUT_PATH: outputPath,

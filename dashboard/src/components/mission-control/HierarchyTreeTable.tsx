@@ -656,7 +656,9 @@ export function HierarchyTreeTable({
   // Only the table header should stick. The Hierarchy section header, search/filter row,
   // and bulk selection bar scroll normally with the table content.
   const tableHeaderStickyTop =
-    'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px))';
+    'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px) + 1px)';
+  const stickyHeaderCellClass =
+    'border-b border-subtle bg-[#090B11] px-2 py-1.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]';
 
   return (
     <section className="space-y-2.5">
@@ -962,71 +964,61 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
+      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
-          <thead>
+          <thead className="sticky z-20" style={{ top: tableHeaderStickyTop }}>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
               <th
-                className="w-10 px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`w-10 ${stickyHeaderCellClass}`}
               >
                 <span className="sr-only">Select rows</span>
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
                 onClick={() => toggleSort('title')}
               >
                 Item <SortChevron field="title" />
               </th>
               <th
-                className="w-[188px] px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`w-[188px] ${stickyHeaderCellClass}`}
               >
                 Assigned
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
                 onClick={() => toggleSort('status')}
               >
                 Status <SortChevron field="status" />
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={stickyHeaderCellClass}
               >
                 Progress
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
                 onClick={() => toggleSort('priority')}
               >
                 Priority <SortChevron field="priority" />
               </th>
               <th
-                className="px-2 py-1.5 cursor-pointer select-none sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
                 onClick={() => toggleSort('eta')}
               >
                 ETA <SortChevron field="eta" />
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={stickyHeaderCellClass}
               >
                 Duration (h)
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={stickyHeaderCellClass}
               >
                 Budget ($)
               </th>
               <th
-                className="px-2 py-1.5 sticky z-10 bg-[#090B11]/92 backdrop-blur-xl border-b border-subtle"
-                style={{ top: tableHeaderStickyTop }}
+                className={stickyHeaderCellClass}
               >
                 Dependencies
               </th>

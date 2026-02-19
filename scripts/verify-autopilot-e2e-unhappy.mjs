@@ -23,12 +23,11 @@ function runScenario({ name, env }) {
 }
 
 async function main() {
-  const scenarios = [
+  const scenarioTemplates = [
     {
       name: "no_updates->blocked",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "no_updates",
         ORGX_E2E_INJECT_PROGRESS: "0",
         ORGX_E2E_EXPECT_STOP_REASON: "blocked",
@@ -42,7 +41,6 @@ async function main() {
       name: "needs_decision->blocked",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "needs_decision",
         ORGX_E2E_INJECT_PROGRESS: "0",
         ORGX_E2E_EXPECT_STOP_REASON: "blocked",
@@ -56,7 +54,6 @@ async function main() {
       name: "blocked_no_decision->fallback_decision",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "blocked_no_decision",
         ORGX_E2E_INJECT_PROGRESS: "0",
         ORGX_E2E_EXPECT_STOP_REASON: "blocked",
@@ -70,7 +67,6 @@ async function main() {
       name: "worker_error->error",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "error",
         ORGX_E2E_INJECT_PROGRESS: "0",
         ORGX_E2E_EXPECT_STOP_REASON: "error",
@@ -84,7 +80,6 @@ async function main() {
       name: "invalid_json->error",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "invalid_json",
         ORGX_E2E_INJECT_PROGRESS: "0",
         ORGX_E2E_EXPECT_STOP_REASON: "error",
@@ -98,7 +93,6 @@ async function main() {
       name: "stall->blocked_with_stall_event",
       env: {
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
-        ORGX_AUTOPILOT_EXECUTOR: "codex",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "stall",
         ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1000",
         ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "5000",
@@ -113,6 +107,16 @@ async function main() {
       },
     },
   ];
+  const executors = ["codex", "claude-code"];
+  const scenarios = executors.flatMap((executor) =>
+    scenarioTemplates.map((scenario) => ({
+      name: `${scenario.name}+${executor}`,
+      env: {
+        ...scenario.env,
+        ORGX_AUTOPILOT_EXECUTOR: executor,
+      },
+    }))
+  );
 
   const results = [];
   for (const scenario of scenarios) {

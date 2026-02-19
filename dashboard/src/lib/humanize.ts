@@ -3,6 +3,33 @@
  * Strips developer noise (UUIDs, raw model strings, long paths) from dashboard surfaces.
  */
 
+const LABEL_DICTIONARY: Record<string, string> = {
+  'dispatch session': 'Start',
+  'dispatch': 'Start',
+  'checkpoint': 'Save progress',
+  'rollback': 'Undo last step',
+  'continue priority': 'Resume',
+  'slice progress': 'Progress',
+  'spawn guard rate limit': 'Capacity limit',
+  'spawn guard blocked': 'Waiting for capacity',
+  'spawn guard': 'Capacity check',
+  'failed spawn guard checks': 'Waiting for capacity',
+  'domain window': '',
+  'tier': '',
+  'outbox': '',
+  'replay': '',
+  'system': 'OrgX',
+  'unassigned': 'OrgX',
+};
+
+/** Replace internal jargon with consumer-friendly labels. */
+export function humanizeLabel(key: string): string {
+  const lower = key.toLowerCase().trim();
+  const mapped = LABEL_DICTIONARY[lower];
+  if (mapped !== undefined) return mapped;
+  return key;
+}
+
 const MODEL_ALIASES: [test: RegExp, label: string][] = [
   [/opus/i, "Opus"],
   [/sonnet/i, "Sonnet"],

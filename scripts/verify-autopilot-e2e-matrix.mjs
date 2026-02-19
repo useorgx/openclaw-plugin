@@ -8,7 +8,7 @@
  *
  * Optional real-agent runs can be enabled explicitly:
  * - ORGX_E2E_ENABLE_REAL_CODEX=1
- * - ORGX_E2E_ENABLE_REAL_CLAUDE=1 (requires ORGX_CLAUDE_CODE_ARGS to be set)
+ * - ORGX_E2E_ENABLE_REAL_CLAUDE=1
  */
 
 import { spawn } from "node:child_process";

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
@@ -7,6 +7,7 @@ import type { Initiative, LiveActivityItem, SessionTreeNode } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { MarkdownText } from '@/components/shared/MarkdownText';
+import { useUndoToast } from '@/components/shared/UndoToast';
 
 interface SessionInspectorProps {
   session: SessionTreeNode | null;
@@ -140,6 +141,7 @@ export const SessionInspector = memo(function SessionInspector({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { enqueue: enqueueUndo, ToastRenderer: UndoToastRenderer } = useUndoToast();
 
   const recentEvents = useMemo(() => {
     if (!session) return [] as LiveActivityItem[];
@@ -312,6 +314,27 @@ export const SessionInspector = memo(function SessionInspector({
           : sessionStatus === 'handoff'
             ? 'border-teal-400/30 bg-teal-400/10 text-teal-200'
             : 'border-strong bg-white/[0.04] text-secondary';
+  const isRunning = ['running', 'active', 'working', 'in_progress', 'planning', 'review'].includes(sessionStatus);
+
+  const handleCancelWithUndo = useCallback(() => {
+    if (!onCancelSession || !session) return;
+    setNotice('Session will be cancelled…');
+    enqueueUndo({
+      message: `Cancelled "${session.title}"`,
+      onCommit: async () => {
+        try {
+          await onCancelSession(session);
+          setNotice('Session cancelled.');
+        } catch (err) {
+          setNotice(err instanceof Error ? err.message : 'Cancel failed.');
+        }
+      },
+      onUndo: () => {
+        setNotice(null);
+      },
+    });
+  }, [onCancelSession, session, enqueueUndo]);
+
   const timelineInfo = [
     { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '—' },
     { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '—' },
@@ -363,7 +386,7 @@ export const SessionInspector = memo(function SessionInspector({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-body font-semibold text-white">{session.title}</p>
                 <p className="mt-1 text-caption text-secondary">
-                  {session.agentName ?? 'Unassigned'} · {provider.label}
+                  {session.agentName ?? 'OrgX'} · {provider.label}
                 </p>
               </div>
             </div>
@@ -393,20 +416,7 @@ export const SessionInspector = memo(function SessionInspector({
               </div>
             )}
 
-            {(session.phase || session.state) && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-caption">
-                {session.phase && (
-                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.14em] text-muted">
-                    Phase · {session.phase}
-                  </span>
-                )}
-                {session.state && (
-                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.14em] text-muted">
-                    Runtime · {session.state}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* Phase/Runtime badges removed — status chip in header is sufficient */}
 
             {statusReason && (
               <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
@@ -425,7 +435,7 @@ export const SessionInspector = memo(function SessionInspector({
                 </div>
                 <div className="h-2 rounded-full bg-white/[0.08]">
                   <div
-                    className="h-2 rounded-full"
+                    className={cn('h-2 rounded-full transition-all duration-500', isRunning && 'live-pulse')}
                     style={{
                       width: `${progressValue}%`,
                       background: colors.lime,
@@ -448,101 +458,74 @@ export const SessionInspector = memo(function SessionInspector({
             </dl>
           </div>
 
-          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 space-y-4">
-            <div>
-              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Quick actions</p>
-              <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() =>
+                  runAction('dispatch-session', 'Session started', () => onDispatchSession?.(session))
+                }
+                disabled={!onDispatchSession || !!busyAction}
+                className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+              >
+                {busyAction === 'dispatch-session' ? 'Starting…' : 'Start'}
+              </button>
+              <button
+                onClick={() =>
+                  runAction('continue-priority', 'Resumed highest priority', onContinueHighestPriority)
+                }
+                disabled={!onContinueHighestPriority || !!busyAction}
+                className="rounded-md border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              >
+                {busyAction === 'continue-priority' ? 'Resuming…' : 'Resume'}
+              </button>
+              {canPause && (
                 <button
-                  onClick={() =>
-                    runAction('continue-priority', 'Continue highest priority', onContinueHighestPriority)
-                  }
-                  disabled={!onContinueHighestPriority || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                >
-                  {busyAction === 'continue-priority' ? 'Dispatching…' : 'Continue Priority'}
-                </button>
-                <button
-                  onClick={() =>
-                    runAction('dispatch-session', 'Dispatch session', () => onDispatchSession?.(session))
-                  }
-                  disabled={!onDispatchSession || !!busyAction}
-                  className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
-                >
-                  {busyAction === 'dispatch-session' ? 'Dispatching…' : 'Dispatch Session'}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Session controls</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => runAction('pause-session', 'Pause session', () => onPauseSession?.(session))}
-                  disabled={!onPauseSession || !canPause || !!busyAction}
+                  onClick={() => runAction('pause-session', 'Session paused', () => onPauseSession?.(session))}
+                  disabled={!onPauseSession || !!busyAction}
                   className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'pause-session' ? 'Pausing…' : 'Pause'}
                 </button>
-
+              )}
+              {canResume && (
                 <button
-                  onClick={() => runAction('resume-session', 'Resume session', () => onResumeSession?.(session))}
-                  disabled={!onResumeSession || !canResume || !!busyAction}
+                  onClick={() => runAction('resume-session', 'Session resumed', () => onResumeSession?.(session))}
+                  disabled={!onResumeSession || !!busyAction}
                   className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'resume-session' ? 'Resuming…' : 'Resume'}
                 </button>
-
+              )}
+              <button
+                onClick={() =>
+                  runAction('checkpoint-session', 'Progress saved', () => onCreateCheckpoint?.(session))
+                }
+                disabled={!onCreateCheckpoint || !!busyAction}
+                className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+              >
+                {busyAction === 'checkpoint-session' ? 'Saving…' : 'Save progress'}
+              </button>
+              {canRollback && (
                 <button
-                  onClick={() =>
-                    runAction('checkpoint-session', 'Checkpoint created', () => onCreateCheckpoint?.(session))
-                  }
-                  disabled={!onCreateCheckpoint || !!busyAction}
+                  onClick={() => runAction('rollback-session', 'Undo requested', () => onRollbackSession?.(session))}
+                  disabled={!onRollbackSession || !!busyAction}
                   className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
-                  {busyAction === 'checkpoint-session' ? 'Creating…' : 'Checkpoint'}
+                  {busyAction === 'rollback-session' ? 'Undoing…' : 'Undo last step'}
                 </button>
-
+              )}
+            </div>
+            {canCancel && onCancelSession && (
+              <div className="mt-3 border-t border-subtle pt-3">
                 <button
-                  onClick={() => runAction('rollback-session', 'Rollback requested', () => onRollbackSession?.(session))}
-                  disabled={!onRollbackSession || !canRollback || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+                  onClick={handleCancelWithUndo}
+                  disabled={!!busyAction}
+                  className="text-caption text-secondary transition-colors hover:text-red-300 disabled:opacity-45"
                 >
-                  {busyAction === 'rollback-session' ? 'Rolling back…' : 'Rollback'}
-                </button>
-
-                <button
-                  onClick={() => runAction('cancel-session', 'Cancel session', () => onCancelSession?.(session))}
-                  disabled={!onCancelSession || !canCancel || !!busyAction}
-                  className="col-span-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-caption font-semibold text-red-300 transition-colors hover:bg-red-400/20 disabled:opacity-45"
-                >
-                  {busyAction === 'cancel-session' ? 'Cancelling…' : 'Cancel session'}
+                  Cancel session…
                 </button>
               </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Planning</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => runAction('start-initiative', 'Start initiative', onStartInitiative)}
-                  disabled={!onStartInitiative || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                >
-                  {busyAction === 'start-initiative' ? 'Creating…' : 'New initiative'}
-                </button>
-                <button
-                  onClick={() =>
-                    runAction('start-workstream', 'Start workstream', () =>
-                      onStartWorkstream?.(session.initiativeId)
-                    )
-                  }
-                  disabled={!onStartWorkstream || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                >
-                  {busyAction === 'start-workstream' ? 'Creating…' : 'New workstream'}
-                </button>
-              </div>
-            </div>
+            )}
           </div>
 
           {notice && (
@@ -594,6 +577,7 @@ export const SessionInspector = memo(function SessionInspector({
           </div>
         </div>
       </div>
+      <UndoToastRenderer />
     </PremiumCard>
   );
 });

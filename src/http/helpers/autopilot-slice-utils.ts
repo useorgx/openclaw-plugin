@@ -50,6 +50,12 @@ function autopilotSliceSchema(): Record<string, unknown> {
     },
     blocking: { type: "boolean" },
   } as const;
+  const skillEvidenceProperties = {
+    skill: { type: "string", minLength: 1 },
+    skill_file: { type: ["string", "null"] },
+    skill_sha256: { type: ["string", "null"] },
+    skill_heading: { type: ["string", "null"] },
+  } as const;
   const taskUpdateProperties = {
     task_id: { type: "string", minLength: 1 },
     status: { type: "string", enum: ["todo", "in_progress", "done", "blocked"] },
@@ -88,6 +94,15 @@ function autopilotSliceSchema(): Record<string, unknown> {
         additionalProperties: false,
         required: Object.keys(decisionProperties),
         properties: decisionProperties,
+      },
+    },
+    skill_evidence: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: Object.keys(skillEvidenceProperties),
+        properties: skillEvidenceProperties,
       },
     },
     task_updates: {
@@ -152,10 +167,28 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
 }
 
 export function parseSliceResult<T extends object>(raw: string): T | null {
+  const unwrapStructuredOutput = (value: unknown): T | null => {
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    const structured = record.structured_output;
+    if (structured && typeof structured === "object") return structured as T;
+    if (typeof structured === "string") {
+      const parsedStructured = parseJsonSafe<T>(structured.trim());
+      if (parsedStructured && typeof parsedStructured === "object") return parsedStructured;
+    }
+    // Claude text-mode envelopes can sometimes return JSON in `result`.
+    if (typeof record.result === "string") {
+      const parsedResult = parseJsonSafe<T>(record.result.trim());
+      if (parsedResult && typeof parsedResult === "object") return parsedResult;
+    }
+    return record as T;
+  };
+
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const direct = parseJsonSafe<T>(trimmed);
-  if (direct && typeof direct === "object") return direct;
+  const direct = parseJsonSafe<unknown>(trimmed);
+  const directUnwrapped = unwrapStructuredOutput(direct);
+  if (directUnwrapped && typeof directUnwrapped === "object") return directUnwrapped;
 
   // Tolerant parse: extract the last complete top-level JSON object from mixed logs.
   const extractLastTopLevelObject = (text: string): string | null => {
@@ -205,8 +238,9 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
 
   const candidate = extractLastTopLevelObject(trimmed);
   if (candidate) {
-    const parsed = parseJsonSafe<T>(candidate);
-    if (parsed && typeof parsed === "object") return parsed;
+    const parsed = parseJsonSafe<unknown>(candidate);
+    const unwrapped = unwrapStructuredOutput(parsed);
+    if (unwrapped && typeof unwrapped === "object") return unwrapped;
   }
   return null;
 }
@@ -474,6 +508,32 @@ export function buildWorkstreamSlicePrompt(input: {
   runId: string;
   schemaPath: string;
 }): string {
+  const normalizeSkillName = (skill: string): string => skill.replace(/^\$/, "").trim();
+  const skillAliasesFor = (skill: string): string[] => {
+    const normalized = normalizeSkillName(skill);
+    if (!normalized) return [];
+    const aliases = [normalized];
+    if (normalized.startsWith("orgx-")) aliases.push(normalized.slice("orgx-".length));
+    if (normalized.endsWith("-agent")) aliases.push(normalized.slice(0, -"-agent".length));
+    return Array.from(new Set(aliases.filter(Boolean)));
+  };
+  const skillHints = input.executionPolicy.requiredSkills
+    .map((skill) => {
+      const normalized = normalizeSkillName(skill);
+      const aliases = skillAliasesFor(normalized);
+      const hintPaths = aliases
+        .flatMap((alias) => [
+          join(homedir(), ".codex", "skills", alias, "SKILL.md"),
+          join(homedir(), ".agents", "skills", alias, "SKILL.md"),
+        ])
+        .filter(Boolean);
+      return {
+        skill: normalized,
+        hintPaths: Array.from(new Set(hintPaths)),
+      };
+    })
+    .filter((entry) => entry.skill.length > 0);
+
   const milestones = input.milestoneSummaries
     .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
     .slice(0, 10)
@@ -487,7 +547,7 @@ export function buildWorkstreamSlicePrompt(input: {
     .join("\n");
 
   return [
-    "You are an OrgX execution agent running ONE workstream slice in a background codex session.",
+    "You are an OrgX execution agent running ONE workstream slice in a background autonomous session.",
     "",
     `Execution policy: ${input.executionPolicy.domain}`,
     `Required skills: ${input.executionPolicy.requiredSkills.map((s) => (s.startsWith("$") ? s : `$${s}`)).join(", ")}`,
@@ -503,7 +563,9 @@ export function buildWorkstreamSlicePrompt(input: {
     tasks || "- (none found)",
     "",
     "Reporting:",
-    "- Prefer using the MCP tool orgx_report_progress for progress updates (if it is available in your tool list).",
+    "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
+    "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
+    "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
     "- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.",
     "",
     "What to do:",
@@ -515,6 +577,7 @@ export function buildWorkstreamSlicePrompt(input: {
     "- Execution budget: prefer <=12 shell commands and <=6 minutes wall time.",
     "- Verification budget: run only targeted checks for changed files. Avoid full-suite commands (for example `npm run test:hooks`, `npm test`, `npm run build`) unless the task explicitly requires them.",
     "- If you hit sandbox/env blockers after one retry, stop and return `status=needs_decision` with the blocker and the smallest unblocking action.",
+    "- For each required skill, read the skill document and collect proof (path + sha256 + heading).",
     "",
     "Output requirements:",
     "- Print ONLY a single JSON object as the final output (no interim JSON status messages).",
@@ -528,6 +591,19 @@ export function buildWorkstreamSlicePrompt(input: {
     "  - If any decision is blocking=true, status MUST be needs_decision or blocked (never completed).",
     "  - Only use status=completed when all listed decisions are non-blocking follow-ups.",
     "- Never return status=completed with zero artifacts and zero task/milestone updates.",
+    "- skill_evidence is mandatory. Include one object per required skill with:",
+    "  - skill (exact required skill id without leading $)",
+    "  - skill_file (absolute SKILL.md path used)",
+    "  - skill_sha256 (lowercase SHA-256 hex of that file)",
+    "  - skill_heading (first markdown heading or first non-empty line)",
+    "- If you cannot locate/verify a required skill file, return status=needs_decision and a blocking decisions_needed entry.",
+    "Skill file hints:",
+    ...(skillHints.length > 0
+      ? skillHints.flatMap((entry) => [
+          `- ${entry.skill}:`,
+          ...entry.hintPaths.map((path) => `  - ${path}`),
+        ])
+      : ["- (none)"]),
     "- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).",
     "  - task_updates.status must be one of: todo, in_progress, done, blocked",
     "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",

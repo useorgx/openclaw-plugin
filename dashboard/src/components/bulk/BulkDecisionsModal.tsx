@@ -3,6 +3,7 @@ import type { LiveDecision } from '@/types';
 import { Modal } from '@/components/shared/Modal';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { colors } from '@/lib/tokens';
+import { formatWaitingDuration } from '@/lib/time';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 
 interface DecisionActionSummary {
@@ -67,7 +68,7 @@ export function BulkDecisionsModal({
               </p>
               {decisions.length > 0 && (
                 <p className="mt-2 text-caption text-secondary">
-                  Longest waiting: <span className="font-semibold text-white">{longestWaitMinutes}m</span>
+                  Oldest: <span className="font-semibold text-white">{formatWaitingDuration(longestWaitMinutes)} ago</span>
                 </p>
               )}
             </div>

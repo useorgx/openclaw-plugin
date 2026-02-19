@@ -3,6 +3,7 @@ import { registerArtifact } from "../artifacts/register-artifact.js";
 import type { OutboxEvent } from "../outbox.js";
 import { readOutbox, readOutboxSummary, replaceOutbox } from "../outbox.js";
 import { extractProgressOutboxMessage } from "../reporting/outbox-replay.js";
+import { RETRO_ARTIFACT_SCHEMA_VERSION } from "../contracts/retro-schema.js";
 import type {
   ChangesetOperation,
   ReportingPhase,
@@ -511,7 +512,10 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
           pickStringField(payload, "idempotency_key") ??
           pickStringField(payload, "idempotencyKey") ??
           undefined,
-        retro: retro as any,
+        retro: {
+          ...retro,
+          schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
+        } as any,
         markdown: pickStringField(payload, "markdown") ?? undefined,
       });
       return;

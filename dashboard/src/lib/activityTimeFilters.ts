@@ -1,11 +1,8 @@
 export const ACTIVITY_TIME_FILTERS = [
-  { id: '30m', label: '30m', minutes: 30 },
-  { id: 'live', label: 'Live', minutes: null },
+  { id: 'live', label: 'Last hour', minutes: null },
+  { id: '24h', label: 'Today', minutes: 24 * 60 },
+  { id: '7d', label: 'This week', minutes: 7 * 24 * 60 },
   { id: 'all', label: 'All', minutes: null },
-  { id: '24h', label: '24h', minutes: 24 * 60 },
-  { id: '3d', label: '3d', minutes: 3 * 24 * 60 },
-  { id: '7d', label: '7d', minutes: 7 * 24 * 60 },
-  { id: '30d', label: '30d', minutes: 30 * 24 * 60 },
 ] as const;
 
 export type ActivityTimeFilterId = (typeof ACTIVITY_TIME_FILTERS)[number]['id'];

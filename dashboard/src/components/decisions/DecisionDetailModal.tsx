@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
-import { formatRelativeTime } from '@/lib/time';
+import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
@@ -266,10 +266,9 @@ export function DecisionDetailModal({
                   {decision.title || 'Decision'}
                 </h2>
                 <p className="mt-0.5 text-caption text-secondary">
-                  {decision.agentName || 'System'}
+                  {decision.agentName || 'OrgX Autopilot'}
                   {' \u00b7 '}
-                  {decision.waitingMinutes}m waiting
-                  {requestedAt ? ` \u00b7 ${formatRelativeTime(requestedAt)}` : ''}
+                  {formatDurationWithUrgency(decision.waitingMinutes).text}
                 </p>
               </div>
             </div>

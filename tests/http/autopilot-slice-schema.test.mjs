@@ -67,6 +67,19 @@ test("autopilot slice schema is strict-format compatible for codex output-schema
         "decisions_needed[].blocking should require explicit boolean"
       );
 
+      const skillEvidenceItem = schema.properties?.skill_evidence?.items;
+      const skillEvidenceKeys = Object.keys(skillEvidenceItem?.properties ?? {});
+      assert.deepEqual(
+        [...(skillEvidenceItem?.required ?? [])].sort(),
+        skillEvidenceKeys.sort(),
+        "skill_evidence object required keys should include every property"
+      );
+      assert.deepEqual(
+        skillEvidenceKeys.sort(),
+        ["skill", "skill_file", "skill_heading", "skill_sha256"].sort(),
+        "skill_evidence should expose the required authenticity proof fields"
+      );
+
       const taskStatusEnum = schema.properties?.task_updates?.items?.properties?.status?.enum ?? [];
       assert.deepEqual(
         taskStatusEnum,

@@ -16,6 +16,7 @@ import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
+import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 
 const itemVariants = {
   initial: { opacity: 0, y: 8, scale: 0.98 },
@@ -215,7 +216,7 @@ const GENERIC_REQUESTER_LABELS = new Set([
 
 function normalizeRequesterDisplay(label: string | null): { primary: string; secondary: string | null } {
   if (!label || label.trim().length === 0 || label.trim() === '—') {
-    return { primary: 'System', secondary: null };
+    return { primary: 'OrgX', secondary: null };
   }
   const trimmed = label.trim();
   const normalized = trimmed.toLowerCase();
@@ -254,7 +255,7 @@ function resolveActorFromMetadata(
   return {
     id,
     name,
-    label: name ?? id ?? 'System',
+    label: name ?? id ?? 'OrgX',
   };
 }
 
@@ -287,7 +288,7 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
       ? {
           id: item.requesterAgentId ?? null,
           name: item.requesterAgentName ?? null,
-          label: item.requesterAgentName ?? item.requesterAgentId ?? 'System',
+          label: item.requesterAgentName ?? item.requesterAgentId ?? 'OrgX',
         }
       : null;
 
@@ -407,8 +408,8 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
       requester: null,
       executor: null,
       mode: 'system',
-      primaryLabel: 'System',
-      subtitle: 'System',
+      primaryLabel: 'OrgX',
+      subtitle: 'OrgX',
     };
   }
 
@@ -417,7 +418,7 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
     executor: null,
     mode: 'system',
     primaryLabel: item.agentName ?? item.agentId ?? 'OrgX',
-    subtitle: item.agentName ?? item.agentId ?? 'System',
+    subtitle: item.agentName ?? item.agentId ?? 'OrgX',
   };
 }
 
@@ -2102,7 +2103,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   selectedWorkstreamId = null,
   selectedWorkstreamLabel = null,
   agentFilter = null,
-  timeFilterId = '30m',
+  timeFilterId = 'live',
   onTimeFilterChange,
   hasMore = false,
   isLoadingMore = false,
@@ -2145,11 +2146,44 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
   const [autoFixPending, setAutoFixPending] = useState(false);
   const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
+  const [awayVisible, setAwayVisible] = useState(false);
+  const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const timeWindow = useMemo(() => resolveActivityTimeFilter(timeFilterId), [timeFilterId]);
+
+  // "While you were away" — track inactivity and show summary on return
+  useEffect(() => {
+    const AWAY_THRESHOLD = 5 * 60_000; // 5 minutes
+    const handler = () => { lastInteractionRef.current = Date.now(); };
+    window.addEventListener('pointerdown', handler);
+    window.addEventListener('keydown', handler);
+    const interval = setInterval(() => {
+      if (Date.now() - lastInteractionRef.current > AWAY_THRESHOLD) {
+        setAwayVisible(true);
+      }
+    }, 30_000);
+    return () => {
+      window.removeEventListener('pointerdown', handler);
+      window.removeEventListener('keydown', handler);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const awaySummary = useMemo(() => {
+    const completed = sessions.filter((s) => s.status === 'completed').length;
+    const blocked = sessions.filter(
+      (s) => s.status === 'blocked' || s.status === 'failed'
+    ).length;
+    const decisions = activity.filter(
+      (a) =>
+        a.type === 'decision_requested' &&
+        (a.metadata as Record<string, unknown> | undefined)?.status === 'pending'
+    ).length;
+    return { completed, blocked, decisions };
+  }, [sessions, activity]);
 
   const runLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -3121,7 +3155,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const isSyncReplay = syncSummary !== null;
 
     const { title: displayTitle, isSystem: isSystemEvent } = cleanSystemTitle(item);
-    const actorSubtitle = isSystemEvent ? 'System' : actorFlow.subtitle;
+    const actorSubtitle = isSystemEvent ? 'OrgX' : actorFlow.subtitle;
     const showHandoffFlow =
       actorFlow.mode === 'handoff' && actorFlow.requester !== null && actorFlow.executor !== null;
     const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
@@ -3831,6 +3865,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
         )}
 
+        <WhileYouWereAway
+          completedCount={awaySummary.completed}
+          decisionsCount={awaySummary.decisions}
+          blockerCount={awaySummary.blocked}
+          visible={awayVisible}
+          onDismiss={() => {
+            setAwayVisible(false);
+            lastInteractionRef.current = Date.now();
+          }}
+        />
+
         {filtered.length > 0 && (
           <div className="space-y-4">
             {deduplicatedGrouped.map((group) => {
@@ -3866,7 +3911,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              >
 	                                <span className="font-semibold">×{cluster.count}</span>
 	                                <span className="text-muted">·</span>
-	                                <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+	                                <span>{isExpanded ? 'hide' : `and ${cluster.count - 1} similar`}</span>
 	                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
 	                                  <path d="m6 9 6 6 6-6" />
 	                                </svg>
@@ -3920,7 +3965,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                            >
 	                              <span className="font-semibold">×{cluster.count}</span>
 	                              <span className="text-muted">·</span>
-	                              <span>first seen {formatRelativeTime(cluster.firstTimestamp)}</span>
+	                              <span>{isExpanded ? 'hide' : `and ${cluster.count - 1} similar`}</span>
 	                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn('transition-transform', isExpanded ? 'rotate-0' : '-rotate-90')}>
 	                                <path d="m6 9 6 6 6-6" />
 	                              </svg>
@@ -4442,7 +4487,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
 	                            <div className="flex items-center justify-between gap-2">
 	                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
-	                                Slice progress
+	                                Progress
 	                              </p>
 	                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
 	                                {activeAutopilotProgress.pct}%

@@ -1,4 +1,5 @@
 import { colors } from '@/lib/tokens';
+import { formatWaitingDuration } from '@/lib/time';
 import type { Decision } from '@/types';
 
 interface DecisionBannerProps {
@@ -31,7 +32,7 @@ export function DecisionBanner({ decisions, onDecide }: DecisionBannerProps) {
             {decision.title}
           </span>
           <span className="text-micro text-muted ml-2">
-            {decision.agent} · {decision.waitingMinutes}m
+            {decision.agent} · {formatWaitingDuration(decision.waitingMinutes)}
           </span>
         </div>
         {remaining > 0 && (

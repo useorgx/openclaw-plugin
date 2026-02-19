@@ -5,6 +5,8 @@
  * Mirrors the server-side types in orgx/lib/client-integration/types.ts
  */
 
+import type { RetroArtifactSchemaVersion } from './retro-schema.js';
+
 export type {
   HandoffEvent,
   HandoffSummary,
@@ -611,6 +613,7 @@ export interface RecordRunOutcomeResponse {
 export type RetroFollowUpPriority = 'p0' | 'p1' | 'p2';
 
 export interface RetroJson {
+  schema_version: RetroArtifactSchemaVersion;
   summary: string;
   what_went_well?: string[];
   what_went_wrong?: string[];

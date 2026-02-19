@@ -93,6 +93,7 @@ Every rule below exists because it was violated in a prior session.
 
 - If the user names a specific tool (Nano Banana Pro, Playwright MCP, firecrawl), use that exact tool. Do not substitute.
 - If an MCP tool exists for the task, use it — do not reimplement with scripts.
+- If Playwright MCP is suggested or needed, route the task through `agent-browser` (and only fall back if `agent-browser` is unavailable).
 
 ### 3) Don't confuse technologies
 
@@ -246,6 +247,7 @@ When running as a Codex agent via `scripts/run-codex-dispatch-job.mjs`:
 
 When using Playwright MCP for QA or screenshots:
 
+- Use `agent-browser` by default whenever Playwright MCP is suggested or needed.
 - Always navigate explicitly with `browser_navigate` before interacting.
 - One action per turn — the accessibility tree changes between actions.
 - Check for success — verify expected content before proceeding.

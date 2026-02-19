@@ -8,6 +8,7 @@
  *
  * Optional real-agent run can be enabled explicitly:
  * - ORGX_E2E_ENABLE_REAL_CODEX=1
+ * - ORGX_E2E_ENABLE_REAL_CLAUDE=1
  */
 
 import { spawn } from "node:child_process";
@@ -59,6 +60,21 @@ async function main() {
         ORGX_AUTOPILOT_EXECUTOR: "codex",
         // Keep real verification deterministic and low-cost: no external MCP servers.
         ORGX_CODEX_ARGS: "--ephemeral --full-auto -c mcp_servers={}",
+        ORGX_E2E_TIMEOUT_MS: "420000",
+        ORGX_E2E_DOMAINS: realDomains,
+        ORGX_E2E_TASKS_PER_DOMAIN: "1",
+      },
+    });
+  }
+
+  if (String(process.env.ORGX_E2E_ENABLE_REAL_CLAUDE ?? "").trim() === "1") {
+    const realDomains =
+      String(process.env.ORGX_E2E_REAL_DOMAINS ?? "").trim() || "engineering";
+    scenarios.push({
+      name: "real+claude-code",
+      env: {
+        ORGX_AUTOPILOT_WORKER_KIND: "claude-code",
+        ORGX_AUTOPILOT_EXECUTOR: "claude-code",
         ORGX_E2E_TIMEOUT_MS: "420000",
         ORGX_E2E_DOMAINS: realDomains,
         ORGX_E2E_TASKS_PER_DOMAIN: "1",
