@@ -2661,6 +2661,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           await client.updateEntity("decision", decisionId, {
             status: "approved",
             resolution: "approved",
+            decided_at: null,
+            decided_by: null,
+            resolved_at: null,
             note:
               "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
           });

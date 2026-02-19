@@ -35,6 +35,6 @@ This repo integrates OrgX design work with Figma via the [Conduit MCP plugin](ht
    - Conduit reports status back through the same WebSocket channel.
 
 6. **Use the exported tokens**  
-   Run `npm run export:design-tokens` (or `node scripts/export-design-tokens.mjs`) before authoring commands so Conduit can map token names like `color.lime` to their hex values. The JSON output lives in `artifacts/orgx-design-tokens.json`.
+   Run `npm run export:design-tokens` (or `node scripts/export-design-tokens.mjs`) before authoring commands so Conduit can map token names like `colors.lime`, `spacing.3`, `radius.xl`, or `stateTones.active`. The JSON output lives in `artifacts/orgx-design-tokens.json`.
 
 If you see connection errors (`Failed to connect to localhost port 3055`, `handshaking ... connection closed`), restart the Conduit server and re-open the plugin. The server automatically retries and logs each reconnect attempt.

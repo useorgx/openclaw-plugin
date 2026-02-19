@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-test("OrgXClient.decideDecision omits decided_at from primary decision updates", async () => {
+test("OrgXClient.decideDecision sends null for legacy fields to clear them", async () => {
   const { OrgXClient } = await import("../dist/contracts/client.js");
   const client = new OrgXClient("oxk_test", "https://www.useorgx.com", "user-1");
 
@@ -17,12 +17,13 @@ test("OrgXClient.decideDecision omits decided_at from primary decision updates",
   assert.equal(calls[0].status, "approved");
   assert.equal(calls[0].resolution, "approved");
   assert.ok(!Object.hasOwn(calls[0], "option_id"));
-  assert.ok(!Object.hasOwn(calls[0], "decided_by"));
-  assert.ok(!Object.hasOwn(calls[0], "decided_at"));
-  assert.ok(!Object.hasOwn(calls[0], "resolved_at"));
+  // Legacy fields are sent as null to clear them from stored entities
+  assert.equal(calls[0].decided_at, null);
+  assert.equal(calls[0].decided_by, null);
+  assert.equal(calls[0].resolved_at, null);
 });
 
-test("OrgXClient.decideDecision fallback also omits decided_at", async () => {
+test("OrgXClient.decideDecision fallback also nulls legacy fields", async () => {
   const { OrgXClient } = await import("../dist/contracts/client.js");
   const client = new OrgXClient("oxk_test", "https://www.useorgx.com", "user-1");
 
@@ -43,12 +44,13 @@ test("OrgXClient.decideDecision fallback also omits decided_at", async () => {
   assert.equal(calls[0].status, "declined");
   assert.equal(calls[1].status, "resolved");
   assert.equal(calls[1].decision_status, "declined");
-  assert.ok(!Object.hasOwn(calls[0], "decided_at"));
-  assert.ok(!Object.hasOwn(calls[0], "decided_by"));
-  assert.ok(!Object.hasOwn(calls[0], "resolved_at"));
-  assert.ok(!Object.hasOwn(calls[1], "decided_at"));
-  assert.ok(!Object.hasOwn(calls[1], "decided_by"));
-  assert.ok(!Object.hasOwn(calls[1], "resolved_at"));
+  // Both paths clear legacy fields
+  assert.equal(calls[0].decided_at, null);
+  assert.equal(calls[0].decided_by, null);
+  assert.equal(calls[0].resolved_at, null);
+  assert.equal(calls[1].decided_at, null);
+  assert.equal(calls[1].decided_by, null);
+  assert.equal(calls[1].resolved_at, null);
 });
 
 test("OrgXClient.decideDecision forwards selected option id", async () => {

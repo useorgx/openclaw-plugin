@@ -98,6 +98,94 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
       return { run_id: undefined, correlation_id: undefined };
     }
 
+    function normalizeRetro(payload: Record<string, unknown>): {
+      schema_version: typeof RETRO_ARTIFACT_SCHEMA_VERSION;
+      summary: string;
+      what_went_well?: string[];
+      what_went_wrong?: string[];
+      decisions?: string[];
+      follow_ups?: Array<{ title: string; priority?: "p0" | "p1" | "p2"; reason?: string }>;
+      signals?: Record<string, unknown>;
+    } | null {
+      const retro =
+        payload.retro && typeof payload.retro === "object" && !Array.isArray(payload.retro)
+          ? (payload.retro as Record<string, unknown>)
+          : null;
+      const summary =
+        retro && typeof retro.summary === "string" ? retro.summary.trim() : "";
+      if (!retro || !summary) {
+        return null;
+      }
+
+      const normalizeStringList = (value: unknown): string[] | undefined => {
+        if (!Array.isArray(value)) return undefined;
+        const normalized = value
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+          .slice(0, 25);
+        return normalized.length > 0 ? normalized : undefined;
+      };
+
+      const followUpsRaw = Array.isArray(retro.follow_ups)
+        ? retro.follow_ups
+        : Array.isArray((retro as any).followUps)
+          ? ((retro as any).followUps as unknown[])
+          : [];
+      const followUps: Array<{
+        title: string;
+        priority?: "p0" | "p1" | "p2";
+        reason?: string;
+      }> = [];
+      for (const candidate of followUpsRaw) {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+          continue;
+        }
+        const title =
+          typeof (candidate as { title?: unknown }).title === "string"
+            ? (candidate as { title: string }).title.trim()
+            : "";
+        if (!title) {
+          continue;
+        }
+        const priorityRaw =
+          typeof (candidate as { priority?: unknown }).priority === "string"
+            ? (candidate as { priority: string }).priority.trim().toLowerCase()
+            : "";
+        const priority =
+          priorityRaw === "p0" || priorityRaw === "p1" || priorityRaw === "p2"
+            ? (priorityRaw as "p0" | "p1" | "p2")
+            : undefined;
+        const reason =
+          typeof (candidate as { reason?: unknown }).reason === "string"
+            ? (candidate as { reason: string }).reason.trim()
+            : "";
+        followUps.push({
+          title,
+          priority,
+          reason: reason || undefined,
+        });
+        if (followUps.length >= 25) {
+          break;
+        }
+      }
+
+      const signals =
+        retro.signals && typeof retro.signals === "object" && !Array.isArray(retro.signals)
+          ? (retro.signals as Record<string, unknown>)
+          : undefined;
+
+      return {
+        schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
+        summary,
+        what_went_well: normalizeStringList(retro.what_went_well),
+        what_went_wrong: normalizeStringList(retro.what_went_wrong),
+        decisions: normalizeStringList(retro.decisions),
+        follow_ups: followUps.length > 0 ? followUps : undefined,
+        signals,
+      };
+    }
+
     if (event.type === "progress") {
       const message = extractProgressOutboxMessage(payload);
       if (!message) {
@@ -470,13 +558,8 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         correlationId: context.value.correlationId,
       });
 
-      const retro =
-        payload.retro && typeof payload.retro === "object" && !Array.isArray(payload.retro)
-          ? (payload.retro as Record<string, unknown>)
-          : null;
-      const summary =
-        retro && typeof retro.summary === "string" ? retro.summary.trim() : "";
-      if (!retro || !summary) {
+      const normalizedRetro = normalizeRetro(payload);
+      if (!normalizedRetro) {
         logger.warn?.("[orgx] Dropping invalid retro outbox event", {
           eventId: event.id,
         });
@@ -512,10 +595,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
           pickStringField(payload, "idempotency_key") ??
           pickStringField(payload, "idempotencyKey") ??
           undefined,
-        retro: {
-          ...retro,
-          schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
-        } as any,
+        retro: normalizedRetro as any,
         markdown: pickStringField(payload, "markdown") ?? undefined,
       });
       return;
