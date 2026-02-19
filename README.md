@@ -380,6 +380,9 @@ cd dashboard && npm run dev
 
 # Full build (core + dashboard)
 npm run build
+
+# Dev mode from main: always fetch/update origin/main, build it, and copy dist outputs here
+npm run dev:main
 ```
 
 ### Repository Structure
