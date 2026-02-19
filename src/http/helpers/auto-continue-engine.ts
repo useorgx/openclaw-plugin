@@ -2728,7 +2728,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         initiativeId,
         agentId: dispatchAgentId,
         agentName: dispatchAgentName,
-        tokenBudget: latestRun?.tokenBudget ?? defaultAutoContinueTokenBudget(),
+        // Auto-fix retries should follow current defaults unless an operator explicitly
+        // starts a run with a budget override.
+        tokenBudget: null,
         includeVerification: latestRun?.includeVerification ?? false,
         allowedWorkstreamIds: [workstreamId],
         maxParallelSlices: 1,
