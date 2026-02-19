@@ -590,6 +590,13 @@ function classifyActivity(item: LiveActivityItem): ActivityBucket {
     return 'message';
   }
 
+  if (eventName === 'auto_continue_stopped') {
+    const stopReason = normalizeStatusKey(
+      metadataString(metadata, ['stop_reason', 'stopReason']) ?? ''
+    );
+    if (stopReason === 'blocked' || stopReason === 'error') return 'decision';
+  }
+
   if (eventName && ACTIVITY_BUCKET_BY_EVENT.has(eventName)) {
     return ACTIVITY_BUCKET_BY_EVENT.get(eventName)!;
   }
@@ -1869,7 +1876,7 @@ function describeDetailOutcome(
         summary:
           humanizeActivityBody(item.title) ??
           'Autopilot stopped because the configured token budget was exhausted.',
-        hint: 'Increase token budget in settings or restart with a narrower workstream scope.',
+        hint: 'Restart with an explicit token budget or a narrower workstream scope.',
         tone: 'warning',
       };
     }

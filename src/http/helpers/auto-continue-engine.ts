@@ -2661,9 +2661,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           await client.updateEntity("decision", decisionId, {
             status: "approved",
             resolution: "approved",
-            decided_at: null,
-            decided_by: null,
-            resolved_at: null,
             note:
               "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
           });
@@ -2889,10 +2886,22 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run.parallelMode = normalizeParallelMode(input.parallelMode ?? run.parallelMode);
     run.stopAfterSlice = Boolean(input.stopAfterSlice);
     run.ignoreSpawnGuardRateLimit = Boolean(input.ignoreSpawnGuardRateLimit);
-    run.tokenBudget = normalizeTokenBudget(
-      input.tokenBudget,
-      run.tokenBudget ?? defaultAutoContinueTokenBudget()
-    );
+    const hasExplicitTokenBudgetInput =
+      input.tokenBudget !== null &&
+      input.tokenBudget !== undefined &&
+      !(typeof input.tokenBudget === "string" && input.tokenBudget.trim().length === 0);
+    if (hasExplicitTokenBudgetInput) {
+      run.tokenBudget = normalizeTokenBudget(
+        input.tokenBudget,
+        defaultAutoContinueTokenBudget()
+      );
+    } else {
+      // On fresh restarts, reset to current defaults instead of inheriting stale prior limits.
+      // While a run is live, keep its active budget unless explicitly overridden.
+      run.tokenBudget = existingIsLive
+        ? normalizeTokenBudget(run.tokenBudget, defaultAutoContinueTokenBudget())
+        : defaultAutoContinueTokenBudget();
+    }
     run.status = "running";
     run.stopReason = null;
     run.stopRequested = false;
