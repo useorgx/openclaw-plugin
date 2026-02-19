@@ -1,12 +1,13 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { LiveDecision } from '@/types';
-import { formatRelativeTime } from '@/lib/time';
+import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { DecisionDetailModal } from '@/components/decisions/DecisionDetailModal';
+import { useUndoToast } from '@/components/shared/UndoToast';
 
 const PAGE_SIZE = 40;
 
@@ -58,6 +59,8 @@ export const DecisionQueue = memo(function DecisionQueue({
   const [isApprovingAll, setIsApprovingAll] = useState(false);
   const [approving, setApproving] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [swipedIds, setSwipedIds] = useState<Set<string>>(new Set());
+  const { enqueue: enqueueUndo, ToastRenderer: UndoToastRenderer } = useUndoToast();
   const [bulkAction, setBulkAction] = useState<DecisionBulkActionId>('approve_selected');
   const [bulkNote, setBulkNote] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -91,7 +94,10 @@ export const DecisionQueue = memo(function DecisionQueue({
   }, [sorted]);
 
   const selectedCount = selected.size;
-  const visible = useMemo(() => sorted.slice(0, visibleCount), [sorted, visibleCount]);
+  const visible = useMemo(
+    () => sorted.filter((d) => !swipedIds.has(d.id)).slice(0, visibleCount),
+    [sorted, visibleCount, swipedIds]
+  );
   const allVisibleSelected = useMemo(() => {
     if (visible.length === 0) return false;
     for (const decision of visible) {
@@ -298,6 +304,34 @@ export const DecisionQueue = memo(function DecisionQueue({
     }
   };
 
+  const handleSwipeApprove = useCallback(
+    (decision: LiveDecision) => {
+      if (approving.has(decision.id) || isApprovingAll) return;
+      setSwipedIds((prev) => new Set(prev).add(decision.id));
+      enqueueUndo({
+        message: `Approved '${decision.title.length > 40 ? decision.title.slice(0, 40) + '…' : decision.title}'`,
+        onUndo: () => {
+          setSwipedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(decision.id);
+            return next;
+          });
+        },
+        onCommit: () => {
+          setSwipedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(decision.id);
+            return next;
+          });
+          void onApproveDecision(decision.id).catch(() => {
+            setNotice(`Approval failed for '${decision.title}'.`);
+          });
+        },
+      });
+    },
+    [approving, isApprovingAll, enqueueUndo, onApproveDecision]
+  );
+
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
   const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
@@ -325,109 +359,48 @@ export const DecisionQueue = memo(function DecisionQueue({
             </h2>
             <p className="mt-0.5 text-caption text-secondary">
               {pendingCount > 0
-                ? `${pendingCount} pending · longest wait ${longestWaitMinutes}m`
-                : 'No pending decisions'}
+                ? `${pendingCount} decision${pendingCount === 1 ? '' : 's'} need${pendingCount === 1 ? 's' : ''} your input`
+                : 'All clear — no decisions pending'}
             </p>
-          </div>
-          <button
-            onClick={handleApplyBulkAction}
-            disabled={!selectedEnabled}
-            data-state={selectedEnabled ? 'active' : 'idle'}
-            className="control-pill h-9 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
-          >
-            {isApprovingAll ? 'Applying…' : 'Apply'}
-          </button>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setBulkAction(composeBulkActionId(selectedVerb, 'selected'))}
-              disabled={isApprovingAll}
-              data-state={selectedScope === 'selected' ? 'active' : 'idle'}
-              className="control-pill h-8 flex-1 justify-between px-2.5 text-caption font-semibold disabled:opacity-45"
-            >
-              <span>Selected</span>
-              <span className="ml-1.5 rounded-full border border-current/25 bg-black/20 px-1.5 text-micro text-current/75">
-                {selectedCount}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setBulkAction(composeBulkActionId(selectedVerb, 'visible'))}
-              disabled={isApprovingAll}
-              data-state={selectedScope === 'visible' ? 'active' : 'idle'}
-              className="control-pill h-8 flex-1 justify-between px-2.5 text-caption font-semibold disabled:opacity-45"
-            >
-              <span>Visible</span>
-              <span className="ml-1.5 rounded-full border border-current/25 bg-black/20 px-1.5 text-micro text-current/75">
-                {visible.length}
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setBulkAction(composeBulkActionId('approve', selectedScope))}
-              disabled={isApprovingAll}
-              data-state={selectedVerb === 'approve' ? 'active' : 'idle'}
-              className="control-pill h-8 flex-1 px-2.5 text-caption font-semibold disabled:opacity-45"
-            >
-              Approve
-            </button>
-            {onRejectDecision && (
-              <button
-                type="button"
-                onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
-                disabled={isApprovingAll}
-                data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
-                className={cn(
-                  'control-pill h-8 flex-1 px-2.5 text-caption font-semibold disabled:opacity-45',
-                  selectedVerb === 'reject' && 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100'
-                )}
-              >
-                Reject
-              </button>
-            )}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={toggleSelectAll}
-            disabled={sorted.length === 0 || isApprovingAll}
-            className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
-          >
-            {allVisibleSelected ? 'Clear visible' : 'Select visible'}
-          </button>
-          {selectedCount > 0 && (
+          {sorted.length > 0 && (
             <button
-              type="button"
-              onClick={() => setSelected(new Set())}
+              onClick={toggleSelectAll}
               disabled={isApprovingAll}
-              className="control-pill h-8 px-2.5 text-caption disabled:opacity-45"
+              className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
             >
-              Clear selection
+              {allVisibleSelected ? 'Clear all' : 'Select all'}
             </button>
           )}
-          <input
-            value={bulkNote}
-            onChange={(event) => setBulkNote(event.target.value)}
-            placeholder="Optional note"
-            className="h-8 min-w-[200px] flex-1 rounded-md border border-strong bg-white/[0.03] px-2.5 text-caption text-primary placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/35"
-          />
-          <span
-            className={cn(
-              'inline-flex h-8 items-center rounded-md border px-2.5 text-caption',
-              selectedCount > 0
-                ? 'border-lime/30 bg-lime/10 text-lime'
-                : 'border-strong bg-white/[0.02] text-secondary'
-            )}
-          >
-            {selectedCount > 0 ? `${selectedCount} selected` : 'Nothing selected'}
-          </span>
+          {selectedCount > 0 && (
+            <>
+              <button
+                onClick={handleApplyBulkAction}
+                disabled={!selectedEnabled || isApprovingAll}
+                data-state={selectedEnabled ? 'active' : 'idle'}
+                className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+              >
+                {isApprovingAll ? 'Approving…' : `Approve ${selectedCount} selected`}
+              </button>
+              {onRejectDecision && (
+                <button
+                  type="button"
+                  onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
+                  disabled={isApprovingAll}
+                  data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
+                  className={cn(
+                    'control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45',
+                    selectedVerb === 'reject' && 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100'
+                  )}
+                >
+                  Reject
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -454,7 +427,7 @@ export const DecisionQueue = memo(function DecisionQueue({
 
         {enableMotion ? (
           <AnimatePresence mode="popLayout">
-            {visible.map((decision) => {
+            {visible.map((decision, idx) => {
               const isApproving = approving.has(decision.id);
               const urgency = urgencyAccent(decision.waitingMinutes);
               const isSelected = selected.has(decision.id);
@@ -470,10 +443,22 @@ export const DecisionQueue = memo(function DecisionQueue({
                       setDetailDecisionId(decision.id);
                     }
                   }}
-                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                  drag={!isApproving && !isApprovingAll ? 'x' : false}
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.3}
+                  onDragEnd={(_e, info) => {
+                    if (info.offset.x > 120) {
+                      handleSwipeApprove(decision);
+                    }
+                  }}
+                  initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 300, scale: 0.95 }}
+                  transition={{
+                    duration: 0.25,
+                    ease: [0.22, 1, 0.36, 1],
+                    ...(isApprovingAll ? { delay: idx * 0.04 } : {}),
+                  }}
                   layout
                   className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
                   style={{
@@ -504,11 +489,8 @@ export const DecisionQueue = memo(function DecisionQueue({
                           </p>
                         )}
                         <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-micro text-muted" title={`${decision.agentName ?? 'System'} · Waiting ${decision.waitingMinutes}m${decision.requestedAt ? ` · ${formatRelativeTime(decision.requestedAt)}` : ''}`}>
-                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
-                            {decision.requestedAt
-                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
-                              : ''}
+                          <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
+                            {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
                           </p>
                           <button
                             onClick={(event) => {
@@ -575,11 +557,8 @@ export const DecisionQueue = memo(function DecisionQueue({
                           </p>
                         )}
                         <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-micro text-muted" title={`${decision.agentName ?? 'System'} · Waiting ${decision.waitingMinutes}m${decision.requestedAt ? ` · ${formatRelativeTime(decision.requestedAt)}` : ''}`}>
-                            {decision.agentName ?? 'System'} · Waiting {decision.waitingMinutes}m
-                            {decision.requestedAt
-                              ? ` · ${formatRelativeTime(decision.requestedAt)}`
-                              : ''}
+                          <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
+                            {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
                           </p>
                           <button
                             onClick={(event) => {
@@ -610,6 +589,8 @@ export const DecisionQueue = memo(function DecisionQueue({
           </button>
         )}
       </div>
+
+      <UndoToastRenderer />
 
       {notice && (
         <div className="flex items-center gap-2 border-t border-subtle px-4 py-2.5 text-body text-secondary">

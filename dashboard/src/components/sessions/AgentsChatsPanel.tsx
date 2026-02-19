@@ -16,6 +16,7 @@ import type {
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { AgentHealthRing } from '@/components/agents/AgentHealthRing';
 import { AgentLaunchModal } from './AgentLaunchModal';
 import { AgentDetailModal } from './AgentDetailModal';
 import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
@@ -259,7 +260,7 @@ function sessionGroupKey(node: SessionTreeNode): string {
 
 function compactAgentDisplayName(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed) return "Unassigned";
+  if (!trimmed) return "OrgX";
   if (UUID_LIKE_NAME.test(trimmed)) {
     return `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`;
   }
@@ -371,6 +372,93 @@ function summaryForNode(node: SessionTreeNode, summaryByRunId: Map<string, strin
   const summary = fallback.trim();
   if (summary.length > 0) return summary;
   return 'No summary yet. Open the session to inspect messages and outputs.';
+}
+
+function CollapsedSessionGroup({
+  status,
+  nodes,
+  onSelectSession,
+  selectedSessionId,
+}: {
+  status: string;
+  nodes: SessionTreeNode[];
+  onSelectSession: (id: string) => void;
+  selectedSessionId: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const dotColor = statusColor(status);
+  const label =
+    status === 'blocked' ? 'blocked' : status === 'failed' ? 'failed' : 'paused';
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
+      >
+        <span
+          className="h-2 w-2 flex-shrink-0 rounded-full"
+          style={{ backgroundColor: dotColor }}
+        />
+        <span className="flex-1 text-body text-secondary">
+          {nodes.length} {label} sessions
+        </span>
+        <motion.span
+          animate={{ rotate: expanded ? 90 : 0 }}
+          transition={{ duration: 0.15 }}
+          className="text-micro text-muted"
+        >
+          ▸
+        </motion.span>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden pl-4"
+          >
+            {nodes.map((node, i) => {
+              const childActive = selectedSessionId === node.id;
+              const childProvider = resolveProvider(
+                node.agentName,
+                node.title,
+                node.lastEventSummary,
+                node
+              );
+              return (
+                <motion.button
+                  key={node.id}
+                  onClick={() => onSelectSession(node.id)}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.12, delay: Math.min(i * 0.02, 0.1) }}
+                  className={cn(
+                    'w-full rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                    childActive
+                      ? 'bg-white/[0.09]'
+                      : 'bg-white/[0.02] hover:bg-white/[0.05]'
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <ProviderLogo provider={childProvider.id} size="xs" />
+                    <p className="min-w-0 flex-1 truncate text-body text-bright" title={node.title}>
+                      {node.title}
+                    </p>
+                    <span className="text-micro text-muted">
+                      {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
+                    </span>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export const AgentsChatsPanel = memo(function AgentsChatsPanel({
@@ -507,7 +595,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           existing.agentId = inferred.agentId;
         }
         if (
-          (existing.agentName === 'Unassigned' || !existing.agentName) &&
+          (existing.agentName === 'OrgX' || !existing.agentName) &&
           inferred.agentName
         ) {
           existing.agentName = inferred.agentName;
@@ -516,7 +604,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         map.set(preferredKey, {
           groupKey: preferredKey,
           agentId: inferred.agentId,
-          agentName: inferred.agentName ?? inferred.agentId ?? 'Unassigned',
+          agentName: inferred.agentName ?? inferred.agentId ?? 'OrgX',
           nodes: [node],
           latest: node,
           runtime: null,
@@ -559,7 +647,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           group.agentId = catalogId;
         }
         if (
-          (group.agentName === 'Unassigned' || !group.agentName) &&
+          (group.agentName === 'OrgX' || !group.agentName) &&
           catalogName
         ) {
           group.agentName = catalogName;
@@ -1160,7 +1248,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
           const active = lead ? selectedSessionId === lead.id : false;
           const displayNameRaw =
-            group.agentName || group.catalogAgent?.name || group.agentId || 'Unassigned';
+            group.agentName || group.catalogAgent?.name || group.agentId || 'OrgX';
           const canonicalOrgx = canonicalizeOrgxIdentity(group.agentId, displayNameRaw);
           const displayName = canonicalOrgx?.agentName ?? compactAgentDisplayName(displayNameRaw);
           const roleLabel = canonicalOrgx?.role ?? getAgentRole(displayName);
@@ -1224,11 +1312,18 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         <ProviderLogo provider={headerProvider.id} size="sm" showRing={false} />
                       </span>
                     ) : (
-                      <AgentAvatar
-                        name={displayName}
-                        size="sm"
-                        hint={`${group.agentId ?? ''} ${displayName}`}
-                      />
+                      <AgentHealthRing
+                        running={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'running' || s === 'handoff' || s === 'review'; }).length}
+                        blocked={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'blocked' || s === 'failed'; }).length}
+                        paused={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'paused' || s === 'cancelled'; }).length}
+                        size={36}
+                      >
+                        <AgentAvatar
+                          name={displayName}
+                          size="sm"
+                          hint={`${group.agentId ?? ''} ${displayName}`}
+                        />
+                      </AgentHealthRing>
                     )}
                     {canonicalOrgx && (
                       <span className="absolute -bottom-0.5 -left-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
@@ -1282,7 +1377,17 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   </div>
                   {hasSessions ? (
                     <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
-                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full">
+                      <span
+                        className="flex h-1.5 w-12 overflow-hidden rounded-full"
+                        title={(() => {
+                          const counts: Record<string, number> = {};
+                          for (const node of group.nodes) {
+                            const nodeStatus = effectiveSessionStatus(node);
+                            counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
+                          }
+                          return Object.entries(counts).map(([s, c]) => `${c} ${s}`).join(' · ');
+                        })()}
+                      >
                         {(() => {
                           const counts: Record<string, number> = {};
                           for (const node of group.nodes) {
@@ -1382,69 +1487,107 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     className="overflow-hidden border-t border-subtle"
                   >
                     <div className="max-h-[500px] space-y-1.5 overflow-y-auto p-2">
-                      {visibleChildren.map((node, index) => {
-                        const childActive = selectedSessionId === node.id;
-                        const nodeStatus = effectiveSessionStatus(node);
-                        const childProvider = resolveProvider(
-                          node.agentName,
-                          node.title,
-                          node.lastEventSummary,
-                          node
-                        );
-                        return (
-                          <motion.button
-                            key={node.id}
-                            onClick={() => onSelectSession(node.id)}
-                            initial={{ opacity: 0, y: 4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
-                            className={cn(
-                              'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
-                              childActive
-                                ? 'bg-white/[0.09]'
-                                : 'bg-white/[0.02] hover:bg-white/[0.05]'
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <ProviderLogo provider={childProvider.id} size="xs" />
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-body text-bright" title={node.title}>
-                                  {node.title}
-                                </p>
-                                <div className="flex items-center gap-1.5 text-micro text-secondary">
-                                  <span
-                                    className="font-semibold uppercase tracking-[0.08em]"
-                                    style={{ color: childProvider.accent }}
-                                  >
-                                    {childProvider.label}
-                                  </span>
-                                  <span className="uppercase tracking-[0.08em]">{nodeStatus}</span>
-                                  <span title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
-                                    {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
-                                  </span>
+                      {(() => {
+                        // Group identical blocked/paused sessions (>3 with same status)
+                        const groupedByStatus = new Map<string, SessionTreeNode[]>();
+                        const ungrouped: SessionTreeNode[] = [];
+                        for (const node of visibleChildren) {
+                          const nodeStatus = effectiveSessionStatus(node);
+                          if (nodeStatus === 'blocked' || nodeStatus === 'paused' || nodeStatus === 'failed') {
+                            const gKey = `${nodeStatus}:${node.blockerReason ?? ''}`;
+                            const arr = groupedByStatus.get(gKey) ?? [];
+                            arr.push(node);
+                            groupedByStatus.set(gKey, arr);
+                          } else {
+                            ungrouped.push(node);
+                          }
+                        }
+                        const collapsedGroups: Array<{ status: string; nodes: SessionTreeNode[] }> = [];
+                        for (const [gKey, nodes] of groupedByStatus) {
+                          if (nodes.length > 3) {
+                            collapsedGroups.push({ status: gKey.split(':')[0], nodes });
+                          } else {
+                            ungrouped.push(...nodes);
+                          }
+                        }
+                        const renderSessionButton = (node: SessionTreeNode, index: number) => {
+                          const childActive = selectedSessionId === node.id;
+                          const nodeStatus = effectiveSessionStatus(node);
+                          const childProvider = resolveProvider(
+                            node.agentName,
+                            node.title,
+                            node.lastEventSummary,
+                            node
+                          );
+                          return (
+                            <motion.button
+                              key={node.id}
+                              onClick={() => onSelectSession(node.id)}
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.16, delay: Math.min(index * 0.015, 0.12) }}
+                              className={cn(
+                                'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
+                                childActive
+                                  ? 'bg-white/[0.09]'
+                                  : 'bg-white/[0.02] hover:bg-white/[0.05]'
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <ProviderLogo provider={childProvider.id} size="xs" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-body text-bright" title={node.title}>
+                                    {node.title}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 text-micro text-secondary">
+                                    <span
+                                      className="font-semibold uppercase tracking-[0.08em]"
+                                      style={{ color: childProvider.accent }}
+                                    >
+                                      {childProvider.label}
+                                    </span>
+                                    <span className="uppercase tracking-[0.08em]">{nodeStatus}</span>
+                                    <span title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
+                                      {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
+                                    </span>
+                                  </div>
+                                  {node.progress !== null && (
+                                    <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
+                                      <div
+                                        className="h-0.5 rounded-full"
+                                        style={{
+                                          width: `${Math.round(node.progress)}%`,
+                                          background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                                        }}
+                                      />
+                                    </div>
+                                  )}
                                 </div>
-                          {node.progress !== null && (
-                            <div className="mt-1 h-0.5 rounded-full bg-white/[0.08]">
-                              <div
-                                className="h-0.5 rounded-full"
-                                style={{
-                                  width: `${Math.round(node.progress)}%`,
-                                  background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
-                                }}
+                                <span
+                                  className="h-2 w-2 flex-shrink-0 rounded-full"
+                                  style={{ backgroundColor: statusColor(nodeStatus) }}
+                                  aria-label={nodeStatus}
+                                  title={nodeStatus}
+                                />
+                              </div>
+                            </motion.button>
+                          );
+                        };
+                        return (
+                          <>
+                            {ungrouped.map((node, i) => renderSessionButton(node, i))}
+                            {collapsedGroups.map((cg) => (
+                              <CollapsedSessionGroup
+                                key={`cg-${cg.status}-${cg.nodes.length}`}
+                                status={cg.status}
+                                nodes={cg.nodes}
+                                onSelectSession={onSelectSession}
+                                selectedSessionId={selectedSessionId}
                               />
-                            </div>
-                          )}
-                        </div>
-                              <span
-                                className="h-2 w-2 flex-shrink-0 rounded-full"
-                                style={{ backgroundColor: statusColor(nodeStatus) }}
-                                aria-label={nodeStatus}
-                                title={nodeStatus}
-                              />
-                            </div>
-                          </motion.button>
+                            ))}
+                          </>
                         );
-                      })}
+                      })()}
 
                       {hiddenChildren > 0 && (
                         <p className="px-1 text-micro text-muted">

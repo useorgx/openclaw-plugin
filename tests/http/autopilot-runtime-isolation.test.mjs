@@ -300,3 +300,149 @@ test("autopilot isolation falls back to temp CODEX_HOME when configured path is 
   assert.ok(!/Error loading config\\.toml/i.test(log), "fallback home should avoid broken inherited config");
   assert.ok(existsSync(outputPath), "worker should always leave a structured output file");
 });
+
+test("autopilot claude worker injects print/json/schema defaults for structured output parity", async () => {
+  const root = mkdtempSync(join(tmpdir(), "orgx-autopilot-runtime-claude-"));
+  const pluginConfigDir = join(root, "plugin-config");
+  mkdirSync(pluginConfigDir, { recursive: true });
+
+  const schemaPath = join(root, "slice.schema.json");
+  writeFileSync(
+    schemaPath,
+    JSON.stringify({
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "summary"],
+      properties: {
+        status: { type: "string" },
+        summary: { type: "string" },
+      },
+    }),
+    "utf8"
+  );
+
+  const claudeStubPath = join(root, "claude-stub.mjs");
+  writeFileSync(
+    claudeStubPath,
+    [
+      "const args = process.argv.slice(2);",
+      "const hasPrint = args.includes('--print') || args.includes('-p');",
+      "const outputFormatFlag = args.find((arg) => arg.startsWith('--output-format=')) || null;",
+      "const outputFormatInline = outputFormatFlag ? outputFormatFlag.split('=')[1] : null;",
+      "const outputFormatIndex = args.indexOf('--output-format');",
+      "const outputFormat = outputFormatInline || (outputFormatIndex >= 0 ? args[outputFormatIndex + 1] || null : null);",
+      "const schemaFlag = args.find((arg) => arg.startsWith('--json-schema=')) || null;",
+      "const schemaInline = schemaFlag ? schemaFlag.slice('--json-schema='.length) : null;",
+      "const schemaIndex = args.indexOf('--json-schema');",
+      "const schemaValue = schemaInline || (schemaIndex >= 0 ? args[schemaIndex + 1] || null : null);",
+      "const permissionFlag = args.find((arg) => arg.startsWith('--permission-mode=')) || null;",
+      "const permissionInline = permissionFlag ? permissionFlag.slice('--permission-mode='.length) : null;",
+      "const permissionIndex = args.indexOf('--permission-mode');",
+      "const permissionMode = permissionInline || (permissionIndex >= 0 ? args[permissionIndex + 1] || null : null);",
+      "const hasDangerousSkip = args.includes('--dangerously-skip-permissions') || args.includes('--allow-dangerously-skip-permissions');",
+      "const prompt = args[args.length - 1] || '';",
+      "const payload = {",
+      "  type: 'result',",
+      "  structured_output: {",
+      "    status: 'completed',",
+      "    summary: 'claude stub completed',",
+      "    workstream_id: process.env.ORGX_WORKSTREAM_ID || 'ws-test',",
+      "    workstream_title: process.env.ORGX_WORKSTREAM_TITLE || 'WS Test',",
+      "    slice_id: process.env.ORGX_RUN_ID || 'slice-claude-test',",
+      "    artifacts: [],",
+      "    decisions_needed: [],",
+      "    skill_evidence: [],",
+      "    task_updates: [],",
+      "    milestone_updates: [],",
+      "    next_actions: []",
+      "  },",
+      "  debug: {",
+      "    hasPrint,",
+      "    outputFormat,",
+      "    hasJsonSchema: Boolean(schemaValue),",
+      "    permissionMode,",
+      "    hasDangerousSkip,",
+      "    promptSeen: prompt.includes('stub prompt')",
+      "  }",
+      "};",
+      "process.stdout.write(`${JSON.stringify(payload)}\\n`);",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const logPath = join(root, "claude-slice.log");
+  const outputPath = join(root, "claude-slice.output.json");
+  const runtime = createAutopilotRuntime({
+    filename: new URL("../../dist/http/helpers/autopilot-runtime.js", import.meta.url).pathname,
+    autoContinueSliceChildren: new Map(),
+    resolveByokEnvOverrides: () => ({}),
+    safeErrorMessage: (err) => (err instanceof Error ? err.message : String(err)),
+    resolveCodexBinInfo: () => ({
+      bin: "codex",
+      version: null,
+      versionString: "codex",
+    }),
+    upsertRuntimeInstanceFromHook: (payload) => ({
+      id: "runtime-test",
+      sourceClient: "openclaw",
+      displayName: "runtime-test",
+      providerLogo: "openclaw",
+      state: "active",
+      runId: payload.run_id ?? null,
+      correlationId: payload.correlation_id ?? null,
+      initiativeId: payload.initiative_id ?? null,
+      workstreamId: payload.workstream_id ?? null,
+      taskId: payload.task_id ?? null,
+      agentId: payload.agent_id ?? null,
+      agentName: payload.agent_name ?? null,
+      phase: payload.phase ?? null,
+      progressPct: payload.progress_pct ?? null,
+      currentTask: null,
+      lastHeartbeatAt: null,
+      lastEventAt: payload.timestamp ?? new Date().toISOString(),
+      lastMessage: payload.message ?? null,
+      metadata: payload.metadata ?? null,
+    }),
+    broadcastRuntimeSse: () => {},
+    clearSnapshotResponseCache: () => {},
+  });
+
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: pluginConfigDir,
+      ORGX_AUTOPILOT_WORKER_KIND: "claude-code",
+      ORGX_CLAUDE_CODE_BIN: "node",
+      ORGX_CLAUDE_CODE_ARGS: claudeStubPath,
+    },
+    async () => {
+      runtime.spawnCodexSliceWorker({
+        runId: "slice-claude-test",
+        prompt: "stub prompt for claude worker parity",
+        cwd: process.cwd(),
+        logPath,
+        outputPath,
+        outputSchemaPath: schemaPath,
+        env: {
+          ORGX_WORKSTREAM_ID: "ws-test",
+          ORGX_WORKSTREAM_TITLE: "WS Test",
+          ORGX_RUN_ID: "slice-claude-test",
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+  );
+
+  const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+  assert.match(log, /claude_bin:\s+node/i);
+  assert.match(log, /claude_output_format:\s+json/i);
+  assert.match(log, /claude_json_schema:\s+/i);
+  assert.ok(existsSync(outputPath), "claude worker should write output");
+  const output = JSON.parse(readFileSync(outputPath, "utf8"));
+  assert.equal(output?.debug?.hasPrint, true);
+  assert.equal(String(output?.debug?.outputFormat ?? "").toLowerCase(), "json");
+  assert.equal(output?.debug?.hasJsonSchema, true);
+  assert.equal(String(output?.debug?.permissionMode ?? "").toLowerCase(), "bypasspermissions");
+  assert.equal(output?.debug?.hasDangerousSkip, true);
+  assert.equal(output?.debug?.promptSeen, true);
+});

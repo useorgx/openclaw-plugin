@@ -27,15 +27,19 @@
  * - ORGX_HARNESS_DOMAINS=engineering,product,design,marketing,operations,sales
  *   (target auto-raises to domains-1 so every seeded domain gets executed)
  * - ORGX_HARNESS_REQUIRE_REAL_WORKER=1  (default true; reject mock worker)
+ * - ORGX_HARNESS_STRICT_AUTHENTICITY=1  (default true)
+ * - ORGX_HARNESS_REQUIRE_SKILL_FILE_PROOF=1  (default: STRICT_AUTHENTICITY)
+ * - ORGX_HARNESS_STRICT_PROGRESS_EVIDENCE=1  (default: STRICT_AUTHENTICITY)
+ * - ORGX_HARNESS_STRICT_OUTCOME_EVIDENCE=1  (default: STRICT_AUTHENTICITY)
  * - ORGX_HARNESS_KEEP=1
  * - ORGX_HARNESS_SEED_ONLY=1   (create + queue-top only; no play/auto, no teardown)
  */
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
 
 const BASE_URL = (process.env.ORGX_HARNESS_BASE_URL || "http://127.0.0.1:18789").trim().replace(/\/+$/, "");
 const TIMEOUT_MS = readPositiveInt("ORGX_HARNESS_TIMEOUT_MS", 30 * 60_000);
@@ -43,6 +47,19 @@ const REQUEST_TIMEOUT_MS = readPositiveInt("ORGX_HARNESS_REQUEST_TIMEOUT_MS", 30
 const KEEP = readBoolEnv("ORGX_HARNESS_KEEP", false);
 const SEED_ONLY = readBoolEnv("ORGX_HARNESS_SEED_ONLY", false);
 const REQUIRE_REAL_WORKER = readBoolEnv("ORGX_HARNESS_REQUIRE_REAL_WORKER", true);
+const STRICT_AUTHENTICITY = readBoolEnv("ORGX_HARNESS_STRICT_AUTHENTICITY", true);
+const REQUIRE_SKILL_FILE_PROOF = readBoolEnv(
+  "ORGX_HARNESS_REQUIRE_SKILL_FILE_PROOF",
+  STRICT_AUTHENTICITY
+);
+const STRICT_PROGRESS_EVIDENCE = readBoolEnv(
+  "ORGX_HARNESS_STRICT_PROGRESS_EVIDENCE",
+  STRICT_AUTHENTICITY
+);
+const STRICT_OUTCOME_EVIDENCE = readBoolEnv(
+  "ORGX_HARNESS_STRICT_OUTCOME_EVIDENCE",
+  STRICT_AUTHENTICITY
+);
 const ALLOW_WRITE =
   readBoolEnv("ORGX_HARNESS_ALLOW_WRITE", false) || readBoolEnv("ORGX_E2E_ALLOW_WRITE", false);
 
@@ -127,6 +144,14 @@ function normalizeDomain(value) {
   if (domain.includes("sales")) return "sales";
   if (domain.includes("orchestrat")) return "orchestration";
   return domain;
+}
+
+function normalizeWorkerKind(value, fallback = "codex") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "mock") return "mock";
+  if (raw === "claude" || raw === "claude-code" || raw === "claude_code") return "claude-code";
+  return "codex";
 }
 
 function resolveAgentForDomain(input, liveAgents) {
@@ -294,6 +319,191 @@ function normalizeStringArray(value) {
     .map((entry) => String(entry ?? "").trim())
     .filter(Boolean);
   return Array.from(new Set(values));
+}
+
+function extractLastTopLevelObject(text) {
+  const source = String(text || "");
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let start = -1;
+  let lastObject = null;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      if (depth <= 0) continue;
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        lastObject = source.slice(start, i + 1);
+        start = -1;
+      }
+    }
+  }
+  return lastObject;
+}
+
+function parseSliceOutputText(raw) {
+  const unwrapEnvelope = (value) => {
+    const direct = asObject(value);
+    if (!direct) return null;
+    if (direct.structured_output && typeof direct.structured_output === "object") {
+      return direct.structured_output;
+    }
+    if (typeof direct.structured_output === "string") {
+      try {
+        const parsedStructured = JSON.parse(direct.structured_output);
+        if (parsedStructured && typeof parsedStructured === "object") return parsedStructured;
+      } catch {
+        // ignore
+      }
+    }
+    if (typeof direct.result === "string") {
+      const trimmedResult = direct.result.trim();
+      if (trimmedResult) {
+        try {
+          const parsedResult = JSON.parse(trimmedResult);
+          if (parsedResult && typeof parsedResult === "object") return parsedResult;
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return direct;
+  };
+
+  const source = String(raw || "").trim();
+  if (!source) return null;
+  try {
+    const parsed = JSON.parse(source);
+    return unwrapEnvelope(parsed);
+  } catch {
+    // tolerate mixed logs/output by extracting last top-level object
+  }
+  const candidate = extractLastTopLevelObject(source);
+  if (!candidate) return null;
+  try {
+    const parsed = JSON.parse(candidate);
+    return unwrapEnvelope(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function sha256Hex(text) {
+  return createHash("sha256").update(String(text || ""), "utf8").digest("hex");
+}
+
+function resolveProofPath(pathname) {
+  const raw = String(pathname || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(raw).pathname);
+    } catch {
+      // ignore and fall back to raw handling
+    }
+  }
+  if (raw.startsWith("~/")) return join(homedir(), raw.slice(2));
+  return raw.startsWith("/") ? raw : resolve(raw);
+}
+
+function skillAliasCandidates(skill) {
+  const normalized = String(skill || "").replace(/^\$/, "").trim();
+  if (!normalized) return [];
+  const aliases = [normalized];
+  if (normalized.startsWith("orgx-")) aliases.push(normalized.slice("orgx-".length));
+  if (normalized.endsWith("-agent")) aliases.push(normalized.slice(0, -"-agent".length));
+  return Array.from(new Set(aliases.filter(Boolean)));
+}
+
+function skillDocHintPaths(skill) {
+  const aliases = skillAliasCandidates(skill);
+  const out = [];
+  for (const alias of aliases) {
+    out.push(join(homedir(), ".codex", "skills", alias, "SKILL.md"));
+    out.push(join(homedir(), ".agents", "skills", alias, "SKILL.md"));
+  }
+  return Array.from(new Set(out));
+}
+
+function verifySkillProof({ outputParsed, expectedSkill }) {
+  const normalizedExpectedSkill = String(expectedSkill || "").replace(/^\$/, "").trim();
+  const entries = arrayFrom(outputParsed?.skill_evidence)
+    .map((entry) => asObject(entry))
+    .filter(Boolean)
+    .map((entry) => ({
+      skill: String(entry.skill || "").replace(/^\$/, "").trim(),
+      skill_file: String(entry.skill_file || "").trim() || null,
+      skill_sha256: String(entry.skill_sha256 || "").trim().toLowerCase() || null,
+      skill_heading: String(entry.skill_heading || "").trim() || null,
+    }));
+
+  const matching = entries.find((entry) => entry.skill === normalizedExpectedSkill) ?? null;
+  const hintPaths = skillDocHintPaths(normalizedExpectedSkill);
+  const resolvedPath = resolveProofPath(matching?.skill_file || "");
+  const fileExists = Boolean(resolvedPath && existsSync(resolvedPath));
+  const fileContent = fileExists ? readFileSync(resolvedPath, "utf8") : "";
+  const fileSha256 = fileExists ? sha256Hex(fileContent) : null;
+  const hashMatches =
+    Boolean(matching?.skill_sha256) && Boolean(fileSha256) && matching.skill_sha256 === fileSha256;
+  const headingMatches =
+    Boolean(matching?.skill_heading) &&
+    fileExists &&
+    fileContent.toLowerCase().includes(String(matching.skill_heading || "").toLowerCase());
+  const pathHintMatches = Boolean(resolvedPath && hintPaths.includes(resolvedPath));
+  const pathLooksLikeSkillDoc =
+    Boolean(resolvedPath) &&
+    /SKILL\.md$/i.test(resolvedPath) &&
+    /[\\/]\.(?:codex|agents)[\\/]skills[\\/]/i.test(resolvedPath);
+
+  const ok =
+    Boolean(matching) &&
+    fileExists &&
+    hashMatches &&
+    headingMatches &&
+    (pathHintMatches || pathLooksLikeSkillDoc);
+
+  return {
+    ok,
+    expectedSkill: normalizedExpectedSkill || null,
+    evidenceCount: entries.length,
+    matchingSkillEntryFound: Boolean(matching),
+    resolvedPath: resolvedPath || null,
+    fileExists,
+    hashMatches,
+    headingMatches,
+    pathHintMatches,
+    pathLooksLikeSkillDoc,
+    expectedHintPaths: hintPaths,
+    reportedSha256: matching?.skill_sha256 ?? null,
+    actualSha256: fileSha256,
+    reportedHeading: matching?.skill_heading ?? null,
+  };
 }
 
 function extractSliceResultsFromSnapshot(snapshot, initiativeId) {
@@ -579,8 +789,14 @@ async function main() {
       keep: KEEP,
       seedOnly: SEED_ONLY,
       requireRealWorker: REQUIRE_REAL_WORKER,
+      strictAuthenticity: STRICT_AUTHENTICITY,
+      requireSkillFileProof: REQUIRE_SKILL_FILE_PROOF,
+      strictProgressEvidence: STRICT_PROGRESS_EVIDENCE,
+      strictOutcomeEvidence: STRICT_OUTCOME_EVIDENCE,
       domains: DOMAINS,
       harnessWorkdir: HARNESS_WORKDIR,
+      workerKind: null,
+      executorSourceClient: null,
     },
     created: {
       initiativeId: null,
@@ -639,6 +855,8 @@ async function main() {
       progressEvidenceMissingRunIds: [],
       skillCoverageChecks: [],
       skillCoverageMissingRunIds: [],
+      skillProofChecks: [],
+      skillProofMissingRunIds: [],
       realWorkerChecks: [],
       realWorkerMissingRunIds: [],
       tasksDoneCount: 0,
@@ -680,13 +898,20 @@ async function main() {
   const taskByWorkstreamId = new Map();
 
   try {
-    const workerKind = String(process.env.ORGX_AUTOPILOT_WORKER_KIND || "").trim().toLowerCase();
+    const workerKindRaw = String(process.env.ORGX_AUTOPILOT_WORKER_KIND || "").trim();
+    const workerKind = normalizeWorkerKind(workerKindRaw, "codex");
+    const executorRaw = String(process.env.ORGX_AUTOPILOT_EXECUTOR || "").trim();
+    const normalizedExecutor = normalizeWorkerKind(executorRaw, workerKind);
+    const executorSourceClient = normalizedExecutor === "claude-code" ? "claude-code" : "codex";
+    report.config.workerKind = workerKind;
+    report.config.executorSourceClient = executorSourceClient;
+
     if (REQUIRE_REAL_WORKER && workerKind === "mock") {
       throw new Error(
         "ORGX_AUTOPILOT_WORKER_KIND=mock is not allowed for this harness. Use a real worker (codex or claude-code)."
       );
     }
-    if (REQUIRE_REAL_WORKER && !workerKind) {
+    if (REQUIRE_REAL_WORKER && !workerKindRaw) {
       report.notes.push(
         "ORGX_AUTOPILOT_WORKER_KIND is not set; assuming real codex default. Set explicitly to codex for deterministic runs."
       );
@@ -778,7 +1003,8 @@ async function main() {
         title: [
           `[Version Harness][${domain}]`,
           `Create file ${expectedFile} with exact content "${expectedContent}".`,
-          "Before and after execution, call orgx_report_progress with clear summary + progress_pct.",
+          "Before and after execution, call an OrgX progress tool (orgx_report_progress or mcp__orgx__update_stream_progress) with clear summary + progress_pct.",
+          "Include skill_evidence with skill, skill_file, skill_sha256, and skill_heading for the required skill.",
           "Then register artifact url=file://<path>, include verification_steps, and task_updates status=done.",
         ].join(" "),
         status: "todo",
@@ -1090,6 +1316,8 @@ async function main() {
     const progressEvidenceByRun = extractProgressEvidenceFromSnapshot(finalSnapshot, initiativeId);
     const skillCoverageChecks = [];
     const skillCoverageMissingRunIds = [];
+    const skillProofChecks = [];
+    const skillProofMissingRunIds = [];
     const realWorkerChecks = [];
     const realWorkerMissingRunIds = [];
     const progressChecks = [];
@@ -1160,6 +1388,7 @@ async function main() {
       const outputExists = hasOutputPath && existsSync(outputPath);
       let logPreview = "";
       let logContent = "";
+      let outputRaw = "";
       if (logExists) {
         try {
           logContent = readFileSync(logPath, "utf8");
@@ -1169,14 +1398,85 @@ async function main() {
           logPreview = "";
         }
       }
+      if (outputExists) {
+        try {
+          outputRaw = readFileSync(outputPath, "utf8");
+        } catch {
+          outputRaw = "";
+        }
+      }
+      const outputParsed = parseSliceOutputText(outputRaw);
+      const outputStatus = String(outputParsed?.status || "").trim().toLowerCase();
+      const outputSummary = String(outputParsed?.summary || "").trim();
+      const outputRunId = String(outputParsed?.slice_id || "").trim();
+      const outputWorkstreamId = String(outputParsed?.workstream_id || "").trim();
+      const metadataRunId = String(
+        result?.metadata?.run_id ||
+          result?.metadata?.slice_run_id ||
+          started?.metadata?.run_id ||
+          started?.metadata?.slice_run_id ||
+          dispatched?.metadata?.run_id ||
+          dispatched?.metadata?.slice_run_id ||
+          ""
+      ).trim();
+      const expectedOutputRunId = metadataRunId || runId;
+      const outputFileRunId = hasOutputPath
+        ? basename(String(outputPath)).replace(/\.output\.json$/i, "")
+        : "";
+      const logFileRunId = hasLogPath
+        ? basename(String(logPath)).replace(/\.log$/i, "")
+        : "";
+      const outputStructured = Boolean(outputParsed && typeof outputParsed === "object");
+      const outputRunMatches = Boolean(outputRunId && outputRunId === expectedOutputRunId);
+      const outputRunMatchesOutputFile = Boolean(outputRunId && outputFileRunId && outputRunId === outputFileRunId);
+      const outputRunMatchesLogFile = Boolean(outputRunId && logFileRunId && outputRunId === logFileRunId);
+      const outputRunTraceable =
+        outputRunMatches || outputRunMatchesOutputFile || outputRunMatchesLogFile;
+      const outputWorkstreamMatches =
+        Boolean(outputWorkstreamId && outputWorkstreamId === String(expected.workstreamId));
+
       const logIndicatesMock = /mock slice/i.test(logPreview);
       const logIndicatesCodex = /codex_bin:/i.test(logPreview);
       const logIndicatesClaude = /claude slice/i.test(logPreview);
-      const runtimeLooksReal = logExists && outputExists && !logIndicatesMock && (logIndicatesCodex || logIndicatesClaude);
+      const logHasCodexOutputSchema =
+        /output_schema:\s+/i.test(logContent) || /--output-schema(?:=|\s+)/i.test(logContent);
+      const logHasClaudeOutputFormatJson =
+        /claude_output_format:\s*json/i.test(logContent) ||
+        /--output-format(?:=|\s+)json\b/i.test(logContent);
+      const logHasClaudeJsonSchema =
+        /claude_json_schema:\s+/i.test(logContent) ||
+        /--json-schema(?:=|\s+)/i.test(logContent);
+      const fallbackOutputSynthesized =
+        /fallback output synthesized/i.test(logContent) ||
+        /worker exited without structured output/i.test(outputSummary);
+      const workerMarkerMatchesExpected =
+        workerKind === "claude-code"
+          ? logIndicatesClaude && logHasClaudeOutputFormatJson && logHasClaudeJsonSchema
+          : workerKind === "codex"
+            ? logIndicatesCodex && logHasCodexOutputSchema
+            : logIndicatesCodex || logIndicatesClaude;
+      const runtimeLooksReal =
+        logExists &&
+        outputExists &&
+        outputStructured &&
+        outputRunTraceable &&
+        outputWorkstreamMatches &&
+        !logIndicatesMock &&
+        !fallbackOutputSynthesized &&
+        workerMarkerMatchesExpected;
       const logProgressCalls =
-        (logContent.match(/orgx_report_progress\(/gi) ?? []).length ||
-        (logContent.match(/orgx[- ]openclaw\.orgx_report_progress/gi) ?? []).length;
+        (logContent.match(/orgx_report_progress\(/gi) ?? []).length +
+        (logContent.match(/orgx[- ]openclaw\.orgx_report_progress/gi) ?? []).length +
+        (logContent.match(/mcp__orgx__update_stream_progress/gi) ?? []).length +
+        (logContent.match(/\bupdate_stream_progress\b/gi) ?? []).length;
       const logHasProgressEvidence = logProgressCalls >= 2;
+
+      const skillProof = verifySkillProof({
+        outputParsed,
+        expectedSkill,
+      });
+      const skillProofRequired = REQUIRE_SKILL_FILE_PROOF && Boolean(expectedSkill);
+
       const workerCheck = {
         runId,
         workstreamId: expected.workstreamId,
@@ -1184,11 +1484,29 @@ async function main() {
         outputPath: hasOutputPath ? outputPath : null,
         logExists,
         outputExists,
+        outputStructured,
+        outputStatus: outputStatus || null,
+        expectedOutputRunId: expectedOutputRunId || null,
+        outputRunId: outputRunId || null,
+        outputRunMatches,
+        outputRunMatchesOutputFile,
+        outputRunMatchesLogFile,
+        outputRunTraceable,
+        outputWorkstreamMatches,
         logIndicatesMock,
         logIndicatesCodex,
         logIndicatesClaude,
+        logHasCodexOutputSchema,
+        logHasClaudeOutputFormatJson,
+        logHasClaudeJsonSchema,
+        expectedWorkerKind: workerKind,
+        expectedExecutorSourceClient: executorSourceClient,
+        workerMarkerMatchesExpected,
+        fallbackOutputSynthesized,
         runtimeLooksReal,
         logProgressCalls,
+        skillProofRequired,
+        skillProofOk: skillProof.ok,
       };
       realWorkerChecks.push(workerCheck);
       if (!runtimeLooksReal) {
@@ -1201,13 +1519,15 @@ async function main() {
         orgxReportProgressEvents: 0,
         sources: [],
       };
-      const hasProgressEvidence =
+      const hasProgressEvidenceStrict =
         Number(progressEvidence.runtimeProgressEvents) > 0 ||
         Number(progressEvidence.orgxReportProgressEvents) > 0 ||
         (Number.isFinite(Number(progressEvidence.runtimeProgressPctMax)) &&
           Number(progressEvidence.runtimeProgressPctMax) > 0 &&
-          Number(progressEvidence.runtimeProgressPctMax) < 100) ||
-        logHasProgressEvidence;
+          Number(progressEvidence.runtimeProgressPctMax) < 100);
+      const hasProgressEvidence = STRICT_PROGRESS_EVIDENCE
+        ? hasProgressEvidenceStrict
+        : hasProgressEvidenceStrict || logHasProgressEvidence;
       const progressCheck = {
         runId,
         workstreamId: expected.workstreamId,
@@ -1216,6 +1536,7 @@ async function main() {
         orgxReportProgressEvents: progressEvidence.orgxReportProgressEvents,
         logProgressCalls,
         logHasProgressEvidence,
+        strictMode: STRICT_PROGRESS_EVIDENCE,
         sources: progressEvidence.sources,
         hasProgressEvidence,
       };
@@ -1223,10 +1544,23 @@ async function main() {
       if (!hasProgressEvidence) {
         progressMissingRunIds.push(runId);
       }
+
+      const skillProofCheck = {
+        runId,
+        workstreamId: expected.workstreamId,
+        required: skillProofRequired,
+        ...skillProof,
+      };
+      skillProofChecks.push(skillProofCheck);
+      if (skillProofRequired && !skillProof.ok) {
+        skillProofMissingRunIds.push(runId);
+      }
     }
 
     report.validation.skillCoverageChecks = skillCoverageChecks;
     report.validation.skillCoverageMissingRunIds = skillCoverageMissingRunIds;
+    report.validation.skillProofChecks = skillProofChecks;
+    report.validation.skillProofMissingRunIds = skillProofMissingRunIds;
     report.validation.realWorkerChecks = realWorkerChecks;
     report.validation.realWorkerMissingRunIds = realWorkerMissingRunIds;
     report.validation.progressEvidenceByRun = progressChecks;
@@ -1235,6 +1569,11 @@ async function main() {
     if (skillCoverageMissingRunIds.length > 0) {
       throw new Error(
         `Skill/domain coverage validation failed for run ids: ${skillCoverageMissingRunIds.join(", ")}`
+      );
+    }
+    if (REQUIRE_SKILL_FILE_PROOF && skillProofMissingRunIds.length > 0) {
+      throw new Error(
+        `Skill file proof validation failed for run ids: ${skillProofMissingRunIds.join(", ")}`
       );
     }
     if (REQUIRE_REAL_WORKER && realWorkerMissingRunIds.length > 0) {
@@ -1324,6 +1663,11 @@ async function main() {
     report.validation.tasksDoneCountEffective = doneCountEffective;
     report.validation.artifactsCountEffective = artifactsCountEffective;
     report.validation.outcomeFallbackUsed = outcomeFallbackUsed;
+    if (STRICT_OUTCOME_EVIDENCE && outcomeFallbackUsed) {
+      throw new Error(
+        "Outcome fallback was used (task/artifact state relied on inferred completion), which fails strict authenticity. Fix persistence/replay and rerun."
+      );
+    }
     if (doneCountEffective < requiredOutcomeCount) {
       throw new Error(
         `Expected at least ${requiredOutcomeCount} done tasks (manual + auto), got ${doneCountEffective}/${tasks.length}.`

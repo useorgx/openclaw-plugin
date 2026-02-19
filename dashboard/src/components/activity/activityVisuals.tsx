@@ -137,7 +137,7 @@ export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
   }
 
   if (/checkpoint|rollback|restore point/.test(haystack)) {
-    return { icon: 'checkpoint', label: 'Checkpoint', color: colors.amber };
+    return { icon: 'checkpoint', label: 'Save point', color: colors.amber };
   }
 
   if (/quality gate|quality score|quality check/.test(haystack)) {

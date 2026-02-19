@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
+import { formatWaitingDuration } from '@/lib/time';
 import { Modal } from '@/components/shared/Modal';
 import type { Decision } from '@/types';
 
@@ -34,7 +35,7 @@ export function DecisionModal({
               {decision.title}
             </h3>
             <span className="text-caption text-secondary">
-              {decision.agent} · Waiting {decision.waitingMinutes}m
+              {decision.agent} · {formatWaitingDuration(decision.waitingMinutes)}
             </span>
           </div>
         </div>

@@ -350,23 +350,89 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     }
 
     if (workerKind === "claude-code" || workerKind === "claude_code") {
+      const hasArgFlag = (args: string[], flag: string): boolean =>
+        args.includes(flag) || args.some((arg) => typeof arg === "string" && arg.startsWith(`${flag}=`));
+      const readArgValue = (args: string[], flag: string): string | null => {
+        const inline = args.find((arg) => typeof arg === "string" && arg.startsWith(`${flag}=`));
+        if (inline) return inline.slice(flag.length + 1).trim() || null;
+        const index = args.indexOf(flag);
+        const next = index >= 0 ? args[index + 1] : null;
+        return typeof next === "string" && next.trim().length > 0 ? next.trim() : null;
+      };
+
       const claudeBin = (process.env.ORGX_CLAUDE_CODE_BIN ?? "").trim() || "claude";
       const rawArgs = (process.env.ORGX_CLAUDE_CODE_ARGS ?? "").trim();
       const args = rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : [];
+      const hasPrint = hasArgFlag(args, "--print") || args.includes("-p");
+      const hasOutputFormat = hasArgFlag(args, "--output-format");
+      const hasJsonSchema = hasArgFlag(args, "--json-schema");
+      const hasNoSessionPersistence = hasArgFlag(args, "--no-session-persistence");
+      const hasPermissionMode = hasArgFlag(args, "--permission-mode");
+      const hasDangerousSkipPermissions = hasArgFlag(args, "--dangerously-skip-permissions");
+      const hasAllowDangerousSkipPermissions = hasArgFlag(args, "--allow-dangerously-skip-permissions");
+      const explicitOutputFormat = readArgValue(args, "--output-format");
+      const explicitJsonSchemaArg = readArgValue(args, "--json-schema");
+      const explicitPermissionMode = readArgValue(args, "--permission-mode");
+      let schemaArg: string | null = null;
+      if (input.outputSchemaPath && !hasJsonSchema) {
+        try {
+          const schemaRaw = readFileSync(input.outputSchemaPath, "utf8").trim();
+          if (schemaRaw.length > 0) schemaArg = schemaRaw;
+        } catch {
+          schemaArg = null;
+        }
+      }
+      const claudeExtraArgs: string[] = [];
+      if (!hasPrint) claudeExtraArgs.push("--print");
+      if (!hasOutputFormat) claudeExtraArgs.push("--output-format", "json");
+      if (!hasNoSessionPersistence) claudeExtraArgs.push("--no-session-persistence");
+      if (!hasPermissionMode) claudeExtraArgs.push("--permission-mode", "bypassPermissions");
+      if (!hasDangerousSkipPermissions && !hasAllowDangerousSkipPermissions) {
+        claudeExtraArgs.push("--dangerously-skip-permissions");
+      }
+      if (schemaArg) claudeExtraArgs.push("--json-schema", schemaArg);
 
       const logStream = createWriteStream(input.logPath, { flags: "a" });
       const outStream = createWriteStream(input.outputPath, { flags: "a" });
       logStream.write(`\n==== ${new Date().toISOString()} :: claude slice ${input.runId} ====\n`);
+      logStream.write(`claude_bin: ${claudeBin}\n`);
+      if (claudeExtraArgs.length > 0) {
+        const claudeArgsForLog = claudeExtraArgs.map((arg) => {
+          if (schemaArg && arg === schemaArg) return "<json-schema>";
+          return arg.length > 160 ? `${arg.slice(0, 157)}...` : arg;
+        });
+        logStream.write(`claude_args_injected: ${claudeArgsForLog.join(" ")}\n`);
+      }
+      if (schemaArg && input.outputSchemaPath) {
+        logStream.write(`claude_json_schema: ${input.outputSchemaPath}\n`);
+      } else if (hasJsonSchema) {
+        logStream.write(`claude_json_schema: ${explicitJsonSchemaArg ?? "provided-via-args"}\n`);
+      } else if (input.outputSchemaPath && !hasJsonSchema) {
+        logStream.write(`claude_json_schema: unavailable (${input.outputSchemaPath})\n`);
+      }
+      logStream.write(`claude_output_format: ${hasOutputFormat ? explicitOutputFormat ?? "provided" : "json"}\n`);
+      logStream.write(
+        `claude_permission_mode: ${hasPermissionMode ? explicitPermissionMode ?? "provided" : "bypassPermissions"}\n`
+      );
+      logStream.write(
+        `claude_skip_permissions: ${hasDangerousSkipPermissions || hasAllowDangerousSkipPermissions ? "provided" : "dangerously-skip-permissions"}\n`
+      );
 
-      // Claude Code invocation is environment-specific; ORGX_CLAUDE_CODE_ARGS should be set to
-      // a headless-compatible command shape. We pass the prompt as the final argument.
-      const child = spawn(claudeBin, [...args, input.prompt], {
+      const childEnv: Record<string, string | undefined> = {
+        ...process.env,
+        ...deps.resolveByokEnvOverrides(),
+        ...input.env,
+      };
+      if (claudeBin.includes(sep)) {
+        const binDir = dirname(claudeBin);
+        childEnv.PATH = childEnv.PATH ? `${binDir}:${childEnv.PATH}` : binDir;
+      }
+
+      // Force non-interactive structured output by default for parity with codex output-schema mode.
+      // If callers already pass explicit print/output/schema flags, we preserve their args unchanged.
+      const child = spawn(claudeBin, [...args, ...claudeExtraArgs, input.prompt], {
         cwd: input.cwd,
-        env: {
-          ...process.env,
-          ...deps.resolveByokEnvOverrides(),
-          ...input.env,
-        },
+        env: childEnv,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
       });

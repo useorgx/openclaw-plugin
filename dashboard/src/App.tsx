@@ -6,6 +6,7 @@ import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
+import { formatWaitingDuration } from '@/lib/time';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode } from '@/types';
@@ -31,6 +32,7 @@ import { BulkOutboxModal } from '@/components/bulk/BulkOutboxModal';
 import { BulkHandoffsModal } from '@/components/bulk/BulkHandoffsModal';
 import { ArtifactViewerProvider } from '@/components/artifacts/ArtifactViewerContext';
 import { ArtifactViewerModal } from '@/components/artifacts/ArtifactViewerModal';
+import { ContextualStatus } from '@/components/shared/ContextualStatus';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -323,7 +325,7 @@ function DashboardShell({
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
-    useState<ActivityTimeFilterId>('30m');
+    useState<ActivityTimeFilterId>('live');
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -621,7 +623,13 @@ function DashboardShell({
     [sessionNodesInScope]
   );
 
+  const completedToday = useMemo(
+    () => sessionNodesInScope.filter((n) => n.status === 'completed').length,
+    [sessionNodesInScope]
+  );
+
   const compactMetrics = useMemo(() => {
+    const needsAttention = (decisionsVisible ? data.decisions.length : 0) + blockedCount;
     const metrics: Array<{
       id: string;
       label: string;
@@ -630,75 +638,34 @@ function DashboardShell({
       icon: EntityIconType;
     }> = [
       {
-        id: 'sessions',
-        label: 'Sessions',
-        value: sessionNodesInScope.length,
-        color: colors.teal,
-        icon: 'session',
-      },
-      {
         id: 'active',
-        label: 'Active',
+        label: 'Running',
         value: activeSessionCount,
         color: activeSessionCount > 0 ? colors.lime : colors.textMuted,
         icon: 'active',
       },
       {
-        id: 'blocked',
-        label: 'Blocked',
-        value: blockedCount,
-        color: blockedCount > 0 ? colors.red : colors.textMuted,
-        icon: 'blocked',
-      },
-      {
-        id: 'failed',
-        label: 'Failed',
-        value: failedCount,
-        color: failedCount > 0 ? colors.red : colors.textMuted,
-        icon: 'failed',
-      },
-      {
-        id: 'decisions',
-        label: 'Decisions',
-        value: decisionsVisible ? data.decisions.length : 0,
-        color:
-          decisionsVisible && data.decisions.length > 0
-            ? colors.amber
-            : colors.textMuted,
+        id: 'attention',
+        label: 'Needs attention',
+        value: needsAttention,
+        color: needsAttention > 0 ? colors.amber : colors.textMuted,
         icon: 'decision',
       },
       {
-        id: 'outbox',
-        label: 'Outbox',
-        value: data.outbox.pendingTotal,
-        color:
-          data.outbox.replayStatus === 'error'
-            ? colors.red
-            : data.outbox.pendingTotal > 0
-              ? colors.amber
-              : colors.textMuted,
-        icon: 'outbox',
+        id: 'completed',
+        label: 'Done today',
+        value: completedToday,
+        color: colors.teal,
+        icon: 'session',
       },
     ];
-    if (data.handoffs.length > 0) {
-      metrics.push({
-        id: 'handoffs',
-        label: 'Handoffs',
-        value: data.handoffs.length,
-        color: colors.iris,
-        icon: 'handoff',
-      });
-    }
     return metrics;
   }, [
     activeSessionCount,
     blockedCount,
-    failedCount,
+    completedToday,
     data.decisions.length,
-    data.handoffs.length,
-    data.outbox.pendingTotal,
-    data.outbox.replayStatus,
-    sessionNodesInScope.length,
+    sessionNodesInScope,
     decisionsVisible,
   ]);
 
@@ -734,26 +701,7 @@ function DashboardShell({
         onAction: handleReconnect,
       });
     }
-    if (data.outbox.pendingTotal > 0) {
-      items.push({
-        id: `outbox:pending:${data.outbox.pendingTotal}`,
-        kind: 'info',
-        icon: 'notification',
-        title: 'Buffered updates pending',
-        message: `${data.outbox.pendingTotal} event(s) queued for replay.`,
-      });
-    }
-    if (data.outbox.replayStatus === 'error' && data.outbox.lastReplayError) {
-      items.push({
-        id: `outbox:error:${data.outbox.lastReplayError}`,
-        kind: 'error',
-        icon: 'notification',
-        title: 'Outbox replay failed',
-        message: data.outbox.lastReplayError,
-        actionLabel: 'Settings',
-        onAction: () => openSettings('orgx'),
-      });
-    }
+    /* Outbox sync is now invisible — only a subtle amber dot on settings gear when errored */
     if (opsNotice) {
       items.push({
         id: `ops:${opsNotice}`,
@@ -1680,23 +1628,7 @@ function DashboardShell({
             >
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
-            {(data.outbox.pendingTotal > 0 || data.outbox.replayStatus === 'error') && (
-              <div className="hidden sm:block">
-                <button
-                  type="button"
-                  onClick={() => setBulkModal('outbox')}
-                  className="transition-opacity hover:opacity-80"
-                  title="Open outbox details"
-                >
-                  <Badge
-                    color={data.outbox.replayStatus === 'error' ? colors.red : colors.amber}
-                    pulse={data.outbox.pendingTotal > 0 && data.outbox.replayStatus !== 'error'}
-                  >
-                    Outbox {data.outbox.pendingTotal}
-                  </Badge>
-                </button>
-              </div>
-            )}
+            {/* Outbox badge removed — sync is invisible to user */}
           </div>
 
           <div className="hidden items-center justify-center lg:flex">
@@ -1740,11 +1672,7 @@ function DashboardShell({
                 Last activity: {data.lastActivity}
               </span>
             )}
-            {data.outbox.pendingTotal > 0 && (
-              <span className="hidden text-body text-secondary xl:inline">
-                Replay: {data.outbox.replayStatus}
-              </span>
-            )}
+            {/* Replay status hidden — sync is invisible */}
             {demoMode && (
               <button
                 type="button"
@@ -1858,19 +1786,21 @@ function DashboardShell({
                   </div>
                 </div>
 
-                <div className="mb-1.5 flex flex-wrap items-center gap-1.5 px-1.5">
-                  {compactMetrics.map((metric) => (
-                    <span
-                      key={metric.id}
-                      className="inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro"
-                    >
-                      <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
-                      <span className="uppercase tracking-[0.08em] text-secondary">{metric.label}</span>
-                      <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {metric.value}
-                      </span>
-                    </span>
-                  ))}
+                <div className="mb-1.5 px-1.5">
+                  <ContextualStatus
+                    running={activeSessionCount}
+                    blocked={blockedCount}
+                    decisionsCount={decisionsVisible ? data.decisions.length : 0}
+                    completedToday={completedToday}
+                    onDecisionsClick={() => {
+                      setExpandedRightPanel('decisions');
+                      setNotificationTrayOpen(false);
+                    }}
+                    onBlockedClick={() => {
+                      setBulkModal('blocked');
+                      setNotificationTrayOpen(false);
+                    }}
+                  />
                 </div>
 
                 {visibleNotifications.length === 0 ? (
@@ -1986,26 +1916,18 @@ function DashboardShell({
         )}
       </header>
 
-      {/* Activity-only quick metric actions */}
+      {/* Activity-only contextual status sentence */}
       {dashboardView === 'activity' && (
-        <div className="flex items-center gap-1.5 overflow-x-auto border-b border-subtle px-4 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
-          {compactMetrics.map((metric) => (
-            <button
-              key={metric.id}
-              type="button"
-              onClick={() => handleCompactMetricClick(metric.id)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.03] px-2 py-0.5 text-micro transition-colors hover:bg-white/[0.08]"
-              title={`Bulk actions: ${metric.label.toLowerCase()}`}
-            >
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-strong bg-white/[0.02]">
-                <EntityIcon type={metric.icon} accent={metric.color} size={12} className="opacity-90" />
-              </span>
-              <span className="font-semibold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {metric.value}
-              </span>
-              <span className="uppercase tracking-[0.08em] text-secondary">{metric.label}</span>
-            </button>
-          ))}
+        <div className="flex items-center overflow-x-auto border-b border-subtle px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
+          <ContextualStatus
+            running={activeSessionCount}
+            blocked={blockedCount}
+            decisionsCount={decisionsVisible ? data.decisions.length : 0}
+            completedToday={completedToday}
+            onDecisionsClick={() => setExpandedRightPanel('decisions')}
+            onBlockedClick={() => setBulkModal('blocked')}
+            onNewInitiative={startInitiative}
+          />
         </div>
       )}
 
@@ -2059,11 +1981,24 @@ function DashboardShell({
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span className={`text-body font-medium ${data.decisions.length >= 20 ? 'text-red-200' : 'text-amber-200'}`}>
-              {data.decisions.length} decision{data.decisions.length === 1 ? '' : 's'} waiting
-              {longestWaitMinutes > 0 ? ` · longest: ${longestWaitMinutes}m` : ''}
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={data.decisions.length}
+                  initial={{ scale: 1.15, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="inline-block"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {data.decisions.length}
+                </motion.span>
+              </AnimatePresence>
+              {' '}decision{data.decisions.length === 1 ? '' : 's'} need{data.decisions.length === 1 ? 's' : ''} your input
+              {longestWaitMinutes > 0 ? ` · oldest from ${formatWaitingDuration(longestWaitMinutes)} ago` : ''}
             </span>
             <span className={`ml-auto text-caption ${data.decisions.length >= 20 ? 'text-red-300/70' : 'text-amber-300/70'}`}>
-              Click to review →
+              Review →
             </span>
           </button>
         )}
