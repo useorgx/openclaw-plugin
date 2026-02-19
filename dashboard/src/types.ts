@@ -5,6 +5,7 @@ import type {
   LiveActivityItem,
   LiveActivityType,
   LiveDecision,
+  LiveDecisionOption,
   OnboardingState,
   OnboardingStatus,
   RunPhase,
@@ -21,6 +22,7 @@ export type {
   LiveActivityItem,
   LiveActivityType,
   LiveDecision,
+  LiveDecisionOption,
   OnboardingKeySource,
   OnboardingNextAction,
   OnboardingState,
@@ -317,6 +319,21 @@ export interface NextUpQueueItem {
     status: AutoContinueStatus;
     activeTaskId: string | null;
     activeRunId: string | null;
+    activeTaskIds?: string[];
+    activeRunIds?: string[];
+    laneState?:
+      | 'idle'
+      | 'running'
+      | 'blocked'
+      | 'waiting_dependency'
+      | 'rate_limited'
+      | 'completed'
+      | null;
+    laneBlockedReason?: string | null;
+    laneWaitingOnWorkstreamIds?: string[];
+    laneRetryAt?: string | null;
+    maxParallelSlices?: number;
+    parallelMode?: 'iwmt';
     stopReason: AutoContinueStopReason | null;
     updatedAt: string;
   } | null;
@@ -343,8 +360,11 @@ export type AutoContinueStatus = 'running' | 'stopping' | 'stopped';
 export interface AutoContinueRun {
   initiativeId: string;
   agentId: string;
-  tokenBudget: number;
+  agentName?: string | null;
+  tokenBudget: number | null;
   tokensUsed: number;
+  maxParallelSlices?: number;
+  parallelMode?: 'iwmt';
   status: AutoContinueStatus;
   stopReason: AutoContinueStopReason | null;
   stopRequested: boolean;
@@ -356,6 +376,28 @@ export interface AutoContinueRun {
   lastRunId: string | null;
   activeTaskId: string | null;
   activeRunId: string | null;
+  activeTaskIds?: string[];
+  activeSliceRunIds?: string[];
+  blockedWorkstreamIds?: string[];
+  laneByWorkstreamId?: Record<
+    string,
+    {
+      workstreamId: string;
+      state:
+        | 'idle'
+        | 'running'
+        | 'blocked'
+        | 'waiting_dependency'
+        | 'rate_limited'
+        | 'completed';
+      activeRunId: string | null;
+      activeTaskIds: string[];
+      blockedReason: string | null;
+      waitingOnWorkstreamIds: string[];
+      retryAt: string | null;
+      updatedAt: string;
+    }
+  >;
 }
 
 export interface AutoContinueStatusResponse {
@@ -363,7 +405,8 @@ export interface AutoContinueStatusResponse {
   initiativeId: string | null;
   run: AutoContinueRun | null;
   defaults: {
-    tokenBudget: number;
+    tokenBudget: number | null;
+    maxParallelSlices?: number;
     tickMs: number;
   };
   error?: string;

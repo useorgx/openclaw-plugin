@@ -1,23 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
-import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
+import { formatDurationWithUrgency } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
-import type { LiveDecision } from '@/types';
+import type { LiveDecision, LiveDecisionOption } from '@/types';
 
 type DecisionActionSummary = {
   updated: number;
   failed: number;
+  firstError?: string;
+};
+
+type DecisionActionInput = {
+  note?: string;
+  optionId?: string;
 };
 
 interface DecisionDetailModalProps {
   open: boolean;
   decision: LiveDecision | null;
   onClose: () => void;
-  onApprove?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
-  onReject?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
+  onApprove?: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
+  onReject?: (
+    decisionId: string,
+    input?: DecisionActionInput
+  ) => Promise<DecisionActionSummary>;
 }
 
 type ModalPhase = 'idle' | 'approving' | 'rejecting' | 'success' | 'rejected' | 'error';
@@ -30,6 +42,22 @@ function safeJson(value: unknown) {
   } catch {
     return null;
   }
+}
+
+function normalizeOptionStatus(
+  value: unknown
+): LiveDecisionOption['impliedStatus'] {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'rejected') return 'declined';
+  if (
+    normalized === 'approved' ||
+    normalized === 'declined' ||
+    normalized === 'cancelled'
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 export function DecisionDetailModal({
@@ -56,7 +84,12 @@ export function DecisionDetailModal({
     if (open) {
       setPhase('idle');
       setErrorMessage(null);
-      setSelectedOption(null);
+      const defaultOptionId =
+        decision?.selectedOptionId ??
+        (decision?.options && decision.options.length === 1
+          ? decision.options[0].id
+          : null);
+      setSelectedOption(defaultOptionId);
       setNote('');
       setShowNotes(false);
       setCopied(false);
@@ -66,30 +99,86 @@ export function DecisionDetailModal({
     };
   }, [open, decision?.id]);
 
-  const requestedAt = decision?.requestedAt ?? null;
   const metadata = decision?.metadata;
 
-  const options = useMemo(() => {
+  const legacyOptions = useMemo(() => {
     if (!metadata) return [];
     const meta = metadata as Record<string, unknown>;
-    const raw = meta.options ?? meta.option ?? meta.actions ?? null;
-    if (Array.isArray(raw)) {
-      const parsed = raw
-        .map((item) => {
-          if (typeof item === 'string') return { label: item, action: item };
-          if (!item || typeof item !== 'object') return null;
-          const record = item as Record<string, unknown>;
-          const label = typeof record.label === 'string' ? record.label : null;
-          const action = typeof record.action === 'string' ? record.action : null;
-          const value = label ?? action ?? null;
-          if (!value) return null;
-          return { label: label ?? value, action: action ?? value };
-        })
-        .filter(Boolean) as Array<{ label: string; action: string }>;
-      return parsed;
+    const raw = meta.decision_options ?? meta.options ?? meta.actions ?? null;
+    if (!Array.isArray(raw)) return [];
+    const parsed: LiveDecisionOption[] = [];
+    const seen = new Set<string>();
+
+    for (let index = 0; index < raw.length; index += 1) {
+      const item = raw[index];
+      if (typeof item === 'string') {
+        const label = item.trim();
+        if (!label) continue;
+        const id = `option-${index + 1}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        parsed.push({
+          id,
+          label,
+          description: null,
+          impliedStatus: null,
+          actionType: null,
+          requiresNote: false,
+        });
+        continue;
+      }
+
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const id =
+        (typeof record.id === 'string' && record.id.trim()) ||
+        (typeof record.option_id === 'string' && record.option_id.trim()) ||
+        (typeof record.action_id === 'string' && record.action_id.trim()) ||
+        `option-${index + 1}`;
+      if (seen.has(id)) continue;
+
+      const label =
+        (typeof record.label === 'string' && record.label.trim()) ||
+        (typeof record.title === 'string' && record.title.trim()) ||
+        (typeof record.name === 'string' && record.name.trim()) ||
+        (typeof record.action === 'string' && record.action.trim()) ||
+        null;
+      if (!label) continue;
+
+      seen.add(id);
+      parsed.push({
+        id,
+        label,
+        description:
+          typeof record.description === 'string' ? record.description : null,
+        impliedStatus:
+          normalizeOptionStatus(record.implied_status) ??
+          normalizeOptionStatus(record.status),
+        actionType:
+          (typeof record.action_type === 'string' && record.action_type) ||
+          (typeof record.type === 'string' && record.type) ||
+          null,
+        requiresNote:
+          record.requires_note === true ||
+          record.requiresNote === true ||
+          record.note_required === true,
+      });
     }
-    return [];
+
+    return parsed.slice(0, 12);
   }, [metadata]);
+
+  const options = useMemo(() => {
+    if (decision?.options && decision.options.length > 0) {
+      return decision.options;
+    }
+    return legacyOptions;
+  }, [decision?.options, legacyOptions]);
+
+  const selectedOptionRecord = useMemo(
+    () => options.find((option) => option.id === selectedOption) ?? null,
+    [options, selectedOption]
+  );
 
   const context = useMemo(() => {
     const value = (decision?.context ?? '').trim();
@@ -123,15 +212,28 @@ export function DecisionDetailModal({
     }
   }, [decision, metadata]);
 
-  const buildNote = useCallback(() => {
-    const parts: string[] = [];
-    if (selectedOption) parts.push(`Selected: ${selectedOption}`);
-    if (note.trim()) parts.push(note.trim());
-    return parts.length > 0 ? parts.join('\n') : undefined;
-  }, [selectedOption, note]);
+  const buildActionInput = useCallback((): DecisionActionInput | undefined => {
+    const trimmedNote = note.trim();
+    const optionId = selectedOptionRecord?.id;
+    if (!trimmedNote && !optionId) return undefined;
+    return {
+      note: trimmedNote.length > 0 ? trimmedNote : undefined,
+      optionId: optionId ?? undefined,
+    };
+  }, [note, selectedOptionRecord]);
 
   const handleApprove = useCallback(async () => {
     if (!decision || !onApprove) return;
+    if (options.length > 0 && !selectedOptionRecord) {
+      setErrorMessage('Select an option before approving this decision.');
+      return;
+    }
+    if (selectedOptionRecord?.requiresNote && note.trim().length === 0) {
+      setErrorMessage('A note is required for the selected option.');
+      setShowNotes(true);
+      requestAnimationFrame(() => noteRef.current?.focus());
+      return;
+    }
     // Use functional setState to read latest phase without stale closure
     let shouldProceed = false;
     setPhase((prev) => {
@@ -143,10 +245,10 @@ export function DecisionDetailModal({
 
     setErrorMessage(null);
     try {
-      const result = await onApprove(decision.id, buildNote());
+      const result = await onApprove(decision.id, buildActionInput());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage('Approval failed. Please try again.');
+        setErrorMessage(result.firstError ?? 'Approval failed. Please try again.');
       } else {
         setPhase('success');
         autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
@@ -155,10 +257,20 @@ export function DecisionDetailModal({
       setPhase('error');
       setErrorMessage(err instanceof Error ? err.message : 'Approval failed.');
     }
-  }, [decision, onApprove, buildNote]);
+  }, [buildActionInput, decision, note, onApprove, options.length, selectedOptionRecord]);
 
   const handleReject = useCallback(async () => {
     if (!decision || !onReject) return;
+    if (options.length > 0 && !selectedOptionRecord) {
+      setErrorMessage('Select an option before rejecting this decision.');
+      return;
+    }
+    if (selectedOptionRecord?.requiresNote && note.trim().length === 0) {
+      setErrorMessage('A note is required for the selected option.');
+      setShowNotes(true);
+      requestAnimationFrame(() => noteRef.current?.focus());
+      return;
+    }
     let shouldProceed = false;
     setPhase((prev) => {
       if (prev === 'approving' || prev === 'rejecting') return prev;
@@ -169,10 +281,10 @@ export function DecisionDetailModal({
 
     setErrorMessage(null);
     try {
-      const result = await onReject(decision.id, buildNote());
+      const result = await onReject(decision.id, buildActionInput());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage('Rejection failed. Please try again.');
+        setErrorMessage(result.firstError ?? 'Rejection failed. Please try again.');
       } else {
         setPhase('rejected');
         autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
@@ -181,7 +293,7 @@ export function DecisionDetailModal({
       setPhase('error');
       setErrorMessage(err instanceof Error ? err.message : 'Rejection failed.');
     }
-  }, [decision, onReject, buildNote]);
+  }, [buildActionInput, decision, note, onReject, options.length, selectedOptionRecord]);
 
   // Keyboard: Cmd/Ctrl+Enter to approve
   useEffect(() => {
@@ -201,7 +313,16 @@ export function DecisionDetailModal({
   const busy = phase === 'approving' || phase === 'rejecting';
   const resolved = phase === 'success' || phase === 'rejected';
   const status = (decision.status ?? 'pending').toLowerCase();
-  const isPending = !status.includes('approved') && !status.includes('resolved') && !status.includes('rejected');
+  const isPending =
+    !status.includes('approved') &&
+    !status.includes('resolved') &&
+    !status.includes('rejected') &&
+    !status.includes('declined') &&
+    !status.includes('cancelled');
+  const missingOption = options.length > 0 && !selectedOptionRecord;
+  const missingRequiredNote =
+    selectedOptionRecord?.requiresNote === true && note.trim().length === 0;
+  const disableActions = busy || missingOption || missingRequiredNote;
 
   // Success / rejected overlay
   if (resolved) {
@@ -307,12 +428,17 @@ export function DecisionDetailModal({
               </p>
               <div className="space-y-1.5">
                 {options.map((option) => {
-                  const isActive = selectedOption === option.action;
+                  const isActive = selectedOption === option.id;
                   return (
                     <button
-                      key={`${option.label}:${option.action}`}
+                      key={option.id}
                       type="button"
-                      onClick={() => setSelectedOption(isActive ? null : option.action)}
+                      onClick={() => {
+                        setSelectedOption(isActive ? null : option.id);
+                        if (option.requiresNote) {
+                          setShowNotes(true);
+                        }
+                      }}
                       disabled={busy}
                       className="flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all"
                       style={{
@@ -334,9 +460,19 @@ export function DecisionDetailModal({
                           />
                         )}
                       </div>
-                      <span className={`text-body ${isActive ? 'font-medium text-white' : 'text-primary'}`}>
-                        {option.label}
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className={`text-body ${isActive ? 'font-medium text-white' : 'text-primary'}`}>
+                          {option.label}
+                        </span>
+                        {option.description && (
+                          <p className="mt-0.5 text-caption text-secondary">{option.description}</p>
+                        )}
+                        {option.requiresNote && (
+                          <p className="mt-1 text-micro uppercase tracking-[0.08em] text-amber-300">
+                            Note required
+                          </p>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -377,6 +513,11 @@ export function DecisionDetailModal({
                     rows={3}
                     className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-body text-primary placeholder-white/30 outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.04]"
                   />
+                  {selectedOptionRecord?.requiresNote && note.trim().length === 0 && (
+                    <p className="mt-2 text-caption text-amber-300">
+                      This option requires a note before submission.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -409,7 +550,7 @@ export function DecisionDetailModal({
                 <button
                   type="button"
                   onClick={handleReject}
-                  disabled={busy}
+                  disabled={disableActions}
                   className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-body font-medium text-secondary transition-all hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:opacity-40"
                 >
                   {phase === 'rejecting' ? (
@@ -439,13 +580,15 @@ export function DecisionDetailModal({
               <button
                 type="button"
                 onClick={handleApprove}
-                disabled={!onApprove || busy}
+                disabled={!onApprove || disableActions}
                 data-modal-autofocus="true"
                 className="rounded-lg px-5 py-2 text-body font-semibold transition-all"
                 style={{
-                  backgroundColor: !onApprove || busy ? 'rgba(255,255,255,0.08)' : colors.lime,
-                  color: !onApprove || busy ? 'rgba(255,255,255,0.4)' : '#000',
-                  boxShadow: !onApprove || busy ? 'none' : `0 0 20px ${colors.lime}20`,
+                  backgroundColor:
+                    !onApprove || disableActions ? 'rgba(255,255,255,0.08)' : colors.lime,
+                  color: !onApprove || disableActions ? 'rgba(255,255,255,0.4)' : '#000',
+                  boxShadow:
+                    !onApprove || disableActions ? 'none' : `0 0 20px ${colors.lime}20`,
                 }}
               >
                 {phase === 'approving' ? (

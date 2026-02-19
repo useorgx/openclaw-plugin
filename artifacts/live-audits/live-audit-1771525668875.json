@@ -1,0 +1,56 @@
+{
+  "startedAt": "2026-02-19T18:11:33.800Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "timeoutMs": 180000,
+  "target": {
+    "initiativeId": "e0acebc6-d047-44f2-87ad-49669685c7e9",
+    "workstreamId": "f14b8334-2449-4ac8-b69a-a41849a54438",
+    "workstreamTitle": "[Version Harness][Operations] 5",
+    "initiativeTitle": "[Version Harness] Queue Play Auto (20260219-074039Z)"
+  },
+  "actions": {
+    "missionControlOpened": true,
+    "queueOpened": true,
+    "startClicked": true,
+    "autoClicked": true,
+    "autoOnVisible": true,
+    "startApi": null,
+    "autoApi": null
+  },
+  "baseline": {
+    "snapshotAt": "2026-02-19T18:11:39.434Z",
+    "dispatchedCount": 1,
+    "completedCount": 1
+  },
+  "validation": {
+    "dispatchedAfterAction": false,
+    "completedAfterAction": false,
+    "continuationAfterCompletion": false,
+    "blockedByRateLimit": false,
+    "stoppedWithoutDispatch": false,
+    "passed": false
+  },
+  "observed": {
+    "actionAt": "2026-02-19T18:12:07.544Z",
+    "snapshotAt": "2026-02-19T18:27:48.875Z",
+    "dispatchedCount": 0,
+    "completedCount": 0,
+    "dispatchedSample": [],
+    "completedSample": [],
+    "rateLimitedSample": [],
+    "stoppedSample": [],
+    "errorSample": [],
+    "continuationEvidenceTitle": null
+  },
+  "screenshots": {
+    "beforeAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-before-1771524705777.png",
+    "afterAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-after-1771524729089.png"
+  },
+  "errors": [
+    "No API response observed for Start click (expected /mission-control/next-up/play).",
+    "No API response observed for Auto click (expected /mission-control/auto-continue/start)."
+  ],
+  "finishedAt": "2026-02-19T18:27:48.875Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-1771525668875.json"
+}

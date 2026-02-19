@@ -160,6 +160,24 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     },
   });
 
+  const remove = useMutation({
+    mutationFn: async (payload: { initiativeId: string; workstreamId: string }) => {
+      const response = await fetch('/orgx/api/mission-control/next-up/remove', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      if (!response.ok) {
+        throw new Error(normalizeErrorMessage(response, body, 'Failed to remove item from queue'));
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+
   const clear = useMutation({
     mutationFn: async (payload: {
       initiativeId?: string | null;
@@ -208,12 +226,14 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     unpin: unpin.mutateAsync,
     reorder: reorder.mutateAsync,
     move: move.mutateAsync,
+    remove: remove.mutateAsync,
     stopTriage: stopTriage.mutateAsync,
     clear: clear.mutateAsync,
     isPinning: pin.isPending,
     isUnpinning: unpin.isPending,
     isReordering: reorder.isPending,
     isMoving: move.isPending,
+    isRemoving: remove.isPending,
     isStoppingTriage: stopTriage.isPending,
     isClearing: clear.isPending,
   };

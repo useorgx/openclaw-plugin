@@ -1,6 +1,7 @@
 import type { HandoffSummary, LiveActivityItem, SessionTreeResponse } from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { OutboxSummary } from "../../outbox.js";
+import { normalizeReportingBlockedSessions } from "../helpers/session-classification.js";
 import type {
   AgentLaunchContext,
   RunLaunchContext,
@@ -20,6 +21,32 @@ type SnapshotPersistState = {
   lastFingerprint: string;
   lastPersistAt: number;
 };
+
+const LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.ORGX_LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS ?? "");
+  if (!Number.isFinite(raw)) return 8_000;
+  return Math.max(500, Math.min(60_000, Math.floor(raw)));
+})();
+
+async function withSoftTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 type LiveSnapshotRoutesDeps<TRes> = {
   parsePositiveInt: (raw: string | null, fallback: number) => number;
@@ -240,24 +267,44 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     };
 
     const settled = await Promise.allSettled([
-      deps.getLiveSessions({
-        initiative,
-        limit: sessionsLimit,
-      }),
-      deps.getLiveActivity({
-        run,
-        since,
-        limit: activityLimit,
-      }),
-      deps.getHandoffs(),
-      deps.getLiveDecisions({
-        status: decisionStatus,
-        limit: decisionsLimit,
-      }),
-      deps.getLiveAgents({
-        initiative,
-        includeIdle,
-      }),
+      withSoftTimeout(
+        deps.getLiveSessions({
+          initiative,
+          limit: sessionsLimit,
+        }),
+        LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
+        "live sessions"
+      ),
+      withSoftTimeout(
+        deps.getLiveActivity({
+          run,
+          since,
+          limit: activityLimit,
+        }),
+        LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
+        "live activity"
+      ),
+      withSoftTimeout(
+        deps.getHandoffs(),
+        LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
+        "handoffs"
+      ),
+      withSoftTimeout(
+        deps.getLiveDecisions({
+          status: decisionStatus,
+          limit: decisionsLimit,
+        }),
+        LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
+        "live decisions"
+      ),
+      withSoftTimeout(
+        deps.getLiveAgents({
+          initiative,
+          includeIdle,
+        }),
+        LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
+        "live agents"
+      ),
     ]);
 
     let sessions: SessionTreeResponse = {
@@ -422,6 +469,11 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     activity = deps.applyAgentContextsToActivity(activity, {
       agents: agentContexts,
       runs: runContexts,
+    });
+    sessions = normalizeReportingBlockedSessions({
+      sessions,
+      activity,
+      runtimeInstances,
     });
 
     try {

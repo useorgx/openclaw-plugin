@@ -131,6 +131,11 @@ export interface DecisionActionResult {
   error?: string;
 }
 
+export interface DecisionMutationInput {
+  note?: string;
+  optionId?: string;
+}
+
 export class OrgXClient {
   private apiKey: string;
   private baseUrl: string;
@@ -760,18 +765,21 @@ export class OrgXClient {
     };
   }
 
-  async decideDecision(id: string, action: DecisionAction, note?: string): Promise<Entity> {
-    const resolvedStatus = action === "approve" ? "approved" : "rejected";
-    const resolvedAt = new Date().toISOString();
+  async decideDecision(
+    id: string,
+    action: DecisionAction,
+    input?: DecisionMutationInput
+  ): Promise<Entity> {
+    const note = input?.note;
+    const optionId = input?.optionId;
+    const resolvedStatus = action === "approve" ? "approved" : "declined";
 
     try {
       return await this.updateEntity("decision", id, {
         status: resolvedStatus,
         resolution: resolvedStatus,
-        resolved_at: resolvedAt,
-        decided_at: resolvedAt,
-        decided_by: this.userId || undefined,
         note: note ?? undefined,
+        ...(optionId ? { option_id: optionId } : {}),
       });
     } catch {
       // Fallback for backends that only support generic "resolved" status.
@@ -779,9 +787,8 @@ export class OrgXClient {
         status: "resolved",
         decision_status: resolvedStatus,
         resolution: resolvedStatus,
-        resolved_at: resolvedAt,
-        decided_at: resolvedAt,
         note: note ?? undefined,
+        ...(optionId ? { option_id: optionId } : {}),
       });
     }
   }
@@ -789,7 +796,7 @@ export class OrgXClient {
   async bulkDecideDecisions(
     ids: string[],
     action: DecisionAction,
-    note?: string
+    input?: DecisionMutationInput
   ): Promise<DecisionActionResult[]> {
     const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
     const results: DecisionActionResult[] = new Array(uniqueIds.length);
@@ -805,7 +812,7 @@ export class OrgXClient {
 
         const id = uniqueIds[index];
         try {
-          const entity = await this.decideDecision(id, action, note);
+          const entity = await this.decideDecision(id, action, input);
           results[index] = { id, ok: true, entity };
         } catch (err: unknown) {
           results[index] = {

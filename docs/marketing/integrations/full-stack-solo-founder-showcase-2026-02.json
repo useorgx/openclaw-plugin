@@ -1,0 +1,41 @@
+{
+  "campaign_id": "full_stack_solo_founder_showcase_2026_02",
+  "primary_goal_metric": "Generate 10 qualified integration walkthrough requests from solo founders by March 31, 2026.",
+  "audience": {
+    "primary_icp": "Full-stack solo founders running product, growth, and operations alone",
+    "buying_stage": "Solution-aware, evaluating implementation fit",
+    "pain_points": [
+      "Context switching across engineering, support, and growth kills daily execution momentum.",
+      "Task tools show tickets but do not preserve decision trails from agent-assisted execution.",
+      "Founder-led teams need shipping speed and accountability without adding management overhead."
+    ]
+  },
+  "positioning": {
+    "problem": "Solo founders can ship quickly but lose clarity once execution spans multiple agents, tools, and approvals.",
+    "value_prop": "OrgX + OpenClaw creates one execution layer for autonomous runs, approvals, and progress visibility so solo teams keep velocity without losing control.",
+    "proof_points": [
+      "Mission control hierarchy across initiatives, workstreams, milestones, and tasks",
+      "Decision checkpoints with explicit pending and approved states",
+      "Progress and artifact reporting from background autonomous sessions"
+    ]
+  },
+  "content_items": [
+    {
+      "channel": "linkedin",
+      "title": "Full Stack Solo Founder: run the Larry playbook without execution drift",
+      "cta": "See the workflow and request a walkthrough: https://useorgx.com/integrations/openclaw?utm_source=linkedin&utm_medium=organic&utm_campaign=solo_founder_showcase&utm_content=piece_01_linkedin",
+      "content": "Full-stack solo founder reality: coding is rarely the bottleneck. Execution drift is.\\n\\nWhen product tasks, support follow-up, and growth experiments all run in parallel, context switching quietly kills throughput.\\n\\nThe Larry playbook loop we keep seeing work in founder-led teams:\\n- Pick one concrete workstream slice\\n- OpenClaw runs focused autonomous execution slices\\n- OrgX tracks progress, decisions, and artifacts in one command layer\\n- Report start + completion so nothing goes dark between updates\\n\\nWhy this matters for team-size-one operators:\\n- You can audit what is done versus what is blocked in minutes\\n- You can spot pending decisions before they stall momentum\\n- You can keep speed without becoming your own project coordinator\\n\\nIf you run product and ops yourself, dogfood this flow for one week and track how many tasks move from started to verified."
+    },
+    {
+      "channel": "twitter",
+      "title": "Solo founder integration thread: OpenClaw + OrgX",
+      "cta": "Explore the integration path: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=solo_founder_showcase&utm_content=piece_02_x_thread",
+      "content": "1/ Full-stack solo founder reality: shipping code is not the hardest part. Coordination is.\\n\\n2/ You can ship fast and still lose days to status hunting and approval ambiguity.\\n\\n3/ Larry playbook loop for one-person execution teams:\\n- Pick one workstream slice\\n- Execute in OpenClaw\\n- Track decisions and artifacts in OrgX\\n- Report start + completion\\n\\n4/ Why this works: speed and accountability live in one operating workflow.\\n\\n5/ You get one live source of truth for what is done, blocked, and waiting on founder input.\\n\\n6/ This shifts AI from disconnected output into managed execution.\\n\\n7/ Net result: fewer context resets, faster approvals, clearer follow-through.\\n\\n8/ If you run product + ops yourself, this is the integration to dogfood.\\n\\n9/ Workflow + walkthrough path: https://useorgx.com/integrations/openclaw?utm_source=x&utm_medium=thread&utm_campaign=solo_founder_showcase&utm_content=piece_02_x_thread"
+    }
+  ],
+  "assumptions": [
+    "Primary buyer is the founder/operator making tooling decisions directly.",
+    "Integration walkthrough request form is active at the OpenClaw integration URL.",
+    "Organic channel distribution is the first pass before paid amplification."
+  ]
+}

@@ -2089,7 +2089,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             status: "approved",
             resolution: "approved",
             resolved_at: resolvedAt,
-            decided_at: resolvedAt,
             note:
               "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
           });

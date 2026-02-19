@@ -1722,6 +1722,21 @@ export function createHttpHandler(
       status: "running" | "stopping" | "stopped";
       activeTaskId: string | null;
       activeRunId: string | null;
+      activeTaskIds: string[];
+      activeRunIds: string[];
+      laneState:
+        | "idle"
+        | "running"
+        | "blocked"
+        | "waiting_dependency"
+        | "rate_limited"
+        | "completed"
+        | null;
+      laneBlockedReason: string | null;
+      laneWaitingOnWorkstreamIds: string[];
+      laneRetryAt: string | null;
+      maxParallelSlices: number;
+      parallelMode: "iwmt";
       stopReason:
         | "budget_exhausted"
         | "blocked"
@@ -1743,6 +1758,7 @@ export function createHttpHandler(
     writeRuntimeEvent,
     autoContinueTickMs: AUTO_CONTINUE_TICK_MS,
     defaultAutoContinueTokenBudget,
+    defaultAutoContinueMaxParallelSlices,
     setLocalInitiativeStatusOverride,
     clearLocalInitiativeStatusOverride,
     applyLocalInitiativeOverrides,
@@ -1753,6 +1769,7 @@ export function createHttpHandler(
     tickAllAutoContinue,
     isInitiativeActiveStatus,
     runningAutoContinueForWorkstream,
+    getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
   } = createAutoContinueEngine({
@@ -2238,15 +2255,61 @@ export function createHttpHandler(
           initiativeId,
           workstream.id
         );
-        let queueState: NextUpQueueState = autoContinueRun
-          ? "running"
-          : candidateTask
-            ? "queued"
-            : "idle";
-        let blockReason: string | null = null;
+        const autoContinueLane = getAutoContinueLaneForWorkstream(
+          initiativeId,
+          workstream.id
+        );
+        const laneState = autoContinueLane?.state ?? null;
+        const scopedAllowedWorkstreams = Array.isArray(
+          (autoContinueRun as Record<string, unknown> | null)?.allowedWorkstreamIds
+        )
+          ? (((autoContinueRun as Record<string, unknown>).allowedWorkstreamIds as Array<unknown>)
+              .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+              .map((id) => id.trim()))
+          : [];
+        const runScopedToCurrentWorkstream =
+          scopedAllowedWorkstreams.length === 1 &&
+          scopedAllowedWorkstreams[0] === workstream.id &&
+          autoContinueRun?.status === "running";
+	        let queueState: NextUpQueueState =
+          laneState === "running"
+            ? "running"
+            : runScopedToCurrentWorkstream
+              ? "running"
+		          : candidateTask
+		            ? "queued"
+		            : "idle";
+	        let blockReason: string | null = null;
 
-        if (!autoContinueRun && !readyTask && candidateTask) {
+        if (laneState === "blocked") {
           queueState = "blocked";
+          blockReason = autoContinueLane?.blockedReason ?? "Blocked";
+        } else if (laneState === "waiting_dependency") {
+          queueState = "blocked";
+          if (
+            Array.isArray(autoContinueLane?.waitingOnWorkstreamIds) &&
+            autoContinueLane!.waitingOnWorkstreamIds.length > 0
+          ) {
+            const waitingTitles = autoContinueLane!.waitingOnWorkstreamIds
+              .map((id) => {
+                const node = nodeById.get(id);
+                return node?.type === "workstream" ? node.title : id;
+              })
+              .filter(Boolean);
+            blockReason =
+              waitingTitles.length > 0
+                ? `Waiting on ${waitingTitles.slice(0, 2).join(", ")}${waitingTitles.length > 2 ? "…" : ""}`
+                : "Waiting on dependency workstreams";
+          } else {
+            blockReason = "Waiting on dependency workstreams";
+          }
+        } else if (laneState === "rate_limited") {
+          queueState = "blocked";
+          blockReason = autoContinueLane?.blockedReason ?? "Rate-limited";
+        }
+
+	        if (!autoContinueRun && !readyTask && candidateTask) {
+	          queueState = "blocked";
           const blockedDeps = candidateTask.dependencyIds
             .map((depId) => nodeById.get(depId))
             .filter(
@@ -2295,21 +2358,25 @@ export function createHttpHandler(
           agentCatalogById.get(runnerAgentId)?.name ??
           runnerAgentId;
 
-        itemsForInitiative.push({
+	        itemsForInitiative.push({
           initiativeId,
           initiativeTitle,
           initiativeStatus,
           workstreamId: workstream.id,
           workstreamTitle: workstream.title,
           workstreamStatus: workstream.status,
-          nextTaskId:
-            candidateTask?.id ??
-            (autoContinueRun?.activeTaskId?.trim() || null),
-          nextTaskTitle:
-            candidateTask?.title ??
-            (autoContinueRun?.activeTaskId
-              ? nodeById.get(autoContinueRun.activeTaskId)?.title ?? null
-              : null),
+	          nextTaskId:
+	            candidateTask?.id ??
+            (autoContinueLane?.activeTaskIds?.[0]?.trim() ||
+	            autoContinueRun?.activeTaskId?.trim() ||
+              null),
+	          nextTaskTitle:
+	            candidateTask?.title ??
+            ((autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId)
+	              ? nodeById.get(
+                  (autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId) as string
+                )?.title ?? null
+	              : null),
           nextTaskPriority: candidateTask?.priorityNum ?? null,
           nextTaskDueAt: candidateTask?.dueDate ?? null,
           runnerAgentId,
@@ -2319,59 +2386,127 @@ export function createHttpHandler(
           blockReason,
           isPinned: Boolean(pin),
           pinnedRank: pin ? (pinnedRankByKey.get(pinKey) ?? null) : null,
-          autoContinue: autoContinueRun
-            ? {
-                status: autoContinueRun.status,
-                activeTaskId: autoContinueRun.activeTaskId,
-                activeRunId: autoContinueRun.activeRunId,
-                stopReason: autoContinueRun.stopReason,
-                updatedAt: autoContinueRun.updatedAt,
-              }
-            : null,
-        });
+	          autoContinue: autoContinueRun
+	            ? {
+	                status: autoContinueRun.status,
+	                activeTaskId: autoContinueRun.activeTaskId,
+	                activeRunId: autoContinueRun.activeRunId,
+                  activeTaskIds: Array.isArray((autoContinueRun as any).activeTaskIds)
+                    ? ((autoContinueRun as any).activeTaskIds as string[])
+                    : [],
+                  activeRunIds: Array.isArray((autoContinueRun as any).activeSliceRunIds)
+                    ? ((autoContinueRun as any).activeSliceRunIds as string[])
+                    : [],
+                  laneState,
+                  laneBlockedReason: autoContinueLane?.blockedReason ?? null,
+                  laneWaitingOnWorkstreamIds: Array.isArray(
+                    autoContinueLane?.waitingOnWorkstreamIds
+                  )
+                    ? autoContinueLane!.waitingOnWorkstreamIds
+                    : [],
+                  laneRetryAt: autoContinueLane?.retryAt ?? null,
+                  maxParallelSlices:
+                    typeof (autoContinueRun as any).maxParallelSlices === "number"
+                      ? (autoContinueRun as any).maxParallelSlices
+                      : 1,
+                  parallelMode:
+                    (typeof (autoContinueRun as any).parallelMode === "string" &&
+                    (autoContinueRun as any).parallelMode.toLowerCase() === "iwmt"
+                      ? "iwmt"
+                      : "iwmt"),
+	                stopReason: autoContinueRun.stopReason,
+	                updatedAt: autoContinueRun.updatedAt,
+	              }
+	            : null,
+	        });
       }
 
       const run = autoContinueRuns.get(initiativeId);
-      if (
-        run &&
-        (run.status === "running" || run.status === "stopping") &&
-        Array.isArray(run.allowedWorkstreamIds) &&
-        run.allowedWorkstreamIds.length > 0
-      ) {
-        for (const workstreamId of run.allowedWorkstreamIds) {
-          if (runningWorkstreams.has(workstreamId)) continue;
-          const workstream = nodeById.get(workstreamId);
-          if (!workstream || workstream.type !== "workstream") continue;
-          itemsForInitiative.push({
-            initiativeId,
+	      if (
+	        run &&
+	        (run.status === "running" || run.status === "stopping") &&
+	        Array.isArray(run.allowedWorkstreamIds) &&
+	        run.allowedWorkstreamIds.length > 0
+	      ) {
+	        for (const workstreamId of run.allowedWorkstreamIds) {
+	          if (runningWorkstreams.has(workstreamId)) continue;
+	          const workstream = nodeById.get(workstreamId);
+	          if (!workstream || workstream.type !== "workstream") continue;
+          const lane = getAutoContinueLaneForWorkstream(initiativeId, workstream.id);
+          if (
+            !lane &&
+            !(typeof run.activeRunId === "string" && run.activeRunId.trim().length > 0)
+          ) {
+            continue;
+          }
+          const laneState = lane?.state ?? null;
+          const queueState: NextUpQueueState =
+            laneState === "running"
+              ? "running"
+              : laneState === "blocked" ||
+                  laneState === "waiting_dependency" ||
+                  laneState === "rate_limited"
+                ? "blocked"
+                : "queued";
+	          itemsForInitiative.push({
+	            initiativeId,
             initiativeTitle,
             initiativeStatus,
             workstreamId: workstream.id,
             workstreamTitle: workstream.title,
             workstreamStatus: workstream.status,
-            nextTaskId: run.activeTaskId,
-            nextTaskTitle: run.activeTaskId
-              ? nodeById.get(run.activeTaskId)?.title ?? null
-              : null,
+	            nextTaskId:
+                lane?.activeTaskIds?.[0] ??
+                run.activeTaskId,
+	            nextTaskTitle:
+                lane?.activeTaskIds?.[0]
+                  ? nodeById.get(lane.activeTaskIds[0])?.title ?? null
+                  : run.activeTaskId
+	              ? nodeById.get(run.activeTaskId)?.title ?? null
+	              : null,
             nextTaskPriority: null,
             nextTaskDueAt: null,
             runnerAgentId: run.agentId,
             runnerAgentName:
               agentCatalogById.get(run.agentId)?.name ?? run.agentId,
             runnerSource: "inferred",
-            queueState: "running",
-            blockReason: null,
+	            queueState,
+	            blockReason:
+                queueState === "blocked"
+                  ? lane?.blockedReason ?? "Blocked"
+                  : null,
             isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),
             pinnedRank: pinnedRankByKey.get(`${initiativeId}:${workstream.id}`) ?? null,
-            autoContinue: {
-              status: run.status,
-              activeTaskId: run.activeTaskId,
-              activeRunId: run.activeRunId,
-              stopReason: run.stopReason,
-              updatedAt: run.updatedAt,
-            },
-          });
-        }
+	            autoContinue: {
+	              status: run.status,
+	              activeTaskId: run.activeTaskId,
+	              activeRunId: run.activeRunId,
+                activeTaskIds: Array.isArray((run as any).activeTaskIds)
+                  ? ((run as any).activeTaskIds as string[])
+                  : [],
+                activeRunIds: Array.isArray((run as any).activeSliceRunIds)
+                  ? ((run as any).activeSliceRunIds as string[])
+                  : [],
+                laneState,
+                laneBlockedReason: lane?.blockedReason ?? null,
+                laneWaitingOnWorkstreamIds: Array.isArray(lane?.waitingOnWorkstreamIds)
+                  ? lane!.waitingOnWorkstreamIds
+                  : [],
+                laneRetryAt: lane?.retryAt ?? null,
+                maxParallelSlices:
+                  typeof (run as any).maxParallelSlices === "number"
+                    ? (run as any).maxParallelSlices
+                    : 1,
+                parallelMode:
+                  typeof (run as any).parallelMode === "string" &&
+                  (run as any).parallelMode.toLowerCase() === "iwmt"
+                    ? "iwmt"
+                    : "iwmt",
+	              stopReason: run.stopReason,
+	              updatedAt: run.updatedAt,
+	            },
+	          });
+	        }
       }
 
       return itemsForInitiative;
@@ -2523,6 +2658,7 @@ export function createHttpHandler(
   registerMissionControlReadRoutes(apiRouter, {
     autoContinueRuns,
     defaultAutoContinueTokenBudget,
+    defaultAutoContinueMaxParallelSlices,
     autoContinueTickMs: AUTO_CONTINUE_TICK_MS,
     buildMissionControlGraph: (initiativeId) => buildMissionControlGraph(client, initiativeId),
     applyLocalInitiativeOverrideToGraph: (graph) =>
@@ -2581,7 +2717,8 @@ export function createHttpHandler(
   });
   registerDecisionActionsRoutes(apiRouter, {
     parseJsonRequest,
-    bulkDecideDecisions: (ids, action, note) => client.bulkDecideDecisions(ids, action, note),
+    bulkDecideDecisions: (ids, action, input) =>
+      client.bulkDecideDecisions(ids, action, input),
     sendJson,
     safeErrorMessage,
   });
@@ -2592,6 +2729,107 @@ export function createHttpHandler(
     createRunCheckpoint: (runId, input) => client.createRunCheckpoint(runId, input),
     restoreRunCheckpoint: (runId, input) => client.restoreRunCheckpoint(runId, input),
     runAction: (runId, action, input) => client.runAction(runId, action, input),
+    markRunCompleted: async (runId, input) => {
+      const normalizedRunId = runId.trim();
+      if (!normalizedRunId) {
+        throw new Error("runId is required");
+      }
+
+      const nowIso = new Date().toISOString();
+      const reason = input.reason?.trim() || null;
+      const message = reason
+        ? `Marked completed from dashboard (${reason}).`
+        : "Marked completed from dashboard.";
+      const existingRun = getAgentRun(normalizedRunId);
+
+      // ── Try OrgX-side completion first (for remote sessions) ────────────
+      let remoteOk = false;
+      try {
+        await client.updateEntity("run", normalizedRunId, {
+          status: "completed",
+          phase: "completed",
+        });
+        remoteOk = true;
+      } catch {
+        // OrgX may not support updating runs directly — fall through to local
+      }
+
+      // ── Local operations (defensive — partial failures don't block) ─────
+      let runtimeRecord: ReturnType<typeof upsertRuntimeInstanceFromHook> | null = null;
+      try {
+        runtimeRecord = upsertRuntimeInstanceFromHook({
+          source_client: "api",
+          event: "session_stop",
+          run_id: normalizedRunId,
+          correlation_id: normalizedRunId,
+          initiative_id: existingRun?.initiativeId ?? null,
+          workstream_id: existingRun?.workstreamId ?? null,
+          task_id: existingRun?.taskId ?? null,
+          agent_id: existingRun?.agentId ?? null,
+          phase: "completed",
+          message,
+          timestamp: nowIso,
+          metadata: {
+            source: "dashboard_manual_complete",
+            reason,
+          },
+        });
+      } catch (err: unknown) {
+        console.error(`[markRunCompleted] upsertRuntime failed for ${normalizedRunId}:`, err);
+      }
+
+      try {
+        markAgentRunStopped(normalizedRunId);
+      } catch (err: unknown) {
+        console.error(`[markRunCompleted] markAgentRunStopped failed for ${normalizedRunId}:`, err);
+      }
+
+      if (runtimeRecord) {
+        broadcastRuntimeSse("runtime.updated", runtimeRecord);
+      }
+      clearSnapshotResponseCache();
+
+      try {
+        appendActivityItems([
+          {
+            id: randomUUID(),
+            type: "run_completed",
+            title: message,
+            description: reason,
+            agentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+            agentName: runtimeRecord?.agentName ?? null,
+            requesterAgentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+            requesterAgentName: runtimeRecord?.agentName ?? null,
+            executorAgentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+            executorAgentName: runtimeRecord?.agentName ?? null,
+            runId: normalizedRunId,
+            initiativeId: runtimeRecord?.initiativeId ?? existingRun?.initiativeId ?? null,
+            timestamp: nowIso,
+            phase: "completed",
+            state: "done",
+            summary: message,
+            metadata: {
+              source: "dashboard_manual_complete",
+              reason,
+              remoteOk,
+              event: "dashboard_run_mark_completed",
+            },
+          } satisfies LiveActivityItem,
+        ]);
+      } catch (err: unknown) {
+        console.error(`[markRunCompleted] appendActivity failed for ${normalizedRunId}:`, err);
+      }
+
+      return {
+        ok: true,
+        data: {
+          runId: normalizedRunId,
+          action: "complete",
+          status: "completed",
+          remoteOk,
+        },
+      };
+    },
     sendJson,
     safeErrorMessage,
   });

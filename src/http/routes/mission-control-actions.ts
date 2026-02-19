@@ -891,6 +891,63 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
   router.add(
     "POST",
+    "mission-control/next-up/remove",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+        const workstreamId =
+          (deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+            query.get("workstreamId") ??
+            query.get("workstream_id") ??
+            "")
+            .trim();
+
+        if (!initiativeId || !workstreamId) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.remove.validation",
+            "initiativeId and workstreamId are required"
+          );
+          return;
+        }
+
+        const queue = await deps.buildNextUpQueue({ initiativeId });
+        const order = dedupeQueueOrder(
+          queue.items.map((item) => ({
+            initiativeId: item.initiativeId,
+            workstreamId: item.workstreamId,
+          }))
+        );
+        const key = `${initiativeId}:${workstreamId}`;
+        const nextOrder = order.filter(
+          (entry) => `${entry.initiativeId}:${entry.workstreamId}` !== key
+        );
+
+        const next = deps.setNextUpQueuePinOrder({ order: nextOrder });
+        deps.clearNextUpQueueCache(initiativeId);
+        deps.sendJson(res, 200, {
+          ok: true,
+          removed: { initiativeId, workstreamId },
+          orderRemaining: nextOrder.length,
+          pins: next.pins,
+          updatedAt: next.updatedAt,
+        });
+      } catch (err: unknown) {
+        sendRouteException(res, "mission-control.next-up.remove.handler", err);
+      }
+    },
+    "Mission-control next-up remove"
+  );
+
+  router.add(
+    "POST",
     "mission-control/next-up/clear",
     async ({ req, query, res }) => {
       try {

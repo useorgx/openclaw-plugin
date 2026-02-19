@@ -9,7 +9,7 @@ type RegisterDecisionActionsRoutesDeps<TReq, TRes> = {
   bulkDecideDecisions: (
     ids: string[],
     action: DecisionAction,
-    note?: string
+    input?: { note?: string; optionId?: string }
   ) => Promise<Array<{ ok?: boolean }>>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
@@ -36,6 +36,16 @@ async function handleApproveRequest<TReq, TRes>(
     typeof payload.note === "string" && payload.note.trim().length > 0
       ? payload.note.trim()
       : undefined;
+  const optionIdRaw =
+    typeof payload.option_id === "string"
+      ? payload.option_id
+      : typeof payload.optionId === "string"
+      ? payload.optionId
+      : null;
+  const optionId =
+    typeof optionIdRaw === "string" && optionIdRaw.trim().length > 0
+      ? optionIdRaw.trim()
+      : undefined;
   const ids = routeIds ?? extractIdsFromPayload(payload);
 
   if (ids.length === 0) {
@@ -43,13 +53,16 @@ async function handleApproveRequest<TReq, TRes>(
       error: "Decision IDs are required.",
       expected: {
         route: "/orgx/api/live/decisions/approve",
-        body: { ids: ["decision-id"], action: "approve|reject" },
+        body: { ids: ["decision-id"], action: "approve|reject", option_id: "optional-option-id" },
       },
     });
     return;
   }
 
-  const results = await deps.bulkDecideDecisions(ids, action, note);
+  const results = await deps.bulkDecideDecisions(ids, action, {
+    note,
+    optionId,
+  });
   const updated = results.filter((result) => result.ok === true).length;
   const failed = results.length - updated;
 

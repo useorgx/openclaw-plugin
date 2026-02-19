@@ -42,6 +42,18 @@ interface DecisionMutationResponse {
   results?: DecisionMutationResult[];
   updated?: number;
   failed?: number;
+  error?: string;
+}
+
+interface DecisionMutationInput {
+  note?: string;
+  optionId?: string;
+}
+
+interface DecisionActionSummary {
+  updated: number;
+  failed: number;
+  firstError?: string;
 }
 
 const DEFAULT_POLL_INTERVAL = 8000;
@@ -1105,7 +1117,11 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   ]);
 
   const applyDecisionMutation = useCallback(
-    async (decisionIds: string[], action: 'approve' | 'reject', note?: string) => {
+    async (
+      decisionIds: string[],
+      action: 'approve' | 'reject',
+      input?: DecisionMutationInput
+    ): Promise<DecisionActionSummary> => {
       if (!enableDecisions) {
         throw new Error('OrgX decisions are unavailable while disconnected.');
       }
@@ -1114,6 +1130,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       if (ids.length === 0) {
         return { updated: 0, failed: 0 };
       }
+      const note = input?.note?.trim() || undefined;
+      const optionId = input?.optionId?.trim() || undefined;
 
       if (useMock) {
         const resolvedIds = new Set(ids);
@@ -1160,7 +1178,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             lastActivity: formatRelativeTime(now),
           };
         });
-        return { updated: resolvedIds.size, failed: 0 };
+        return { updated: resolvedIds.size, failed: 0, firstError: undefined };
       }
 
       const response = await fetch('/orgx/api/live/decisions/approve', {
@@ -1172,6 +1190,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           ids,
           action,
           ...(note ? { note } : {}),
+          ...(optionId ? { option_id: optionId } : {}),
         }),
       });
 
@@ -1180,11 +1199,16 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       const resolvedIds = new Set(
         results.filter((result) => result.ok).map((result) => result.id)
       );
+      const failedResults = results.filter((result) => !result.ok);
+      const firstError =
+        failedResults.find((result) => typeof result.error === 'string' && result.error.trim().length > 0)
+          ?.error ??
+        (typeof payload?.error === 'string' && payload.error.trim().length > 0
+          ? payload.error
+          : undefined);
 
       if (!response.ok && response.status !== 207) {
-        const serverMessage = typeof (payload as { error?: string } | null)?.error === 'string'
-          ? (payload as { error: string }).error
-          : `Decision action failed (${response.status})`;
+        const serverMessage = firstError ?? `Decision action failed (${response.status})`;
         throw new Error(serverMessage);
       }
 
@@ -1254,21 +1278,21 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
       const updated = payload?.updated ?? resolvedIds.size;
       const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
-      return { updated, failed };
+      return { updated, failed, firstError };
     },
     [enableDecisions, fetchSnapshot, maxActivityItems, useMock]
   );
 
   const approveDecision = useCallback(
-    async (decisionId: string, note?: string) => {
-      return applyDecisionMutation([decisionId], 'approve', note);
+    async (decisionId: string, input?: DecisionMutationInput) => {
+      return applyDecisionMutation([decisionId], 'approve', input);
     },
     [applyDecisionMutation]
   );
 
   const rejectDecision = useCallback(
-    async (decisionId: string, note?: string) => {
-      return applyDecisionMutation([decisionId], 'reject', note);
+    async (decisionId: string, input?: DecisionMutationInput) => {
+      return applyDecisionMutation([decisionId], 'reject', input);
     },
     [applyDecisionMutation]
   );
@@ -1288,7 +1312,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
   const bulkDecisionAction = useCallback(
     async (decisionIds: string[], action: 'approve' | 'reject', note?: string) =>
-      applyDecisionMutation(decisionIds, action, note),
+      applyDecisionMutation(decisionIds, action, note ? { note } : undefined),
     [applyDecisionMutation]
   );
 

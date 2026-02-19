@@ -475,6 +475,7 @@ export function HierarchyTreeTable({
           initiativeId,
           workstreamId,
           fastAck: true,
+          ignoreSpawnGuardRateLimit: true,
         }),
       });
       const body = (await response.json().catch(() => null)) as
