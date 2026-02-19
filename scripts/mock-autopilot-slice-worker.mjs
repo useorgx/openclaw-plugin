@@ -9,6 +9,7 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=success (default)
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=no_updates
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision_optional
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_optional_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_unspecified_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=error
@@ -103,6 +104,51 @@ async function main() {
               blocking: true,
             },
           ],
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  if (scenario === "needs_decision_optional") {
+    emitOutput(
+      JSON.stringify(
+        {
+          status: "needs_decision",
+          summary: "Mock slice completed but reported only optional follow-up decisions.",
+          workstream_id: workstreamId,
+          workstream_title: workstreamTitle,
+          slice_id: runId,
+          decisions_needed: [
+            {
+              question: "Optional: review mock optimization recommendation?",
+              summary: "No approval is required to continue execution.",
+              options: ["Review now", "Review later", "Ignore"],
+              urgency: "medium",
+              blocking: false,
+            },
+          ],
+          artifacts: [
+            {
+              name: "Mock optional follow-up deliverable",
+              artifact_type: "document",
+              description: "A simulated artifact emitted by the worker.",
+              url: "file://mock/artifact-optional.txt",
+              verification_steps: ["Open the artifact file", "Verify contents match expected output"],
+              task_ids: taskId ? [taskId] : null,
+            },
+          ],
+          task_updates: taskId
+            ? [
+                {
+                  task_id: taskId,
+                  status: "done",
+                  reason: "Mock worker completed the task.",
+                },
+              ]
+            : null,
         },
         null,
         2

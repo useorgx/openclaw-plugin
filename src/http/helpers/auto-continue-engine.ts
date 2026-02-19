@@ -241,6 +241,26 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     milestoneIds: string[];
     lastError: string | null;
   };
+  type AutoFixSkipReason =
+    | "paused_by_user"
+    | "already_running"
+    | "missing_workstream"
+    | "missing_scope"
+    | "error";
+  type PendingAutoFix = {
+    requestId: string;
+    key: string;
+    initiativeId: string;
+    workstreamId: string;
+    runId: string | null;
+    sourceEvent: string | null;
+    requestedByAgentId: string | null;
+    requestedByAgentName: string | null;
+    graceMs: number;
+    scheduledAt: string;
+    dueAt: string;
+    timer: NodeJS.Timeout | null;
+  };
 
 	  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
 	  // Keep child handles alive so stdout/stderr capture remains reliable even when the process is detached.
@@ -270,6 +290,70 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
   const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
+  const AUTO_FIX_DEFAULT_GRACE_MS = readBudgetEnvNumber(
+    "ORGX_AUTOPILOT_AUTOFIX_GRACE_MS",
+    10_000,
+    { min: 1_000, max: 120_000 }
+  );
+  const autoFixByScope = new Map<string, PendingAutoFix>();
+
+  const normalizeStatusValue = (value: unknown): string => {
+    if (typeof value !== "string") return "";
+    return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  };
+
+  const isPendingDecisionStatus = (value: unknown): boolean => {
+    const normalized = normalizeStatusValue(value);
+    if (!normalized) return false;
+    return (
+      normalized === "pending" ||
+      normalized === "open" ||
+      normalized === "requested" ||
+      normalized === "awaiting_review" ||
+      normalized === "awaiting_approval" ||
+      normalized === "queued"
+    );
+  };
+
+  const decisionMatchesWorkstream = (
+    record: Record<string, unknown>,
+    workstreamId: string,
+    runId: string | null
+  ): boolean => {
+    const directWorkstream =
+      pickString(record, ["workstream_id", "workstreamId"])?.trim() ?? "";
+    if (directWorkstream && directWorkstream === workstreamId) return true;
+    const correlationId = pickString(record, ["correlation_id", "correlationId"])?.trim() ?? "";
+    if (runId && correlationId && correlationId === runId) return true;
+
+    const metadataRaw = record.metadata;
+    const metadata =
+      metadataRaw && typeof metadataRaw === "object" && !Array.isArray(metadataRaw)
+        ? (metadataRaw as Record<string, unknown>)
+        : null;
+    if (!metadata) return false;
+
+    const nestedWorkstream =
+      pickString(metadata, ["workstream_id", "workstreamId"])?.trim() ?? "";
+    if (nestedWorkstream && nestedWorkstream === workstreamId) return true;
+
+    const nestedCorrelation =
+      pickString(metadata, ["correlation_id", "correlationId"])?.trim() ?? "";
+    if (runId && nestedCorrelation && nestedCorrelation === runId) return true;
+    return false;
+  };
+
+  const decisionIsBlocking = (record: Record<string, unknown>): boolean => {
+    const direct = record.blocking;
+    if (typeof direct === "boolean") return direct;
+
+    const metadataRaw = record.metadata;
+    if (metadataRaw && typeof metadataRaw === "object" && !Array.isArray(metadataRaw)) {
+      const nested = (metadataRaw as Record<string, unknown>).blocking;
+      if (typeof nested === "boolean") return nested;
+    }
+    return true;
+  };
 
   const setLocalInitiativeStatusOverride = (
     initiativeId: string,
@@ -803,7 +887,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         const effectiveParsedStatus =
           parsedStatus === "completed" && blockingDecisionCount > 0
             ? "needs_decision"
-            : parsedStatus;
+            : parsedStatus === "needs_decision" && blockingDecisionCount === 0
+              ? "completed"
+              : parsedStatus;
 
         slice.status =
           effectiveParsedStatus === "completed"
@@ -1527,6 +1613,294 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
   }
 
+  async function scheduleAutoFixForWorkstream(input: {
+    initiativeId: string;
+    workstreamId: string;
+    runId?: string | null;
+    event?: string | null;
+    requestedByAgentId?: string | null;
+    requestedByAgentName?: string | null;
+    graceMs?: number | null;
+  }): Promise<{
+    requestId: string;
+    initiativeId: string;
+    workstreamId: string;
+    runId: string | null;
+    sourceEvent: string | null;
+    graceMs: number;
+    scheduledAt: string;
+    dueAt: string;
+  }> {
+    const initiativeId = input.initiativeId.trim();
+    const workstreamId = input.workstreamId.trim();
+    if (!initiativeId || !workstreamId) {
+      throw new Error("initiativeId and workstreamId are required");
+    }
+
+    const runId = (input.runId ?? "").trim() || null;
+    const sourceEvent = (input.event ?? "").trim() || null;
+    const requestedByAgentId = (input.requestedByAgentId ?? "").trim() || null;
+    const requestedByAgentName = (input.requestedByAgentName ?? "").trim() || null;
+
+    const providedGraceMs =
+      typeof input.graceMs === "number" && Number.isFinite(input.graceMs)
+        ? Math.floor(input.graceMs)
+        : null;
+    const graceMs = Math.max(
+      1_000,
+      Math.min(120_000, providedGraceMs ?? AUTO_FIX_DEFAULT_GRACE_MS)
+    );
+
+    const key = `${initiativeId}:${workstreamId}`;
+    const existing = autoFixByScope.get(key);
+    if (existing?.timer) clearTimeout(existing.timer);
+
+    const scheduledAt = new Date().toISOString();
+    const dueAt = new Date(Date.now() + graceMs).toISOString();
+    const requestId = randomUUID();
+
+    const emitSkip = async (reason: AutoFixSkipReason, details?: Record<string, unknown>) => {
+      await emitActivitySafe({
+        initiativeId,
+        runId: runId ?? undefined,
+        correlationId: runId ?? undefined,
+        phase: "review",
+        level: reason === "error" ? "error" : "warn",
+        message:
+          reason === "paused_by_user"
+            ? `Auto-fix skipped for ${workstreamId}: paused during grace window.`
+            : reason === "already_running"
+              ? `Auto-fix skipped for ${workstreamId}: workstream already running.`
+              : reason === "missing_workstream"
+                ? `Auto-fix skipped for ${workstreamId}: workstream data unavailable.`
+                : reason === "missing_scope"
+                  ? `Auto-fix skipped: scope metadata was incomplete.`
+                  : `Auto-fix failed for ${workstreamId}.`,
+        metadata: {
+          event: "autopilot_autofix_skipped",
+          reason,
+          initiative_id: initiativeId,
+          workstream_id: workstreamId,
+          requested_by_agent_id: requestedByAgentId,
+          requested_by_agent_name: requestedByAgentName,
+          run_id: runId,
+          source_event: sourceEvent,
+          grace_ms: graceMs,
+          request_id: requestId,
+          scheduled_at: scheduledAt,
+          due_at: dueAt,
+          ...(details ?? {}),
+        },
+      });
+    };
+
+    const executeScheduledAutoFix = async () => {
+      const pending = autoFixByScope.get(key);
+      if (!pending || pending.requestId !== requestId) return;
+      autoFixByScope.delete(key);
+
+      const existingRun = autoContinueRuns.get(initiativeId) ?? null;
+      if (
+        existingRun &&
+        (existingRun.stopRequested ||
+          existingRun.status === "stopping" ||
+          existingRun.stopReason === "stopped")
+      ) {
+        await emitSkip("paused_by_user");
+        return;
+      }
+      if (
+        existingRun &&
+        (existingRun.status === "running" || existingRun.status === "stopping") &&
+        existingRun.activeRunId
+      ) {
+        await emitSkip("already_running", {
+          active_run_id: existingRun.activeRunId,
+          run_status: existingRun.status,
+        });
+        return;
+      }
+
+      let optionalDecisionsApproved = 0;
+      try {
+        const decisionResult = await client.listEntities("decision", {
+          initiative_id: initiativeId,
+          status: "pending",
+          limit: 500,
+        });
+        const decisionRows = Array.isArray(decisionResult?.data) ? decisionResult.data : [];
+        const resolvedAt = new Date().toISOString();
+        for (const row of decisionRows) {
+          if (!row || typeof row !== "object") continue;
+          const record = row as Record<string, unknown>;
+          const decisionId = pickString(record, ["id"])?.trim() ?? "";
+          if (!decisionId) continue;
+          if (!isPendingDecisionStatus(record.status ?? record.decision_status)) continue;
+          if (!decisionMatchesWorkstream(record, workstreamId, runId)) continue;
+          if (decisionIsBlocking(record)) continue;
+          await client.updateEntity("decision", decisionId, {
+            status: "approved",
+            resolution: "approved",
+            resolved_at: resolvedAt,
+            decided_at: resolvedAt,
+            note:
+              "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
+          });
+          optionalDecisionsApproved += 1;
+        }
+      } catch {
+        // best effort
+      }
+
+      let resetTaskCount = 0;
+      try {
+        const taskResult = await client.listEntities("task", {
+          initiative_id: initiativeId,
+          workstream_id: workstreamId,
+          limit: 1000,
+        });
+        const taskRows = Array.isArray(taskResult?.data) ? taskResult.data : [];
+        if (taskRows.length === 0) {
+          await emitSkip("missing_workstream");
+          return;
+        }
+        for (const row of taskRows) {
+          if (!row || typeof row !== "object") continue;
+          const record = row as Record<string, unknown>;
+          const taskId = pickString(record, ["id"])?.trim() ?? "";
+          if (!taskId) continue;
+          const status = normalizeStatusValue(record.status);
+          if (!status || status === "todo" || status === "done" || status === "completed") {
+            continue;
+          }
+          const shouldReset =
+            status === "in_progress" ||
+            status === "inprogress" ||
+            status === "active" ||
+            status === "running" ||
+            status === "working" ||
+            status === "planning" ||
+            status === "dispatching" ||
+            status === "pending" ||
+            status === "blocked" ||
+            status === "stalled" ||
+            status === "failed" ||
+            status === "error";
+          if (!shouldReset) continue;
+          await client.updateEntity("task", taskId, { status: "todo" });
+          resetTaskCount += 1;
+        }
+      } catch {
+        // best effort
+      }
+
+      const latestRun = autoContinueRuns.get(initiativeId) ?? null;
+      const dispatchAgentId =
+        latestRun?.agentId ??
+        requestedByAgentId ??
+        "main";
+      const dispatchAgentName =
+        latestRun?.agentName ??
+        requestedByAgentName ??
+        null;
+      const dispatchRun = await startAutoContinueRun({
+        initiativeId,
+        agentId: dispatchAgentId,
+        agentName: dispatchAgentName,
+        tokenBudget: latestRun?.tokenBudget ?? defaultAutoContinueTokenBudget(),
+        includeVerification: latestRun?.includeVerification ?? false,
+        allowedWorkstreamIds: [workstreamId],
+        stopAfterSlice: true,
+      });
+      await tickAutoContinueRun(dispatchRun);
+
+      await emitActivitySafe({
+        initiativeId,
+        runId: dispatchRun.activeRunId ?? runId ?? undefined,
+        correlationId: dispatchRun.activeRunId ?? runId ?? undefined,
+        phase: "execution",
+        level: "info",
+        message: `Auto-fix dispatched for ${workstreamId}.`,
+        metadata: {
+          event: "autopilot_autofix_executed",
+          initiative_id: initiativeId,
+          workstream_id: workstreamId,
+          requested_by_agent_id: requestedByAgentId,
+          requested_by_agent_name: requestedByAgentName,
+          source_event: sourceEvent,
+          run_id: runId,
+          grace_ms: graceMs,
+          request_id: requestId,
+          scheduled_at: scheduledAt,
+          due_at: dueAt,
+          optional_decisions_auto_approved: optionalDecisionsApproved,
+          reset_task_count: resetTaskCount,
+          dispatched_run_id: dispatchRun.activeRunId,
+          dispatch_agent_id: dispatchAgentId,
+          dispatch_agent_name: dispatchAgentName,
+        },
+      });
+    };
+
+    const pending: PendingAutoFix = {
+      requestId,
+      key,
+      initiativeId,
+      workstreamId,
+      runId,
+      sourceEvent,
+      requestedByAgentId,
+      requestedByAgentName,
+      graceMs,
+      scheduledAt,
+      dueAt,
+      timer: null,
+    };
+    const timer = setTimeout(() => {
+      void executeScheduledAutoFix().catch(async (err: unknown) => {
+        autoFixByScope.delete(key);
+        await emitSkip("error", {
+          error: safeErrorMessage(err),
+        });
+      });
+    }, graceMs);
+    pending.timer = timer;
+    autoFixByScope.set(key, pending);
+
+    await emitActivitySafe({
+      initiativeId,
+      runId: runId ?? undefined,
+      correlationId: runId ?? undefined,
+      phase: "review",
+      level: "info",
+      message: `Auto-fix scheduled for ${workstreamId} in ${Math.round(graceMs / 1000)}s.`,
+      metadata: {
+        event: "autopilot_autofix_scheduled",
+        initiative_id: initiativeId,
+        workstream_id: workstreamId,
+        requested_by_agent_id: requestedByAgentId,
+        requested_by_agent_name: requestedByAgentName,
+        source_event: sourceEvent,
+        run_id: runId,
+        grace_ms: graceMs,
+        request_id: requestId,
+        scheduled_at: scheduledAt,
+        due_at: dueAt,
+      },
+    });
+
+    return {
+      requestId,
+      initiativeId,
+      workstreamId,
+      runId,
+      sourceEvent,
+      graceMs,
+      scheduledAt,
+      dueAt,
+    };
+  }
+
 		  async function startAutoContinueRun(input: {
 		    initiativeId: string;
 		    agentId: string;
@@ -1630,6 +2004,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     tickAllAutoContinue,
     isInitiativeActiveStatus,
     runningAutoContinueForWorkstream,
+    scheduleAutoFixForWorkstream,
     startAutoContinueRun,
   };
 }

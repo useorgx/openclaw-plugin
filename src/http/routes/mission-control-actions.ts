@@ -55,6 +55,24 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   stopAutoContinueRun: (input: any) => Promise<void>;
   updateInitiativeAutoContinueState: (input: any) => Promise<void>;
   tickAllAutoContinue: () => Promise<void>;
+  scheduleAutoFixForWorkstream: (input: {
+    initiativeId: string;
+    workstreamId: string;
+    runId?: string | null;
+    event?: string | null;
+    requestedByAgentId?: string | null;
+    requestedByAgentName?: string | null;
+    graceMs?: number | null;
+  }) => Promise<{
+    requestId: string;
+    initiativeId: string;
+    workstreamId: string;
+    runId: string | null;
+    sourceEvent: string | null;
+    graceMs: number;
+    scheduledAt: string;
+    dueAt: string;
+  }>;
   upsertNextUpQueuePin: (input: {
     initiativeId: string;
     workstreamId: string;
@@ -913,6 +931,96 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
       }
     },
     "Mission-control next-up clear"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/activity/auto-fix",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+        const workstreamId =
+          (deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+            query.get("workstreamId") ??
+            query.get("workstream_id") ??
+            "")
+            .trim();
+
+        if (!initiativeId || !workstreamId) {
+          deps.sendJson(res, 400, {
+            ok: false,
+            error: "initiativeId and workstreamId are required",
+          });
+          return;
+        }
+
+        const runId =
+          (deps.pickString(payload, ["runId", "run_id", "sessionId", "session_id"]) ??
+            query.get("runId") ??
+            query.get("run_id") ??
+            query.get("sessionId") ??
+            query.get("session_id") ??
+            "")
+            .trim() || null;
+        const event =
+          (deps.pickString(payload, ["event", "eventName", "event_name"]) ??
+            query.get("event") ??
+            query.get("eventName") ??
+            query.get("event_name") ??
+            "")
+            .trim() || null;
+        const requestedByAgentId =
+          (deps.pickString(payload, ["requestedByAgentId", "requested_by_agent_id"]) ??
+            query.get("requestedByAgentId") ??
+            query.get("requested_by_agent_id") ??
+            "")
+            .trim() || null;
+        const requestedByAgentName =
+          (deps.pickString(payload, ["requestedByAgentName", "requested_by_agent_name"]) ??
+            query.get("requestedByAgentName") ??
+            query.get("requested_by_agent_name") ??
+            "")
+            .trim() || null;
+
+        const graceMsFromQueryRaw =
+          query.get("graceMs") ??
+          query.get("grace_ms") ??
+          query.get("delayMs") ??
+          query.get("delay_ms") ??
+          null;
+        const graceMsFromQuery =
+          typeof graceMsFromQueryRaw === "string" && graceMsFromQueryRaw.trim().length > 0
+            ? Number(graceMsFromQueryRaw)
+            : null;
+        const graceMs =
+          deps.pickNumber(payload, ["graceMs", "grace_ms", "delayMs", "delay_ms"]) ??
+          (Number.isFinite(graceMsFromQuery) ? graceMsFromQuery : null);
+
+        const schedule = await deps.scheduleAutoFixForWorkstream({
+          initiativeId,
+          workstreamId,
+          runId,
+          event,
+          requestedByAgentId,
+          requestedByAgentName,
+          graceMs,
+        });
+
+        deps.sendJson(res, 202, {
+          ok: true,
+          scheduled: schedule,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Mission-control activity auto-fix"
   );
 
   router.add(

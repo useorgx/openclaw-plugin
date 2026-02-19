@@ -414,6 +414,26 @@ test("autopilot slice lifecycle: needs_decision blocks and requests decision", a
   assert.equal(sliceResult.metadata?.activity_bucket, "decision");
 });
 
+test("autopilot slice lifecycle: needs_decision + non-blocking decisions stays completed", async () => {
+  const result = await runPlayTickStatus({ scenario: "needs_decision_optional" });
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "completed");
+  const decisionOps = listDecisionCreateOps(result.calls);
+  assert.ok(decisionOps.length > 0, "expected decision.create");
+  assert.ok(
+    decisionOps.every((op) => op.blocking === false),
+    "expected optional decisions to remain non-blocking"
+  );
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.metadata?.parsed_status, "completed");
+  assert.equal(sliceResult.metadata?.blocking_decisions, 0);
+  assert.equal(sliceResult.metadata?.non_blocking_decisions, 1);
+  assert.equal(sliceResult.metadata?.decision_required, false);
+  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+});
+
 test("autopilot slice lifecycle: completed + non-blocking decision stays completed", async () => {
   const result = await runPlayTickStatus({ scenario: "completed_optional_decision" });
   assert.equal(result.status.ok, true);

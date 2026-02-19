@@ -1706,6 +1706,7 @@ export function createHttpHandler(
     tickAllAutoContinue,
     isInitiativeActiveStatus,
     runningAutoContinueForWorkstream,
+    scheduleAutoFixForWorkstream,
     startAutoContinueRun,
   } = createAutoContinueEngine({
     client,
@@ -2582,6 +2583,7 @@ export function createHttpHandler(
     stopAutoContinueRun,
     updateInitiativeAutoContinueState,
     tickAllAutoContinue,
+    scheduleAutoFixForWorkstream,
     upsertNextUpQueuePin,
     removeNextUpQueuePin,
     setNextUpQueuePinOrder,

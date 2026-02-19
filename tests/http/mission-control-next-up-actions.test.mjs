@@ -75,6 +75,10 @@ async function call(handler, req) {
   return res;
 }
 
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function withEnv(patch, fn) {
   const prev = {};
   for (const [k, v] of Object.entries(patch)) {
@@ -438,6 +442,112 @@ test("mission-control clear resets blocked/in-progress task state and persists q
 
       assert.equal(tasks.get("task-ws1-running")?.status, "todo");
       assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+    }
+  );
+});
+
+test("mission-control activity auto-fix schedules execution and emits lifecycle events", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-activity-autofix-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+    },
+    async () => {
+      const { handler, calls, tasks } = await createHandler();
+
+      const resSchedule = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/activity/auto-fix",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          initiativeId: "init-1",
+          workstreamId: "ws-1",
+          runId: "run-test",
+          event: "autopilot_slice_result",
+          requestedByAgentId: "agent-1",
+          requestedByAgentName: "Agent One",
+          graceMs: 30,
+        }),
+      });
+      assert.equal(resSchedule.status, 202);
+      const scheduleBody = JSON.parse(resSchedule.body);
+      assert.equal(scheduleBody.ok, true);
+      assert.equal(scheduleBody.scheduled?.initiativeId, "init-1");
+      assert.equal(scheduleBody.scheduled?.workstreamId, "ws-1");
+      assert.equal(scheduleBody.scheduled?.graceMs, 1000);
+
+      await sleep(1_260);
+
+      const events = calls.emitActivity
+        .map((entry) => entry?.metadata?.event)
+        .filter((entry) => typeof entry === "string");
+      assert.ok(events.includes("autopilot_autofix_scheduled"), "expected scheduled event");
+      assert.ok(events.includes("autopilot_autofix_executed"), "expected executed event");
+      assert.equal(tasks.get("task-ws1-running")?.status, "todo");
+      assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+    }
+  );
+});
+
+test("mission-control activity auto-fix skips when user pauses during grace window", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-activity-autofix-skip-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+    },
+    async () => {
+      const { handler, calls } = await createHandler();
+
+      const resStart = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/start",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          initiativeId: "init-1",
+          agentId: "agent-1",
+          workstreamIds: ["ws-1"],
+        }),
+      });
+      assert.equal(resStart.status, 200);
+
+      const resStop = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/stop",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resStop.status, 200);
+
+      const resSchedule = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/activity/auto-fix",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          initiativeId: "init-1",
+          workstreamId: "ws-1",
+          graceMs: 30,
+        }),
+      });
+      assert.equal(resSchedule.status, 202);
+
+      await sleep(1_260);
+
+      const events = calls.emitActivity
+        .map((entry) => entry?.metadata?.event)
+        .filter((entry) => typeof entry === "string");
+      assert.ok(events.includes("autopilot_autofix_scheduled"), "expected scheduled event");
+      assert.ok(events.includes("autopilot_autofix_skipped"), "expected skipped event");
+      assert.ok(!events.includes("autopilot_autofix_executed"), "expected no execution event");
+      const skipped = calls.emitActivity.find(
+        (entry) => entry?.metadata?.event === "autopilot_autofix_skipped"
+      );
+      assert.equal(skipped?.metadata?.reason, "paused_by_user");
     }
   );
 });
