@@ -253,10 +253,10 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     urgency?: "low" | "medium" | "high" | "urgent";
     options?: string[];
     blocking?: boolean;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const initiativeId = input.initiativeId?.trim() ?? "";
     const title = input.title.trim();
-    if (!initiativeId || !title) return;
+    if (!initiativeId || !title) return false;
 
     try {
       await deps.client.applyChangeset({
@@ -281,6 +281,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           },
         ],
       });
+      return true;
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       const correlationId = input.correlationId?.trim() || undefined;
@@ -342,8 +343,9 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           },
           activityItem,
         });
+        return true;
       } catch {
-        // best effort
+        return false;
       }
     }
   }

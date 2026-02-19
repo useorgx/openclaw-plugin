@@ -84,7 +84,7 @@ export interface CreateAutoContinueEngineDeps {
     urgency?: "low" | "medium" | "high" | "urgent";
     options?: string[];
     blocking?: boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   registerArtifactSafe: (input: {
     initiativeId: string;
     runId: string;
@@ -668,7 +668,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                },
 	              });
 
-	              await requestDecisionSafe({
+	              const decisionQueued = await requestDecisionSafe({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
 	                title: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
@@ -687,7 +687,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
-                  decisionRequired: true,
+                  decisionRequired: decisionQueued,
 	              });
 	              return;
 	            }
@@ -747,7 +747,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                },
 	              });
 
-	              await requestDecisionSafe({
+	              const decisionQueued = await requestDecisionSafe({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
 	                title: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}`,
@@ -766,7 +766,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
-                  decisionRequired: true,
+                  decisionRequired: decisionQueued,
 	              });
 	              return;
 	            }
@@ -840,8 +840,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           ? ((parsed as any).milestone_updates as Array<{ milestone_id: string; status: string; reason?: string | null }>)
           : [];
 
+        let blockingDecisionQueued = false;
         for (const decision of decisions) {
-          await requestDecisionSafe({
+          const isBlocking =
+            typeof decision.blocking === "boolean" ? decision.blocking : defaultDecisionBlocking;
+          const decisionQueued = await requestDecisionSafe({
             initiativeId: run.initiativeId,
             correlationId: slice.runId,
             title: decision.question.trim(),
@@ -850,9 +853,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             options: Array.isArray(decision.options)
               ? decision.options.filter((opt: string) => typeof opt === "string" && opt.trim())
               : [],
-            blocking:
-              typeof decision.blocking === "boolean" ? decision.blocking : defaultDecisionBlocking,
+            blocking: isBlocking,
           });
+          if (decisionQueued && isBlocking) blockingDecisionQueued = true;
         }
 
         for (const artifact of artifacts) {
@@ -930,7 +933,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             decisions: decisions.length,
             blocking_decisions: blockingDecisionCount,
             non_blocking_decisions: nonBlockingDecisionCount,
-            decision_required: blockingDecisionCount > 0,
+            decision_required: blockingDecisionQueued,
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
             output_path: slice.outputPath,
@@ -940,8 +943,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	        });
 
 	        if (slice.status !== "completed") {
+          let fallbackDecisionQueued = false;
 	          if (slice.status === "error" && decisions.length === 0) {
-	            await requestDecisionSafe({
+	            fallbackDecisionQueued = await requestDecisionSafe({
 	              initiativeId: run.initiativeId,
 	              correlationId: slice.runId,
 	              title: `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
@@ -966,7 +970,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              parsed?.summary ??
               slice.lastError ??
               `Slice returned status: ${effectiveParsedStatus}`,
-              decisionRequired: blockingDecisionCount > 0,
+              decisionRequired: blockingDecisionQueued || fallbackDecisionQueued,
           });
           return;
         }
@@ -986,7 +990,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             ? "The slice reported completion but did not produce artifacts or status updates. Decide whether to retry, request stronger output, or mark tasks manually."
             : "The slice exited without a valid output contract. Review logs/output and decide whether to retry or pause autopilot.";
 
-          await requestDecisionSafe({
+          const decisionQueued = await requestDecisionSafe({
             initiativeId: run.initiativeId,
             correlationId: slice.runId,
             title: attentionTitle,
@@ -1008,7 +1012,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               (completionHadNoOutcome
                 ? "Slice completed without verifiable outcomes."
                 : "Slice failed or returned invalid output."),
-            decisionRequired: completionHadNoOutcome,
+            decisionRequired: completionHadNoOutcome && decisionQueued,
           });
           return;
         }
@@ -1254,7 +1258,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             spawn_guard: spawnGuardResult,
           },
         });
-        await requestDecisionSafe({
+        const decisionQueued = await requestDecisionSafe({
           initiativeId: run.initiativeId,
           correlationId: sliceRunId,
           title: `Unblock autopilot for ${workstreamTitle ?? selectedWorkstreamId}`,
@@ -1276,7 +1280,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           run,
           reason: "blocked",
           error: blockedReason,
-          decisionRequired: true,
+          decisionRequired: decisionQueued,
         });
         return;
       }
