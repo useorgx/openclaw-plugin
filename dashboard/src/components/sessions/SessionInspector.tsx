@@ -296,6 +296,22 @@ export const SessionInspector = memo(function SessionInspector({
   const canResume = ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
   const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
   const canRollback = !['archived', 'cancelled'].includes(sessionStatus);
+  const statusLabel = sessionStatus.replace(/_/g, ' ');
+  const statusTone =
+    sessionStatus === 'running' ||
+    sessionStatus === 'active' ||
+    sessionStatus === 'working' ||
+    sessionStatus === 'in_progress' ||
+    sessionStatus === 'planning' ||
+    sessionStatus === 'review'
+      ? 'border-lime/25 bg-lime/[0.08] text-lime'
+      : sessionStatus === 'blocked' || sessionStatus === 'failed'
+        ? 'border-red-400/30 bg-red-500/10 text-red-200'
+        : sessionStatus === 'paused'
+          ? 'border-amber-400/30 bg-amber-400/10 text-amber-200'
+          : sessionStatus === 'handoff'
+            ? 'border-teal-400/30 bg-teal-400/10 text-teal-200'
+            : 'border-strong bg-white/[0.04] text-secondary';
   const timelineInfo = [
     { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '—' },
     { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '—' },
@@ -313,7 +329,9 @@ export const SessionInspector = memo(function SessionInspector({
       <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
         <h2 className="text-heading font-semibold text-white">Session Detail</h2>
         <div className="flex items-center gap-2">
-          <span className="chip text-caption uppercase">{sessionStatus}</span>
+          <span className={cn('chip text-caption uppercase tracking-[0.14em]', statusTone)}>
+            {statusLabel}
+          </span>
           <button
             onClick={() => setIsCollapsed((prev) => !prev)}
             className="text-muted transition-colors hover:text-primary"
@@ -338,96 +356,101 @@ export const SessionInspector = memo(function SessionInspector({
         'transition-all',
         isCollapsed ? 'max-h-0 overflow-hidden' : 'min-h-0 flex-1'
       )}>
-        <div className="space-y-3 overflow-y-auto p-4">
-          <div className="flex items-start gap-2.5">
-            <ProviderLogo provider={provider.id} size="sm" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-body font-medium text-white">{session.title}</p>
-              <p className="mt-0.5 text-caption text-secondary">
-                {session.agentName ?? 'Unassigned'} · {provider.label}
-              </p>
-            </div>
-          </div>
-
-          {breadcrumbs.length > 0 && (
-            <div className="rounded-xl border border-subtle bg-white/[0.02] p-2.5">
-              <p className="mb-1.5 text-micro uppercase tracking-[0.1em] text-muted">
-                Breadcrumb
-              </p>
-              <div className="flex flex-wrap items-center gap-1.5 text-caption">
-                {breadcrumbs.map((crumb, index) => (
-                  <span key={`${crumb.label}-${crumb.value}`} className="inline-flex items-center gap-1.5">
-                    <span className="rounded-full border border-strong bg-white/[0.02] px-1.5 py-0.5 text-secondary">
-                      {crumb.value}
-                    </span>
-                    {index < breadcrumbs.length - 1 && <span className="text-caption text-muted">›</span>}
-                  </span>
-                ))}
+        <div className="space-y-4 overflow-y-auto p-4">
+          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+            <div className="flex items-start gap-3">
+              <ProviderLogo provider={provider.id} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-body font-semibold text-white">{session.title}</p>
+                <p className="mt-1 text-caption text-secondary">
+                  {session.agentName ?? 'Unassigned'} · {provider.label}
+                </p>
               </div>
             </div>
-          )}
 
-          {sessionSummary && (
-            <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2">
-              <MarkdownText text={sessionSummary} mode="block" />
-            </div>
-          )}
+            {breadcrumbs.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">Context</p>
+                <div className="flex flex-wrap items-center gap-1.5 text-caption">
+                  {breadcrumbs.map((crumb, index) => (
+                    <span key={`${crumb.label}-${crumb.value}`} className="inline-flex items-center gap-1.5">
+                      <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-secondary">
+                        {crumb.value}
+                      </span>
+                      {index < breadcrumbs.length - 1 && (
+                        <span className="text-caption text-muted">›</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {(session.phase || session.state || statusReason) && (
-            <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">
-              <div className="flex flex-wrap items-center gap-2">
+            {sessionSummary && (
+              <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
+                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">Summary</p>
+                <MarkdownText text={sessionSummary} mode="block" />
+              </div>
+            )}
+
+            {(session.phase || session.state) && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-caption">
                 {session.phase && (
-                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.08em] text-muted">
-                    phase: {session.phase}
+                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.14em] text-muted">
+                    Phase · {session.phase}
                   </span>
                 )}
                 {session.state && (
-                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.08em] text-muted">
-                    runtime: {session.state}
+                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 uppercase tracking-[0.14em] text-muted">
+                    Runtime · {session.state}
                   </span>
                 )}
               </div>
-              {statusReason && (
-                <div className="mt-2 space-y-1">
-                  <p className="text-micro uppercase tracking-[0.08em] text-muted">{statusReasonLabel}</p>
-                  <p className="text-body text-secondary">{statusReason}</p>
+            )}
+
+            {statusReason && (
+              <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
+                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{statusReasonLabel}</p>
+                <p className="text-body text-secondary">{statusReason}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+            {progressValue !== null && (
+              <div>
+                <div className="mb-1 flex items-center justify-between text-caption text-secondary">
+                  <span>Progress</span>
+                  <span className="text-primary">{progressValue}%</span>
                 </div>
-              )}
-            </div>
-          )}
+                <div className="h-2 rounded-full bg-white/[0.08]">
+                  <div
+                    className="h-2 rounded-full"
+                    style={{
+                      width: `${progressValue}%`,
+                      background: colors.lime,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
 
-          {progressValue !== null && (
+            <dl className={cn(
+              'grid grid-cols-2 gap-3 text-caption text-secondary',
+              progressValue !== null ? 'mt-3' : ''
+            )}>
+              {timelineInfo.map((row) => (
+                <div key={row.label}>
+                  <dt className="text-muted">{row.label}</dt>
+                  <dd className="text-body font-semibold text-white">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3 space-y-4">
             <div>
-              <div className="mb-1 flex items-center justify-between text-caption text-secondary">
-                <span>Progress</span>
-                <span>{progressValue}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-white/[0.08]">
-                <div
-                  className="h-2 rounded-full"
-                  style={{
-                    width: `${progressValue}%`,
-                    background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          <dl className="grid grid-cols-1 gap-1 text-caption text-secondary sm:grid-cols-2">
-            {timelineInfo.map((row) => (
-              <div key={row.label}>
-                <dt className="text-muted">{row.label}</dt>
-                <dd className="font-medium">{row.value}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <div className="space-y-3">
-            <div>
-              <p className="mb-1 text-micro uppercase tracking-[0.12em] text-muted">
-                Quick actions
-              </p>
+              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Quick actions</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() =>
@@ -451,14 +474,12 @@ export const SessionInspector = memo(function SessionInspector({
             </div>
 
             <div>
-              <p className="mb-1 text-micro uppercase tracking-[0.12em] text-muted">
-                Session controls
-              </p>
+              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Session controls</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => runAction('pause-session', 'Pause session', () => onPauseSession?.(session))}
                   disabled={!onPauseSession || !canPause || !!busyAction}
-                  className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-caption font-semibold text-amber-300 transition-colors hover:bg-amber-400/20 disabled:opacity-45"
+                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'pause-session' ? 'Pausing…' : 'Pause'}
                 </button>
@@ -466,7 +487,7 @@ export const SessionInspector = memo(function SessionInspector({
                 <button
                   onClick={() => runAction('resume-session', 'Resume session', () => onResumeSession?.(session))}
                   disabled={!onResumeSession || !canResume || !!busyAction}
-                  className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'resume-session' ? 'Resuming…' : 'Resume'}
                 </button>
@@ -476,7 +497,7 @@ export const SessionInspector = memo(function SessionInspector({
                     runAction('checkpoint-session', 'Checkpoint created', () => onCreateCheckpoint?.(session))
                   }
                   disabled={!onCreateCheckpoint || !!busyAction}
-                  className="rounded-md border border-sky-400/30 bg-sky-400/10 px-3 py-2 text-caption font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 disabled:opacity-45"
+                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'checkpoint-session' ? 'Creating…' : 'Checkpoint'}
                 </button>
@@ -484,7 +505,7 @@ export const SessionInspector = memo(function SessionInspector({
                 <button
                   onClick={() => runAction('rollback-session', 'Rollback requested', () => onRollbackSession?.(session))}
                   disabled={!onRollbackSession || !canRollback || !!busyAction}
-                  className="rounded-md border border-fuchsia-400/30 bg-fuchsia-400/10 px-3 py-2 text-caption font-semibold text-fuchsia-300 transition-colors hover:bg-fuchsia-400/20 disabled:opacity-45"
+                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
                 >
                   {busyAction === 'rollback-session' ? 'Rolling back…' : 'Rollback'}
                 </button>
@@ -500,9 +521,7 @@ export const SessionInspector = memo(function SessionInspector({
             </div>
 
             <div>
-              <p className="mb-1 text-micro uppercase tracking-[0.12em] text-muted">
-                Planning
-              </p>
+              <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Planning</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => runAction('start-initiative', 'Start initiative', onStartInitiative)}
@@ -546,7 +565,7 @@ export const SessionInspector = memo(function SessionInspector({
           )}
 
           <div>
-            <h3 className="mb-2 text-caption uppercase tracking-[0.12em] text-secondary">
+            <h3 className="mb-2 text-caption uppercase tracking-[0.16em] text-secondary">
               Recent Messages
             </h3>
 
