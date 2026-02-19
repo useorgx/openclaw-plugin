@@ -264,8 +264,8 @@ function compactAgentDisplayName(name: string): string {
   if (UUID_LIKE_NAME.test(trimmed)) {
     return `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`;
   }
-  if (!trimmed.includes(" ") && trimmed.length > 36) {
-    return `${trimmed.slice(0, 24)}…`;
+  if (!trimmed.includes(" ") && trimmed.length > 64) {
+    return `${trimmed.slice(0, 48)}…`;
   }
   return trimmed;
 }
@@ -1142,7 +1142,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               Agents
             </h2>
             <span className="chip flex-shrink-0 text-caption tabular-nums">
-              {visibleSessionCount}/{sessionCountInScope}
+              {visibleSessionCount} of {sessionCountInScope}
             </span>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -1246,6 +1246,8 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
           const runtime = group.runtime ?? null;
           const runtimeIsLive = (group.runtimeActiveCount ?? 0) > 0;
+          const hasRuntimeSession = !hasSessions && runtimeIsLive && runtime !== null;
+          const hasExpandableContent = hasSessions || hasRuntimeSession;
           const active = lead ? selectedSessionId === lead.id : false;
           const displayNameRaw =
             group.agentName || group.catalogAgent?.name || group.agentId || 'OrgX';
@@ -1268,10 +1270,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const filterLabel = roleLabel ? `${displayNameRaw} — ${roleLabel}` : displayNameRaw;
           const visibleChildren = isCollapsed
             ? []
-            : group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS);
+            : hasSessions
+              ? group.nodes.slice(0, MAX_VISIBLE_CHILD_SESSIONS)
+              : [];
           const hiddenChildren = Math.max(
             0,
-            group.nodes.length - visibleChildren.length
+            hasSessions ? group.nodes.length - visibleChildren.length : 0
           );
           const isFiltered =
             normalizeIdentity(agentFilter) === normalizeIdentity(displayName) ||
@@ -1296,7 +1300,9 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   onClick={() => {
                     if (hasSingleSession) {
                       onSelectSession(group.nodes[0].id);
-                    } else if (!hasSessions && (catalogIsLive || runtimeIsLive)) {
+                    } else if (hasRuntimeSession) {
+                      toggleCollapse(agentKey);
+                    } else if (!hasSessions && catalogIsLive) {
                       setDetailAgentKey(agentKey);
                     } else if (onAgentFilter) {
                       onAgentFilter(isFiltered ? null : displayName);
@@ -1304,7 +1310,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       onSelectSession(lead.id);
                     }
                   }}
-                  className="flex flex-1 items-center gap-2.5 text-left transition-colors hover:opacity-80"
+                  className="flex flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="relative flex-shrink-0">
                     {showProviderAvatar ? (
@@ -1357,24 +1363,27 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       />
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-baseline gap-1">
-                      <span
-                        className="truncate text-body font-semibold text-white"
-                        title={displayNameRaw}
-                      >
-                        {displayName}
-                      </span>
-                      {roleLabel && (
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-baseline gap-1.5">
                         <span
-                          className="max-w-[44%] truncate text-caption font-normal text-muted"
-                          title={roleLabel}
+                          className={cn(
+                            'min-w-0 truncate text-body font-semibold text-white',
+                            roleLabel ? 'flex-[1.15]' : 'flex-1'
+                          )}
+                          title={displayNameRaw}
                         >
-                          — {roleLabel}
+                          {displayName}
                         </span>
-                      )}
+                        {roleLabel && (
+                          <span
+                            className="min-w-0 flex-1 truncate text-caption font-normal text-muted"
+                            title={roleLabel}
+                          >
+                            — {roleLabel}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
                   {hasSessions ? (
                     <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
                       <span
@@ -1455,30 +1464,46 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                   </svg>
                 </button>
 
-                {hasSessions && (
-                  <button
-                    type="button"
-                    onClick={() => toggleCollapse(agentKey)}
-                    aria-label={isCollapsed ? 'Expand sessions' : 'Collapse sessions'}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/[0.05] hover:text-primary"
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!hasExpandableContent) return;
+                    toggleCollapse(agentKey);
+                  }}
+                  disabled={!hasExpandableContent}
+                  aria-label={
+                    hasExpandableContent
+                      ? isCollapsed
+                        ? 'Expand sessions'
+                        : 'Collapse sessions'
+                      : 'No sessions to expand'
+                  }
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors',
+                    hasExpandableContent
+                      ? 'hover:bg-white/[0.05] hover:text-primary'
+                      : 'cursor-default opacity-35'
+                  )}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className={cn(
+                      'transition-transform',
+                      hasExpandableContent && !isCollapsed ? 'rotate-0' : '-rotate-90'
+                    )}
                   >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className={cn('transition-transform', isCollapsed ? '-rotate-90' : 'rotate-0')}
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                )}
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
               </div>
 
               <AnimatePresence initial={false}>
-                {hasSessions && !isCollapsed && (
+                {hasExpandableContent && !isCollapsed && (
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}

@@ -62,6 +62,7 @@ const CONNECTION_COLOR: Record<string, string> = {
 
 const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
 const DEMO_MODE_KEY = 'orgx.demo_mode';
+const DEV_MODE_KEY = 'orgx.dev_mode';
 const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
 const FIRST_RUN_GUIDE_SESSION_KEY = 'orgx.first_run_guide.shown_session';
 const NEXTUP_SIDEBAR_COMPACT_KEY = 'orgx.dashboard.sidebar.nextup.compact';
@@ -111,6 +112,22 @@ function formatAbsoluteTimestamp(value: string | null | undefined): string {
   } catch {
     return 'unknown';
   }
+}
+
+function resolveActivityRunId(item: LiveActivityItem): string | null {
+  if (item.runId && item.runId.trim().length > 0) return item.runId.trim();
+  if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
+    return null;
+  }
+  const metadata = item.metadata as Record<string, unknown>;
+  const keys = ['runId', 'run_id', 'sessionId', 'session_id', 'agentRunId'];
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number {
@@ -244,6 +261,14 @@ function DashboardShell({
       return false;
     }
   });
+  const [devMode, setDevMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(DEV_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // Dashboard view toggle: Activity (3-column) vs Mission Control
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
@@ -326,6 +351,7 @@ function DashboardShell({
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
     useState<ActivityTimeFilterId>('live');
+  const [requestedActivityItemId, setRequestedActivityItemId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -427,6 +453,19 @@ function DashboardShell({
       // ignore
     }
   }, [showSyntheticEntities]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (devMode) {
+        window.localStorage.setItem(DEV_MODE_KEY, '1');
+      } else {
+        window.localStorage.removeItem(DEV_MODE_KEY);
+      }
+    } catch {
+      // ignore
+    }
+  }, [devMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -568,6 +607,30 @@ function DashboardShell({
       setOpsNotice(`Focused session: ${session.title}`);
     },
     [sessionNodesInScope, handleSelectSession]
+  );
+
+  const openActivityItemFromSessionDetail = useCallback(
+    (item: LiveActivityItem) => {
+      const itemId = item.id?.trim();
+      if (!itemId) return;
+
+      const runId = resolveActivityRunId(item);
+      if (runId) {
+        const session =
+          sessionNodesInScope.find((node) => node.runId === runId || node.id === runId) ?? null;
+        if (session) {
+          setSelectedSessionId(session.id);
+          setActivityFilterSessionId(session.id);
+        }
+      }
+
+      switchDashboardView('activity');
+      setMobileTab('activity');
+      setSessionDrawerOpen(false);
+      setRequestedActivityItemId(itemId);
+      setOpsNotice('Opened activity detail from session timeline.');
+    },
+    [sessionNodesInScope, switchDashboardView]
   );
 
   const selectedActivitySession = useMemo(
@@ -2038,6 +2101,8 @@ function DashboardShell({
 	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={clearAgentFilter}
 	            onFocusRunId={focusActivityRunId}
+              requestedActivityItemId={requestedActivityItemId}
+              onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
               onPlayNextUp={playNextUpFromActivity}
               onStartAutopilot={startAutopilotFromActivity}
               onPauseWorkstream={pauseSessionWorkstream}
@@ -2234,6 +2299,7 @@ function DashboardShell({
 	                    session={selectedSession}
 	                    activity={activityInScope}
 	                    initiatives={initiatives}
+                      onOpenActivityItem={openActivityItemFromSessionDetail}
 	                    onContinueHighestPriority={continueHighestPriority}
 	                    onDispatchSession={dispatchSession}
 	                    onPauseSession={pauseSession}
@@ -2320,6 +2386,8 @@ function DashboardShell({
             handleReconnect();
           }
         }}
+        devMode={devMode}
+        onToggleDevMode={setDevMode}
         showSyntheticEntities={showSyntheticEntities}
         onToggleShowSyntheticEntities={setShowSyntheticEntities}
         onboarding={onboarding}

@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
+import { sanitizeDisplayText } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
 import type { Initiative, LiveActivityItem, SessionTreeNode } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
@@ -13,6 +14,7 @@ interface SessionInspectorProps {
   session: SessionTreeNode | null;
   activity: LiveActivityItem[];
   initiatives?: Initiative[];
+  onOpenActivityItem?: (item: LiveActivityItem) => void;
   onContinueHighestPriority?: () => Promise<void> | void;
   onDispatchSession?: (session: SessionTreeNode) => Promise<void> | void;
   onPauseSession?: (session: SessionTreeNode) => Promise<void> | void;
@@ -128,6 +130,7 @@ export const SessionInspector = memo(function SessionInspector({
   session,
   activity,
   initiatives = [],
+  onOpenActivityItem,
   onContinueHighestPriority,
   onDispatchSession,
   onPauseSession,
@@ -384,7 +387,7 @@ export const SessionInspector = memo(function SessionInspector({
             <div className="flex items-start gap-3">
               <ProviderLogo provider={provider.id} size="sm" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-body font-semibold text-white">{session.title}</p>
+                <p className="truncate text-body font-semibold text-white">{sanitizeDisplayText(session.title)}</p>
                 <p className="mt-1 text-caption text-secondary">
                   {session.agentName ?? 'OrgX'} · {provider.label}
                 </p>
@@ -418,7 +421,7 @@ export const SessionInspector = memo(function SessionInspector({
 
             {/* Phase/Runtime badges removed — status chip in header is sufficient */}
 
-            {statusReason && (
+            {statusReason && !(sessionSummary && (statusReason === sessionSummary || sessionSummary.includes(statusReason))) && (
               <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
                 <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{statusReasonLabel}</p>
                 <p className="text-body text-secondary">{statusReason}</p>
@@ -562,7 +565,18 @@ export const SessionInspector = memo(function SessionInspector({
                   key={event.id}
                   className="rounded-lg border border-subtle bg-white/[0.02] px-2.5 py-2"
                 >
-                  <p className="text-caption text-bright">{event.title}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 flex-1 text-caption text-bright">{event.title}</p>
+                    {onOpenActivityItem && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenActivityItem(event)}
+                        className="flex-shrink-0 rounded-full border border-strong bg-white/[0.03] px-2.5 py-0.5 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.08] hover:text-primary"
+                      >
+                        Open
+                      </button>
+                    )}
+                  </div>
                   {(event.summary || event.description) && (
                     <p className="mt-0.5 line-clamp-2 text-caption text-secondary">
                       {event.summary ?? event.description}

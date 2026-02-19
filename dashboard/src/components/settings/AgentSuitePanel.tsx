@@ -28,10 +28,12 @@ export function AgentSuitePanel({
   authToken = null,
   embedMode = false,
   enabled = true,
+  devMode = false,
 }: {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
+  devMode?: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const suite = useAgentSuite({ authToken, embedMode, enabled });
@@ -61,7 +63,7 @@ export function AgentSuitePanel({
     if (suite.isLoading) return 'Loading agent suite status...';
     if (suite.error) return `Unable to read suite status: ${suite.error}`;
     if (!plan) return 'Suite status unavailable.';
-    if (conflictFiles > 0) return `Conflicts detected: ${pluralize(conflictFiles, 'file')} need attention.`;
+    if (conflictFiles > 0) return `${pluralize(conflictFiles, 'file')} to review.`;
     if (missingAgents === 0 && changedFiles === 0) return 'Suite is installed and up to date.';
     const parts = [];
     if (missingAgents > 0) parts.push(`will add ${pluralize(missingAgents, 'agent')}`);
@@ -92,7 +94,7 @@ export function AgentSuitePanel({
         <div>
           <h3 className="text-heading font-semibold text-white">OrgX agent suite</h3>
           <p className="mt-1 text-body leading-relaxed text-secondary">
-            Installs the OrgX domain agents into OpenClaw (workspaces + guardrails + managed/local overlay).
+            Installs domain agents into your workspace (workspaces + guardrails + managed/local overlay).
           </p>
         </div>
 
@@ -134,7 +136,7 @@ export function AgentSuitePanel({
             onClick={() => { suite.install({ dryRun: false }); }}
             disabled={suite.isInstalling}
             className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Adds missing agents to openclaw.json and scaffolds managed workspace files"
+            title="Install missing agents and scaffold managed workspace files"
           >
             {suite.isInstalling ? 'Installing...' : 'Install / Update'}
           </button>
@@ -145,8 +147,8 @@ export function AgentSuitePanel({
         <Tag tone={suite.error ? 'warn' : 'neutral'}>{summary}</Tag>
         {plan && (
           <>
-            <Tag tone={missingAgents === 0 ? 'good' : 'warn'}>
-              {missingAgents === 0 ? 'agents configured' : `${missingAgents} missing in openclaw.json`}
+            <Tag tone={missingAgents === 0 ? 'good' : 'neutral'}>
+              {missingAgents === 0 ? 'agents configured' : `${missingAgents} agents to install`}
             </Tag>
             <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
             <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>{changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}</Tag>
@@ -171,10 +173,12 @@ export function AgentSuitePanel({
             {isDryRun ? 'Dry run' : 'Applied'}
           </p>
           <p className="mt-1 text-body leading-relaxed text-secondary">
-            Operation <code className="rounded bg-black/40 px-1">{lastInstall.operationId}</code>{' '}
+            {devMode && lastInstall.operationId && (
+              <>Operation <code className="rounded bg-black/40 px-1">{lastInstall.operationId}</code>{' '}</>
+            )}
             {isDryRun
-              ? 'computed the plan without writing any files.'
-              : 'wrote OpenClaw config and refreshed managed files.'}
+              ? 'Computed the plan without writing any files.'
+              : 'Installed config and refreshed managed files.'}
           </p>
         </div>
       )}
@@ -197,8 +201,12 @@ export function AgentSuitePanel({
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
                 <div className="grid gap-1 text-body text-secondary">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>OpenClaw config</span>
-                    <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.openclawConfigPath}</code>
+                    <span>Workspace config</span>
+                    {devMode ? (
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-caption text-primary">{plan.openclawConfigPath}</code>
+                    ) : (
+                      <span className="text-caption text-primary">Connected</span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>Agent workspaces</span>
@@ -284,8 +292,8 @@ export function AgentSuitePanel({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <Tag tone={agent.configuredInOpenclaw ? 'good' : 'warn'}>
-                          {agent.configuredInOpenclaw ? 'configured' : 'not configured'}
+                        <Tag tone={agent.configuredInOpenclaw ? 'good' : 'neutral'}>
+                          {agent.configuredInOpenclaw ? 'configured' : 'to install'}
                         </Tag>
                         <Tag tone={agent.workspaceExists ? 'good' : 'neutral'}>
                           {agent.workspaceExists ? 'workspace ok' : 'workspace missing'}
@@ -325,7 +333,7 @@ export function AgentSuitePanel({
 
                 {missingAgents > 0 && (
                   <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-                    <p className="text-caption font-semibold text-primary">OpenClaw agents to add</p>
+                    <p className="text-caption font-semibold text-primary">Agents to install</p>
                     <div className="mt-1 flex flex-wrap gap-2">
                       {plan.openclawConfigAddedAgents.map((id) => (
                         <code

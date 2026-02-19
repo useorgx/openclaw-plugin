@@ -135,7 +135,7 @@ export function ByokSettingsPanel({
       <div className="mb-4">
         <h3 className="text-heading font-semibold text-white">Provider keys</h3>
         <p className="mt-1 text-body leading-relaxed text-secondary">
-          Bring your own provider keys. Keys are stored locally and used for OpenClaw agent launches.
+          Bring your own provider keys. Keys are stored locally and used for agent launches.
         </p>
         {configuredCount === 0 ? (
           <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1 text-caption text-amber-100/85">

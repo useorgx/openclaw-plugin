@@ -149,7 +149,7 @@ export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
   }
 
   if (source === 'local_openclaw') {
-    return { icon: 'terminal', label: 'Local OpenClaw', color: colors.teal };
+    return { icon: 'terminal', label: 'Local', color: colors.teal };
   }
 
   if (item.type === 'artifact_created') {

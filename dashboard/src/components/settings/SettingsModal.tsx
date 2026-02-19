@@ -58,6 +58,8 @@ export function SettingsModal({
   onChangeTab,
   demoMode,
   onToggleDemoMode,
+  devMode = false,
+  onToggleDevMode,
   showSyntheticEntities,
   onToggleShowSyntheticEntities,
   onboarding,
@@ -70,6 +72,8 @@ export function SettingsModal({
   onChangeTab: (tab: SettingsTab) => void;
   demoMode: boolean;
   onToggleDemoMode: (next: boolean) => void;
+  devMode?: boolean;
+  onToggleDevMode?: (next: boolean) => void;
   showSyntheticEntities: boolean;
   onToggleShowSyntheticEntities: (next: boolean) => void;
   onboarding: {
@@ -154,23 +158,33 @@ export function SettingsModal({
           {activeTab === 'orgx' ? (
             <div className="grid gap-4">
               <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-                <h3 className="text-heading font-semibold text-white">Dashboard visibility</h3>
+                <h3 className="text-heading font-semibold text-white">Developer tools</h3>
                 <p className="mt-1 text-body leading-relaxed text-secondary">
-                  Control demo data and synthetic entities in the activity and agent surfaces.
+                  Technical details, config paths, and raw data for debugging.
                 </p>
                 <div className="mt-3 grid gap-3">
                   <PreferenceToggle
-                    label="Demo mode"
-                    description="Use local demo initiatives and sessions for walkthroughs."
-                    enabled={demoMode}
-                    onToggle={onToggleDemoMode}
+                    label="Developer mode"
+                    description="Show technical details, config paths, and raw data in session inspectors."
+                    enabled={devMode}
+                    onToggle={(next) => onToggleDevMode?.(next)}
                   />
-                  <PreferenceToggle
-                    label="Show demo/synthetic entities"
-                    description="Include synthetic initiative IDs (for QA/demo data) in the agent column."
-                    enabled={showSyntheticEntities}
-                    onToggle={onToggleShowSyntheticEntities}
-                  />
+                  <div className={devMode ? '' : 'pointer-events-none opacity-40'}>
+                    <PreferenceToggle
+                      label="Demo mode"
+                      description="Load local demo data for walkthroughs."
+                      enabled={demoMode}
+                      onToggle={onToggleDemoMode}
+                    />
+                  </div>
+                  <div className={devMode ? '' : 'pointer-events-none opacity-40'}>
+                    <PreferenceToggle
+                      label="Show synthetic entities"
+                      description="Include QA/test initiative IDs in the agent column."
+                      enabled={showSyntheticEntities}
+                      onToggle={onToggleShowSyntheticEntities}
+                    />
+                  </div>
                 </div>
               </div>
               <OrgxConnectionPanel
@@ -184,7 +198,7 @@ export function SettingsModal({
                 onUseManualKey={onboarding.setManualMode}
                 onDisconnect={onboarding.disconnect}
               />
-              <AgentSuitePanel authToken={authToken} embedMode={embedMode} enabled={open} />
+              <AgentSuitePanel authToken={authToken} embedMode={embedMode} enabled={open} devMode={devMode} />
             </div>
           ) : (
             <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />

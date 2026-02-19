@@ -574,24 +574,26 @@ export function NextUpPanel({
                 <button
                   type="button"
                   onClick={() => setTriagePlacement('top')}
+                  title="New items added to front of queue"
                   className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
                     triagePlacement === 'top'
                       ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
                       : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
                   }`}
                 >
-                  Top
+                  Priority
                 </button>
                 <button
                   type="button"
                   onClick={() => setTriagePlacement('bottom')}
+                  title="New items added to end of queue"
                   className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
                     triagePlacement === 'bottom'
                       ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
                       : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
                   }`}
                 >
-                  Bottom
+                  Normal
                 </button>
               </div>
             </div>
@@ -609,7 +611,7 @@ export function NextUpPanel({
                         placement: triagePlacement,
                         resetToTodo: false,
                       }),
-                    `Paused ${nowPlaying!.workstreamTitle} and moved it to ${triagePlacement}.`
+                    `Paused ${nowPlaying!.workstreamTitle}.`
                   )
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
@@ -770,7 +772,7 @@ export function NextUpPanel({
                           },
                           (result) =>
                             isRunningRow
-                              ? `Paused ${item.workstreamTitle} and moved it to ${triagePlacement}.`
+                              ? `Paused ${item.workstreamTitle}.`
                               : playDispatchNotice(item, result)
                         )
                       }
@@ -798,14 +800,14 @@ export function NextUpPanel({
                               workstreamId: item.workstreamId,
                               placement: triagePlacement,
                             }),
-                          `Queued ${item.workstreamTitle} to ${triagePlacement}.`
+                          `Queued ${item.workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={`Move this workstream to ${triagePlacement}`}
+                      title={`Queue ${triagePlacement === 'top' ? 'as priority' : 'normally'}`}
                     >
                       <span className="inline-flex items-center gap-1">
-                        <span>{triagePlacement === 'top' ? 'Queue top' : 'Queue bottom'}</span>
+                        <span>{triagePlacement === 'top' ? 'Priority' : 'Queue'}</span>
                       </span>
                     </button>
                     <button
@@ -979,8 +981,10 @@ function NextUpReorderRow({
         onCommitReorder();
       }}
       whileDrag={{
-        scale: 1.01,
-        boxShadow: '0 18px 40px rgba(0,0,0,0.42)',
+        scale: 1.02,
+        boxShadow: '0 20px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(191,255,0,0.15)',
+        zIndex: 50,
+        cursor: 'grabbing',
       }}
       className="relative"
     >
@@ -1101,9 +1105,6 @@ function NextUpReorderRow({
         </div>
 
         <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
-          <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
-            Runner
-          </span>
           <span className="truncate text-white/68">
             {item.runnerAgentName}
             {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
@@ -1144,7 +1145,7 @@ function NextUpReorderRow({
                 },
                 (result) =>
                   isRunningRow
-                    ? `Paused ${item.workstreamTitle} and moved it to ${triagePlacement}.`
+                    ? `Paused ${item.workstreamTitle}.`
                     : playDispatchNotice(item, result)
               )
             }
@@ -1167,13 +1168,13 @@ function NextUpReorderRow({
               void runAction(
                 key,
                 () => onMoveWorkstream(item, triagePlacement),
-                `Queued ${item.workstreamTitle} to ${triagePlacement}.`
+                `Queued ${item.workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={`Move this workstream to ${triagePlacement}`}
+            title={`Queue ${triagePlacement === 'top' ? 'as priority' : 'normally'}`}
           >
-            <span>{triagePlacement === 'top' ? 'Queue top' : 'Queue bottom'}</span>
+            <span>{triagePlacement === 'top' ? 'Priority' : 'Queue'}</span>
           </button>
           <button
             type="button"
