@@ -41,10 +41,13 @@
     "verify:agent-suite": "npm run build:core && node ./scripts/verify-agent-suite-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "verify:autopilot-e2e:local": "npm run build:core && node ./scripts/verify-autopilot-e2e-local.mjs",
+    "verify:autopilot-e2e:unhappy": "npm run build:core && node ./scripts/verify-autopilot-e2e-unhappy.mjs",
     "verify:autopilot-e2e:matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-matrix.mjs",
     "verify:autopilot-e2e:entities": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities.mjs",
     "verify:autopilot-e2e:entities-matrix": "npm run build:core && node ./scripts/verify-autopilot-e2e-entities-matrix.mjs",
+    "verify:version-harness": "npm run build:core && node ./scripts/verify-version-harness-e2e.mjs",
     "verify:iwmt-cascade": "npm run build:core && node ./scripts/verify-iwmt-cascade-e2e.mjs",
+    "verify:conduit-mcp": "node ./scripts/verify-conduit-mcp.mjs",
     "dev:main": "node ./scripts/dev-main-sync.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
@@ -60,7 +63,8 @@
     "build": "npm run build:dashboard && npm run build:core",
     "clean": "rm -rf dist",
     "pack": "npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "export:design-tokens": "node ./scripts/export-design-tokens.mjs"
   },
   "keywords": [
     "openclaw",

@@ -96,7 +96,7 @@ function withEnv(patch, fn) {
     });
 }
 
-function createClientHarness({ blockedQueueForWs1 = false } = {}) {
+function createClientHarness({ blockedQueueForWs1 = false, dependencyBlockedForWs1 = false } = {}) {
   const calls = {
     listEntities: [],
     updateEntity: [],
@@ -122,7 +122,7 @@ function createClientHarness({ blockedQueueForWs1 = false } = {}) {
       {
         id: "task-ws1-dependency",
         title: "Dependency WS1 task",
-        status: blockedQueueForWs1 ? "todo" : "done",
+        status: dependencyBlockedForWs1 ? "blocked" : blockedQueueForWs1 ? "todo" : "done",
         initiative_id: "init-1",
         workstream_id: "ws-1",
         milestone_id: null,
@@ -293,6 +293,58 @@ async function readNextUp(handler) {
   return body;
 }
 
+test("mission-control sentinels catalog exposes built-in engineering sentinels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-sentinels-catalog-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/sentinels?domain=engineering",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.total, 3);
+      assert.deepEqual(
+        body.items.map((item) => item.signal).sort(),
+        ["ci_failure", "dependency_scan", "error_log"]
+      );
+    }
+  );
+});
+
+test("mission-control sentinels catalog filters by signal", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-sentinels-filter-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/sentinels?domain=engineering&signal=ci_failure",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.total, 1);
+      assert.equal(body.items[0]?.id, "eng.ci-failure-streak");
+      assert.equal(body.items[0]?.signal, "ci_failure");
+    }
+  );
+});
+
 test("mission-control next-up move reorders queue to top/bottom", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-move-"));
   await withEnv(
@@ -344,6 +396,28 @@ test("mission-control next-up move reorders queue to top/bottom", async () => {
   );
 });
 
+test("mission-control next-up marks blocked workstreams with a human block reason", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-blocked-translation-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler({
+        blockedQueueForWs1: true,
+        dependencyBlockedForWs1: true,
+      });
+      const queue = await readNextUp(handler);
+      const blocked = queue.items.find((item) => item.workstreamId === "ws-1");
+      assert.ok(blocked, "expected ws-1 queue item");
+      assert.equal(blocked.queueState, "blocked");
+      assert.match(String(blocked.blockReason ?? ""), /waiting on dependency ws1 task/i);
+    }
+  );
+});
+
 test("mission-control triage stop validates required ids and can reset tasks", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-triage-"));
   await withEnv(
@@ -363,6 +437,8 @@ test("mission-control triage stop validates required ids and can reset tasks", a
         body: JSON.stringify({ initiativeId: "init-1" }),
       });
       assert.equal(resInvalid.status, 400);
+      const invalidBody = JSON.parse(resInvalid.body);
+      assert.equal(invalidBody?.error_location, "mission-control.next-up.triage.stop.validation");
 
       const resStart = await call(handler, {
         method: "POST",
@@ -396,6 +472,32 @@ test("mission-control triage stop validates required ids and can reset tasks", a
 
       assert.equal(tasks.get("task-ws1-running")?.status, "todo");
       assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+    }
+  );
+});
+
+test("mission-control auto-continue status returns error location when initiative is missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-status-error-location-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/auto-continue/status",
+        headers: {},
+      });
+      assert.equal(res.status, 400);
+      const body = JSON.parse(res.body);
+      assert.equal(body?.ok, false);
+      assert.equal(
+        body?.error_location,
+        "mission-control.read.auto-continue.status.validation"
+      );
     }
   );
 });

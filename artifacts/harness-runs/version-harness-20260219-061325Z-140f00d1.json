@@ -1,0 +1,101 @@
+{
+  "ok": false,
+  "runKey": "version-harness-20260219-061325Z-140f00d1",
+  "startedAt": "2026-02-19T06:13:25.215Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "config": {
+    "requestedTargetCompletedSlices": 1,
+    "targetCompletedSlices": 1,
+    "minTargetForDomainCoverage": 1,
+    "timeoutMs": 180000,
+    "requestTimeoutMs": 10000,
+    "keep": false,
+    "seedOnly": false,
+    "requireRealWorker": true,
+    "domains": [
+      "engineering",
+      "product"
+    ],
+    "harnessWorkdir": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-061325Z-140f00d1"
+  },
+  "created": {
+    "initiativeId": null,
+    "workstreams": [],
+    "milestones": [],
+    "tasks": []
+  },
+  "queue": {
+    "beforeTop": null,
+    "afterTop": null,
+    "afterTopWithinInitiative": null,
+    "beforeOrder": [],
+    "restored": false
+  },
+  "manualPlay": {
+    "requested": false,
+    "dispatchMode": null,
+    "completed": false,
+    "runId": null,
+    "stopReason": null,
+    "lastError": null,
+    "statusPolls": 0
+  },
+  "autoContinue": {
+    "started": false,
+    "targetCompletedSlices": 1,
+    "runAtStart": null,
+    "completedRunIds": [],
+    "completedCount": 0,
+    "overrideEvents": 0,
+    "rateLimitedEvents": 0,
+    "finalStatus": null,
+    "finalStopReason": null,
+    "finalLastError": null,
+    "statusPolls": 0
+  },
+  "validation": {
+    "queueTopConfirmed": false,
+    "queueTopGlobalConfirmed": false,
+    "queueTopInitiativeConfirmed": false,
+    "manualSliceCompleted": false,
+    "nextFiveCompleted": false,
+    "completedWorkstreamIds": [],
+    "completedWorkstreamCount": 0,
+    "completedDomains": [],
+    "missingDomains": [],
+    "filesVerifiedRequired": 2,
+    "filesVerifiedCount": 0,
+    "fileChecks": [],
+    "runIsolation": {
+      "expectedCompletedRuns": 2,
+      "completedRunCount": 0,
+      "uniqueRunCount": 0
+    },
+    "progressEvidenceByRun": [],
+    "progressEvidenceMissingRunIds": [],
+    "skillCoverageChecks": [],
+    "skillCoverageMissingRunIds": [],
+    "realWorkerChecks": [],
+    "realWorkerMissingRunIds": [],
+    "tasksDoneCount": 0,
+    "taskTotal": 0,
+    "artifactsCount": 0
+  },
+  "teardown": {
+    "attempted": true,
+    "completed": true,
+    "errors": [],
+    "deleted": {
+      "task": [],
+      "milestone": [],
+      "workstream": [],
+      "initiative": null
+    }
+  },
+  "notes": [
+    "ORGX_AUTOPILOT_WORKER_KIND is not set; assuming real codex default. Set explicitly to codex for deterministic runs.",
+    "GET http://127.0.0.1:18789/orgx/api/mission-control/next-up?limit=300 timed out after 10000ms"
+  ],
+  "finishedAt": "2026-02-19T06:13:35.220Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/harness-runs/version-harness-20260219-061325Z-140f00d1.json"
+}

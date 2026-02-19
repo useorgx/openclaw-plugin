@@ -240,6 +240,8 @@ export interface SyncPayload {
   memory?: string;
   /** Today's session log */
   dailyLog?: string;
+  /** Local OpenClaw agent states to mirror into OrgX */
+  agents?: AgentState[];
   /** Workspace state for local↔cloud handoff continuity */
   workspaceState?: HandoffWorkspaceState;
   /** Decisions made this session */
@@ -262,6 +264,8 @@ export interface SyncResponse {
     title: string;
     status: string;
   }>;
+  /** Agent states (optional for backward compatibility with older servers) */
+  agents?: AgentState[];
   /** In-progress tasks */
   activeTasks: Array<{
     id: string;

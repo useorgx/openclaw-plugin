@@ -1,0 +1,417 @@
+{
+  "ok": false,
+  "runKey": "version-harness-20260219-063432Z-fbb5ba99",
+  "startedAt": "2026-02-19T06:34:32.141Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "config": {
+    "requestedTargetCompletedSlices": 1,
+    "targetCompletedSlices": 1,
+    "minTargetForDomainCoverage": 1,
+    "timeoutMs": 480000,
+    "requestTimeoutMs": 30000,
+    "keep": false,
+    "seedOnly": false,
+    "requireRealWorker": true,
+    "domains": [
+      "engineering",
+      "product"
+    ],
+    "harnessWorkdir": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-063432Z-fbb5ba99"
+  },
+  "created": {
+    "initiativeId": "e512d8e8-4d0f-4911-8a5d-535c55086622",
+    "workstreams": [
+      {
+        "id": "5c621785-431f-4546-a27b-1e1b212af7be",
+        "domain": "engineering",
+        "agentId": "engineering-agent",
+        "agentName": "Eli"
+      },
+      {
+        "id": "9e1c2a5a-5222-4476-9e23-80bc377ef315",
+        "domain": "product",
+        "agentId": "product-agent",
+        "agentName": "Pace"
+      }
+    ],
+    "milestones": [
+      {
+        "id": "d747c4f9-a651-418c-a166-842daa49fd99",
+        "workstreamId": "5c621785-431f-4546-a27b-1e1b212af7be",
+        "domain": "engineering"
+      },
+      {
+        "id": "5cb673e9-a106-45fd-9094-32e7f0a51c47",
+        "workstreamId": "9e1c2a5a-5222-4476-9e23-80bc377ef315",
+        "domain": "product"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "36e9350d-a5e3-4177-8181-b70687d1a002",
+        "workstreamId": "5c621785-431f-4546-a27b-1e1b212af7be",
+        "milestoneId": "d747c4f9-a651-418c-a166-842daa49fd99",
+        "domain": "engineering",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-063432Z-fbb5ba99/engineering/slice-01.txt",
+        "expectedContent": "version-harness:version-harness-20260219-063432Z-fbb5ba99:engineering:1"
+      },
+      {
+        "id": "71d9f274-ec4a-4651-8b67-f48f3a9c0b4c",
+        "workstreamId": "9e1c2a5a-5222-4476-9e23-80bc377ef315",
+        "milestoneId": "5cb673e9-a106-45fd-9094-32e7f0a51c47",
+        "domain": "product",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-063432Z-fbb5ba99/product/slice-02.txt",
+        "expectedContent": "version-harness:version-harness-20260219-063432Z-fbb5ba99:product:2"
+      }
+    ]
+  },
+  "queue": {
+    "beforeTop": {
+      "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+      "workstreamId": "4929dfd4-6adb-42b6-a472-051e0aa8720f",
+      "workstreamTitle": "[Version Harness][Design] 3"
+    },
+    "afterTop": {
+      "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+      "workstreamId": "4929dfd4-6adb-42b6-a472-051e0aa8720f",
+      "workstreamTitle": "[Version Harness][Design] 3"
+    },
+    "afterTopWithinInitiative": {
+      "initiativeId": "e512d8e8-4d0f-4911-8a5d-535c55086622",
+      "workstreamId": "5c621785-431f-4546-a27b-1e1b212af7be",
+      "workstreamTitle": "[Version Harness][Engineering] 1"
+    },
+    "beforeOrder": [
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "4929dfd4-6adb-42b6-a472-051e0aa8720f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "b4aafec2-f165-4ea9-992e-ae95a3425c6f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "0049d1d9-cb1e-42be-a862-d7eecf0e1e8f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "1ab76ede-8831-496c-b168-dd536453e2ec"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "e50e0d86-57c1-44a0-a944-810b777af5b3"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "5807b34c-f3d4-4062-86d3-0444a1208344"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "99dafb36-48f0-4204-907d-9e7bec413adb"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "fb012b8e-3ca9-4ee8-aaa6-960afc3c431b"
+      },
+      {
+        "initiativeId": "bc464413-d1be-45a3-9df2-114818512c22",
+        "workstreamId": "813badb9-405d-4f83-845f-3920cd05b633"
+      },
+      {
+        "initiativeId": "b712349c-0bf1-4252-ac85-8072681a60ee",
+        "workstreamId": "048c16e9-5ac7-4a34-a44e-823ee12e37f7"
+      },
+      {
+        "initiativeId": "2d65ca1f-cc51-4aa8-9edc-ee0881ab0f06",
+        "workstreamId": "19e4a664-f285-4008-8735-df77d2521e8e"
+      },
+      {
+        "initiativeId": "0dba70b0-1e7e-4102-813e-22e5983d00f5",
+        "workstreamId": "fd47f656-f721-446f-b6b1-9f3e81451b63"
+      },
+      {
+        "initiativeId": "772d984a-88fc-4870-9321-328eeafd1a2d",
+        "workstreamId": "23d1c2ef-9593-413f-9385-bfcb837ccd66"
+      },
+      {
+        "initiativeId": "373264c4-eae8-4df4-a241-dd3318371c7f",
+        "workstreamId": "ada74ba0-38bc-4e13-bfc9-3323e11fe7ec"
+      },
+      {
+        "initiativeId": "1138b81e-c7f1-488e-8ab5-b46c488ecc44",
+        "workstreamId": "93d619db-68df-499e-a900-38b39189e948"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "70726a12-0372-42a1-adf7-7243426227a8"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "13fba082-0295-45e2-ad92-e63bc96a8613"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "77b7b5d1-ef7c-4bd2-9b91-90a99c48fcb8"
+      },
+      {
+        "initiativeId": "4c88b11e-94e3-40fe-9613-58ea8f69fe89",
+        "workstreamId": "a9ea3ae5-bd42-4226-90cd-0899b3dc8949"
+      },
+      {
+        "initiativeId": "9b543d86-ea3e-47b8-8109-7160547f2745",
+        "workstreamId": "979d4fce-eb57-48f5-8775-703d07bafabe"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "3a871181-f84f-46fe-a828-bd8d9e9a66bf"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "76c9ea0b-c16b-4456-914c-c8763108ff80"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "10bac449-8c61-450e-b4c8-65b8e42955d6"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "7293955a-9308-4550-86ee-94262f4f760f"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "2b4eea5c-4d98-4121-a701-3eb6beb195ac"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "45aa5ec1-2cd2-4e10-9833-81df766bc7d2"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "abfdeeda-9532-4d0f-9749-51248a72ba9d"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "bcb09d78-39e9-4b73-b78d-600f61eb85f9"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "07451f40-d943-4008-a9cc-24648ff5ed20"
+      },
+      {
+        "initiativeId": "9cca40bb-d789-454d-b193-c5e760eb0632",
+        "workstreamId": "8919d6a4-b913-4056-92d5-36a9d9fca911"
+      },
+      {
+        "initiativeId": "9cca40bb-d789-454d-b193-c5e760eb0632",
+        "workstreamId": "ac631848-19b8-4b8e-9d2e-b8d7e19b9af7"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "c5aa9bb1-7a03-4221-b1de-40338e47ec0c"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "fe973565-b30e-4b33-b1c7-e73775771199"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "bd94f979-32c1-46cb-b792-9daca7c4137d"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "648f6230-dd09-4b7d-8f54-767ab846fc24"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "243ed3f0-7a0e-4975-9ea8-4ab3ce963529"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "5a6246cf-b3e6-4072-94ee-983f5cc76606"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "b427df47-208e-432e-95ef-b9569b33f133"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "2f7ea1aa-8f1a-429c-b2a9-e91b343391a5"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "06b1b34e-b456-4d7e-90d0-703d09261e39"
+      },
+      {
+        "initiativeId": "2b422f49-ba5e-4ebf-9a83-0e02c97cb6b8",
+        "workstreamId": "b58c87ff-2399-405c-8587-b00b8e3eb4c9"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "8bcd666c-0042-4b98-b272-007aca27c9f4"
+      },
+      {
+        "initiativeId": "02e9b961-126f-48c6-8041-48e0eac14469",
+        "workstreamId": "56866387-51f5-41b7-b310-c5bcc3f39831"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "def4821e-e1d2-406a-8bae-15b3a8009bc1"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "6cb3a3cc-6dd2-4c33-853b-ad138d4290cb"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "0820fd8e-9e07-4dda-a3de-aa5882ac5238"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "d635372c-ea8b-41a7-8d60-dfd2208013eb"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "0f88b94c-32f4-4601-a230-2ee450b0d16b"
+      },
+      {
+        "initiativeId": "6b84823d-a395-4bb4-9872-8be72589fa67",
+        "workstreamId": "b2da6df2-f7a6-423d-b836-2fbd1668b488"
+      },
+      {
+        "initiativeId": "2b9e83d3-a4d9-4ce0-8212-fa4ea15de0b2",
+        "workstreamId": "21a27de3-07b3-4d77-a623-ae778cb0218c"
+      },
+      {
+        "initiativeId": "02e9b961-126f-48c6-8041-48e0eac14469",
+        "workstreamId": "cc1e7cba-40ce-48b3-b6ca-70f8676e6bb6"
+      },
+      {
+        "initiativeId": "2b9e83d3-a4d9-4ce0-8212-fa4ea15de0b2",
+        "workstreamId": "73aca067-57cd-469e-8068-b4b5380ec0e2"
+      },
+      {
+        "initiativeId": "6b84823d-a395-4bb4-9872-8be72589fa67",
+        "workstreamId": "ea03a311-0c6d-43f1-b964-9868ce758f4b"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "f3cac9e5-4bfc-40f6-accd-94d9609c92e9"
+      },
+      {
+        "initiativeId": "2b422f49-ba5e-4ebf-9a83-0e02c97cb6b8",
+        "workstreamId": "6d14fdb6-348c-49ea-8fbe-b9393a445369"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "575e0d6d-4782-4133-9099-490a1e68eec1"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "a4948a7e-fe2a-47b1-b2f0-e4cce0b1602d"
+      }
+    ],
+    "restored": true
+  },
+  "manualPlay": {
+    "requested": true,
+    "dispatchMode": "pending",
+    "completed": true,
+    "runId": "0eb24b4a-175c-422c-bf79-eac8b33092b8",
+    "stopReason": "completed",
+    "lastError": null,
+    "statusPolls": 34
+  },
+  "autoContinue": {
+    "started": true,
+    "targetCompletedSlices": 1,
+    "runAtStart": {
+      "initiativeId": "e512d8e8-4d0f-4911-8a5d-535c55086622",
+      "agentId": "main",
+      "agentName": "main",
+      "includeVerification": false,
+      "allowedWorkstreamIds": [
+        "9e1c2a5a-5222-4476-9e23-80bc377ef315"
+      ],
+      "stopAfterSlice": false,
+      "ignoreSpawnGuardRateLimit": true,
+      "tokenBudget": 100000000,
+      "tokensUsed": 0,
+      "status": "running",
+      "stopReason": null,
+      "stopRequested": false,
+      "startedAt": "2026-02-19T06:36:17.523Z",
+      "stoppedAt": null,
+      "updatedAt": "2026-02-19T06:36:17.523Z",
+      "lastError": null,
+      "lastTaskId": null,
+      "lastRunId": null,
+      "activeTaskId": null,
+      "activeRunId": null,
+      "activeTaskTokenEstimate": null
+    },
+    "completedRunIds": [],
+    "completedCount": 0,
+    "overrideEvents": 0,
+    "rateLimitedEvents": 0,
+    "finalStatus": "running",
+    "finalStopReason": null,
+    "finalLastError": "rate limit: 6/5 domain, 15/15 total",
+    "statusPolls": 233
+  },
+  "validation": {
+    "queueTopConfirmed": true,
+    "queueTopGlobalConfirmed": false,
+    "queueTopInitiativeConfirmed": true,
+    "manualSliceCompleted": true,
+    "nextFiveCompleted": false,
+    "completedWorkstreamIds": [],
+    "completedWorkstreamCount": 0,
+    "completedDomains": [],
+    "missingDomains": [],
+    "filesVerifiedRequired": 2,
+    "filesVerifiedCount": 0,
+    "fileChecks": [],
+    "runIsolation": {
+      "expectedCompletedRuns": 2,
+      "completedRunCount": 0,
+      "uniqueRunCount": 0
+    },
+    "progressEvidenceByRun": [],
+    "progressEvidenceMissingRunIds": [],
+    "skillCoverageChecks": [],
+    "skillCoverageMissingRunIds": [],
+    "realWorkerChecks": [],
+    "realWorkerMissingRunIds": [],
+    "tasksDoneCount": 0,
+    "taskTotal": 0,
+    "artifactsCount": 0
+  },
+  "teardown": {
+    "attempted": true,
+    "completed": true,
+    "errors": [],
+    "deleted": {
+      "task": [
+        "36e9350d-a5e3-4177-8181-b70687d1a002",
+        "71d9f274-ec4a-4651-8b67-f48f3a9c0b4c"
+      ],
+      "milestone": [
+        "d747c4f9-a651-418c-a166-842daa49fd99",
+        "5cb673e9-a106-45fd-9094-32e7f0a51c47"
+      ],
+      "workstream": [
+        "5c621785-431f-4546-a27b-1e1b212af7be",
+        "9e1c2a5a-5222-4476-9e23-80bc377ef315"
+      ],
+      "initiative": "e512d8e8-4d0f-4911-8a5d-535c55086622"
+    }
+  },
+  "notes": [
+    "Queue top was confirmed within initiative scope; global top remained occupied by existing queue priorities.",
+    "Manual run stopped as completed before slice-result activity became visible; continuing with provisional success.",
+    "Auto-continue did not reach 1 completed slices (got 0; stopReason=; lastError=rate limit: 6/5 domain, 15/15 total)"
+  ],
+  "finishedAt": "2026-02-19T06:44:22.552Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/harness-runs/version-harness-20260219-063432Z-fbb5ba99.json"
+}

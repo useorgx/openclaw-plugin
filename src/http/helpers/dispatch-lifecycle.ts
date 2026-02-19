@@ -107,6 +107,15 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     if (!initiativeId) return;
     const message = input.message.trim();
     if (!message) return;
+    const normalizedRunId = input.runId?.trim() || null;
+    const normalizedCorrelationId =
+      normalizedRunId ? null : (input.correlationId?.trim() || `openclaw-${Date.now()}`);
+    const canonicalMetadata: Record<string, unknown> = {
+      initiative_id: initiativeId,
+      run_id: normalizedRunId,
+      slice_run_id: normalizedRunId,
+      correlation_id: normalizedCorrelationId,
+    };
 
     const metadataWithProvenance = withProvenanceMetadata(input.metadata);
     const activityBucket = deps.deriveStructuredActivityBucket({
@@ -116,16 +125,15 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     });
     const enrichedMetadata: Record<string, unknown> = {
       ...(metadataWithProvenance ?? {}),
+      ...canonicalMetadata,
       activity_bucket: activityBucket,
     };
 
     try {
       await deps.client.emitActivity({
         initiative_id: initiativeId,
-        run_id: input.runId ?? undefined,
-        correlation_id: input.runId
-          ? undefined
-          : (input.correlationId?.trim() || `openclaw-${Date.now()}`),
+        run_id: normalizedRunId ?? undefined,
+        correlation_id: normalizedCorrelationId ?? undefined,
         source_client: "openclaw",
         message,
         phase: input.phase,
@@ -139,7 +147,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
       });
     } catch (err: unknown) {
       const msg = deps.safeErrorMessage(err);
-      const runId = input.runId?.trim() || "";
+      const runId = normalizedRunId ?? "";
 
       // If OrgX rejects an unknown run_id, retry by treating the local run_id as a
       // correlation key (non-UUID) so OrgX can create/attach a run deterministically.
@@ -173,10 +181,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
       // Fall back to local outbox so activity is still visible in Mission Control/Activity.
       try {
         const timestamp = new Date().toISOString();
-        const runId =
-          input.runId?.trim() ||
-          input.correlationId?.trim() ||
-          null;
+        const runId = normalizedRunId || normalizedCorrelationId || null;
         const activityItem: LiveActivityItem = {
           id: deps.randomUUID(),
           type:
@@ -222,10 +227,8 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           timestamp,
           payload: {
             initiative_id: initiativeId,
-            run_id: input.runId?.trim() || undefined,
-            correlation_id: input.runId
-              ? undefined
-              : (input.correlationId?.trim() || `openclaw-${Date.now()}`),
+            run_id: normalizedRunId ?? undefined,
+            correlation_id: normalizedCorrelationId ?? undefined,
             source_client: "openclaw",
             message,
             phase: input.phase,

@@ -34,6 +34,12 @@ type CreateAutopilotRuntimeDeps = {
 };
 
 export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
+  function hasExplicitCodexSubcommand(args: string[]): boolean {
+    const first = (args[0] ?? "").trim();
+    if (!first || first.startsWith("-")) return false;
+    return true;
+  }
+
   function envFlag(name: string, defaultValue: boolean): boolean {
     const raw = (process.env[name] ?? "").trim().toLowerCase();
     if (!raw) return defaultValue;
@@ -77,8 +83,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
   }
 
   function prepareAutopilotCodexHome(): string | null {
-    if (!envFlag("ORGX_AUTOPILOT_ISOLATE_CODEX_HOME", true)) return null;
-
     const configuredHome = (process.env.ORGX_AUTOPILOT_CODEX_HOME ?? "").trim();
     const preferredHome =
       configuredHome.length > 0
@@ -224,6 +228,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     cwd: string;
     logPath: string;
     outputPath: string;
+    outputSchemaPath?: string;
     env: Record<string, string | undefined>;
   }): { pid: number | null } {
     ensurePrivateDirForFile(input.logPath);
@@ -453,20 +458,16 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     const codexInfo = deps.resolveCodexBinInfo();
     const codexBin = codexInfo.bin;
     const rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
-    const args = normalizeCodexArgs(
-      rawArgs.length > 0 ? rawArgs.split(/\s+/).filter(Boolean) : ["--ephemeral", "--full-auto"]
+    const normalizedArgs = normalizeCodexArgs(
+      rawArgs.length > 0
+        ? rawArgs.split(/\s+/).filter(Boolean)
+        : ["exec", "--ephemeral", "--full-auto", "--skip-git-repo-check"]
     );
+    const args = hasExplicitCodexSubcommand(normalizedArgs)
+      ? normalizedArgs
+      : ["exec", ...normalizedArgs];
 
-    // Autopilot slices should not fail just because an unrelated MCP server is flaky.
-    // Default: disable firecrawl unless explicitly re-enabled.
-    const disableFirecrawlRaw = (process.env.ORGX_AUTOPILOT_DISABLE_FIRECRAWL ?? "").trim().toLowerCase();
-    const disableFirecrawl =
-      disableFirecrawlRaw !== "false" && disableFirecrawlRaw !== "0" && disableFirecrawlRaw !== "no";
-    const hasFirecrawlOverride = args.some((arg) => String(arg).includes("mcp_servers.firecrawl"));
     const extraArgs: string[] = [];
-    if (disableFirecrawl && !hasFirecrawlOverride) {
-      extraArgs.push("-c", "mcp_servers.firecrawl.enabled=false");
-    }
 
     const logStream = createWriteStream(input.logPath, { flags: "a" });
     logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
@@ -483,10 +484,16 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     const autopilotCodexHome = prepareAutopilotCodexHome();
     if (autopilotCodexHome) {
       childEnv.CODEX_HOME = autopilotCodexHome;
-      logStream.write(`codex_home: ${autopilotCodexHome}\n`);
+      logStream.write(
+        shouldIsolateCodexHome
+          ? `codex_home: ${autopilotCodexHome}\n`
+          : `codex_home: ${autopilotCodexHome} (forced-safe override while ORGX_AUTOPILOT_ISOLATE_CODEX_HOME=false)\n`
+      );
     } else if (shouldIsolateCodexHome) {
       delete childEnv.CODEX_HOME;
       logStream.write("codex_home: isolation unavailable (default lookup)\n");
+    } else {
+      logStream.write("codex_home: forced-safe override unavailable (inheriting global CODEX_HOME)\n");
     }
     if (codexBin.includes(sep)) {
       const binDir = dirname(codexBin);
@@ -499,13 +506,27 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     const outputArgs = hasOutputLastMessage
       ? []
       : ["--output-last-message", input.outputPath];
+    const hasOutputSchema =
+      args.includes("--output-schema") ||
+      args.some((arg) => typeof arg === "string" && arg.startsWith("--output-schema="));
+    const outputSchemaArgs =
+      input.outputSchemaPath && !hasOutputSchema
+        ? ["--output-schema", input.outputSchemaPath]
+        : [];
+    if (outputSchemaArgs.length > 0) {
+      logStream.write(`output_schema: ${input.outputSchemaPath}\n`);
+    }
 
-    const child = spawn(codexBin, [...args, ...extraArgs, ...outputArgs, input.prompt], {
+    const child = spawn(
+      codexBin,
+      [...args, ...extraArgs, ...outputArgs, ...outputSchemaArgs, input.prompt],
+      {
       cwd: input.cwd,
       env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
-    });
+      }
+    );
     deps.autoContinueSliceChildren.set(input.runId, child);
 
     child.stdout?.on("data", (chunk) => {

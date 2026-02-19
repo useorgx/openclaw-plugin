@@ -27,100 +27,120 @@ function ensurePrivateDirForFile(pathname: string): void {
 
 function autopilotSliceSchema(): Record<string, unknown> {
   // Strict enough to keep outputs predictable, but tolerant of older agents.
+  const artifactProperties = {
+    name: { type: "string", minLength: 1 },
+    artifact_type: {
+      type: "string",
+      enum: ["pr", "commit", "document", "config", "report", "design", "other"],
+    },
+    confidence_score: { type: ["number", "null"], minimum: 0, maximum: 1 },
+    description: { type: ["string", "null"] },
+    url: { type: ["string", "null"] },
+    verification_steps: { type: ["array", "null"], items: { type: "string" } },
+    milestone_id: { type: ["string", "null"] },
+    task_ids: { type: ["array", "null"], items: { type: "string" } },
+  } as const;
+  const decisionProperties = {
+    question: { type: "string", minLength: 1 },
+    summary: { type: ["string", "null"] },
+    options: { type: ["array", "null"], items: { type: "string" } },
+    urgency: {
+      type: ["string", "null"],
+      enum: ["low", "medium", "high", "urgent", null],
+    },
+    blocking: { type: "boolean" },
+  } as const;
+  const taskUpdateProperties = {
+    task_id: { type: "string", minLength: 1 },
+    status: { type: "string", enum: ["todo", "in_progress", "done", "blocked"] },
+    reason: { type: ["string", "null"] },
+  } as const;
+  const milestoneUpdateProperties = {
+    milestone_id: { type: "string", minLength: 1 },
+    status: {
+      type: "string",
+      enum: ["planned", "in_progress", "completed", "at_risk", "cancelled"],
+    },
+    reason: { type: ["string", "null"] },
+  } as const;
+  const topLevelProperties = {
+    status: {
+      type: "string",
+      enum: ["completed", "blocked", "needs_decision", "error"],
+    },
+    summary: { type: "string", minLength: 1 },
+    workstream_id: { type: "string", minLength: 1 },
+    workstream_title: { type: ["string", "null"] },
+    slice_id: { type: ["string", "null"] },
+    artifacts: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: Object.keys(artifactProperties),
+        properties: artifactProperties,
+      },
+    },
+    decisions_needed: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: Object.keys(decisionProperties),
+        properties: decisionProperties,
+      },
+    },
+    task_updates: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: Object.keys(taskUpdateProperties),
+        properties: taskUpdateProperties,
+      },
+    },
+    milestone_updates: {
+      type: ["array", "null"],
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: Object.keys(milestoneUpdateProperties),
+        properties: milestoneUpdateProperties,
+      },
+    },
+    next_actions: { type: ["array", "null"], items: { type: "string" } },
+  } as const;
+
   return {
     type: "object",
     additionalProperties: false,
-    required: ["status", "summary", "workstream_id"],
-    properties: {
-      status: {
-        type: "string",
-        enum: ["completed", "blocked", "needs_decision", "error"],
-      },
-      summary: { type: "string", minLength: 1 },
-      workstream_id: { type: "string", minLength: 1 },
-      workstream_title: { type: ["string", "null"] },
-      slice_id: { type: ["string", "null"] },
-      artifacts: {
-        type: ["array", "null"],
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["name", "artifact_type"],
-          properties: {
-            name: { type: "string", minLength: 1 },
-            artifact_type: {
-              type: "string",
-              enum: ["pr", "commit", "document", "config", "report", "design", "other"],
-            },
-            description: { type: ["string", "null"] },
-            url: { type: ["string", "null"] },
-            verification_steps: { type: ["array", "null"], items: { type: "string" } },
-            milestone_id: { type: ["string", "null"] },
-            task_ids: { type: ["array", "null"], items: { type: "string" } },
-          },
-        },
-      },
-      decisions_needed: {
-        type: ["array", "null"],
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["question"],
-          properties: {
-            question: { type: "string", minLength: 1 },
-            summary: { type: ["string", "null"] },
-            options: { type: ["array", "null"], items: { type: "string" } },
-            urgency: {
-              type: ["string", "null"],
-              enum: ["low", "medium", "high", "urgent", null],
-            },
-            blocking: { type: ["boolean", "null"] },
-          },
-        },
-      },
-      task_updates: {
-        type: ["array", "null"],
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["task_id", "status"],
-          properties: {
-            task_id: { type: "string", minLength: 1 },
-            status: { type: "string", minLength: 1 },
-            reason: { type: ["string", "null"] },
-          },
-        },
-      },
-      milestone_updates: {
-        type: ["array", "null"],
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["milestone_id", "status"],
-          properties: {
-            milestone_id: { type: "string", minLength: 1 },
-            status: { type: "string", minLength: 1 },
-            reason: { type: ["string", "null"] },
-          },
-        },
-      },
-      next_actions: { type: ["array", "null"], items: { type: "string" } },
-    },
+    required: Object.keys(topLevelProperties),
+    properties: topLevelProperties,
+    // Keep schema within Codex structured-output subset (no combinators like allOf/if/then).
+    // Status/decision consistency is enforced by coordinator post-parse.
   };
 }
 
 export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
   const file = join(getOrgxPluginConfigDir(), schemaFilename);
+  const nextSchemaRaw = JSON.stringify(autopilotSliceSchema(), null, 2);
   try {
-    if (existsSync(file)) return file;
+    if (existsSync(file)) {
+      try {
+        const existingRaw = readFileSync(file, "utf8").trim();
+        if (existingRaw === nextSchemaRaw) return file;
+      } catch {
+        // continue and rewrite
+      }
+    }
     ensurePrivateDirForFile(file);
-    writeFileAtomicSync(file, JSON.stringify(autopilotSliceSchema(), null, 2), { mode: 0o600 });
+    writeFileAtomicSync(file, nextSchemaRaw, { mode: 0o600 });
     return file;
   } catch {
     // Fall back to best-effort write.
     try {
       ensurePrivateDirForFile(file);
-      writeFileSync(file, `${JSON.stringify(autopilotSliceSchema(), null, 2)}\n`, {
+      writeFileSync(file, `${nextSchemaRaw}\n`, {
         encoding: "utf8",
         mode: 0o600,
       });
@@ -489,17 +509,25 @@ export function buildWorkstreamSlicePrompt(input: {
     "What to do:",
     "- Choose a coherent slice of work you can complete end-to-end in this run.",
     "- Execute the work (code/docs/config) and produce verifiable outcomes.",
+    "- Self-assess confidence when saving artifacts and include `confidence_score` in [0,1].",
     "- If blocked, be explicit about what decision/info is required.",
+    "- Keep this run focused: stay inside the current repository/workdir and avoid unrelated exploration.",
+    "- Execution budget: prefer <=12 shell commands and <=6 minutes wall time.",
+    "- Verification budget: run only targeted checks for changed files. Avoid full-suite commands (for example `npm run test:hooks`, `npm test`, `npm run build`) unless the task explicitly requires them.",
+    "- If you hit sandbox/env blockers after one retry, stop and return `status=needs_decision` with the blocker and the smallest unblocking action.",
     "",
     "Output requirements:",
-    "- Print ONLY a single JSON object as the final output.",
+    "- Print ONLY a single JSON object as the final output (no interim JSON status messages).",
     `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
     "- Artifacts must be verifiable: include URLs or local paths, plus verification steps.",
+    "- Include `confidence_score` for each artifact (`0` to `1`; use `null` when unknown).",
     "- If you need a human decision, include it in decisions_needed.",
     "- For every decisions_needed entry, ALWAYS set blocking explicitly (true or false).",
+    "- If status is blocked, needs_decision, or error: include at least one decisions_needed entry with blocking=true.",
     "- Status/decision consistency is strict:",
     "  - If any decision is blocking=true, status MUST be needs_decision or blocked (never completed).",
     "  - Only use status=completed when all listed decisions are non-blocking follow-ups.",
+    "- Never return status=completed with zero artifacts and zero task/milestone updates.",
     "- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).",
     "  - task_updates.status must be one of: todo, in_progress, done, blocked",
     "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",

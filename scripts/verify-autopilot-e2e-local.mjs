@@ -18,6 +18,13 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=success
  * - ORGX_E2E_TASKS=3
  * - ORGX_E2E_INJECT_PROGRESS=1|0
+ * - ORGX_E2E_EXPECT_STOP_REASON=completed|blocked|error
+ * - ORGX_E2E_EXPECT_SLICE_STATUSES=completed|blocked|needs_decision|error (comma-separated)
+ * - ORGX_E2E_EXPECT_SLICE_RESULTS_MIN=0..N
+ * - ORGX_E2E_EXPECT_DECISIONS_MIN=0..N
+ * - ORGX_E2E_EXPECT_NON_DONE_TASKS_MIN=0..N
+ * - ORGX_E2E_EXPECT_ARTIFACTS_MIN=0..N
+ * - ORGX_E2E_EXPECT_ACTIVITY_EVENT=<event_name>
  */
 
 import assert from "node:assert/strict";
@@ -32,6 +39,49 @@ import { createHttpHandler } from "../dist/http-handler.js";
 const TASKS = Number.isFinite(Number(process.env.ORGX_E2E_TASKS))
   ? Math.max(1, Math.floor(Number(process.env.ORGX_E2E_TASKS)))
   : 3;
+
+function readBoolEnv(name, fallback) {
+  const raw = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  return !(raw === "0" || raw === "false" || raw === "no" || raw === "off");
+}
+
+function readIntEnv(name, fallback) {
+  const raw = String(process.env[name] ?? "").trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+function readCsvEnv(name) {
+  const raw = String(process.env[name] ?? "").trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+const EXPECT_STOP_REASON = String(process.env.ORGX_E2E_EXPECT_STOP_REASON || "completed")
+  .trim()
+  .toLowerCase();
+const EXPECT_SLICE_STATUSES = readCsvEnv("ORGX_E2E_EXPECT_SLICE_STATUSES");
+const EXPECT_ACTIVITY_EVENT = String(process.env.ORGX_E2E_EXPECT_ACTIVITY_EVENT || "")
+  .trim()
+  .toLowerCase();
+const EXPECT_SLICE_RESULTS_MIN = readIntEnv("ORGX_E2E_EXPECT_SLICE_RESULTS_MIN", 1);
+const EXPECT_DECISIONS_MIN = readIntEnv(
+  "ORGX_E2E_EXPECT_DECISIONS_MIN",
+  EXPECT_STOP_REASON === "completed" ? 0 : 1
+);
+const EXPECT_NON_DONE_TASKS_MIN = readIntEnv(
+  "ORGX_E2E_EXPECT_NON_DONE_TASKS_MIN",
+  EXPECT_STOP_REASON === "completed" ? 0 : 1
+);
+const EXPECT_ARTIFACTS_MIN = readIntEnv(
+  "ORGX_E2E_EXPECT_ARTIFACTS_MIN",
+  EXPECT_STOP_REASON === "completed" ? TASKS : 0
+);
 
 // Avoid spawn guard gating in local harness runs.
 process.env.ORGX_SPAWN_GUARD_BYPASS = "1";
@@ -495,14 +545,13 @@ async function main() {
     });
     assert.equal(Boolean(started?.ok), true, "expected auto-continue start ok");
 
-    // 3) Tick until completed; optionally inject progress updates for each slice run.
+    // 3) Tick until stop reason is reached; optionally inject progress updates for each slice run.
     // Note: this exercises the runtime hook pipeline (hook -> runtimeInstances -> SSE/snapshot)
     // even for the mock worker.
-    const injectProgressRaw = String(process.env.ORGX_E2E_INJECT_PROGRESS ?? "").trim().toLowerCase();
     const injectProgress =
-      injectProgressRaw.length > 0
-        ? !(injectProgressRaw === "0" || injectProgressRaw === "false" || injectProgressRaw === "no")
-        : true;
+      String(process.env.ORGX_E2E_INJECT_PROGRESS ?? "").trim().length > 0
+        ? readBoolEnv("ORGX_E2E_INJECT_PROGRESS", true)
+        : EXPECT_STOP_REASON === "completed";
     const posted38ForRun = new Set();
     const posted55ForRun = new Set();
     const timeoutRaw = String(process.env.ORGX_E2E_TIMEOUT_MS ?? "").trim();
@@ -587,18 +636,30 @@ async function main() {
         `E2E timeout: expected run to stop within ${timeoutMs}ms (status=${String(final.run.status)} activeRunId=${String(final.run.activeRunId ?? "")} lastError=${String(final.run.lastError ?? "")})`
       );
     }
-    assert.equal(final.run.stopReason, "completed");
+    assert.equal(final.run.stopReason, EXPECT_STOP_REASON);
 
-    // 4) Verify tasks are done.
+    // 4) Verify task state matches expectation.
     const tasks = await fetchJson(
       `${baseUrl}/orgx/api/entities?type=task&initiative_id=${encodeURIComponent(initiativeId)}&limit=200`
     );
     const taskRows = Array.isArray(tasks?.data) ? tasks.data : [];
     const taskById = new Map(taskRows.map((t) => [String(t.id), t]));
+    let nonDoneCount = 0;
     for (const id of taskIds) {
       const row = taskById.get(id);
       assert.ok(row, `expected task present id=${id}`);
-      assert.ok(["done", "completed"].includes(String(row.status).toLowerCase()), `expected task done id=${id}`);
+      const normalized = String(row.status ?? "").trim().toLowerCase();
+      if (EXPECT_STOP_REASON === "completed") {
+        assert.ok(["done", "completed"].includes(normalized), `expected task done id=${id}`);
+      } else if (!["done", "completed"].includes(normalized)) {
+        nonDoneCount += 1;
+      }
+    }
+    if (EXPECT_STOP_REASON !== "completed") {
+      assert.ok(
+        nonDoneCount >= EXPECT_NON_DONE_TASKS_MIN,
+        `expected >=${EXPECT_NON_DONE_TASKS_MIN} non-done tasks in non-happy run, got ${nonDoneCount}`
+      );
     }
 
     // 5) Verify artifacts were created.
@@ -606,7 +667,10 @@ async function main() {
       `${baseUrl}/orgx/api/entities?type=artifact&initiative_id=${encodeURIComponent(initiativeId)}&limit=200`
     );
     const artifactRows = Array.isArray(artifacts?.data) ? artifacts.data : [];
-    assert.ok(artifactRows.length >= TASKS, `expected >=${TASKS} artifacts, got ${artifactRows.length}`);
+    assert.ok(
+      artifactRows.length >= EXPECT_ARTIFACTS_MIN,
+      `expected >=${EXPECT_ARTIFACTS_MIN} artifacts, got ${artifactRows.length}`
+    );
 
     // 5b) Verify the "hello-worldy" deliverables exist on disk and match expected content.
     // Note: mock worker doesn't write files; this check is primarily for real Codex/Claude execution.
@@ -641,7 +705,46 @@ async function main() {
     const sliceResults = activities.filter(
       (a) => a && a.metadata && typeof a.metadata === "object" && a.metadata.event === "autopilot_slice_result"
     );
-    assert.ok(sliceResults.length >= TASKS, `expected >=${TASKS} slice results, got ${sliceResults.length}`);
+    assert.ok(
+      sliceResults.length >= EXPECT_SLICE_RESULTS_MIN,
+      `expected >=${EXPECT_SLICE_RESULTS_MIN} slice results, got ${sliceResults.length}`
+    );
+
+    if (EXPECT_SLICE_STATUSES.length > 0) {
+      const seenParsedStatuses = new Set(
+        sliceResults
+          .map((entry) => String(entry?.metadata?.parsed_status ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      for (const expected of EXPECT_SLICE_STATUSES) {
+        assert.ok(
+          seenParsedStatuses.has(expected),
+          `expected parsed_status=${expected}; saw=${Array.from(seenParsedStatuses).join(",")}`
+        );
+      }
+    }
+
+    const stoppedEvents = activities.filter(
+      (a) => a && a.metadata && typeof a.metadata === "object" && a.metadata.event === "auto_continue_stopped"
+    );
+    assert.ok(stoppedEvents.length > 0, "expected auto_continue_stopped activity");
+    const latestStopped = stoppedEvents[0];
+    const stoppedReason = String(latestStopped?.metadata?.stop_reason ?? "").trim().toLowerCase();
+    assert.equal(stoppedReason, EXPECT_STOP_REASON);
+
+    const decisions = Array.isArray(snapshot?.decisions) ? snapshot.decisions : [];
+    assert.ok(
+      decisions.length >= EXPECT_DECISIONS_MIN,
+      `expected >=${EXPECT_DECISIONS_MIN} decisions, got ${decisions.length}`
+    );
+
+    if (EXPECT_ACTIVITY_EVENT) {
+      const hasExpectedEvent = activities.some((entry) => {
+        const event = String(entry?.metadata?.event ?? "").trim().toLowerCase();
+        return event === EXPECT_ACTIVITY_EVENT;
+      });
+      assert.ok(hasExpectedEvent, `expected activity event ${EXPECT_ACTIVITY_EVENT}`);
+    }
 
     console.log(
       JSON.stringify(
@@ -653,6 +756,13 @@ async function main() {
           workstreamId,
           milestoneId,
           tasks: TASKS,
+          expectedStopReason: EXPECT_STOP_REASON,
+          stopReason: String(final.run.stopReason ?? ""),
+          expectedSliceResultsMin: EXPECT_SLICE_RESULTS_MIN,
+          expectedSliceStatuses: EXPECT_SLICE_STATUSES,
+          expectedActivityEvent: EXPECT_ACTIVITY_EVENT || null,
+          nonDoneTasks: nonDoneCount,
+          decisions: decisions.length,
           artifacts: artifactRows.length,
           runtimeEvents: runtimeEvents.length,
           activityItems: activities.length,

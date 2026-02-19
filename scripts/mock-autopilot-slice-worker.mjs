@@ -9,12 +9,14 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=success (default)
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=no_updates
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=blocked_no_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision_optional
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_optional_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_unspecified_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=error
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=invalid_json
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=stall (sleeps; prints nothing)
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=slow_logs_success (writes stderr heartbeats, then succeeds)
  *
  * Controls:
  * - ORGX_AUTOPILOT_MOCK_SLEEP_MS (default: 120)
@@ -50,6 +52,48 @@ function emitOutput(text) {
 async function main() {
   if (scenario === "stall") {
     await delay(Number.isFinite(sleepMs) ? Math.max(1, sleepMs) : 5_000);
+    return;
+  }
+
+  if (scenario === "slow_logs_success") {
+    const totalMs = Number.isFinite(sleepMs) ? Math.max(60, sleepMs) : 250;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < totalMs) {
+      process.stderr.write("mock heartbeat\n");
+      await delay(20);
+    }
+    emitOutput(
+      JSON.stringify(
+        {
+          status: "completed",
+          summary: "Mock slice completed after extended runtime with active log heartbeats.",
+          workstream_id: workstreamId,
+          workstream_title: workstreamTitle,
+          slice_id: runId,
+          artifacts: [
+            {
+              name: "Mock heartbeat deliverable",
+              artifact_type: "document",
+              description: "Simulated artifact for slow log heartbeat success path.",
+              url: "file://mock/heartbeat-success.txt",
+              verification_steps: ["Check that the worker emitted heartbeat logs", "Verify completion JSON is present"],
+              task_ids: taskId ? [taskId] : null,
+            },
+          ],
+          task_updates: taskId
+            ? [
+                {
+                  task_id: taskId,
+                  status: "done",
+                  reason: "Mock worker completed the task after heartbeat activity.",
+                },
+              ]
+            : null,
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
@@ -112,6 +156,23 @@ async function main() {
     return;
   }
 
+  if (scenario === "blocked_no_decision") {
+    emitOutput(
+      JSON.stringify(
+        {
+          status: "blocked",
+          summary: "Mock slice is blocked but omitted decision payload (coordinator must synthesize fallback decision).",
+          workstream_id: workstreamId,
+          workstream_title: workstreamTitle,
+          slice_id: runId,
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
   if (scenario === "needs_decision_optional") {
     emitOutput(
       JSON.stringify(
@@ -134,6 +195,7 @@ async function main() {
             {
               name: "Mock optional follow-up deliverable",
               artifact_type: "document",
+              confidence_score: 0.82,
               description: "A simulated artifact emitted by the worker.",
               url: "file://mock/artifact-optional.txt",
               verification_steps: ["Open the artifact file", "Verify contents match expected output"],
@@ -179,6 +241,7 @@ async function main() {
             {
               name: "Mock deliverable",
               artifact_type: "document",
+              confidence_score: 0.86,
               description: "A simulated artifact emitted by the worker.",
               url: "file://mock/artifact.txt",
               verification_steps: ["Open the artifact file", "Verify contents match expected output"],
@@ -223,6 +286,7 @@ async function main() {
             {
               name: "Mock deliverable",
               artifact_type: "document",
+              confidence_score: 0.79,
               description: "A simulated artifact emitted by the worker.",
               url: "file://mock/artifact.txt",
               verification_steps: ["Open the artifact file", "Verify contents match expected output"],
@@ -276,6 +340,7 @@ async function main() {
           {
             name: "Mock deliverable",
             artifact_type: "document",
+            confidence_score: 0.9,
             description: "A simulated artifact emitted by the worker.",
             url: "file://mock/artifact.txt",
             verification_steps: ["Open the artifact file", "Verify contents match expected output"],

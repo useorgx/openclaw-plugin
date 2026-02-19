@@ -7,6 +7,7 @@ import type { upsertAgentRun as upsertAgentRunType } from "../../agent-run-store
 type AutopilotSliceArtifact = {
   name: string;
   artifact_type?: string | null;
+  confidence_score?: number | null;
   description?: string | null;
   url?: string | null;
   verification_steps?: string[] | null;
@@ -110,6 +111,13 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     const name = (input.artifact.name ?? "").trim();
     if (!name) return { ok: false, id: null };
     const artifactType = (input.artifact.artifact_type ?? "other").trim() || "other";
+    const confidenceScore =
+      typeof input.artifact.confidence_score === "number" &&
+      Number.isFinite(input.artifact.confidence_score) &&
+      input.artifact.confidence_score >= 0 &&
+      input.artifact.confidence_score <= 1
+        ? input.artifact.confidence_score
+        : null;
     const artifactId = deps.randomUUID();
 
     const verificationSteps = Array.isArray(input.artifact.verification_steps)
@@ -147,6 +155,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
         entity_id: entityId,
         name,
         artifact_type: artifactType,
+        confidence_score: confidenceScore,
         created_by_type: createdByType,
         created_by_id: createdById,
         description,
@@ -161,6 +170,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
           workstream_id: input.workstreamId,
           milestone_id: input.artifact.milestone_id ?? null,
           task_ids: input.artifact.task_ids ?? null,
+          confidence_score: confidenceScore,
         },
         // Make persistence validation opt-in to avoid adding latency to every slice by default.
         validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
@@ -179,6 +189,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
             entity_id: input.artifact.milestone_id ?? input.initiativeId,
             name,
             artifact_type: artifactType,
+            confidence_score: confidenceScore,
             created_by_type: createdByType,
             created_by_id: createdById,
             description,
@@ -205,6 +216,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
               source: "openclaw_local_fallback",
               event: "autopilot_slice_artifact_buffered",
               artifact_type: artifactType,
+              confidence_score: confidenceScore,
               artifact_id: artifactId,
               url: input.artifact.url ?? null,
               error: deps.safeErrorMessage(err),
@@ -224,7 +236,12 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     correlationId: string;
     taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
     milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
-  }): Promise<{ applied: number; buffered: boolean }> {
+  }): Promise<{
+    applied: number;
+    buffered: boolean;
+    taskUpdates: Array<{ taskId: string; status: string; reason: string | null }>;
+    milestoneUpdates: Array<{ milestoneId: string; status: string; reason: string | null }>;
+  }> {
     const normalizeTaskStatus = (raw: string): string | null => {
       const normalized = raw.trim().toLowerCase().replace(/\s+/g, "_");
       if (!normalized) return null;
@@ -270,21 +287,47 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     };
 
     const operations: Array<Record<string, unknown>> = [];
+    const normalizedTaskUpdates: Array<{ taskId: string; status: string; reason: string | null }> = [];
+    const normalizedMilestoneUpdates: Array<{
+      milestoneId: string;
+      status: string;
+      reason: string | null;
+    }> = [];
 
     for (const update of input.taskUpdates) {
       const taskId = (update?.task_id ?? "").trim();
       const status = normalizeTaskStatus(update?.status ?? "");
       if (!taskId || !status) continue;
+      normalizedTaskUpdates.push({
+        taskId,
+        status,
+        reason: typeof update?.reason === "string" && update.reason.trim().length > 0 ? update.reason.trim() : null,
+      });
       operations.push({ op: "task.update", task_id: taskId, status });
     }
     for (const update of input.milestoneUpdates) {
       const milestoneId = (update?.milestone_id ?? "").trim();
       const status = normalizeMilestoneStatus(update?.status ?? "");
       if (!milestoneId || !status) continue;
+      normalizedMilestoneUpdates.push({
+        milestoneId,
+        status,
+        reason:
+          typeof update?.reason === "string" && update.reason.trim().length > 0
+            ? update.reason.trim()
+            : null,
+      });
       operations.push({ op: "milestone.update", milestone_id: milestoneId, status });
     }
 
-    if (operations.length === 0) return { applied: 0, buffered: false };
+    if (operations.length === 0) {
+      return {
+        applied: 0,
+        buffered: false,
+        taskUpdates: [],
+        milestoneUpdates: [],
+      };
+    }
 
     try {
       await deps.client.applyChangeset({
@@ -301,7 +344,12 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
         ]),
         operations: operations as any,
       });
-      return { applied: operations.length, buffered: false };
+      return {
+        applied: operations.length,
+        buffered: false,
+        taskUpdates: normalizedTaskUpdates,
+        milestoneUpdates: normalizedMilestoneUpdates,
+      };
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       try {
@@ -349,7 +397,12 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
       } catch {
         // best effort
       }
-      return { applied: operations.length, buffered: true };
+      return {
+        applied: operations.length,
+        buffered: true,
+        taskUpdates: normalizedTaskUpdates,
+        milestoneUpdates: normalizedMilestoneUpdates,
+      };
     }
   }
 

@@ -154,21 +154,6 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         metadata: baseMetadata,
       } satisfies Parameters<typeof client.emitActivity>[0];
 
-      // Locally-buffered progress events often store a local UUID in run_id. OrgX may reject
-      // unknown run IDs on replay; prefer a deterministic non-UUID correlation key instead.
-      if (emitPayload.run_id && !emitPayload.correlation_id) {
-        const replayCorrelationId = `openclaw_run_${stableHash(emitPayload.run_id).slice(0, 24)}`;
-        emitPayload = {
-          ...emitPayload,
-          run_id: undefined,
-          correlation_id: replayCorrelationId,
-          metadata: {
-            ...(emitPayload.metadata ?? {}),
-            replay_run_id_as_correlation: true,
-          },
-        };
-      }
-
       try {
         await client.emitActivity(emitPayload);
       } catch (err: unknown) {
@@ -179,8 +164,8 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         const msg = toErrorMessage(err);
         if (
           emitPayload.run_id &&
-          /^404\\b/.test(msg) &&
-          /\\brun\\b/i.test(msg) &&
+          /^404\b/.test(msg) &&
+          /\brun\b/i.test(msg) &&
           /not found/i.test(msg)
         ) {
           const replayCorrelationId = `openclaw_run_${stableHash(emitPayload.run_id).slice(0, 24)}`;
@@ -548,6 +533,14 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
       const description = pickStringField(payload, "description") ?? undefined;
       const externalUrl = pickStringField(payload, "url") ?? pickStringField(payload, "artifact_url") ?? null;
       const content = pickStringField(payload, "content") ?? pickStringField(payload, "preview_markdown") ?? null;
+      const confidenceRaw = payload.confidence_score;
+      const confidenceScore =
+        typeof confidenceRaw === "number" &&
+        Number.isFinite(confidenceRaw) &&
+        confidenceRaw >= 0 &&
+        confidenceRaw <= 1
+          ? confidenceRaw
+          : null;
 
       const allowedEntityType =
         entityType === "initiative" ||
@@ -573,6 +566,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         entity_id: entityId,
         name: name.trim(),
         artifact_type: artifactType.trim() || "other",
+        confidence_score: confidenceScore,
         description,
         external_url: externalUrl,
         preview_markdown: content,
@@ -580,6 +574,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         metadata: {
           source: "outbox_replay",
           outbox_event_id: event.id,
+          confidence_score: confidenceScore,
           ...(payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
             ? (payload.metadata as Record<string, unknown>)
             : {}),

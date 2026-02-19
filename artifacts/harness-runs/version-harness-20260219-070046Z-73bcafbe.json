@@ -1,0 +1,499 @@
+{
+  "ok": false,
+  "runKey": "version-harness-20260219-070046Z-73bcafbe",
+  "startedAt": "2026-02-19T07:00:46.109Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "config": {
+    "requestedTargetCompletedSlices": 5,
+    "targetCompletedSlices": 5,
+    "minTargetForDomainCoverage": 5,
+    "timeoutMs": 1800000,
+    "requestTimeoutMs": 30000,
+    "keep": false,
+    "seedOnly": false,
+    "requireRealWorker": true,
+    "domains": [
+      "engineering",
+      "product",
+      "design",
+      "marketing",
+      "operations",
+      "sales"
+    ],
+    "harnessWorkdir": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe"
+  },
+  "created": {
+    "initiativeId": "1c060d6e-d034-4d7e-8dbf-7b8a8316fcf0",
+    "workstreams": [
+      {
+        "id": "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+        "domain": "engineering",
+        "agentId": "engineering-agent",
+        "agentName": "Eli"
+      },
+      {
+        "id": "ad35e7b1-dfe8-4ad8-99d9-e4eb12ad077c",
+        "domain": "product",
+        "agentId": "product-agent",
+        "agentName": "Pace"
+      },
+      {
+        "id": "70080612-f763-4db3-b800-7db8504caa76",
+        "domain": "design",
+        "agentId": "design-agent",
+        "agentName": "Dana"
+      },
+      {
+        "id": "f24f0463-665d-46cb-a15c-888d499ae26f",
+        "domain": "marketing",
+        "agentId": "marketing-agent",
+        "agentName": "Mark"
+      },
+      {
+        "id": "695b03f3-fdb5-4b7c-b4ea-53066fdff008",
+        "domain": "operations",
+        "agentId": "operations-agent",
+        "agentName": "Orion"
+      },
+      {
+        "id": "c366ebb8-0dc0-418b-a497-5830a7628337",
+        "domain": "sales",
+        "agentId": "sales-agent",
+        "agentName": "Sage"
+      }
+    ],
+    "milestones": [
+      {
+        "id": "b9e2566d-0d3c-4783-a0d0-f25af4f84bde",
+        "workstreamId": "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+        "domain": "engineering"
+      },
+      {
+        "id": "221e4e41-73aa-4f85-9408-c5d4d508808b",
+        "workstreamId": "ad35e7b1-dfe8-4ad8-99d9-e4eb12ad077c",
+        "domain": "product"
+      },
+      {
+        "id": "b5aa3671-8fdc-4aaf-8fdc-bcaefb282c9a",
+        "workstreamId": "70080612-f763-4db3-b800-7db8504caa76",
+        "domain": "design"
+      },
+      {
+        "id": "45583621-e89e-433f-9e4e-172470214e0a",
+        "workstreamId": "f24f0463-665d-46cb-a15c-888d499ae26f",
+        "domain": "marketing"
+      },
+      {
+        "id": "308611ef-4ff2-4215-b1ea-cdc42dd7616e",
+        "workstreamId": "695b03f3-fdb5-4b7c-b4ea-53066fdff008",
+        "domain": "operations"
+      },
+      {
+        "id": "89dcfd58-1ec9-4b86-b0b9-fe44d2915985",
+        "workstreamId": "c366ebb8-0dc0-418b-a497-5830a7628337",
+        "domain": "sales"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "aafc8a87-21fc-493a-b052-7427cf0ecf13",
+        "workstreamId": "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+        "milestoneId": "b9e2566d-0d3c-4783-a0d0-f25af4f84bde",
+        "domain": "engineering",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/engineering/slice-01.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:engineering:1"
+      },
+      {
+        "id": "b98d8750-4f8c-407e-8b3c-d33024f5ba2e",
+        "workstreamId": "ad35e7b1-dfe8-4ad8-99d9-e4eb12ad077c",
+        "milestoneId": "221e4e41-73aa-4f85-9408-c5d4d508808b",
+        "domain": "product",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/product/slice-02.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:product:2"
+      },
+      {
+        "id": "eab7617e-535e-4829-b07b-3c2d4353bd73",
+        "workstreamId": "70080612-f763-4db3-b800-7db8504caa76",
+        "milestoneId": "b5aa3671-8fdc-4aaf-8fdc-bcaefb282c9a",
+        "domain": "design",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/design/slice-03.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:design:3"
+      },
+      {
+        "id": "65d60de1-0ce5-410b-97f2-3087acf9a1d6",
+        "workstreamId": "f24f0463-665d-46cb-a15c-888d499ae26f",
+        "milestoneId": "45583621-e89e-433f-9e4e-172470214e0a",
+        "domain": "marketing",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/marketing/slice-04.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:marketing:4"
+      },
+      {
+        "id": "3a854283-ed7b-4eda-95b9-2fef504083ed",
+        "workstreamId": "695b03f3-fdb5-4b7c-b4ea-53066fdff008",
+        "milestoneId": "308611ef-4ff2-4215-b1ea-cdc42dd7616e",
+        "domain": "operations",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/operations/slice-05.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:operations:5"
+      },
+      {
+        "id": "58dde1bf-16fa-4210-b9d9-29d000889753",
+        "workstreamId": "c366ebb8-0dc0-418b-a497-5830a7628337",
+        "milestoneId": "89dcfd58-1ec9-4b86-b0b9-fe44d2915985",
+        "domain": "sales",
+        "expectedFile": "/var/folders/7b/7nbj_xb940jf35qd5l96bdyh0000gn/T/orgx-version-harness-20260219-070046Z-73bcafbe/sales/slice-06.txt",
+        "expectedContent": "version-harness:version-harness-20260219-070046Z-73bcafbe:sales:6"
+      }
+    ]
+  },
+  "queue": {
+    "beforeTop": {
+      "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+      "workstreamId": "4929dfd4-6adb-42b6-a472-051e0aa8720f",
+      "workstreamTitle": "[Version Harness][Design] 3"
+    },
+    "afterTop": {
+      "initiativeId": "1c060d6e-d034-4d7e-8dbf-7b8a8316fcf0",
+      "workstreamId": "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+      "workstreamTitle": "[Version Harness][Engineering] 1"
+    },
+    "afterTopWithinInitiative": {
+      "initiativeId": "1c060d6e-d034-4d7e-8dbf-7b8a8316fcf0",
+      "workstreamId": "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+      "workstreamTitle": "[Version Harness][Engineering] 1"
+    },
+    "beforeOrder": [
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "4929dfd4-6adb-42b6-a472-051e0aa8720f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "b4aafec2-f165-4ea9-992e-ae95a3425c6f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "0049d1d9-cb1e-42be-a862-d7eecf0e1e8f"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "1ab76ede-8831-496c-b168-dd536453e2ec"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "e50e0d86-57c1-44a0-a944-810b777af5b3"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "5807b34c-f3d4-4062-86d3-0444a1208344"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "99dafb36-48f0-4204-907d-9e7bec413adb"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "fb012b8e-3ca9-4ee8-aaa6-960afc3c431b"
+      },
+      {
+        "initiativeId": "bc464413-d1be-45a3-9df2-114818512c22",
+        "workstreamId": "813badb9-405d-4f83-845f-3920cd05b633"
+      },
+      {
+        "initiativeId": "b712349c-0bf1-4252-ac85-8072681a60ee",
+        "workstreamId": "048c16e9-5ac7-4a34-a44e-823ee12e37f7"
+      },
+      {
+        "initiativeId": "2d65ca1f-cc51-4aa8-9edc-ee0881ab0f06",
+        "workstreamId": "19e4a664-f285-4008-8735-df77d2521e8e"
+      },
+      {
+        "initiativeId": "0dba70b0-1e7e-4102-813e-22e5983d00f5",
+        "workstreamId": "fd47f656-f721-446f-b6b1-9f3e81451b63"
+      },
+      {
+        "initiativeId": "772d984a-88fc-4870-9321-328eeafd1a2d",
+        "workstreamId": "23d1c2ef-9593-413f-9385-bfcb837ccd66"
+      },
+      {
+        "initiativeId": "373264c4-eae8-4df4-a241-dd3318371c7f",
+        "workstreamId": "ada74ba0-38bc-4e13-bfc9-3323e11fe7ec"
+      },
+      {
+        "initiativeId": "1138b81e-c7f1-488e-8ab5-b46c488ecc44",
+        "workstreamId": "93d619db-68df-499e-a900-38b39189e948"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "70726a12-0372-42a1-adf7-7243426227a8"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "13fba082-0295-45e2-ad92-e63bc96a8613"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "77b7b5d1-ef7c-4bd2-9b91-90a99c48fcb8"
+      },
+      {
+        "initiativeId": "4c88b11e-94e3-40fe-9613-58ea8f69fe89",
+        "workstreamId": "a9ea3ae5-bd42-4226-90cd-0899b3dc8949"
+      },
+      {
+        "initiativeId": "9b543d86-ea3e-47b8-8109-7160547f2745",
+        "workstreamId": "979d4fce-eb57-48f5-8775-703d07bafabe"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "3a871181-f84f-46fe-a828-bd8d9e9a66bf"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "76c9ea0b-c16b-4456-914c-c8763108ff80"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "10bac449-8c61-450e-b4c8-65b8e42955d6"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "7293955a-9308-4550-86ee-94262f4f760f"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "2b4eea5c-4d98-4121-a701-3eb6beb195ac"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "45aa5ec1-2cd2-4e10-9833-81df766bc7d2"
+      },
+      {
+        "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+        "workstreamId": "abfdeeda-9532-4d0f-9749-51248a72ba9d"
+      },
+      {
+        "initiativeId": "a23072f7-07ca-4749-81e0-17169621d021",
+        "workstreamId": "bcb09d78-39e9-4b73-b78d-600f61eb85f9"
+      },
+      {
+        "initiativeId": "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+        "workstreamId": "07451f40-d943-4008-a9cc-24648ff5ed20"
+      },
+      {
+        "initiativeId": "9cca40bb-d789-454d-b193-c5e760eb0632",
+        "workstreamId": "8919d6a4-b913-4056-92d5-36a9d9fca911"
+      },
+      {
+        "initiativeId": "9cca40bb-d789-454d-b193-c5e760eb0632",
+        "workstreamId": "ac631848-19b8-4b8e-9d2e-b8d7e19b9af7"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "c5aa9bb1-7a03-4221-b1de-40338e47ec0c"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "fe973565-b30e-4b33-b1c7-e73775771199"
+      },
+      {
+        "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+        "workstreamId": "bd94f979-32c1-46cb-b792-9daca7c4137d"
+      },
+      {
+        "initiativeId": "e29623af-7307-43fe-b39a-3b7fe141ca6c",
+        "workstreamId": "767bdad9-e3a8-49c6-91df-d5778f900db9"
+      },
+      {
+        "initiativeId": "e29623af-7307-43fe-b39a-3b7fe141ca6c",
+        "workstreamId": "df98e56a-b2be-4986-9955-976913240a1a"
+      },
+      {
+        "initiativeId": "e29623af-7307-43fe-b39a-3b7fe141ca6c",
+        "workstreamId": "4e38c50c-2eda-4c7e-b6ab-16368ed138a1"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "648f6230-dd09-4b7d-8f54-767ab846fc24"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "243ed3f0-7a0e-4975-9ea8-4ab3ce963529"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "5a6246cf-b3e6-4072-94ee-983f5cc76606"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "b427df47-208e-432e-95ef-b9569b33f133"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "2f7ea1aa-8f1a-429c-b2a9-e91b343391a5"
+      },
+      {
+        "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+        "workstreamId": "06b1b34e-b456-4d7e-90d0-703d09261e39"
+      },
+      {
+        "initiativeId": "2b422f49-ba5e-4ebf-9a83-0e02c97cb6b8",
+        "workstreamId": "b58c87ff-2399-405c-8587-b00b8e3eb4c9"
+      },
+      {
+        "initiativeId": "e29623af-7307-43fe-b39a-3b7fe141ca6c",
+        "workstreamId": "126885a4-3be3-47f5-94ee-85efef4f0195"
+      },
+      {
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "8bcd666c-0042-4b98-b272-007aca27c9f4"
+      },
+      {
+        "initiativeId": "02e9b961-126f-48c6-8041-48e0eac14469",
+        "workstreamId": "56866387-51f5-41b7-b310-c5bcc3f39831"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "def4821e-e1d2-406a-8bae-15b3a8009bc1"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "6cb3a3cc-6dd2-4c33-853b-ad138d4290cb"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "0820fd8e-9e07-4dda-a3de-aa5882ac5238"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "d635372c-ea8b-41a7-8d60-dfd2208013eb"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "0f88b94c-32f4-4601-a230-2ee450b0d16b"
+      },
+      {
+        "initiativeId": "6b84823d-a395-4bb4-9872-8be72589fa67",
+        "workstreamId": "b2da6df2-f7a6-423d-b836-2fbd1668b488"
+      },
+      {
+        "initiativeId": "2b9e83d3-a4d9-4ce0-8212-fa4ea15de0b2",
+        "workstreamId": "21a27de3-07b3-4d77-a623-ae778cb0218c"
+      },
+      {
+        "initiativeId": "02e9b961-126f-48c6-8041-48e0eac14469",
+        "workstreamId": "cc1e7cba-40ce-48b3-b6ca-70f8676e6bb6"
+      },
+      {
+        "initiativeId": "2b9e83d3-a4d9-4ce0-8212-fa4ea15de0b2",
+        "workstreamId": "73aca067-57cd-469e-8068-b4b5380ec0e2"
+      },
+      {
+        "initiativeId": "6b84823d-a395-4bb4-9872-8be72589fa67",
+        "workstreamId": "ea03a311-0c6d-43f1-b964-9868ce758f4b"
+      },
+      {
+        "initiativeId": "31faf1e1-2a30-431f-b437-d6d7fd47eeb2",
+        "workstreamId": "f3cac9e5-4bfc-40f6-accd-94d9609c92e9"
+      },
+      {
+        "initiativeId": "2b422f49-ba5e-4ebf-9a83-0e02c97cb6b8",
+        "workstreamId": "6d14fdb6-348c-49ea-8fbe-b9393a445369"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "575e0d6d-4782-4133-9099-490a1e68eec1"
+      },
+      {
+        "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+        "workstreamId": "a4948a7e-fe2a-47b1-b2f0-e4cce0b1602d"
+      }
+    ],
+    "restored": true
+  },
+  "manualPlay": {
+    "requested": true,
+    "dispatchMode": "pending",
+    "completed": false,
+    "runId": "b764c39f-c18f-4fe7-a06e-e8b5ef30e2d5",
+    "stopReason": "blocked",
+    "lastError": null,
+    "statusPolls": 46
+  },
+  "autoContinue": {
+    "started": false,
+    "targetCompletedSlices": 5,
+    "runAtStart": null,
+    "completedRunIds": [],
+    "completedCount": 0,
+    "overrideEvents": 0,
+    "rateLimitedEvents": 0,
+    "finalStatus": null,
+    "finalStopReason": null,
+    "finalLastError": null,
+    "statusPolls": 0
+  },
+  "validation": {
+    "queueTopConfirmed": true,
+    "queueTopGlobalConfirmed": true,
+    "queueTopInitiativeConfirmed": true,
+    "manualSliceCompleted": false,
+    "nextFiveCompleted": false,
+    "completedWorkstreamIds": [],
+    "completedWorkstreamCount": 0,
+    "completedDomains": [],
+    "missingDomains": [],
+    "filesVerifiedRequired": 6,
+    "filesVerifiedCount": 0,
+    "fileChecks": [],
+    "runIsolation": {
+      "expectedCompletedRuns": 6,
+      "completedRunCount": 0,
+      "uniqueRunCount": 0
+    },
+    "progressEvidenceByRun": [],
+    "progressEvidenceMissingRunIds": [],
+    "skillCoverageChecks": [],
+    "skillCoverageMissingRunIds": [],
+    "realWorkerChecks": [],
+    "realWorkerMissingRunIds": [],
+    "tasksDoneCount": 0,
+    "taskTotal": 0,
+    "artifactsCount": 0
+  },
+  "teardown": {
+    "attempted": true,
+    "completed": true,
+    "errors": [],
+    "deleted": {
+      "task": [
+        "aafc8a87-21fc-493a-b052-7427cf0ecf13",
+        "b98d8750-4f8c-407e-8b3c-d33024f5ba2e",
+        "eab7617e-535e-4829-b07b-3c2d4353bd73",
+        "65d60de1-0ce5-410b-97f2-3087acf9a1d6",
+        "3a854283-ed7b-4eda-95b9-2fef504083ed",
+        "58dde1bf-16fa-4210-b9d9-29d000889753"
+      ],
+      "milestone": [
+        "b9e2566d-0d3c-4783-a0d0-f25af4f84bde",
+        "221e4e41-73aa-4f85-9408-c5d4d508808b",
+        "b5aa3671-8fdc-4aaf-8fdc-bcaefb282c9a",
+        "45583621-e89e-433f-9e4e-172470214e0a",
+        "308611ef-4ff2-4215-b1ea-cdc42dd7616e",
+        "89dcfd58-1ec9-4b86-b0b9-fe44d2915985"
+      ],
+      "workstream": [
+        "1158f3c6-3f84-4e88-bb14-c4d23f132df6",
+        "ad35e7b1-dfe8-4ad8-99d9-e4eb12ad077c",
+        "70080612-f763-4db3-b800-7db8504caa76",
+        "f24f0463-665d-46cb-a15c-888d499ae26f",
+        "695b03f3-fdb5-4b7c-b4ea-53066fdff008",
+        "c366ebb8-0dc0-418b-a497-5830a7628337"
+      ],
+      "initiative": "1c060d6e-d034-4d7e-8dbf-7b8a8316fcf0"
+    }
+  },
+  "notes": [
+    "Manual Play did not complete cleanly (stopReason=blocked lastError= parsedStatus=)"
+  ],
+  "finishedAt": "2026-02-19T07:02:33.586Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/harness-runs/version-harness-20260219-070046Z-73bcafbe.json"
+}

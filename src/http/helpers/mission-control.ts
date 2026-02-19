@@ -1098,11 +1098,51 @@ export function deriveExecutionPolicy(
 export function spawnGuardIsRateLimited(result: unknown): boolean {
   if (!result || typeof result !== "object") return false;
   const record = result as Record<string, unknown>;
-  const checks = record.checks;
-  if (!checks || typeof checks !== "object") return false;
-  const rateLimit = (checks as Record<string, unknown>).rateLimit;
-  if (!rateLimit || typeof rateLimit !== "object") return false;
-  return (rateLimit as Record<string, unknown>).passed === false;
+  const checks =
+    record.checks && typeof record.checks === "object" && !Array.isArray(record.checks)
+      ? (record.checks as Record<string, unknown>)
+      : {};
+  const rateLimitCandidates = [
+    checks.rateLimit,
+    checks.rate_limit,
+    record.rateLimit,
+    record.rate_limit,
+  ].filter((entry): entry is Record<string, unknown> => {
+    return Boolean(entry && typeof entry === "object" && !Array.isArray(entry));
+  });
+
+  for (const candidate of rateLimitCandidates) {
+    if (candidate.passed === false) return true;
+    if (candidate.rateLimited === true || candidate.rate_limited === true || candidate.limited === true) {
+      return true;
+    }
+    const current =
+      pickNumber(candidate, ["current", "count", "value", "used", "attempts"]) ?? null;
+    const max = pickNumber(candidate, ["max", "limit", "threshold", "allowed"]) ?? null;
+    if (
+      typeof current === "number" &&
+      Number.isFinite(current) &&
+      typeof max === "number" &&
+      Number.isFinite(max) &&
+      max > 0 &&
+      current >= max
+    ) {
+      return true;
+    }
+  }
+
+  if (record.rateLimited === true || record.rate_limited === true) return true;
+  const blockedReason = pickString(record, [
+    "blockedReason",
+    "blocked_reason",
+    "reason",
+    "message",
+    "error",
+  ]);
+  if (blockedReason && /\brate[ -]?limit(?:ed)?\b|\btoo many requests\b/i.test(blockedReason)) {
+    return true;
+  }
+  return false;
 }
 
 export function summarizeSpawnGuardBlockReason(result: unknown): string {
