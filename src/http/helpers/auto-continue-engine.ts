@@ -2728,7 +2728,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         initiativeId,
         agentId: dispatchAgentId,
         agentName: dispatchAgentName,
-        tokenBudget: latestRun?.tokenBudget ?? defaultAutoContinueTokenBudget(),
+        // Auto-fix retries should follow current defaults unless an operator explicitly
+        // starts a run with a budget override.
+        tokenBudget: null,
         includeVerification: latestRun?.includeVerification ?? false,
         allowedWorkstreamIds: [workstreamId],
         maxParallelSlices: 1,
@@ -2889,10 +2891,22 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run.parallelMode = normalizeParallelMode(input.parallelMode ?? run.parallelMode);
     run.stopAfterSlice = Boolean(input.stopAfterSlice);
     run.ignoreSpawnGuardRateLimit = Boolean(input.ignoreSpawnGuardRateLimit);
-    run.tokenBudget = normalizeTokenBudget(
-      input.tokenBudget,
-      run.tokenBudget ?? defaultAutoContinueTokenBudget()
-    );
+    const hasExplicitTokenBudgetInput =
+      input.tokenBudget !== null &&
+      input.tokenBudget !== undefined &&
+      !(typeof input.tokenBudget === "string" && input.tokenBudget.trim().length === 0);
+    if (hasExplicitTokenBudgetInput) {
+      run.tokenBudget = normalizeTokenBudget(
+        input.tokenBudget,
+        defaultAutoContinueTokenBudget()
+      );
+    } else {
+      // On fresh restarts, reset to current defaults instead of inheriting stale prior limits.
+      // While a run is live, keep its active budget unless explicitly overridden.
+      run.tokenBudget = existingIsLive
+        ? normalizeTokenBudget(run.tokenBudget, defaultAutoContinueTokenBudget())
+        : defaultAutoContinueTokenBudget();
+    }
     run.status = "running";
     run.stopReason = null;
     run.stopRequested = false;

@@ -28,14 +28,28 @@ function parseArgs(argv) {
 function extractChannelId(payload) {
   if (!payload || typeof payload !== "object") return null;
   const map = payload;
-  return (
+  const direct =
     map.channelId ??
     map.channel_id ??
     map.channel ??
     map.activeChannel ??
     map.active_channel ??
-    null
-  );
+    null;
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+
+  if (Array.isArray(map.channels)) {
+    for (const entry of map.channels) {
+      if (!entry || typeof entry !== "object") continue;
+      const candidate = entry.channel ?? entry.channelId ?? entry.channel_id ?? null;
+      if (typeof candidate === "string" && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+  }
+
+  return null;
 }
 
 async function fetchStatus(statusUrl, timeoutMs) {
