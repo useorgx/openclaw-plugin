@@ -30,6 +30,8 @@ interface ActionGlyphProps {
   className?: string;
 }
 
+type QueuePlacement = 'top' | 'bottom';
+
 function FollowGlyph({ className = '' }: ActionGlyphProps) {
   return (
     <svg
@@ -190,6 +192,20 @@ function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
   return `Dispatched ${item.workstreamTitle}.`;
 }
 
+function nextUpClearNotice(payload: unknown, defaultCount: number): string {
+  const record = asRecord(payload);
+  const queueItemsCleared =
+    record && typeof record.queueItemsCleared === 'number'
+      ? record.queueItemsCleared
+      : defaultCount;
+  const tasksReset =
+    record && typeof record.tasksReset === 'number' ? record.tasksReset : null;
+  if (typeof tasksReset === 'number') {
+    return `Cleared ${queueItemsCleared} queue item${queueItemsCleared === 1 ? '' : 's'} and reset ${tasksReset} task${tasksReset === 1 ? '' : 's'} to todo.`;
+  }
+  return `Cleared ${queueItemsCleared} queue item${queueItemsCleared === 1 ? '' : 's'}.`;
+}
+
 function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   const cards = compact ? 3 : 6;
   return (
@@ -254,6 +270,7 @@ export function NextUpPanel({
     else setLocalCompact(next);
   };
   const [notice, setNotice] = useState<string | null>(null);
+  const [triagePlacement, setTriagePlacement] = useState<QueuePlacement>('bottom');
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
   );
@@ -280,6 +297,14 @@ export function NextUpPanel({
   const visibleItems = useMemo(
     () => (isCompact ? items.slice(0, 5) : items),
     [isCompact, items]
+  );
+  const nowPlaying = useMemo(
+    () => items.find((item) => item.queueState === 'running') ?? null,
+    [items]
+  );
+  const runningOrBlockedCount = useMemo(
+    () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+    [items]
   );
 
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
@@ -502,6 +527,83 @@ export function NextUpPanel({
       )}
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
+        {!isLoading && (nowPlaying || runningOrBlockedCount > 0) ? (
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-micro uppercase tracking-[0.08em] text-muted">Now playing</p>
+                <p className="truncate text-caption font-semibold text-white" title={nowPlaying?.workstreamTitle ?? ''}>
+                  {nowPlaying ? nowPlaying.workstreamTitle : 'No active triage slice'}
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-1 rounded-md border border-strong bg-white/[0.03] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setTriagePlacement('top')}
+                  className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
+                    triagePlacement === 'top'
+                      ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
+                      : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
+                  }`}
+                >
+                  Top
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTriagePlacement('bottom')}
+                  className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
+                    triagePlacement === 'bottom'
+                      ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
+                      : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
+                  }`}
+                >
+                  Bottom
+                </button>
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={!nowPlaying || actionKey === 'triage-stop'}
+                onClick={() =>
+                  void runAction(
+                    'triage-stop',
+                    () =>
+                      nextUpActions.stopTriage({
+                        initiativeId: nowPlaying!.initiativeId,
+                        workstreamId: nowPlaying!.workstreamId,
+                        placement: triagePlacement,
+                      }),
+                    `Stopped triage and moved ${nowPlaying!.workstreamTitle} to ${triagePlacement}.`
+                  )
+                }
+                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+              >
+                Stop triage
+              </button>
+              <button
+                type="button"
+                disabled={runningOrBlockedCount === 0 || actionKey === 'triage-clear'}
+                onClick={() =>
+                  void runAction(
+                    'triage-clear',
+                    () =>
+                      nextUpActions.clear({
+                        initiativeId: initiativeId ?? undefined,
+                        states: ['running', 'blocked'],
+                        placement: triagePlacement,
+                      }),
+                    (result) => nextUpClearNotice(result, runningOrBlockedCount)
+                  )
+                }
+                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+              >
+                Clear in progress / blocked
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {isLoading ? (
           <NextUpLoadingSkeleton compact={isCompact} />
         ) : null}

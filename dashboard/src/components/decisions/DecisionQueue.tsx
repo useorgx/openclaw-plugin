@@ -14,11 +14,22 @@ interface DecisionActionSummary {
   failed: number;
 }
 
+type DecisionBulkActionId =
+  | 'approve_selected'
+  | 'reject_selected'
+  | 'approve_visible'
+  | 'reject_visible';
+
 interface DecisionQueueProps {
   decisions: LiveDecision[];
   onApproveDecision: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
   onRejectDecision?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
   onApproveAll: () => Promise<DecisionActionSummary>;
+  onBulkDecisionAction?: (
+    decisionIds: string[],
+    action: 'approve' | 'reject',
+    note?: string
+  ) => Promise<DecisionActionSummary>;
 }
 
 function urgencyAccent(waitingMinutes: number): { border: string; glow: string } {
@@ -32,11 +43,14 @@ export const DecisionQueue = memo(function DecisionQueue({
   onApproveDecision,
   onRejectDecision,
   onApproveAll,
+  onBulkDecisionAction,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);
   const [approving, setApproving] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<DecisionBulkActionId>('approve_selected');
+  const [bulkNote, setBulkNote] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [detailDecisionId, setDetailDecisionId] = useState<string | null>(null);
@@ -130,64 +144,114 @@ export const DecisionQueue = memo(function DecisionQueue({
     });
   };
 
-  const handleApproveAll = async () => {
-    if (sorted.length === 0 || isApprovingAll) return;
+  const bulkOptions = useMemo(() => {
+    const selectedIds = sorted
+      .map((decision) => decision.id)
+      .filter((id) => selected.has(id));
+    const visibleIds = visible.map((decision) => decision.id);
+    return [
+      {
+        id: 'approve_selected' as const,
+        label: `Approve selected (${selectedIds.length})`,
+        action: 'approve' as const,
+        ids: selectedIds,
+      },
+      {
+        id: 'reject_selected' as const,
+        label: `Reject selected (${selectedIds.length})`,
+        action: 'reject' as const,
+        ids: selectedIds,
+        hidden: !onRejectDecision,
+      },
+      {
+        id: 'approve_visible' as const,
+        label: `Approve visible (${visibleIds.length})`,
+        action: 'approve' as const,
+        ids: visibleIds,
+      },
+      {
+        id: 'reject_visible' as const,
+        label: `Reject visible (${visibleIds.length})`,
+        action: 'reject' as const,
+        ids: visibleIds,
+        hidden: !onRejectDecision,
+      },
+    ].filter((option) => !option.hidden);
+  }, [onRejectDecision, selected, sorted, visible]);
+
+  const selectedBulkOption = useMemo(
+    () => bulkOptions.find((option) => option.id === bulkAction) ?? bulkOptions[0] ?? null,
+    [bulkAction, bulkOptions]
+  );
+
+  const runBulkFallback = async (
+    ids: string[],
+    action: 'approve' | 'reject',
+    note?: string
+  ): Promise<DecisionActionSummary> => {
+    if (ids.length === 0) return { updated: 0, failed: 0 };
+    if (action === 'approve' && ids.length === sorted.length && !note) {
+      return onApproveAll();
+    }
+
+    let updated = 0;
+    let failed = 0;
+    for (const decisionId of ids) {
+      try {
+        const result =
+          action === 'approve'
+            ? await onApproveDecision(decisionId, note)
+            : onRejectDecision
+              ? await onRejectDecision(decisionId, note)
+              : { updated: 0, failed: 1 };
+        updated += result.updated;
+        failed += result.failed;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { updated, failed };
+  };
+
+  const handleApplyBulkAction = async () => {
+    if (!selectedBulkOption || isApprovingAll) return;
+    const ids = selectedBulkOption.ids;
+    if (ids.length === 0) {
+      setNotice('No decisions selected for this action.');
+      return;
+    }
+
     setNotice(null);
     setIsApprovingAll(true);
+    setApproving(new Set(ids));
+    const note = bulkNote.trim();
+
     try {
-      const result = await onApproveAll();
+      const result = onBulkDecisionAction
+        ? await onBulkDecisionAction(
+            ids,
+            selectedBulkOption.action,
+            note.length > 0 ? note : undefined
+          )
+        : await runBulkFallback(
+            ids,
+            selectedBulkOption.action,
+            note.length > 0 ? note : undefined
+          );
+      const verb = selectedBulkOption.action === 'approve' ? 'Approved' : 'Rejected';
       if (result.failed > 0) {
-        setNotice(`Approved ${result.updated}; ${result.failed} failed.`);
+        setNotice(`${verb} ${result.updated}; ${result.failed} failed.`);
       } else if (result.updated > 0) {
-        setNotice(`Approved ${result.updated} decision${result.updated === 1 ? '' : 's'}.`);
+        setNotice(`${verb} ${result.updated} decision${result.updated === 1 ? '' : 's'}.`);
       } else {
         setNotice('No decisions were updated.');
       }
       setSelected(new Set());
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Bulk approval failed.');
+      setNotice(err instanceof Error ? err.message : 'Bulk decision action failed.');
     } finally {
       setIsApprovingAll(false);
-    }
-  };
-
-  const handleApproveSelected = async () => {
-    if (selectedCount === 0 || isApprovingAll) return;
-    setNotice(null);
-    setIsApprovingAll(true);
-    let updated = 0;
-    let failed = 0;
-
-    try {
-      const selectedIds = sorted
-        .map((decision) => decision.id)
-        .filter((id) => selected.has(id));
-
-      for (const decisionId of selectedIds) {
-        setApproving((prev) => new Set(prev).add(decisionId));
-        try {
-          const result = await onApproveDecision(decisionId);
-          updated += result.updated;
-          failed += result.failed;
-        } catch {
-          failed += 1;
-        } finally {
-          setApproving((prev) => {
-            const next = new Set(prev);
-            next.delete(decisionId);
-            return next;
-          });
-        }
-      }
-
-      if (failed > 0) {
-        setNotice(`Approved ${updated}; ${failed} failed.`);
-      } else {
-        setNotice(`Approved ${updated} selected decision${updated === 1 ? '' : 's'}.`);
-      }
-      setSelected(new Set());
-    } finally {
-      setIsApprovingAll(false);
+      setApproving(new Set());
     }
   };
 
@@ -227,8 +291,7 @@ export const DecisionQueue = memo(function DecisionQueue({
 
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
-  const allEnabled = sorted.length > 0 && !isApprovingAll;
-  const selectedEnabled = selectedCount > 0 && !isApprovingAll;
+  const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -247,28 +310,32 @@ export const DecisionQueue = memo(function DecisionQueue({
               Decisions
             </h2>
             <p className="hidden text-body text-secondary sm:block">
-              Select multiple items to bulk review and approve
+              Select multiple items to bulk review and resolve
             </p>
           </div>
 
-          <button
-            onClick={handleApproveAll}
-            disabled={!allEnabled}
-            data-state={allEnabled ? 'active' : 'idle'}
-            className="control-pill flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
-          >
-            {isApprovingAll ? (
-              'Approving…'
-            ) : (
-              <>
-                <span className="hidden sm:inline">Approve all</span>
-                <span className="sm:hidden">Approve</span>
-                <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
-                  {sorted.length}
-                </span>
-              </>
-            )}
-          </button>
+          <div className="flex min-w-[220px] items-center gap-2">
+            <select
+              value={selectedBulkOption?.id ?? ''}
+              disabled={isApprovingAll || bulkOptions.length === 0}
+              onChange={(event) => setBulkAction(event.target.value as DecisionBulkActionId)}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-strong bg-white/[0.04] px-2.5 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-lime/35 disabled:opacity-45"
+            >
+              {bulkOptions.map((option) => (
+                <option key={option.id} value={option.id} className="bg-black text-white">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleApplyBulkAction}
+              disabled={!selectedEnabled}
+              data-state={selectedEnabled ? 'active' : 'idle'}
+              className="control-pill flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+            >
+              {isApprovingAll ? 'Applying…' : 'Apply'}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -279,24 +346,12 @@ export const DecisionQueue = memo(function DecisionQueue({
           >
             {allVisibleSelected ? 'Clear all' : 'Select all'}
           </button>
-          <button
-            onClick={handleApproveSelected}
-            disabled={!selectedEnabled}
-            data-state={selectedEnabled ? 'active' : 'idle'}
-            className="control-pill px-3 text-caption font-semibold disabled:opacity-45"
-          >
-            {isApprovingAll ? (
-              'Approving…'
-            ) : (
-              <>
-                <span className="hidden sm:inline">Approve selected</span>
-                <span className="sm:hidden">Approve sel.</span>
-                <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-strong bg-white/[0.04] px-2 text-micro text-primary tabular-nums">
-                  {selectedCount}
-                </span>
-              </>
-            )}
-          </button>
+          <input
+            value={bulkNote}
+            onChange={(event) => setBulkNote(event.target.value)}
+            placeholder="Optional note"
+            className="h-8 min-w-[160px] flex-1 rounded-md border border-strong bg-white/[0.03] px-2.5 text-caption text-primary placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/35"
+          />
           <span className="text-caption text-secondary">
             {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}
           </span>

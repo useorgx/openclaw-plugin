@@ -80,13 +80,86 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     },
   });
 
+  const move = useMutation({
+    mutationFn: async (payload: {
+      initiativeId: string;
+      workstreamId: string;
+      placement?: 'top' | 'bottom';
+    }) => {
+      const response = await fetch('/orgx/api/mission-control/next-up/move', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      if (!response.ok) {
+        throw new Error(normalizeErrorMessage(response, body, 'Failed to move Next Up item'));
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+
+  const stopTriage = useMutation({
+    mutationFn: async (payload: {
+      initiativeId: string;
+      workstreamId: string;
+      placement?: 'top' | 'bottom';
+      resetToTodo?: boolean;
+    }) => {
+      const response = await fetch('/orgx/api/mission-control/next-up/triage/stop', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      if (!response.ok) {
+        throw new Error(normalizeErrorMessage(response, body, 'Failed to stop triage'));
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+
+  const clear = useMutation({
+    mutationFn: async (payload: {
+      initiativeId?: string | null;
+      workstreamId?: string | null;
+      states?: Array<'running' | 'blocked'>;
+      placement?: 'top' | 'bottom';
+    }) => {
+      const response = await fetch('/orgx/api/mission-control/next-up/clear', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      if (!response.ok) {
+        throw new Error(normalizeErrorMessage(response, body, 'Failed to clear Next Up lifecycle state'));
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+
   return {
     pin: pin.mutateAsync,
     unpin: unpin.mutateAsync,
     reorder: reorder.mutateAsync,
+    move: move.mutateAsync,
+    stopTriage: stopTriage.mutateAsync,
+    clear: clear.mutateAsync,
     isPinning: pin.isPending,
     isUnpinning: unpin.isPending,
     isReordering: reorder.isPending,
+    isMoving: move.isPending,
+    isStoppingTriage: stopTriage.isPending,
+    isClearing: clear.isPending,
   };
 }
-

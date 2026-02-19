@@ -17,6 +17,7 @@ export function BulkDecisionsModal({
   onApproveDecision,
   onRejectDecision,
   onApproveAll,
+  onBulkDecisionAction,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,6 +25,11 @@ export function BulkDecisionsModal({
   onApproveDecision: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
   onRejectDecision?: (decisionId: string, note?: string) => Promise<DecisionActionSummary>;
   onApproveAll: () => Promise<DecisionActionSummary>;
+  onBulkDecisionAction?: (
+    decisionIds: string[],
+    action: 'approve' | 'reject',
+    note?: string
+  ) => Promise<DecisionActionSummary>;
 }) {
   const longestWaitMinutes = useMemo(
     () => (decisions.length > 0 ? Math.max(0, ...decisions.map((d) => d.waitingMinutes)) : 0),
@@ -82,10 +88,10 @@ export function BulkDecisionsModal({
             onApproveDecision={onApproveDecision}
             onRejectDecision={onRejectDecision}
             onApproveAll={onApproveAll}
+            onBulkDecisionAction={onBulkDecisionAction}
           />
         </div>
       </div>
     </Modal>
   );
 }
-
