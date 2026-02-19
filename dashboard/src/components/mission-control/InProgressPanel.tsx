@@ -53,6 +53,8 @@ interface InProgressPanelProps {
   className?: string;
   onOpenSession?: (sessionId: string) => void;
   onFocusRunId?: (runId: string) => void;
+  onPlayWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onPauseWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
 }
 
 export const InProgressPanel = memo(function InProgressPanel({
@@ -61,8 +63,12 @@ export const InProgressPanel = memo(function InProgressPanel({
   className,
   onOpenSession,
   onFocusRunId,
+  onPlayWorkstream,
+  onPauseWorkstream,
 }: InProgressPanelProps) {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [busySessionId, setBusySessionId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const inProgress = useMemo(() => {
     const rows = sessions.filter(isInProgress);
@@ -106,6 +112,23 @@ export const InProgressPanel = memo(function InProgressPanel({
     );
   }, [inProgress, activeFilter]);
 
+  const runWorkstreamAction = async (
+    session: SessionTreeNode,
+    action: (session: SessionTreeNode) => Promise<void> | void,
+    successMessage: string
+  ) => {
+    setNotice(null);
+    setBusySessionId(session.id);
+    try {
+      await action(session);
+      setNotice(successMessage);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Workstream action failed');
+    } finally {
+      setBusySessionId(null);
+    }
+  };
+
   return (
     <PremiumCard className={`flex h-full min-h-0 flex-col overflow-hidden ${className ?? ''}`}>
       <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
@@ -146,6 +169,12 @@ export const InProgressPanel = memo(function InProgressPanel({
               <span className="tabular-nums opacity-70">{count}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {notice && (
+        <div className="border-b border-subtle px-3 py-2 text-caption text-secondary">
+          {notice}
         </div>
       )}
 
@@ -236,6 +265,44 @@ export const InProgressPanel = memo(function InProgressPanel({
                         >
                           Focus
                         </button>
+                        {onPlayWorkstream &&
+                          session.initiativeId &&
+                          session.workstreamId && (
+                            <button
+                              type="button"
+                              disabled={busySessionId === session.id}
+                              onClick={() =>
+                                void runWorkstreamAction(
+                                  session,
+                                  onPlayWorkstream,
+                                  `Playing ${session.title}.`
+                                )
+                              }
+                              className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                              title="Dispatch this workstream now"
+                            >
+                              Play
+                            </button>
+                          )}
+                        {onPauseWorkstream &&
+                          session.initiativeId &&
+                          session.workstreamId && (
+                            <button
+                              type="button"
+                              disabled={busySessionId === session.id}
+                              onClick={() =>
+                                void runWorkstreamAction(
+                                  session,
+                                  onPauseWorkstream,
+                                  `Paused ${session.title}.`
+                                )
+                              }
+                              className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                              title="Pause and return this workstream to queue"
+                            >
+                              Pause
+                            </button>
+                          )}
                       </div>
                     </div>
                   </div>

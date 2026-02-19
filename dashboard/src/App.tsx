@@ -1080,6 +1080,23 @@ function DashboardShell({
     await refetch();
   }, [data.sessions.nodes, refetch]);
 
+  const readApiErrorMessage = useCallback(
+    async (response: Response, fallback: string): Promise<string> => {
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; message?: string }
+        | null;
+      const message =
+        (typeof body?.error === 'string' && body.error.trim()) ||
+        (typeof body?.message === 'string' && body.message.trim()) ||
+        `${fallback} (${response.status})`;
+      if (/unknown api endpoint/i.test(message)) {
+        return `${fallback}. This route is unavailable in the running plugin build.`;
+      }
+      return message;
+    },
+    []
+  );
+
   const fetchNextUpCandidate = useCallback(async (): Promise<NextUpQueueItem | null> => {
     const response = await fetch('/orgx/api/mission-control/next-up');
     const body = (await response.json().catch(() => null)) as
@@ -1172,6 +1189,88 @@ function DashboardShell({
     setOpsNotice(`Autopilot started for ${candidate.initiativeTitle}.`);
     await refetch();
   }, [fetchNextUpCandidate, refetch, switchDashboardView]);
+
+  const playSessionWorkstream = useCallback(
+    async (session: SessionTreeNode) => {
+      const initiativeId = (session.initiativeId ?? '').trim();
+      const workstreamId = (session.workstreamId ?? '').trim();
+      if (!initiativeId || !workstreamId) {
+        throw new Error('Missing initiative/workstream metadata for this session.');
+      }
+
+      const response = await fetch('/orgx/api/mission-control/next-up/play', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initiativeId,
+          workstreamId,
+          agentId: session.agentId ?? undefined,
+          fastAck: true,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readApiErrorMessage(response, 'Failed to dispatch workstream from In Progress')
+        );
+      }
+
+      setActivityFilterSessionId(null);
+      setActivityFilterWorkstreamId(workstreamId);
+      setActivityFilterWorkstreamLabel(session.title);
+      setOpsNotice(`Dispatched ${session.title}.`);
+      await refetch();
+    },
+    [readApiErrorMessage, refetch]
+  );
+
+  const pauseSessionWorkstream = useCallback(
+    async (session: SessionTreeNode) => {
+      const initiativeId = (session.initiativeId ?? '').trim();
+      const workstreamId = (session.workstreamId ?? '').trim();
+      if (!initiativeId || !workstreamId) {
+        throw new Error('Missing initiative/workstream metadata for this session.');
+      }
+
+      const response = await fetch('/orgx/api/mission-control/next-up/triage/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initiativeId,
+          workstreamId,
+          placement: 'bottom',
+          resetToTodo: false,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await readApiErrorMessage(
+          response,
+          'Failed to pause workstream from In Progress'
+        );
+        if (!/running plugin build/i.test(message)) {
+          throw new Error(message);
+        }
+
+        const fallback = await fetch('/orgx/api/mission-control/auto-continue/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initiativeId }),
+        });
+        if (!fallback.ok) {
+          throw new Error(
+            await readApiErrorMessage(
+              fallback,
+              'Failed to pause workstream using legacy fallback'
+            )
+          );
+        }
+      }
+
+      setOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
+      await refetch();
+    },
+    [readApiErrorMessage, refetch]
+  );
 
   const dispatchSession = useCallback(
     async (session: SessionTreeNode) => {
@@ -2026,6 +2125,8 @@ function DashboardShell({
                       sessions={data.sessions.nodes}
                       onOpenSession={handleSelectSession}
                       onFocusRunId={focusActivityRunId}
+                      onPlayWorkstream={playSessionWorkstream}
+                      onPauseWorkstream={pauseSessionWorkstream}
                     />
                   ) : (
                     <NextUpPanel

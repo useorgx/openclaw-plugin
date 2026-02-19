@@ -917,8 +917,8 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
-        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
+      <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2 lg:overflow-visible">
+        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
           <thead>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
               <th

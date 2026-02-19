@@ -59,6 +59,15 @@ function PlayGlyph({ className = '' }: ActionGlyphProps) {
   );
 }
 
+function PauseGlyph({ className = '' }: ActionGlyphProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden className={className}>
+      <rect x="5.5" y="5" width="3.2" height="10" rx="1" fill="currentColor" />
+      <rect x="11.3" y="5" width="3.2" height="10" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 function AutoGlyph({ className = '' }: ActionGlyphProps) {
   return (
     <svg
@@ -161,6 +170,13 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'blocked') return 'from-red-300/0 via-red-300/55 to-red-300/0';
   if (queueState === 'idle') return 'from-white/0 via-white/35 to-white/0';
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+}
+
+function isAutoRunningForItem(item: NextUpQueueItem): boolean {
+  if (!item.autoContinue) return false;
+  const status = item.autoContinue.status;
+  if (status !== 'running' && status !== 'stopping') return false;
+  return item.queueState === 'running';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -304,6 +320,11 @@ export function NextUpPanel({
   );
   const runningOrBlockedCount = useMemo(
     () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+    [items]
+  );
+  const playableItem = useMemo(
+    () =>
+      items.find((item) => item.queueState === 'queued' || item.queueState === 'idle') ?? null,
     [items]
   );
 
@@ -527,14 +548,22 @@ export function NextUpPanel({
       )}
 
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
-        {!isLoading && (nowPlaying || runningOrBlockedCount > 0) ? (
+        {!isLoading && items.length > 0 ? (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-micro uppercase tracking-[0.08em] text-muted">Now playing</p>
                 <p className="truncate text-caption font-semibold text-white" title={nowPlaying?.workstreamTitle ?? ''}>
-                  {nowPlaying ? nowPlaying.workstreamTitle : 'No active triage slice'}
+                  {nowPlaying ? nowPlaying.workstreamTitle : 'Queue paused'}
                 </p>
+                {!nowPlaying && playableItem && (
+                  <p
+                    className="truncate text-micro text-secondary"
+                    title={`Next: ${playableItem.workstreamTitle}`}
+                  >
+                    Next: {playableItem.workstreamTitle}
+                  </p>
+                )}
               </div>
               <div className="inline-flex items-center gap-1 rounded-md border border-strong bg-white/[0.03] p-0.5">
                 <button
@@ -573,13 +602,33 @@ export function NextUpPanel({
                         initiativeId: nowPlaying!.initiativeId,
                         workstreamId: nowPlaying!.workstreamId,
                         placement: triagePlacement,
+                        resetToTodo: false,
                       }),
-                    `Stopped triage and moved ${nowPlaying!.workstreamTitle} to ${triagePlacement}.`
+                    `Paused ${nowPlaying!.workstreamTitle} and moved it to ${triagePlacement}.`
                   )
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
               >
-                Stop triage
+                Pause
+              </button>
+              <button
+                type="button"
+                disabled={!playableItem || actionKey === 'play-next'}
+                onClick={() =>
+                  void runAction(
+                    'play-next',
+                    () =>
+                      playWorkstream({
+                        initiativeId: playableItem!.initiativeId,
+                        workstreamId: playableItem!.workstreamId,
+                        agentId: playableItem!.runnerAgentId,
+                      }),
+                    (result) => playDispatchNotice(playableItem!, result)
+                  )
+                }
+                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+              >
+                Play next
               </button>
               <button
                 type="button"
@@ -598,7 +647,7 @@ export function NextUpPanel({
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
               >
-                Clear in progress / blocked
+                Clear blocked / in progress
               </button>
             </div>
           </div>
@@ -619,8 +668,8 @@ export function NextUpPanel({
             {visibleItems.map((item, index) => {
               const key = itemKey(item);
               const isRowBusy = actionKey === key;
-              const isAutoRunning =
-                item.autoContinue?.status === 'running' || item.autoContinue?.status === 'stopping';
+              const isRunningRow = item.queueState === 'running';
+              const isAutoRunning = isAutoRunningForItem(item);
               const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
 
               return (
@@ -699,21 +748,59 @@ export function NextUpPanel({
                       onClick={() =>
                         void runAction(
                           key,
-                          () =>
-                            playWorkstream({
+                          () => {
+                            if (isRunningRow) {
+                              return nextUpActions.stopTriage({
+                                initiativeId: item.initiativeId,
+                                workstreamId: item.workstreamId,
+                                placement: triagePlacement,
+                                resetToTodo: false,
+                              });
+                            }
+                            return playWorkstream({
                               initiativeId: item.initiativeId,
                               workstreamId: item.workstreamId,
                               agentId: item.runnerAgentId,
-                            }),
-                          (result) => playDispatchNotice(item, result)
+                            });
+                          },
+                          (result) =>
+                            isRunningRow
+                              ? `Paused ${item.workstreamTitle} and moved it to ${triagePlacement}.`
+                              : playDispatchNotice(item, result)
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title="Dispatch now"
+                      title={isRunningRow ? 'Pause this running workstream' : 'Dispatch now'}
                     >
                       <span className="inline-flex items-center gap-1">
-                        <PlayGlyph className="h-3 w-3 opacity-85" />
-                        <span>Play</span>
+                        {isRunningRow ? (
+                          <PauseGlyph className="h-3 w-3 opacity-85" />
+                        ) : (
+                          <PlayGlyph className="h-3 w-3 opacity-85" />
+                        )}
+                        <span>{isRunningRow ? 'Pause' : 'Play'}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isRowBusy}
+                      onClick={() =>
+                        void runAction(
+                          key,
+                          () =>
+                            nextUpActions.move({
+                              initiativeId: item.initiativeId,
+                              workstreamId: item.workstreamId,
+                              placement: triagePlacement,
+                            }),
+                          `Queued ${item.workstreamTitle} to ${triagePlacement}.`
+                        )
+                      }
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+                      title={`Move this workstream to ${triagePlacement}`}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        <span>{triagePlacement === 'top' ? 'To top' : 'To bottom'}</span>
                       </span>
                     </button>
                     <button
@@ -742,7 +829,7 @@ export function NextUpPanel({
                     >
                       <span className="inline-flex items-center gap-1">
                         <AutoGlyph className="h-3 w-3 opacity-85" />
-                        <span>{isAutoRunning ? 'Stop auto' : 'Auto'}</span>
+                        <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
                       </span>
                     </button>
                   </div>
@@ -777,6 +864,22 @@ export function NextUpPanel({
                   playWorkstream={playWorkstream}
                   startWorkstreamAutoContinue={startWorkstreamAutoContinue}
                   stopInitiativeAutoContinue={stopInitiativeAutoContinue}
+                  triagePlacement={triagePlacement}
+                  onPauseWorkstream={(nextItem, placement) =>
+                    nextUpActions.stopTriage({
+                      initiativeId: nextItem.initiativeId,
+                      workstreamId: nextItem.workstreamId,
+                      placement,
+                      resetToTodo: false,
+                    })
+                  }
+                  onMoveWorkstream={(nextItem, placement) =>
+                    nextUpActions.move({
+                      initiativeId: nextItem.initiativeId,
+                      workstreamId: nextItem.workstreamId,
+                      placement,
+                    })
+                  }
                   onCommitReorder={() => void persistOrder().catch(() => null)}
                   onPinToggle={async (desiredPinned) => {
                     if (desiredPinned) {
@@ -821,6 +924,9 @@ function NextUpReorderRow({
   playWorkstream,
   startWorkstreamAutoContinue,
   stopInitiativeAutoContinue,
+  triagePlacement,
+  onPauseWorkstream,
+  onMoveWorkstream,
   onCommitReorder,
   onPinToggle,
   runAction,
@@ -836,6 +942,9 @@ function NextUpReorderRow({
   playWorkstream: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
   startWorkstreamAutoContinue: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
   stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;
+  triagePlacement: QueuePlacement;
+  onPauseWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
+  onMoveWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
   onCommitReorder: () => void;
   onPinToggle: (desiredPinned: boolean) => Promise<void>;
   runAction: (
@@ -848,8 +957,8 @@ function NextUpReorderRow({
   const [isDragging, setIsDragging] = useState(false);
   const key = `${item.initiativeId}:${item.workstreamId}`;
   const isRowBusy = actionKey === key;
-  const isAutoRunning =
-    item.autoContinue?.status === 'running' || item.autoContinue?.status === 'stopping';
+  const isRunningRow = item.queueState === 'running';
+  const isAutoRunning = isAutoRunningForItem(item);
   const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
   const isPinned = item.isPinned === true;
 
@@ -1020,22 +1129,46 @@ function NextUpReorderRow({
             onClick={() =>
               void runAction(
                 key,
-                () =>
-                  playWorkstream({
+                () => {
+                  if (isRunningRow) return onPauseWorkstream(item, triagePlacement);
+                  return playWorkstream({
                     initiativeId: item.initiativeId,
                     workstreamId: item.workstreamId,
                     agentId: item.runnerAgentId,
-                  }),
-                (result) => playDispatchNotice(item, result)
+                  });
+                },
+                (result) =>
+                  isRunningRow
+                    ? `Paused ${item.workstreamTitle} and moved it to ${triagePlacement}.`
+                    : playDispatchNotice(item, result)
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title="Dispatch this workstream now (single run)"
+            title={isRunningRow ? 'Pause this running workstream' : 'Dispatch this workstream now (single run)'}
           >
             <span className="inline-flex items-center gap-1">
-              <PlayGlyph className="h-3 w-3 opacity-85" />
-              <span>Play</span>
+              {isRunningRow ? (
+                <PauseGlyph className="h-3 w-3 opacity-85" />
+              ) : (
+                <PlayGlyph className="h-3 w-3 opacity-85" />
+              )}
+              <span>{isRunningRow ? 'Pause' : 'Play'}</span>
             </span>
+          </button>
+          <button
+            type="button"
+            disabled={isRowBusy}
+            onClick={() =>
+              void runAction(
+                key,
+                () => onMoveWorkstream(item, triagePlacement),
+                `Queued ${item.workstreamTitle} to ${triagePlacement}.`
+              )
+            }
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+            title={`Move this workstream to ${triagePlacement}`}
+          >
+            <span>{triagePlacement === 'top' ? 'To top' : 'To bottom'}</span>
           </button>
           <button
             type="button"
@@ -1067,7 +1200,7 @@ function NextUpReorderRow({
           >
             <span className="inline-flex items-center gap-1">
               <AutoGlyph className="h-3 w-3 opacity-85" />
-              <span>{isAutoRunning ? 'Stop auto' : 'Auto'}</span>
+              <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
             </span>
           </button>
         </div>
