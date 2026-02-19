@@ -1512,7 +1512,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                     className="overflow-hidden border-t border-subtle"
                   >
                     <div className="max-h-[500px] space-y-1.5 overflow-y-auto p-2">
-                      {hasSessions ? (() => {
+                      {(() => {
                         // Group identical blocked/paused sessions (>3 with same status)
                         const groupedByStatus = new Map<string, SessionTreeNode[]>();
                         const ungrouped: SessionTreeNode[] = [];
@@ -1612,59 +1612,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                             ))}
                           </>
                         );
-                      })() : hasRuntimeSession && runtime ? (
-                        <motion.button
-                          key={`runtime-${runtime.id}`}
-                          onClick={() => setDetailAgentKey(agentKey)}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.16 }}
-                          className="w-full rounded-lg bg-white/[0.02] px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
-                        >
-                          <div className="flex items-center gap-2">
-                            <ProviderLogo provider={runtimeProviderIdFromLogo(runtime.providerLogo)} size="xs" />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-body text-bright" title={runtime.displayName ?? runtime.runId}>
-                                {runtime.displayName ?? runtime.runId}
-                              </p>
-                              <div className="flex items-center gap-1.5 text-micro text-secondary">
-                                <span className="font-semibold uppercase tracking-[0.08em]">
-                                  {runtime.sourceClient}
-                                </span>
-                                <span className="uppercase tracking-[0.08em]">
-                                  {runtime.state === "active" ? "running" : runtime.state}
-                                </span>
-                                <span
-                                  title={formatAbsoluteTime(
-                                    runtime.lastEventAt ??
-                                      runtime.lastHeartbeatAt ??
-                                      new Date().toISOString()
-                                  )}
-                                >
-                                  {formatRelativeTime(
-                                    runtime.lastEventAt ??
-                                      runtime.lastHeartbeatAt ??
-                                      Date.now()
-                                  )}
-                                </span>
-                              </div>
-                              {runtime.lastMessage && (
-                                <p className="mt-0.5 truncate text-micro text-secondary">{runtime.lastMessage}</p>
-                              )}
-                            </div>
-                            <span
-                              className="h-2 w-2 flex-shrink-0 rounded-full"
-                              style={{
-                                backgroundColor: statusColor(
-                                  runtime.state === "active" ? "running" : runtime.state
-                                ),
-                              }}
-                              aria-label={runtime.state}
-                              title={runtime.state}
-                            />
-                          </div>
-                        </motion.button>
-                      ) : null}
+                      })()}
 
                       {hiddenChildren > 0 && (
                         <p className="px-1 text-micro text-muted">
