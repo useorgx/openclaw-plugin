@@ -315,6 +315,7 @@ async function main() {
       dispatchedAfterAction: false,
       completedAfterAction: false,
       continuationAfterCompletion: false,
+      continuationRequired: true,
       blockedByRateLimit: false,
       stoppedWithoutDispatch: false,
       passed: false,
@@ -340,6 +341,13 @@ async function main() {
   process.stdout.write(`[live-audit] loading next-up queue from ${NEXT_UP_URL}\n`);
   const nextUp = await fetchJsonWithRetry(NEXT_UP_URL, {}, 4, 500);
   const items = Array.isArray(nextUp?.items) ? nextUp.items : [];
+  const queuedCountByInitiative = new Map();
+  for (const item of items) {
+    const initiativeId = String(item?.initiativeId || "").trim();
+    if (!initiativeId) continue;
+    if (String(item?.queueState || "").toLowerCase() !== "queued") continue;
+    queuedCountByInitiative.set(initiativeId, Number(queuedCountByInitiative.get(initiativeId) || 0) + 1);
+  }
   process.stdout.write(`[live-audit] capturing baseline snapshot\n`);
   const baselineSnapshot = await fetchJsonWithRetry(SNAPSHOT_URL, {}, 4, 500);
   const initiativeRecency = buildInitiativeRecencyMap(baselineSnapshot);
@@ -349,6 +357,7 @@ async function main() {
   }
 
   const targetInitiativeId = String(target.initiativeId || "").trim();
+  const targetInitiativeTitle = String(target.initiativeTitle || "").trim();
   const targetWorkstreamTitle = String(target.workstreamTitle || "").trim();
   if (!targetInitiativeId || !targetWorkstreamTitle) {
     throw new Error("Next-up target missing required initiativeId/workstreamTitle.");
@@ -448,13 +457,42 @@ async function main() {
     report.screenshots.beforeAction = join(RESULT_DIR, `live-audit-before-${Date.now()}.png`);
     await page.screenshot({ path: report.screenshots.beforeAction, fullPage: false });
 
-    const queueRow = page
-      .locator("div,article,li")
+    const baseQueueRows = page
+      .locator("article")
       .filter({ hasText: targetWorkstreamTitle })
       .filter({ has: page.locator("button:has-text('Follow')") })
       .filter({ has: page.locator("button:has-text('Remove')") })
-      .filter({ has: page.locator("button:has-text('Auto')") })
-      .first();
+      .filter({ has: page.locator("button:has-text('Auto'), button:has-text('Auto on')") });
+
+    let queueRow = baseQueueRows.first();
+    if (targetInitiativeTitle) {
+      const escapedInitiativeTitle = targetInitiativeTitle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const titleMatchedRows = baseQueueRows.filter({
+        has: page.locator(`button[title="${escapedInitiativeTitle}"]`),
+      });
+      if ((await titleMatchedRows.count()) > 0) {
+        queueRow = titleMatchedRows.first();
+      }
+    }
+
+    if ((await queueRow.count()) === 0) {
+      const baseListRows = page
+        .locator("li")
+        .filter({ hasText: targetWorkstreamTitle })
+        .filter({ has: page.locator("button:has-text('Follow')") })
+        .filter({ has: page.locator("button:has-text('Remove')") })
+        .filter({ has: page.locator("button:has-text('Auto'), button:has-text('Auto on')") });
+      queueRow = baseListRows.first();
+      if (targetInitiativeTitle) {
+        const escapedInitiativeTitle = targetInitiativeTitle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const titleMatchedRows = baseListRows.filter({
+          has: page.locator(`button[title="${escapedInitiativeTitle}"]`),
+        });
+        if ((await titleMatchedRows.count()) > 0) {
+          queueRow = titleMatchedRows.first();
+        }
+      }
+    }
 
     if ((await queueRow.count()) === 0) {
       throw new Error(`Could not locate queue row for "${targetWorkstreamTitle}".`);
@@ -462,7 +500,7 @@ async function main() {
 
     await queueRow.scrollIntoViewIfNeeded().catch(() => {});
 
-    const startButton = queueRow.locator("button:has-text('Start')").first();
+    const startButton = queueRow.getByRole("button", { name: /^(Start|Pause)$/i }).first();
     if ((await startButton.count()) === 0) {
       throw new Error(`No Start button found in queue row "${targetWorkstreamTitle}".`);
     }
@@ -483,7 +521,7 @@ async function main() {
     }
     await page.waitForTimeout(1_500);
 
-    const autoButton = queueRow.locator("button:has-text('Auto')").first();
+    const autoButton = queueRow.getByRole("button", { name: /^Auto(?: on)?$/i }).first();
     if ((await autoButton.count()) === 0) {
       throw new Error(`No Auto button found in queue row "${targetWorkstreamTitle}".`);
     }
@@ -514,6 +552,34 @@ async function main() {
   }
 
   const actionMs = parseTs(report.observed.actionAt || nowIso());
+  let validationInitiativeId = targetInitiativeId;
+  let validationWorkstreamId = String(report.target?.workstreamId || "").trim();
+  const startApiBody =
+    report.actions.startApi &&
+    report.actions.startApi.body &&
+    typeof report.actions.startApi.body === "object" &&
+    !Array.isArray(report.actions.startApi.body)
+      ? report.actions.startApi.body
+      : null;
+  if (startApiBody) {
+    const responseInitiativeId = String(startApiBody.initiativeId || "").trim();
+    const responseWorkstreamId = String(startApiBody.workstreamId || "").trim();
+    if (responseInitiativeId) {
+      validationInitiativeId = responseInitiativeId;
+      report.target.actualInitiativeId = responseInitiativeId;
+    }
+    if (responseWorkstreamId) {
+      validationWorkstreamId = responseWorkstreamId;
+      report.target.actualWorkstreamId = responseWorkstreamId;
+    }
+    if (validationInitiativeId !== targetInitiativeId || validationWorkstreamId !== String(report.target?.workstreamId || "").trim()) {
+      report.errors.push(
+        `UI action targeted ${validationInitiativeId}:${validationWorkstreamId || "unknown"} instead of requested ${targetInitiativeId}:${String(report.target?.workstreamId || "").trim()}.`
+      );
+    }
+  }
+  report.validation.continuationRequired =
+    Number(queuedCountByInitiative.get(validationInitiativeId) || 0) > 1;
   const deadline = Date.now() + TIMEOUT_MS;
   let lastSummary = null;
   let pollCount = 0;
@@ -533,7 +599,7 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
       continue;
     }
-    const summary = summarizeEvents(snapshot, targetInitiativeId, actionMs);
+    const summary = summarizeEvents(snapshot, validationInitiativeId, actionMs);
     lastSummary = summary;
 
     report.validation.dispatchedAfterAction = summary.dispatched.length > 0;
@@ -605,7 +671,7 @@ async function main() {
     report.actions.autoClicked &&
     report.validation.dispatchedAfterAction &&
     report.validation.completedAfterAction &&
-    report.validation.continuationAfterCompletion;
+    (!report.validation.continuationRequired || report.validation.continuationAfterCompletion);
 
   report.finishedAt = nowIso();
   const resultPath = join(RESULT_DIR, `live-audit-${Date.now()}.json`);

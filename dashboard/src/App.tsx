@@ -351,6 +351,7 @@ function DashboardShell({
   const [activityTimeFilterId, setActivityTimeFilterId] =
     useState<ActivityTimeFilterId>('live');
   const [requestedActivityItemId, setRequestedActivityItemId] = useState<string | null>(null);
+  const [requestedDecisionId, setRequestedDecisionId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -366,7 +367,7 @@ function DashboardShell({
   >(null);
   const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
-  const [expandedRightPanel, setExpandedRightPanel] = useState<string>('decisions');
+  const [expandedRightPanel, setExpandedRightPanel] = useState<string>('initiatives');
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
   );
@@ -395,11 +396,7 @@ function DashboardShell({
     return count;
   }, [sessionNodesInScope]);
 
-  useEffect(() => {
-    if (initiativesSidebarTab === 'in_progress' && inProgressCount === 0) {
-      setInitiativesSidebarTab('next_up');
-    }
-  }, [initiativesSidebarTab, inProgressCount]);
+  // Allow "In Progress" tab even when count is 0 — show empty state instead of force-redirect
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1198,12 +1195,31 @@ function DashboardShell({
       return;
     }
 
+    const moveResponse = await fetch('/orgx/api/mission-control/next-up/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initiativeId: candidate.initiativeId,
+        workstreamId: candidate.workstreamId,
+        placement: 'top',
+      }),
+    });
+    if (!moveResponse.ok) {
+      const moveBody = (await moveResponse.json().catch(() => null)) as
+        | { error?: string; message?: string }
+        | null;
+      throw new Error(
+        moveBody?.error ??
+          moveBody?.message ??
+          `Failed to prioritize selected workstream (${moveResponse.status})`
+      );
+    }
+
     const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         initiativeId: candidate.initiativeId,
-        workstreamIds: [candidate.workstreamId],
         agentId: candidate.runnerAgentId,
         ignoreSpawnGuardRateLimit: true,
       }),
@@ -1220,7 +1236,9 @@ function DashboardShell({
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
-    setOpsNotice(`Autopilot started for ${candidate.initiativeTitle}.`);
+    setOpsNotice(
+      `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
+    );
     await refetch();
   }, [fetchNextUpCandidate, refetch, switchDashboardView]);
 
@@ -1570,6 +1588,22 @@ function DashboardShell({
     [handleInitiativeClick, initiatives, mcInitiatives]
   );
 
+  const openDecisionsFromActivity = useCallback(
+    (decisionId?: string | null) => {
+      const normalizedDecisionId = (decisionId ?? '').trim();
+      switchDashboardView('activity');
+      setExpandedRightPanel('decisions');
+      setMobileTab('decisions');
+      setRequestedDecisionId(normalizedDecisionId.length > 0 ? normalizedDecisionId : null);
+      setOpsNotice(
+        normalizedDecisionId.length > 0
+          ? 'Reviewing pending decision.'
+          : 'Review pending decisions.'
+      );
+    },
+    [switchDashboardView]
+  );
+
   const focusActivitySessionByStatus = useCallback(
     (statuses: string[]) => {
       const statusSet = new Set(statuses);
@@ -1679,7 +1713,17 @@ function DashboardShell({
             >
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
-            {/* Outbox badge removed — sync is invisible to user */}
+            {(activeSessionCount > 0 || blockedCount > 0) && (
+              <ContextualStatus
+                running={activeSessionCount}
+                blocked={blockedCount}
+                decisionsCount={decisionsVisible ? data.decisions.length : 0}
+                completedToday={completedToday}
+                onDecisionsClick={() => setExpandedRightPanel('decisions')}
+                onBlockedClick={() => setBulkModal('blocked')}
+                onNewInitiative={startInitiative}
+              />
+            )}
           </div>
 
           <div className="hidden items-center justify-center lg:flex">
@@ -1967,20 +2011,7 @@ function DashboardShell({
         )}
       </header>
 
-      {/* Activity-only contextual status sentence */}
-      {dashboardView === 'activity' && (
-        <div className="flex items-center overflow-x-auto border-b border-subtle px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-6">
-          <ContextualStatus
-            running={activeSessionCount}
-            blocked={blockedCount}
-            decisionsCount={decisionsVisible ? data.decisions.length : 0}
-            completedToday={completedToday}
-            onDecisionsClick={() => setExpandedRightPanel('decisions')}
-            onBlockedClick={() => setBulkModal('blocked')}
-            onNewInitiative={startInitiative}
-          />
-        </div>
-      )}
+      {/* Contextual status moved into header */}
 
 	      {dashboardView === 'mission-control' ? (
 	        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -2088,7 +2119,8 @@ function DashboardShell({
 	            onClearSelection={clearActivitySessionFilter}
 	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
 	            onClearAgentFilter={clearAgentFilter}
-	            onFocusRunId={focusActivityRunId}
+              onFocusRunId={focusActivityRunId}
+              onOpenDecision={openDecisionsFromActivity}
               requestedActivityItemId={requestedActivityItemId}
               onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
               onPlayNextUp={playNextUpFromActivity}
@@ -2115,13 +2147,12 @@ function DashboardShell({
                     type="button"
                     role="tab"
                     aria-selected={initiativesSidebarTab === 'in_progress'}
-                    onClick={() => setInitiativesSidebarTab('in_progress')}
-                    className={cn(
-                      'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
+                    onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('in_progress'); }}
+                    className={
                       initiativesSidebarTab === 'in_progress'
-                        ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
-                        : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                    )}
+                        ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
+                        : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                    }
                   >
                     <span>In Progress</span>
                     <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
@@ -2132,19 +2163,18 @@ function DashboardShell({
                     type="button"
                     role="tab"
                     aria-selected={initiativesSidebarTab === 'next_up'}
-                    onClick={() => setInitiativesSidebarTab('next_up')}
-                    className={cn(
-                      'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
+                    onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('next_up'); }}
+                    className={
                       initiativesSidebarTab === 'next_up'
-                        ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
-                        : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                    )}
+                        ? 'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
+                        : 'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                    }
                   >
                     Next Up
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1">
+                <div className="min-h-0 flex-1" key={initiativesSidebarTab}>
                   {initiativesSidebarTab === 'in_progress' ? (
                     <InProgressPanel
                       className="h-full min-h-0"
@@ -2157,6 +2187,7 @@ function DashboardShell({
                   ) : (
                     <NextUpPanel
                       title="Next Up"
+                      showHeader={false}
                       className="h-full"
                       compact={false}
                       onFollowWorkstream={followQueuedWorkstream}
@@ -2188,6 +2219,8 @@ function DashboardShell({
               decisionsVisible ? (
                 <DecisionQueue
                   decisions={data.decisions}
+                  focusDecisionId={requestedDecisionId}
+                  onFocusDecisionHandled={() => setRequestedDecisionId(null)}
                   onApproveDecision={approveDecision}
                   onRejectDecision={rejectDecision}
                   onApproveAll={approveAllDecisions}

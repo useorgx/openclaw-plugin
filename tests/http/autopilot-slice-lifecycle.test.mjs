@@ -587,6 +587,151 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
 });
 
+test(
+  "autopilot slice lifecycle: default token budget is not enforced unless explicitly configured",
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-default-budget-"));
+    await withEnv(
+      {
+        ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+        ORGX_AUTOPILOT_WORKER_KIND: "mock",
+        ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+        ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+        ORGX_AUTO_CONTINUE_TOKEN_BUDGET: null,
+        ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET: null,
+      },
+      async () => {
+        const config = baseConfig();
+        const { client, state } = createClientHarness();
+        state.tasks.set("task-2", {
+          id: "task-2",
+          title: "Mock task 2",
+          status: "todo",
+          initiative_id: "init-1",
+          workstream_id: "ws-1",
+          milestone_id: null,
+          priority: "high",
+        });
+
+        const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+        const resStart = await call(handler, {
+          method: "POST",
+          url: "/orgx/api/mission-control/auto-continue/start",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            initiativeId: "init-1",
+            agentId: "agent-1",
+            includeVerification: false,
+            workstreamIds: ["ws-1"],
+            ignoreSpawnGuardRateLimit: true,
+          }),
+        });
+        assert.equal(resStart.status, 200);
+
+        let statusBody = null;
+        for (let i = 0; i < 25; i += 1) {
+          await sleep(35);
+          const resTick = await call(handler, {
+            method: "POST",
+            url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ initiativeId: "init-1" }),
+          });
+          assert.equal(resTick.status, 200);
+
+          const resStatus = await call(handler, {
+            method: "GET",
+            url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+            headers: {},
+          });
+          assert.equal(resStatus.status, 200);
+          statusBody = JSON.parse(resStatus.body);
+          if (statusBody?.run?.status === "stopped") break;
+        }
+
+        assert.ok(statusBody?.run, "expected auto-continue status payload");
+        assert.equal(statusBody.run.status, "stopped");
+        assert.equal(statusBody.run.stopReason, "completed");
+        assert.equal(statusBody.run.tokenBudget ?? null, null);
+      }
+    );
+  }
+);
+
+test(
+  "autopilot slice lifecycle: explicit token budget is still enforced",
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-explicit-budget-"));
+    await withEnv(
+      {
+        ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+        ORGX_AUTOPILOT_WORKER_KIND: "mock",
+        ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+        ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      },
+      async () => {
+        const config = baseConfig();
+        const { client, state } = createClientHarness();
+        state.tasks.set("task-2", {
+          id: "task-2",
+          title: "Mock task 2",
+          status: "todo",
+          initiative_id: "init-1",
+          workstream_id: "ws-1",
+          milestone_id: null,
+          priority: "high",
+        });
+
+        const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+        const resStart = await call(handler, {
+          method: "POST",
+          url: "/orgx/api/mission-control/auto-continue/start",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            initiativeId: "init-1",
+            agentId: "agent-1",
+            tokenBudget: 1000,
+            includeVerification: false,
+            workstreamIds: ["ws-1"],
+            ignoreSpawnGuardRateLimit: true,
+          }),
+        });
+        assert.equal(resStart.status, 200);
+
+        let statusBody = null;
+        for (let i = 0; i < 25; i += 1) {
+          await sleep(35);
+          const resTick = await call(handler, {
+            method: "POST",
+            url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ initiativeId: "init-1" }),
+          });
+          assert.equal(resTick.status, 200);
+
+          const resStatus = await call(handler, {
+            method: "GET",
+            url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+            headers: {},
+          });
+          assert.equal(resStatus.status, 200);
+          statusBody = JSON.parse(resStatus.body);
+          if (statusBody?.run?.status === "stopped") break;
+        }
+
+        assert.ok(statusBody?.run, "expected auto-continue status payload");
+        assert.equal(statusBody.run.status, "stopped");
+        assert.equal(statusBody.run.stopReason, "budget_exhausted");
+        assert.equal(statusBody.run.tokenBudget, 1000);
+      }
+    );
+  }
+);
+
 test("autopilot slice lifecycle: completed without outputs blocks and requests decision", async () => {
   const result = await runPlayTickStatus({ scenario: "no_updates" });
   assert.equal(result.status.ok, true);
@@ -1181,27 +1326,26 @@ test("autopilot slice lifecycle: auto-continue start override persists and execu
       assert.equal(startBody?.ok, true);
       assert.equal(startBody?.run?.ignoreSpawnGuardRateLimit, true);
 
-      await call(handler, {
-        method: "POST",
-        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId: "init-1" }),
-      });
-      await sleep(80);
-      await call(handler, {
-        method: "POST",
-        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId: "init-1" }),
-      });
+      let statusBody = null;
+      for (let i = 0; i < 20; i += 1) {
+        await call(handler, {
+          method: "POST",
+          url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ initiativeId: "init-1" }),
+        });
+        await sleep(60);
+        const resStatus = await call(handler, {
+          method: "GET",
+          url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+          headers: {},
+        });
+        assert.equal(resStatus.status, 200);
+        statusBody = JSON.parse(resStatus.body);
+        if (statusBody?.run?.status === "stopped") break;
+      }
 
-      const resStatus = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
-        headers: {},
-      });
-      assert.equal(resStatus.status, 200);
-      const statusBody = JSON.parse(resStatus.body);
+      assert.ok(statusBody?.run, "expected status payload");
       assert.equal(statusBody?.run?.status, "stopped");
       assert.equal(statusBody?.run?.stopReason, "completed");
       assert.equal(statusBody?.run?.lastError ?? null, null);

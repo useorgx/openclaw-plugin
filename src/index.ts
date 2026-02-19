@@ -68,7 +68,10 @@ import { registerOrgxCli } from "./cli/orgx.js";
 import { instrumentPluginApi } from "./services/instrumentation.js";
 import { registerSyncService } from "./services/background.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
-import { buildLocalSyncAgentsFromRuns } from "./sync/local-agent-telemetry.js";
+import {
+  buildLocalAgentMirrorsFromSnapshot,
+  buildLocalSyncAgentsFromRuns,
+} from "./sync/local-agent-telemetry.js";
 import { registerCoreTools } from "./tools/core-tools.js";
 import { stableHash } from "./hash-utils.js";
 import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
@@ -603,6 +606,7 @@ export default function register(api: PluginAPI): void {
   let syncTimer: ReturnType<typeof setTimeout> | null = null;
   let syncInFlight: Promise<void> | null = null;
   let syncServiceRunning = false;
+  let localAgentMirrors: OrgSnapshot["agents"] = [];
   let outboxReplayState: {
     status: ReplayStatus;
     lastReplayAttemptAt: string | null;
@@ -1150,7 +1154,25 @@ export default function register(api: PluginAPI): void {
       try {
         await reconcileStoppedAgentRuns();
         let snapshotError: string | null = null;
-        const localAgents = buildLocalSyncAgentsFromRuns(readAgentRuns());
+        try {
+          const snapshot = await client.getOrgSnapshot();
+          updateCachedSnapshot(snapshot);
+          localAgentMirrors = buildLocalAgentMirrorsFromSnapshot({
+            agents: snapshot.agents,
+          });
+        } catch (err: unknown) {
+          if (isAuthFailure(err)) {
+            throw err;
+          }
+          snapshotError = toErrorMessage(err);
+          api.log?.warn?.("[orgx] Snapshot sync failed (continuing)", {
+            error: snapshotError,
+          });
+        }
+        const localAgents = buildLocalSyncAgentsFromRuns({
+          ...readAgentRuns(),
+          mirrors: localAgentMirrors,
+        });
         if (localAgents.length > 0) {
           try {
             await client.syncMemory({ agents: localAgents });
@@ -1163,17 +1185,6 @@ export default function register(api: PluginAPI): void {
               count: localAgents.length,
             });
           }
-        }
-        try {
-          updateCachedSnapshot(await client.getOrgSnapshot());
-        } catch (err: unknown) {
-          if (isAuthFailure(err)) {
-            throw err;
-          }
-          snapshotError = toErrorMessage(err);
-          api.log?.warn?.("[orgx] Snapshot sync failed (continuing)", {
-            error: snapshotError,
-          });
         }
 
         // Best-effort: poll the canonical OrgX SkillPack so the dashboard/install path

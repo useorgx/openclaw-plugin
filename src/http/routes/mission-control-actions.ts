@@ -22,6 +22,10 @@ type NextUpQueue = {
     workstreamTitle?: string | null;
     nextTaskId?: string | null;
     nextTaskTitle?: string | null;
+    autoContinue?: {
+      status?: string | null;
+      stopReason?: string | null;
+    } | null;
   }>;
   degraded: string[];
 };
@@ -387,12 +391,19 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
               );
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
+        const existingActiveRunIds = Array.isArray(existingRun?.activeSliceRunIds)
+          ? (existingRun?.activeSliceRunIds as Array<unknown>)
+              .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+              .map((id) => id.trim())
+          : typeof existingRun?.activeRunId === "string" && existingRun.activeRunId.trim().length > 0
+            ? [existingRun.activeRunId.trim()]
+            : [];
         if (
           existingRun &&
           (existingRun.status === "running" || existingRun.status === "stopping") &&
-          existingRun.activeRunId
+          existingActiveRunIds.length > 0
         ) {
-          const activeSlice = deps.autoContinueSliceRuns.get(existingRun.activeRunId) ?? null;
+          const activeSlice = deps.autoContinueSliceRuns.get(existingActiveRunIds[0]) ?? null;
           const activeWorkstreamId = activeSlice?.workstreamId ?? null;
           const activeWorkstreamTitle = activeSlice?.workstreamTitle ?? null;
           deps.sendJson(res, 409, {
@@ -403,6 +414,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                 ? `Auto-continue is already running for ${activeWorkstreamTitle ?? activeWorkstreamId}. Stop it before launching another Play run.`
                 : "Auto-continue is already running for this initiative. Stop it before launching another Play run.",
             run: existingRun,
+            activeRunIds: existingActiveRunIds,
             activeWorkstreamId,
             activeWorkstreamTitle,
             error_location: "mission-control.next-up.play.concurrent_run",
@@ -417,6 +429,8 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           tokenBudget,
           includeVerification,
           allowedWorkstreamIds: [workstreamId],
+          maxParallelSlices: 1,
+          parallelMode: "iwmt",
           stopAfterSlice: true,
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
         });
@@ -468,28 +482,39 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           ]);
 
           if (!tickCompleted) {
-            void tickPromise
-              .then(async () => {
-                await maybeDispatchFallback().catch(() => null);
-              })
-              .catch(() => {
-                // best effort
+            await new Promise<void>((resolve) => setTimeout(resolve, 80));
+            const settledImmediately =
+              Boolean(run.activeRunId) ||
+              Boolean(run.lastRunId) ||
+              Boolean(run.stopReason) ||
+              run.status !== "running";
+            if (settledImmediately) {
+              await tickPromise.catch(() => null);
+              fallbackDispatch = await maybeDispatchFallback();
+            } else {
+              void tickPromise
+                .then(async () => {
+                  await maybeDispatchFallback().catch(() => null);
+                })
+                .catch(() => {
+                  // best effort
+                });
+
+              deps.sendJson(res, 202, {
+                ok: true,
+                run,
+                initiativeId,
+                workstreamId,
+                agentId,
+                dispatchMode: "pending",
+                sessionId: null,
               });
-
-            deps.sendJson(res, 202, {
-              ok: true,
-              run,
-              initiativeId,
-              workstreamId,
-              agentId,
-              dispatchMode: "pending",
-              sessionId: null,
-            });
-            return;
+              return;
+            }
+          } else {
+            await tickPromise;
+            fallbackDispatch = await maybeDispatchFallback();
           }
-
-          await tickPromise;
-          fallbackDispatch = await maybeDispatchFallback();
         }
 
         const fallbackStarted = Boolean(fallbackDispatch?.sessionId);
@@ -815,11 +840,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         let stoppedAutoContinue = false;
         if (run) {
           const now = new Date().toISOString();
+          const activeRunIds = Array.isArray((run as Record<string, unknown>).activeSliceRunIds)
+            ? ((run as Record<string, unknown>).activeSliceRunIds as Array<unknown>).filter(
+                (id): id is string => typeof id === "string" && id.trim().length > 0
+              )
+            : typeof run.activeRunId === "string" && run.activeRunId.trim().length > 0
+              ? [run.activeRunId]
+              : [];
           run.stopRequested = true;
-          run.status = run.activeRunId ? "stopping" : "stopped";
+          run.status = activeRunIds.length > 0 ? "stopping" : "stopped";
           run.updatedAt = now;
 
-          if (!run.activeRunId) {
+          if (activeRunIds.length === 0) {
             await deps.stopAutoContinueRun({ run, reason: "stopped" });
           } else {
             try {
@@ -987,7 +1019,15 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         const scopedItems = queue.items.filter((item) => {
           if (initiativeId && item.initiativeId !== initiativeId) return false;
           if (workstreamId && item.workstreamId !== workstreamId) return false;
-          return states.has(item.queueState);
+          if (states.has(item.queueState)) return true;
+          if (
+            states.has("running") &&
+            item.autoContinue?.status === "running" &&
+            !item.autoContinue?.stopReason
+          ) {
+            return true;
+          }
+          return false;
         });
 
         const updatedTaskIds = new Set<string>();
@@ -1251,6 +1291,26 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         ]);
         const allowedWorkstreamIds =
           workstreamFilter.length > 0 ? workstreamFilter : null;
+        const maxParallelRaw =
+          deps.pickNumber(payload, [
+            "maxParallelSlices",
+            "max_parallel_slices",
+            "maxParallel",
+            "max_parallel",
+          ]) ??
+          query.get("maxParallelSlices") ??
+          query.get("max_parallel_slices") ??
+          query.get("maxParallel") ??
+          query.get("max_parallel") ??
+          null;
+        const parallelModeRaw =
+          (deps.pickString(payload, ["parallelMode", "parallel_mode"]) ??
+            query.get("parallelMode") ??
+            query.get("parallel_mode") ??
+            "iwmt")
+            .trim()
+            .toLowerCase();
+        const parallelMode = parallelModeRaw === "iwmt" ? "iwmt" : "iwmt";
 
         const run = await deps.startAutoContinueRun({
           initiativeId,
@@ -1259,6 +1319,8 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           tokenBudget,
           includeVerification,
           allowedWorkstreamIds,
+          maxParallelSlices: maxParallelRaw,
+          parallelMode,
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
         });
 
@@ -1305,11 +1367,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         }
 
         const now = new Date().toISOString();
+        const activeRunIds = Array.isArray((run as Record<string, unknown>).activeSliceRunIds)
+          ? ((run as Record<string, unknown>).activeSliceRunIds as Array<unknown>).filter(
+              (id): id is string => typeof id === "string" && id.trim().length > 0
+            )
+          : typeof run.activeRunId === "string" && run.activeRunId.trim().length > 0
+            ? [run.activeRunId]
+            : [];
         run.stopRequested = true;
-        run.status = run.activeRunId ? "stopping" : "stopped";
+        run.status = activeRunIds.length > 0 ? "stopping" : "stopped";
         run.updatedAt = now;
 
-        if (!run.activeRunId) {
+        if (activeRunIds.length === 0) {
           await deps.stopAutoContinueRun({ run, reason: "stopped" });
         } else {
           try {

@@ -86,7 +86,7 @@ export interface CreateAutoContinueEngineDeps {
     urgency?: "low" | "medium" | "high" | "urgent";
     options?: string[];
     blocking?: boolean;
-  }) => Promise<boolean>;
+  }) => Promise<boolean | { queued: boolean; decisionIds?: string[] }>;
   registerArtifactSafe: (input: {
     initiativeId: string;
     runId: string;
@@ -157,6 +157,29 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     resolveByokEnvOverrides,
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
+  type DecisionRequestOutcome = { queued: boolean; decisionIds: string[] };
+  const requestDecisionQueued = async (
+    input: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0]
+  ): Promise<DecisionRequestOutcome> => {
+    const result = await requestDecisionSafe(input);
+    if (typeof result === "boolean") {
+      return { queued: result, decisionIds: [] };
+    }
+    if (result && typeof result === "object" && "queued" in result) {
+      const record = result as { queued?: unknown; decisionIds?: unknown };
+      const decisionIds = Array.isArray(record.decisionIds)
+        ? record.decisionIds
+            .filter((entry): entry is string => typeof entry === "string")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : [];
+      return {
+        queued: Boolean(record.queued),
+        decisionIds,
+      };
+    }
+    return { queued: false, decisionIds: [] };
+  };
   const __filename = deps.filename;
   type AutoContinueStopReason =
     | "budget_exhausted"
@@ -166,6 +189,25 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     | "error";
 
   type AutoContinueStatus = "running" | "stopping" | "stopped";
+  type AutoContinueParallelMode = "iwmt";
+  type AutoContinueLaneState =
+    | "idle"
+    | "running"
+    | "blocked"
+    | "waiting_dependency"
+    | "rate_limited"
+    | "completed";
+
+  type AutoContinueLane = {
+    workstreamId: string;
+    state: AutoContinueLaneState;
+    activeRunId: string | null;
+    activeTaskIds: string[];
+    blockedReason: string | null;
+    waitingOnWorkstreamIds: string[];
+    retryAt: string | null;
+    updatedAt: string;
+  };
 
   type AutoContinueRun = {
     initiativeId: string;
@@ -177,7 +219,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     stopAfterSlice: boolean;
     // Explicit operator override for one-shot Play when spawn guard is only rate-limited.
     ignoreSpawnGuardRateLimit: boolean;
-    tokenBudget: number;
+    maxParallelSlices: number;
+    parallelMode: AutoContinueParallelMode;
+    tokenBudget: number | null;
     tokensUsed: number;
     status: AutoContinueStatus;
     stopReason: AutoContinueStopReason | null;
@@ -188,6 +232,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     lastError: string | null;
     lastTaskId: string | null;
     lastRunId: string | null;
+    activeSliceRunIds: string[];
+    activeTaskIds: string[];
+    laneByWorkstreamId: Record<string, AutoContinueLane>;
+    blockedWorkstreamIds: string[];
     activeTaskId: string | null;
     activeRunId: string | null;
     activeTaskTokenEstimate: number | null;
@@ -211,6 +259,47 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     min: 250,
     max: 60_000,
   });
+  const AUTO_CONTINUE_PARALLEL_MIN = 1;
+  const AUTO_CONTINUE_PARALLEL_MAX = 5;
+  const AUTO_CONTINUE_MAX_PARALLEL_DEFAULT = Math.max(
+    AUTO_CONTINUE_PARALLEL_MIN,
+    Math.min(
+      AUTO_CONTINUE_PARALLEL_MAX,
+      Math.round(
+        readBudgetEnvNumber(
+          "ORGX_AUTO_CONTINUE_MAX_PARALLEL_DEFAULT",
+          5,
+          { min: AUTO_CONTINUE_PARALLEL_MIN, max: AUTO_CONTINUE_PARALLEL_MAX }
+        )
+      )
+    )
+  );
+
+  const normalizeParallelMode = (_value: unknown): AutoContinueParallelMode => "iwmt";
+  const normalizeMaxParallelSlices = (value: unknown, fallback: number): number => {
+    const normalizedFallback = Math.max(
+      AUTO_CONTINUE_PARALLEL_MIN,
+      Math.min(AUTO_CONTINUE_PARALLEL_MAX, Math.round(fallback || AUTO_CONTINUE_PARALLEL_MIN))
+    );
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const parsed = Math.round(value);
+      return Math.max(
+        AUTO_CONTINUE_PARALLEL_MIN,
+        Math.min(AUTO_CONTINUE_PARALLEL_MAX, parsed)
+      );
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        const rounded = Math.round(parsed);
+        return Math.max(
+          AUTO_CONTINUE_PARALLEL_MIN,
+          Math.min(AUTO_CONTINUE_PARALLEL_MAX, rounded)
+        );
+      }
+    }
+    return normalizedFallback;
+  };
 
   // ---------------------------------------------------------------------------
   // Auto-continue v2 (Workstream Slices)
@@ -368,6 +457,147 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   const normalizeStatusValue = (value: unknown): string => {
     if (typeof value !== "string") return "";
     return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  };
+
+  const listActiveSliceRunIds = (run: AutoContinueRun): string[] => {
+    ensureRunInternals(run);
+    const ids = new Set<string>();
+    for (const id of run.activeSliceRunIds ?? []) {
+      const normalized = (id ?? "").trim();
+      if (normalized) ids.add(normalized);
+    }
+    for (const lane of Object.values(run.laneByWorkstreamId ?? {})) {
+      const activeRunId = (lane.activeRunId ?? "").trim();
+      if (activeRunId) ids.add(activeRunId);
+    }
+    return Array.from(ids);
+  };
+
+  const upsertLane = (
+    run: AutoContinueRun,
+    workstreamId: string,
+    patch: Partial<Omit<AutoContinueLane, "workstreamId">>
+  ): AutoContinueLane => {
+    const normalizedWorkstreamId = workstreamId.trim();
+    if (!normalizedWorkstreamId) {
+      throw new Error("workstreamId is required");
+    }
+    const existing = run.laneByWorkstreamId[normalizedWorkstreamId] ?? {
+      workstreamId: normalizedWorkstreamId,
+      state: "idle" as AutoContinueLaneState,
+      activeRunId: null,
+      activeTaskIds: [],
+      blockedReason: null,
+      waitingOnWorkstreamIds: [],
+      retryAt: null,
+      updatedAt: new Date().toISOString(),
+    };
+    const next: AutoContinueLane = {
+      ...existing,
+      ...patch,
+      workstreamId: normalizedWorkstreamId,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+      activeTaskIds: Array.isArray(patch.activeTaskIds)
+        ? dedupeStrings(patch.activeTaskIds.map((id) => (id ?? "").trim()).filter(Boolean))
+        : existing.activeTaskIds,
+      waitingOnWorkstreamIds: Array.isArray(patch.waitingOnWorkstreamIds)
+        ? dedupeStrings(
+            patch.waitingOnWorkstreamIds.map((id) => (id ?? "").trim()).filter(Boolean)
+          )
+        : existing.waitingOnWorkstreamIds,
+    };
+    run.laneByWorkstreamId[normalizedWorkstreamId] = next;
+    return next;
+  };
+
+  const setLaneState = (
+    run: AutoContinueRun,
+    input: {
+      workstreamId: string;
+      state: AutoContinueLaneState;
+      activeRunId?: string | null;
+      activeTaskIds?: string[];
+      blockedReason?: string | null;
+      waitingOnWorkstreamIds?: string[];
+      retryAt?: string | null;
+    }
+  ): AutoContinueLane => {
+    return upsertLane(run, input.workstreamId, {
+      state: input.state,
+      activeRunId:
+        input.activeRunId === undefined ? undefined : (input.activeRunId ?? "").trim() || null,
+      activeTaskIds: input.activeTaskIds,
+      blockedReason:
+        input.blockedReason === undefined
+          ? undefined
+          : (input.blockedReason ?? "").trim() || null,
+      waitingOnWorkstreamIds: input.waitingOnWorkstreamIds,
+      retryAt: input.retryAt === undefined ? undefined : input.retryAt,
+    });
+  };
+
+  const removeActiveSliceFromRun = (
+    run: AutoContinueRun,
+    input: { sliceRunId: string; taskIds?: string[]; workstreamId?: string | null }
+  ): void => {
+    const sliceRunId = input.sliceRunId.trim();
+    if (!sliceRunId) return;
+    run.activeSliceRunIds = run.activeSliceRunIds.filter((id) => id !== sliceRunId);
+    const taskIds = new Set(
+      Array.isArray(input.taskIds)
+        ? input.taskIds.map((id) => (id ?? "").trim()).filter(Boolean)
+        : []
+    );
+    if (taskIds.size > 0) {
+      run.activeTaskIds = run.activeTaskIds.filter((id) => !taskIds.has(id));
+    }
+    const normalizedWorkstreamId = (input.workstreamId ?? "").trim();
+    if (normalizedWorkstreamId) {
+      const lane = run.laneByWorkstreamId[normalizedWorkstreamId];
+      if (lane && lane.activeRunId === sliceRunId) {
+        setLaneState(run, {
+          workstreamId: normalizedWorkstreamId,
+          state: lane.state === "blocked" ? "blocked" : "idle",
+          activeRunId: null,
+          activeTaskIds: [],
+          retryAt: lane.retryAt ?? null,
+          waitingOnWorkstreamIds: lane.waitingOnWorkstreamIds ?? [],
+          blockedReason: lane.state === "blocked" ? lane.blockedReason : null,
+        });
+      }
+    }
+  };
+
+  const syncLegacyRunPointers = (run: AutoContinueRun): void => {
+    ensureRunInternals(run);
+    const activeIds = listActiveSliceRunIds(run);
+    run.activeSliceRunIds = activeIds;
+    run.activeTaskIds = dedupeStrings(
+      (run.activeTaskIds ?? []).map((id) => (id ?? "").trim()).filter(Boolean)
+    );
+    run.activeRunId = activeIds[0] ?? null;
+    run.activeTaskId = run.activeTaskIds[0] ?? null;
+    if (!run.activeRunId) {
+      run.activeTaskTokenEstimate = null;
+    }
+  };
+
+  const ensureRunInternals = (run: AutoContinueRun): void => {
+    if (!Array.isArray(run.activeSliceRunIds)) run.activeSliceRunIds = [];
+    if (!Array.isArray(run.activeTaskIds)) run.activeTaskIds = [];
+    if (!run.laneByWorkstreamId || typeof run.laneByWorkstreamId !== "object") {
+      run.laneByWorkstreamId = {};
+    }
+    if (!Array.isArray(run.blockedWorkstreamIds)) run.blockedWorkstreamIds = [];
+    run.maxParallelSlices = normalizeMaxParallelSlices(
+      run.maxParallelSlices,
+      AUTO_CONTINUE_MAX_PARALLEL_DEFAULT
+    );
+    run.parallelMode = normalizeParallelMode(run.parallelMode);
+    run.tokenBudget = normalizeTokenBudget(
+      run.tokenBudget,
+      defaultAutoContinueTokenBudget()
+    );
   };
 
   const recordLocalStatusOverrides = (input: {
@@ -579,20 +809,59 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     };
   };
 
-  function normalizeTokenBudget(value: unknown, fallback: number): number {
+  function parseTokenBudget(value: unknown): number | null {
     if (typeof value === "number" && Number.isFinite(value)) {
+      if (value <= 0) return null;
       return Math.max(1_000, Math.round(value));
     }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const normalized = trimmed.toLowerCase();
+      if (
+        normalized === "0" ||
+        normalized === "off" ||
+        normalized === "none" ||
+        normalized === "false" ||
+        normalized === "unlimited" ||
+        normalized === "null"
+      ) {
+        return null;
+      }
+      const parsed = Number(trimmed);
       if (Number.isFinite(parsed)) {
+        if (parsed <= 0) return null;
         return Math.max(1_000, Math.round(parsed));
       }
     }
-    return Math.max(1_000, Math.round(fallback));
+    return null;
   }
 
-  function defaultAutoContinueTokenBudget(): number {
+  function shouldEnforceTokenBudgetByDefault(): boolean {
+    const raw = (process.env.ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET ?? "")
+      .trim()
+      .toLowerCase();
+    if (!raw) return false;
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  }
+
+  function normalizeTokenBudget(
+    value: unknown,
+    fallback: number | null
+  ): number | null {
+    const parsed = parseTokenBudget(value);
+    if (parsed !== null) return parsed;
+    return fallback;
+  }
+
+  function defaultAutoContinueTokenBudget(): number | null {
+    const explicitBudget = parseTokenBudget(
+      process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET
+    );
+    if (explicitBudget !== null) return explicitBudget;
+    // Codex/Claude workers do not reliably expose authoritative token usage for slices yet.
+    // Keep the local token guardrail opt-in unless explicitly configured.
+    if (!shouldEnforceTokenBudgetByDefault()) return null;
     const hours = readBudgetEnvNumber("ORGX_AUTO_CONTINUE_BUDGET_HOURS", 4, {
       min: 0.05,
       max: 24,
@@ -601,10 +870,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour *
       hours *
       DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
-    return normalizeTokenBudget(
-      process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET,
-      fallback
-    );
+    return normalizeTokenBudget(process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET, fallback);
+  }
+
+  function defaultAutoContinueMaxParallelSlices(): number {
+    return AUTO_CONTINUE_MAX_PARALLEL_DEFAULT;
   }
 
   function estimateTokensForDurationHours(durationHours: number): number {
@@ -653,7 +923,18 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     initiativeId: string;
     run: AutoContinueRun;
   }): Promise<void> {
+    syncLegacyRunPointers(input.run);
     const now = new Date().toISOString();
+    const laneStates = Object.values(input.run.laneByWorkstreamId ?? {}).map((lane) => ({
+      workstream_id: lane.workstreamId,
+      state: lane.state,
+      active_run_id: lane.activeRunId,
+      active_task_ids: lane.activeTaskIds,
+      blocked_reason: lane.blockedReason,
+      waiting_on_workstream_ids: lane.waitingOnWorkstreamIds,
+      retry_at: lane.retryAt,
+      updated_at: lane.updatedAt,
+    }));
     const patch: Record<string, unknown> = {
       auto_continue_enabled: input.run.status === "running" || input.run.status === "stopping",
       auto_continue_status: input.run.status,
@@ -665,11 +946,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       auto_continue_tokens_used: input.run.tokensUsed,
       auto_continue_active_task_id: input.run.activeTaskId,
       auto_continue_active_run_id: input.run.activeRunId,
+      auto_continue_active_task_ids: input.run.activeTaskIds,
+      auto_continue_active_run_ids: input.run.activeSliceRunIds,
       auto_continue_active_task_token_estimate: input.run.activeTaskTokenEstimate,
       auto_continue_last_task_id: input.run.lastTaskId,
       auto_continue_last_run_id: input.run.lastRunId,
       auto_continue_include_verification: input.run.includeVerification,
       auto_continue_workstream_filter: input.run.allowedWorkstreamIds,
+      auto_continue_parallel_mode: input.run.parallelMode,
+      auto_continue_max_parallel: input.run.maxParallelSlices,
+      auto_continue_lane_states: laneStates,
+      auto_continue_blocked_workstream_ids: input.run.blockedWorkstreamIds,
       auto_continue_ignore_spawn_guard_rate_limit: input.run.ignoreSpawnGuardRateLimit,
       ...(input.run.lastError ? { auto_continue_last_error: input.run.lastError } : {}),
     };
@@ -681,20 +968,36 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     reason: AutoContinueStopReason;
     error?: string | null;
     decisionRequired?: boolean;
+    decisionIds?: string[];
   }): Promise<void> {
     const now = new Date().toISOString();
-    const activeRunId = input.run.activeRunId;
+    ensureRunInternals(input.run);
+    const activeRunIds = listActiveSliceRunIds(input.run);
     input.run.status = "stopped";
     input.run.stopReason = input.reason;
     input.run.stoppedAt = now;
     input.run.updatedAt = now;
     input.run.stopRequested = false;
+    input.run.activeSliceRunIds = [];
+    input.run.activeTaskIds = [];
     input.run.activeRunId = null;
     input.run.activeTaskId = null;
     input.run.activeTaskTokenEstimate = null;
+    for (const lane of Object.values(input.run.laneByWorkstreamId ?? {})) {
+      if (lane.activeRunId || lane.activeTaskIds.length > 0) {
+        setLaneState(input.run, {
+          workstreamId: lane.workstreamId,
+          state: lane.state === "blocked" ? "blocked" : "idle",
+          activeRunId: null,
+          activeTaskIds: [],
+        });
+      }
+    }
     if (input.error) input.run.lastError = input.error;
     clearSpawnGuardRetryStateForInitiative(input.run.initiativeId);
-    clearAutoContinueSliceTransientState(activeRunId);
+    for (const runId of activeRunIds) {
+      clearAutoContinueSliceTransientState(runId);
+    }
 
     // Only pause the initiative on non-terminal stops (error, blocked, user-requested).
     // Completed / budget-exhausted runs should not override the initiative status.
@@ -717,17 +1020,26 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       // best effort
     }
 
+    const primaryActiveRunId = activeRunIds[0] ?? null;
     const scopedWorkstreamId =
       Array.isArray(input.run.allowedWorkstreamIds) && input.run.allowedWorkstreamIds.length === 1
         ? input.run.allowedWorkstreamIds[0]
         : null;
     const scopeSuffix = scopedWorkstreamId ? ` [workstream ${scopedWorkstreamId}]` : "";
     const decisionRequired = input.reason === "blocked" && input.decisionRequired === true;
+    const decisionIds = Array.isArray(input.decisionIds)
+      ? input.decisionIds
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [];
+    const budgetValue =
+      typeof input.run.tokenBudget === "number" ? input.run.tokenBudget : "unbounded";
     const message =
       input.reason === "completed"
         ? `Autopilot stopped: current dispatch scope completed${scopeSuffix}.`
         : input.reason === "budget_exhausted"
-          ? `Autopilot stopped: token budget exhausted (${input.run.tokensUsed}/${input.run.tokenBudget}).`
+          ? `Autopilot stopped: token budget exhausted (${input.run.tokensUsed}/${budgetValue}).`
           : input.reason === "stopped"
             ? `Autopilot stopped by user request${scopeSuffix}.`
             : input.reason === "blocked"
@@ -756,8 +1068,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     await emitActivitySafe({
       initiativeId: input.run.initiativeId,
-      runId: activeRunId ?? input.run.lastRunId ?? undefined,
-      correlationId: activeRunId ?? input.run.lastRunId ?? undefined,
+      runId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
+      correlationId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
       phase,
       level,
       message,
@@ -766,13 +1078,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         stop_reason: input.reason,
         requested_by_agent_id: input.run.agentId,
         requested_by_agent_name: input.run.agentName,
-        active_run_id: activeRunId,
+        active_run_id: primaryActiveRunId,
+        active_run_ids: activeRunIds,
         last_run_id: input.run.lastRunId,
         token_budget: input.run.tokenBudget,
         tokens_used: input.run.tokensUsed,
         allowed_workstream_ids: input.run.allowedWorkstreamIds,
+        max_parallel_slices: input.run.maxParallelSlices,
         scope_workstream_id: scopedWorkstreamId,
         decision_required: decisionRequired,
+        decision_ids: decisionIds,
+        decision_count: decisionIds.length,
         last_error: input.run.lastError,
         error_location: errorLocation,
       },
@@ -797,12 +1113,16 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     if (run.status !== "running" && run.status !== "stopping") return;
 
     const now = new Date().toISOString();
+    syncLegacyRunPointers(run);
 
-    // 1) If we have an active slice, wait for it to finish and then register outcomes.
-    if (run.activeRunId) {
-      const slice = autoContinueSliceRuns.get(run.activeRunId) ?? null;
+    // 1) Reconcile each active slice lane and register outcomes when complete.
+    const activeRunIdsForTick = listActiveSliceRunIds(run);
+    for (const activeRunIdForTick of activeRunIdsForTick) {
+      run.activeRunId = activeRunIdForTick;
+      const slice = autoContinueSliceRuns.get(activeRunIdForTick) ?? null;
       if (!slice) {
         // Legacy/unknown pointer; clear so we can continue.
+        removeActiveSliceFromRun(run, { sliceRunId: activeRunIdForTick });
         run.activeRunId = null;
         run.activeTaskId = null;
         run.updatedAt = now;
@@ -914,7 +1234,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                },
 	              });
 
-	              const decisionQueued = await requestDecisionSafe({
+	          const decisionResult = await requestDecisionQueued({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
 	                title: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
@@ -927,13 +1247,24 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  "Skip this workstream for now",
 	                ],
 	                blocking: true,
-	              });
+		              });
 
-	              await stopAutoContinueRun({
+                  setLaneState(run, {
+                    workstreamId: slice.workstreamId,
+                    state: "blocked",
+                    activeRunId: null,
+                    activeTaskIds: [],
+                    blockedReason: slice.lastError,
+                    waitingOnWorkstreamIds: [],
+                    retryAt: null,
+                  });
+
+		              await stopAutoContinueRun({
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
-                  decisionRequired: decisionQueued,
+                  decisionRequired: decisionResult.queued,
+                  decisionIds: decisionResult.decisionIds,
 	              });
 	              return;
 	            }
@@ -997,7 +1328,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                },
 	              });
 
-	              const decisionQueued = await requestDecisionSafe({
+		              const decisionResult = await requestDecisionQueued({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
 	                title: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}`,
@@ -1010,13 +1341,24 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  "Skip this workstream for now",
 	                ],
 	                blocking: true,
-	              });
+		              });
 
-	              await stopAutoContinueRun({
+                  setLaneState(run, {
+                    workstreamId: slice.workstreamId,
+                    state: "blocked",
+                    activeRunId: null,
+                    activeTaskIds: [],
+                    blockedReason: slice.lastError,
+                    waitingOnWorkstreamIds: [],
+                    retryAt: null,
+                  });
+
+		              await stopAutoContinueRun({
 	                run,
 	                reason: "blocked",
 	                error: slice.lastError,
-                  decisionRequired: decisionQueued,
+                  decisionRequired: decisionResult.queued,
+                  decisionIds: decisionResult.decisionIds,
 	              });
 	              return;
 	            }
@@ -1029,9 +1371,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              }
 	            }
 
-	            if (!outputComplete) return;
-	          }
-	        }
+		            if (!outputComplete) continue;
+		          }
+		        }
 
 	        // Slice finished.
 	        const raw = readSliceOutputFile(slice.outputPath);
@@ -1073,7 +1415,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         clearAutoContinueSliceTransientState(slice.runId);
 
         // Token accounting: codex CLI doesn't provide tokens here; use the modeled estimate.
-        const modeledTokens = slice.tokenEstimate ?? run.activeTaskTokenEstimate ?? 0;
+        const modeledTokens = slice.tokenEstimate ?? 0;
         run.tokensUsed += Math.max(0, modeledTokens);
         run.activeTaskTokenEstimate = null;
 
@@ -1125,10 +1467,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           : [];
 
         let blockingDecisionQueued = false;
+        const blockingDecisionIds: string[] = [];
+        const nonBlockingDecisionIds: string[] = [];
         for (const decision of decisions) {
           const isBlocking =
             typeof decision.blocking === "boolean" ? decision.blocking : defaultDecisionBlocking;
-          const decisionQueued = await requestDecisionSafe({
+          const decisionResult = await requestDecisionQueued({
             initiativeId: run.initiativeId,
             correlationId: slice.runId,
             title: decision.question.trim(),
@@ -1139,8 +1483,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               : [],
             blocking: isBlocking,
           });
-          if (decisionQueued && isBlocking) blockingDecisionQueued = true;
+          if (decisionResult.queued && isBlocking) blockingDecisionQueued = true;
+          if (decisionResult.decisionIds.length > 0) {
+            if (isBlocking) blockingDecisionIds.push(...decisionResult.decisionIds);
+            else nonBlockingDecisionIds.push(...decisionResult.decisionIds);
+          }
         }
+        const decisionIds = Array.from(
+          new Set([...blockingDecisionIds, ...nonBlockingDecisionIds])
+        );
 
         for (const artifact of artifacts) {
           await registerArtifactSafe({
@@ -1244,6 +1595,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             decisions: decisions.length,
             blocking_decisions: blockingDecisionCount,
             non_blocking_decisions: nonBlockingDecisionCount,
+            decision_ids: decisionIds,
+            blocking_decision_ids: Array.from(new Set(blockingDecisionIds)),
+            non_blocking_decision_ids: Array.from(new Set(nonBlockingDecisionIds)),
             decision_required: blockingDecisionQueued,
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
@@ -1257,10 +1611,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         });
 
 	        if (slice.status !== "completed") {
-          let fallbackDecisionQueued = false;
+          let fallbackDecisionResult: DecisionRequestOutcome = {
+            queued: false,
+            decisionIds: [],
+          };
           if (!blockingDecisionQueued) {
             const blockedLike = slice.status === "blocked";
-            fallbackDecisionQueued = await requestDecisionSafe({
+            fallbackDecisionResult = await requestDecisionQueued({
               initiativeId: run.initiativeId,
               correlationId: slice.runId,
               title: blockedLike
@@ -1282,17 +1639,37 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             });
           }
 
-	          await stopAutoContinueRun({
+            setLaneState(run, {
+              workstreamId: slice.workstreamId,
+              state: "blocked",
+              activeRunId: null,
+              activeTaskIds: [],
+              blockedReason:
+                parsed?.summary ??
+                slice.lastError ??
+                `Slice returned status: ${effectiveParsedStatus}`,
+              waitingOnWorkstreamIds: [],
+              retryAt: null,
+            });
+            if (!run.blockedWorkstreamIds.includes(slice.workstreamId)) {
+              run.blockedWorkstreamIds.push(slice.workstreamId);
+            }
+
+		          await stopAutoContinueRun({
 	            run,
 	            reason: slice.status === "error" ? "error" : "blocked",
 	            error:
 	              parsed?.summary ??
               slice.lastError ??
               `Slice returned status: ${effectiveParsedStatus}`,
-              decisionRequired: blockingDecisionQueued || fallbackDecisionQueued,
+	              decisionRequired:
+                  blockingDecisionQueued || fallbackDecisionResult.queued,
+                decisionIds: Array.from(
+                  new Set([...decisionIds, ...fallbackDecisionResult.decisionIds])
+                ),
           });
-          return;
-        }
+	          return;
+	        }
 
         const completionHadNoOutcome =
           parsedStatus === "completed" &&
@@ -1309,7 +1686,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             ? "The slice reported completion but did not produce artifacts or status updates. Decide whether to retry, request stronger output, or mark tasks manually."
             : "The slice exited without a valid output contract. Review logs/output and decide whether to retry or pause autopilot.";
 
-          const decisionQueued = await requestDecisionSafe({
+          const decisionResult = await requestDecisionQueued({
             initiativeId: run.initiativeId,
             correlationId: slice.runId,
             title: attentionTitle,
@@ -1320,10 +1697,27 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               "Pause autopilot and investigate",
               "Skip this workstream for now",
             ],
-            blocking: true,
-          });
+	            blocking: true,
+	          });
 
-          await stopAutoContinueRun({
+            setLaneState(run, {
+              workstreamId: slice.workstreamId,
+              state: "blocked",
+              activeRunId: null,
+              activeTaskIds: [],
+              blockedReason:
+                slice.lastError ??
+                (completionHadNoOutcome
+                  ? "Slice completed without verifiable outcomes."
+                  : "Slice failed or returned invalid output."),
+              waitingOnWorkstreamIds: [],
+              retryAt: null,
+            });
+            if (!run.blockedWorkstreamIds.includes(slice.workstreamId)) {
+              run.blockedWorkstreamIds.push(slice.workstreamId);
+            }
+
+	          await stopAutoContinueRun({
             run,
             reason: completionHadNoOutcome ? "blocked" : "error",
             error:
@@ -1331,15 +1725,32 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               (completionHadNoOutcome
                 ? "Slice completed without verifiable outcomes."
                 : "Slice failed or returned invalid output."),
-            decisionRequired: completionHadNoOutcome && decisionQueued,
+            decisionRequired: completionHadNoOutcome && decisionResult.queued,
+            decisionIds: decisionResult.decisionIds,
           });
           return;
         }
 
         run.lastRunId = slice.runId;
-        run.lastTaskId = run.activeTaskId ?? run.lastTaskId;
-        run.activeRunId = null;
-        run.activeTaskId = null;
+        run.lastTaskId = slice.taskIds[0] ?? run.lastTaskId;
+        removeActiveSliceFromRun(run, {
+          sliceRunId: slice.runId,
+          taskIds: slice.taskIds,
+          workstreamId: slice.workstreamId,
+        });
+        setLaneState(run, {
+          workstreamId: slice.workstreamId,
+          state: "completed",
+          activeRunId: null,
+          activeTaskIds: [],
+          blockedReason: null,
+          waitingOnWorkstreamIds: [],
+          retryAt: null,
+        });
+        run.blockedWorkstreamIds = run.blockedWorkstreamIds.filter(
+          (id) => id !== slice.workstreamId
+        );
+        syncLegacyRunPointers(run);
         // Do not keep prior rate-limit/runtime errors after a completed slice.
         run.lastError = null;
         run.updatedAt = now;
@@ -1365,6 +1776,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	        }
       }
     }
+    syncLegacyRunPointers(run);
 
     if (run.stopRequested) {
       run.status = "stopping";
@@ -1373,9 +1785,20 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       return;
     }
 
+    const tokenBudgetValue =
+      typeof run.tokenBudget === "number" && Number.isFinite(run.tokenBudget)
+        ? run.tokenBudget
+        : null;
+
     // 2) Enforce token guardrail before starting a new slice.
-    if (run.tokensUsed >= run.tokenBudget) {
+    if (tokenBudgetValue !== null && run.tokensUsed >= tokenBudgetValue) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
+      return;
+    }
+
+    const activeSliceCount = listActiveSliceRunIds(run).length;
+    if (activeSliceCount >= run.maxParallelSlices) {
+      run.updatedAt = now;
       return;
     }
 
@@ -1435,11 +1858,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       ) {
         continue;
       }
-      if (run.allowedWorkstreamIds && node.workstreamId) {
-        if (!run.allowedWorkstreamIds.includes(node.workstreamId)) continue;
+	      if (run.allowedWorkstreamIds && node.workstreamId) {
+	        if (!run.allowedWorkstreamIds.includes(node.workstreamId)) continue;
+	      }
+	      if (!node.workstreamId) continue;
+      if (run.blockedWorkstreamIds.includes(node.workstreamId)) continue;
+      const lane = run.laneByWorkstreamId[node.workstreamId] ?? null;
+      if (lane?.state === "running" && lane.activeRunId) continue;
+      if (lane?.state === "rate_limited" && lane.retryAt) {
+        const retryAtMs = Date.parse(lane.retryAt);
+        if (Number.isFinite(retryAtMs) && retryAtMs > Date.now()) {
+          deferredBySpawnGuardRateLimit += 1;
+          continue;
+        }
       }
-      if (!node.workstreamId) continue;
-      const ws = nodeById.get(node.workstreamId);
+	      const ws = nodeById.get(node.workstreamId);
       if (ws && !isDispatchableWorkstreamStatus(ws.status)) continue;
       if (!taskIsReady(node)) continue;
       if (taskHasBlockedParent(node)) continue;
@@ -1452,11 +1885,66 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       break;
     }
 
-    if (!selectedWorkstreamId) {
-      if (deferredBySpawnGuardRateLimit > 0) {
+	    if (!selectedWorkstreamId) {
+      const waitingByWorkstream = new Map<string, string[]>();
+      for (const task of taskNodes) {
+        if (!isTodoStatus(task.status)) continue;
+        if (
+          !run.includeVerification &&
+          typeof task.title === "string" &&
+          /^verification[ \t]+scenario/i.test(task.title)
+        ) {
+          continue;
+        }
+        const workstreamId = (task.workstreamId ?? "").trim();
+        if (!workstreamId) continue;
+        if (
+          Array.isArray(run.allowedWorkstreamIds) &&
+          run.allowedWorkstreamIds.length > 0 &&
+          !run.allowedWorkstreamIds.includes(workstreamId)
+        ) {
+          continue;
+        }
+        if (run.blockedWorkstreamIds.includes(workstreamId)) {
+          continue;
+        }
+        const blockedParents = taskHasBlockedParent(task);
+        const unresolvedDepWorkstreamIds = task.dependencyIds
+          .map((depId) => nodeById.get(depId))
+          .filter(
+            (dep): dep is MissionControlNode => Boolean(dep && !isDoneStatus(dep.status))
+          )
+          .map((dep) => (dep.workstreamId ?? "").trim())
+          .filter(Boolean);
+        if (blockedParents || unresolvedDepWorkstreamIds.length > 0) {
+          const existing = waitingByWorkstream.get(workstreamId) ?? [];
+          waitingByWorkstream.set(
+            workstreamId,
+            dedupeStrings([...existing, ...unresolvedDepWorkstreamIds])
+          );
+        }
+      }
+      for (const [workstreamId, waitingOnWorkstreamIds] of waitingByWorkstream.entries()) {
+        setLaneState(run, {
+          workstreamId,
+          state: "waiting_dependency",
+          activeRunId: null,
+          activeTaskIds: [],
+          blockedReason: null,
+          waitingOnWorkstreamIds,
+          retryAt: null,
+        });
+      }
+
+      if (listActiveSliceRunIds(run).length > 0) {
         run.updatedAt = now;
         return;
       }
+
+	      if (deferredBySpawnGuardRateLimit > 0) {
+	        run.updatedAt = now;
+	        return;
+	      }
       if (run.allowedWorkstreamIds && run.allowedWorkstreamIds.length > 0) {
         const scopedTodoCount = taskNodes.filter((node) => {
           if (!isTodoStatus(node.status)) return false;
@@ -1505,6 +1993,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     const primaryTask = sliceTaskNodes[0] ?? null;
     if (!primaryTask) {
+      if (listActiveSliceRunIds(run).length > 0) {
+        run.updatedAt = now;
+        return;
+      }
       await stopAutoContinueRun({ run, reason: "blocked" });
       return;
     }
@@ -1519,15 +2011,16 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       0
     );
     let tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
-    const remainingTokens = run.tokenBudget - run.tokensUsed;
-    if (remainingTokens <= 0) {
+    const remainingTokens =
+      tokenBudgetValue !== null ? tokenBudgetValue - run.tokensUsed : null;
+    if (remainingTokens !== null && remainingTokens <= 0) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
       return;
     }
 
     // If the modeled slice exceeds the remaining budget, shrink the slice to fit rather than
     // stopping immediately (Play should still dispatch at least the primary task when possible).
-    if (tokenEstimate > 0 && tokenEstimate > remainingTokens) {
+    if (remainingTokens !== null && tokenEstimate > 0 && tokenEstimate > remainingTokens) {
       const nextSlice: MissionControlNode[] = [];
       let hours = 0;
 
@@ -1554,7 +2047,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
     }
 
-    if (tokenEstimate > 0 && tokenEstimate > remainingTokens) {
+    if (remainingTokens !== null && tokenEstimate > 0 && tokenEstimate > remainingTokens) {
       await stopAutoContinueRun({ run, reason: "budget_exhausted" });
       return;
     }
@@ -1577,13 +2070,23 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         const retryable = spawnGuardIsRateLimited(spawnGuardResult);
         const rateLimitOverrideRequested = retryable && run.ignoreSpawnGuardRateLimit;
 
-        if (retryable && !rateLimitOverrideRequested) {
-          const retryAtMs = Date.now() + AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS;
-          autoContinueSpawnGuardRetryByTask.set(primaryTask.id, {
-            initiativeId: run.initiativeId,
-            retryAtMs,
+	        if (retryable && !rateLimitOverrideRequested) {
+	          const retryAtMs = Date.now() + AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS;
+          const retryAtIso = new Date(retryAtMs).toISOString();
+	          autoContinueSpawnGuardRetryByTask.set(primaryTask.id, {
+	            initiativeId: run.initiativeId,
+	            retryAtMs,
+	          });
+          setLaneState(run, {
+            workstreamId: selectedWorkstreamId,
+            state: "rate_limited",
+            activeRunId: null,
+            activeTaskIds: [],
+            blockedReason,
+            waitingOnWorkstreamIds: [],
+            retryAt: retryAtIso,
           });
-          await emitActivitySafe({
+	          await emitActivitySafe({
             initiativeId: run.initiativeId,
             runId: sliceRunId,
             correlationId: sliceRunId,
@@ -1596,17 +2099,18 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               workstream_id: selectedWorkstreamId,
               blocked_reason: blockedReason,
               error_location: "mission-control.auto-continue.engine.spawn-guard.rate-limited",
-              next_retry_at: new Date(retryAtMs).toISOString(),
+	              next_retry_at: retryAtIso,
               next_retry_in_ms: AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS,
               spawn_guard: spawnGuardResult,
             },
             nextStep: "Retry dispatch when spawn rate limits recover.",
           });
-          run.lastError = blockedReason;
-          run.updatedAt = now;
-          try {
-            await updateInitiativeAutoContinueState({
-              initiativeId: run.initiativeId,
+	          run.lastError = blockedReason;
+	          run.updatedAt = now;
+          syncLegacyRunPointers(run);
+	          try {
+	            await updateInitiativeAutoContinueState({
+	              initiativeId: run.initiativeId,
               run,
             });
           } catch {
@@ -1622,7 +2126,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             run.allowedWorkstreamIds.length === 1
               ? "Play"
               : "Auto-continue";
-          await emitActivitySafe({
+	          await emitActivitySafe({
             initiativeId: run.initiativeId,
             runId: sliceRunId,
             correlationId: sliceRunId,
@@ -1638,10 +2142,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               spawn_guard: spawnGuardResult,
             },
             nextStep: "Manual Play requested immediate execution for this single workstream slice.",
+	          });
+	          run.lastError = null;
+	          run.updatedAt = now;
+          setLaneState(run, {
+            workstreamId: selectedWorkstreamId,
+            state: "idle",
+            activeRunId: null,
+            activeTaskIds: [],
+            blockedReason: null,
+            waitingOnWorkstreamIds: [],
+            retryAt: null,
           });
-          run.lastError = null;
-          run.updatedAt = now;
-        } else {
+	        } else {
           // Maintain existing behavior: mark the primary task blocked when a quality gate denies dispatch.
           try {
             await client.updateEntity("task", primaryTask.id, { status: "blocked" });
@@ -1677,7 +2190,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               spawn_guard: spawnGuardResult,
             },
           });
-          const decisionQueued = await requestDecisionSafe({
+	          const decisionResult = await requestDecisionQueued({
             initiativeId: run.initiativeId,
             correlationId: sliceRunId,
             title: `Unblock autopilot for ${workstreamTitle ?? selectedWorkstreamId}`,
@@ -1693,13 +2206,26 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               "Reassign slice/domain",
               "Pause and investigate quality gate",
             ],
-            blocking: true,
+	            blocking: true,
+	          });
+          if (!run.blockedWorkstreamIds.includes(selectedWorkstreamId)) {
+            run.blockedWorkstreamIds.push(selectedWorkstreamId);
+          }
+          setLaneState(run, {
+            workstreamId: selectedWorkstreamId,
+            state: "blocked",
+            activeRunId: null,
+            activeTaskIds: [],
+            blockedReason,
+            waitingOnWorkstreamIds: [],
+            retryAt: null,
           });
-          await stopAutoContinueRun({
-            run,
+	          await stopAutoContinueRun({
+	            run,
             reason: "blocked",
             error: blockedReason,
-            decisionRequired: decisionQueued,
+            decisionRequired: decisionResult.queued,
+            decisionIds: decisionResult.decisionIds,
           });
           return;
         }
@@ -1886,9 +2412,22 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     run.lastTaskId = primaryTask.id;
     run.lastRunId = sliceRunId;
-    run.activeTaskId = primaryTask.id;
-    run.activeRunId = sliceRunId;
+    run.activeSliceRunIds = dedupeStrings([
+      ...run.activeSliceRunIds,
+      sliceRunId,
+    ]);
+    run.activeTaskIds = dedupeStrings([...run.activeTaskIds, ...slice.taskIds]);
+    setLaneState(run, {
+      workstreamId: selectedWorkstreamId,
+      state: "running",
+      activeRunId: sliceRunId,
+      activeTaskIds: slice.taskIds,
+      blockedReason: null,
+      waitingOnWorkstreamIds: [],
+      retryAt: null,
+    });
     run.activeTaskTokenEstimate = tokenEstimate > 0 ? tokenEstimate : null;
+    syncLegacyRunPointers(run);
     // Clear stale errors when a new slice dispatches successfully.
     run.lastError = null;
     run.updatedAt = now;
@@ -1953,11 +2492,44 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   ): AutoContinueRun | null {
     const run = autoContinueRuns.get(initiativeId) ?? null;
     if (!run) return null;
+    ensureRunInternals(run);
     if (run.status !== "running" && run.status !== "stopping") return null;
-    if (!Array.isArray(run.allowedWorkstreamIds) || run.allowedWorkstreamIds.length === 0) {
+    if (
+      Array.isArray(run.allowedWorkstreamIds) &&
+      run.allowedWorkstreamIds.length > 0 &&
+      !run.allowedWorkstreamIds.includes(workstreamId)
+    ) {
+      return null;
+    }
+    const lane = run.laneByWorkstreamId[workstreamId] ?? null;
+    if (
+      lane &&
+      (lane.state === "running" ||
+        lane.state === "blocked" ||
+        lane.state === "waiting_dependency" ||
+        lane.state === "rate_limited")
+    ) {
       return run;
     }
-    return run.allowedWorkstreamIds.includes(workstreamId) ? run : null;
+    if (
+      Array.isArray(run.allowedWorkstreamIds) &&
+      run.allowedWorkstreamIds.length > 0 &&
+      run.allowedWorkstreamIds.includes(workstreamId) &&
+      (run.status === "running" || run.status === "stopping")
+    ) {
+      return run;
+    }
+    return null;
+  }
+
+  function getAutoContinueLaneForWorkstream(
+    initiativeId: string,
+    workstreamId: string
+  ): AutoContinueLane | null {
+    const run = autoContinueRuns.get(initiativeId) ?? null;
+    if (!run) return null;
+    ensureRunInternals(run);
+    return run.laneByWorkstreamId[workstreamId] ?? null;
   }
 
   async function scheduleAutoFixForWorkstream(input: {
@@ -2056,17 +2628,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         await emitSkip("paused_by_user");
         return;
       }
-      if (
-        existingRun &&
-        (existingRun.status === "running" || existingRun.status === "stopping") &&
-        existingRun.activeRunId
-      ) {
-        await emitSkip("already_running", {
-          active_run_id: existingRun.activeRunId,
-          run_status: existingRun.status,
-        });
-        return;
-      }
+	      if (
+	        existingRun &&
+	        (existingRun.status === "running" || existingRun.status === "stopping") &&
+	        listActiveSliceRunIds(existingRun).length > 0
+	      ) {
+        const activeRunIds = listActiveSliceRunIds(existingRun);
+	        await emitSkip("already_running", {
+	          active_run_id: activeRunIds[0] ?? null,
+            active_run_ids: activeRunIds,
+	          run_status: existingRun.status,
+	        });
+	        return;
+	      }
 
       let optionalDecisionsApproved = 0;
       try {
@@ -2076,7 +2650,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           limit: 500,
         });
         const decisionRows = Array.isArray(decisionResult?.data) ? decisionResult.data : [];
-        const resolvedAt = new Date().toISOString();
         for (const row of decisionRows) {
           if (!row || typeof row !== "object") continue;
           const record = row as Record<string, unknown>;
@@ -2088,7 +2661,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           await client.updateEntity("decision", decisionId, {
             status: "approved",
             resolution: "approved",
-            resolved_at: resolvedAt,
             note:
               "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
           });
@@ -2156,6 +2728,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         tokenBudget: latestRun?.tokenBudget ?? defaultAutoContinueTokenBudget(),
         includeVerification: latestRun?.includeVerification ?? false,
         allowedWorkstreamIds: [workstreamId],
+        maxParallelSlices: 1,
+        parallelMode: latestRun?.parallelMode ?? "iwmt",
         stopAfterSlice: true,
         ignoreSpawnGuardRateLimit: latestRun?.ignoreSpawnGuardRateLimit ?? false,
       });
@@ -2255,6 +2829,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     tokenBudget: unknown;
     includeVerification: boolean;
     allowedWorkstreamIds: string[] | null;
+    maxParallelSlices?: unknown;
+    parallelMode?: unknown;
     stopAfterSlice?: boolean;
     ignoreSpawnGuardRateLimit?: boolean;
   }): Promise<AutoContinueRun> {
@@ -2273,6 +2849,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         allowedWorkstreamIds: null,
         stopAfterSlice: false,
         ignoreSpawnGuardRateLimit: false,
+        maxParallelSlices: AUTO_CONTINUE_MAX_PARALLEL_DEFAULT,
+        parallelMode: "iwmt",
         tokenBudget: defaultAutoContinueTokenBudget(),
         tokensUsed: 0,
         status: "running",
@@ -2284,10 +2862,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         lastError: null,
         lastTaskId: null,
         lastRunId: null,
+        activeSliceRunIds: [],
+        activeTaskIds: [],
+        laneByWorkstreamId: {},
+        blockedWorkstreamIds: [],
         activeTaskId: null,
         activeRunId: null,
         activeTaskTokenEstimate: null,
       } as AutoContinueRun);
+    ensureRunInternals(run);
 
     run.agentId = input.agentId;
     run.agentName =
@@ -2296,11 +2879,16 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         : null;
     run.includeVerification = input.includeVerification;
     run.allowedWorkstreamIds = input.allowedWorkstreamIds;
+    run.maxParallelSlices = normalizeMaxParallelSlices(
+      input.maxParallelSlices,
+      run.maxParallelSlices || AUTO_CONTINUE_MAX_PARALLEL_DEFAULT
+    );
+    run.parallelMode = normalizeParallelMode(input.parallelMode ?? run.parallelMode);
     run.stopAfterSlice = Boolean(input.stopAfterSlice);
     run.ignoreSpawnGuardRateLimit = Boolean(input.ignoreSpawnGuardRateLimit);
     run.tokenBudget = normalizeTokenBudget(
       input.tokenBudget,
-      run.tokenBudget || defaultAutoContinueTokenBudget()
+      run.tokenBudget ?? defaultAutoContinueTokenBudget()
     );
     run.status = "running";
     run.stopReason = null;
@@ -2314,10 +2902,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       run.startedAt = now;
       run.lastTaskId = null;
       run.lastRunId = null;
+      run.activeSliceRunIds = [];
+      run.activeTaskIds = [];
+      run.blockedWorkstreamIds = [];
+      run.laneByWorkstreamId = {};
       run.activeTaskId = null;
       run.activeRunId = null;
       run.activeTaskTokenEstimate = null;
     }
+    syncLegacyRunPointers(run);
 
     autoContinueRuns.set(input.initiativeId, run);
 
@@ -2344,6 +2937,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     writeRuntimeEvent,
     autoContinueTickMs: AUTO_CONTINUE_TICK_MS,
     defaultAutoContinueTokenBudget,
+    defaultAutoContinueMaxParallelSlices,
     setLocalInitiativeStatusOverride,
     clearLocalInitiativeStatusOverride,
     applyLocalInitiativeOverrides,
@@ -2354,6 +2948,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     tickAllAutoContinue,
     isInitiativeActiveStatus,
     runningAutoContinueForWorkstream,
+    getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
   };

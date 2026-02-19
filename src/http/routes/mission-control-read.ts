@@ -7,7 +7,12 @@ type AutoContinueRunRecord = {
   status?: string;
   startedAt?: string;
   stoppedAt?: string | null;
-  tokenBudget?: number;
+  tokenBudget?: number | null;
+  maxParallelSlices?: number;
+  parallelMode?: string;
+  activeSliceRunIds?: string[];
+  activeTaskIds?: string[];
+  laneByWorkstreamId?: Record<string, unknown>;
   tickMs?: number;
 };
 
@@ -18,7 +23,8 @@ type NextUpQueue = {
 
 type RegisterMissionControlReadRoutesDeps<TRes> = {
   autoContinueRuns: Map<string, AutoContinueRunRecord>;
-  defaultAutoContinueTokenBudget: () => number;
+  defaultAutoContinueTokenBudget: () => number | null;
+  defaultAutoContinueMaxParallelSlices?: () => number;
   autoContinueTickMs: number;
   buildMissionControlGraph: (initiativeId: string) => Promise<unknown>;
   applyLocalInitiativeOverrideToGraph: (graph: unknown) => unknown;
@@ -70,6 +76,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       run,
       defaults: {
         tokenBudget: deps.defaultAutoContinueTokenBudget(),
+        maxParallelSlices:
+          typeof deps.defaultAutoContinueMaxParallelSlices === "function"
+            ? deps.defaultAutoContinueMaxParallelSlices()
+            : 1,
         tickMs: deps.autoContinueTickMs,
       },
     });

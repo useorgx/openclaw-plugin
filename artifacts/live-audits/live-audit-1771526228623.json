@@ -1,0 +1,222 @@
+{
+  "startedAt": "2026-02-19T18:34:53.128Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "timeoutMs": 120000,
+  "target": {
+    "initiativeId": "e0acebc6-d047-44f2-87ad-49669685c7e9",
+    "workstreamId": "f14b8334-2449-4ac8-b69a-a41849a54438",
+    "workstreamTitle": "[Version Harness][Operations] 5",
+    "initiativeTitle": "[Version Harness] Queue Play Auto (20260219-074039Z)"
+  },
+  "actions": {
+    "missionControlOpened": true,
+    "queueOpened": true,
+    "startClicked": true,
+    "autoClicked": true,
+    "autoOnVisible": false,
+    "startApi": {
+      "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up/play",
+      "status": 202,
+      "ok": true,
+      "body": {
+        "ok": true,
+        "run": {
+          "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+          "agentId": "operations-agent",
+          "agentName": "operations-agent",
+          "includeVerification": false,
+          "allowedWorkstreamIds": [
+            "0049d1d9-cb1e-42be-a862-d7eecf0e1e8f"
+          ],
+          "stopAfterSlice": true,
+          "ignoreSpawnGuardRateLimit": true,
+          "tokenBudget": 6240000,
+          "tokensUsed": 0,
+          "status": "stopped",
+          "stopReason": "completed",
+          "stopRequested": false,
+          "startedAt": "2026-02-19T18:35:00.358Z",
+          "stoppedAt": "2026-02-19T18:35:00.811Z",
+          "updatedAt": "2026-02-19T18:35:00.811Z",
+          "lastError": null,
+          "lastTaskId": null,
+          "lastRunId": null,
+          "activeTaskId": null,
+          "activeRunId": null,
+          "activeTaskTokenEstimate": null
+        },
+        "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+        "workstreamId": "0049d1d9-cb1e-42be-a862-d7eecf0e1e8f",
+        "agentId": "operations-agent",
+        "dispatchMode": "pending",
+        "sessionId": null
+      }
+    },
+    "autoApi": {
+      "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/start",
+      "status": 200,
+      "ok": true,
+      "body": {
+        "ok": true,
+        "run": {
+          "initiativeId": "2cf3020c-18bd-4768-a7df-2d7498d4dfac",
+          "agentId": "operations-agent",
+          "agentName": "operations-agent",
+          "includeVerification": false,
+          "allowedWorkstreamIds": [
+            "0049d1d9-cb1e-42be-a862-d7eecf0e1e8f"
+          ],
+          "stopAfterSlice": false,
+          "ignoreSpawnGuardRateLimit": true,
+          "tokenBudget": 6240000,
+          "tokensUsed": 0,
+          "status": "running",
+          "stopReason": null,
+          "stopRequested": false,
+          "startedAt": "2026-02-19T18:35:03.037Z",
+          "stoppedAt": null,
+          "updatedAt": "2026-02-19T18:35:03.037Z",
+          "lastError": null,
+          "lastTaskId": null,
+          "lastRunId": null,
+          "activeTaskId": null,
+          "activeRunId": null,
+          "activeTaskTokenEstimate": null
+        }
+      }
+    }
+  },
+  "baseline": {
+    "snapshotAt": "2026-02-19T18:34:53.739Z",
+    "dispatchedCount": 0,
+    "completedCount": 0
+  },
+  "validation": {
+    "dispatchedAfterAction": false,
+    "completedAfterAction": false,
+    "continuationAfterCompletion": false,
+    "blockedByRateLimit": false,
+    "stoppedWithoutDispatch": false,
+    "passed": false
+  },
+  "observed": {
+    "actionAt": "2026-02-19T18:35:03.072Z",
+    "snapshotAt": "2026-02-19T18:37:08.623Z",
+    "dispatchedCount": 0,
+    "completedCount": 0,
+    "dispatchedSample": [],
+    "completedSample": [],
+    "rateLimitedSample": [],
+    "stoppedSample": [],
+    "errorSample": [],
+    "continuationEvidenceTitle": null,
+    "missionApiRequests": [
+      {
+        "at": "2026-02-19T18:34:57.258Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:34:57.258Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=e0acebc6-d047-44f2-87ad-49669685c7e9"
+      },
+      {
+        "at": "2026-02-19T18:34:57.277Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:35:00.329Z",
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up/play"
+      },
+      {
+        "at": "2026-02-19T18:35:00.360Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=2cf3020c-18bd-4768-a7df-2d7498d4dfac"
+      },
+      {
+        "at": "2026-02-19T18:35:01.467Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:35:03.027Z",
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/start"
+      },
+      {
+        "at": "2026-02-19T18:35:03.044Z",
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      }
+    ],
+    "missionApiResponses": [
+      {
+        "at": "2026-02-19T18:34:57.271Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:34:57.271Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=e0acebc6-d047-44f2-87ad-49669685c7e9"
+      },
+      {
+        "at": "2026-02-19T18:34:57.278Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=64e6f482-4209-4f5b-aee8-4f21f035b08c"
+      },
+      {
+        "at": "2026-02-19T18:35:00.410Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/status?initiative_id=2cf3020c-18bd-4768-a7df-2d7498d4dfac"
+      },
+      {
+        "at": "2026-02-19T18:35:01.464Z",
+        "status": 202,
+        "ok": true,
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up/play"
+      },
+      {
+        "at": "2026-02-19T18:35:01.498Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      },
+      {
+        "at": "2026-02-19T18:35:03.042Z",
+        "status": 200,
+        "ok": true,
+        "method": "POST",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/auto-continue/start"
+      },
+      {
+        "at": "2026-02-19T18:35:03.073Z",
+        "status": 200,
+        "ok": true,
+        "method": "GET",
+        "url": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?"
+      }
+    ]
+  },
+  "screenshots": {
+    "beforeAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-before-1771526100106.png",
+    "afterAction": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-after-1771526104580.png"
+  },
+  "errors": [],
+  "finishedAt": "2026-02-19T18:37:08.623Z",
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/artifacts/live-audits/live-audit-1771526228623.json"
+}
