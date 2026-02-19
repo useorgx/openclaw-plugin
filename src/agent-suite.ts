@@ -423,6 +423,7 @@ function buildManagedFileContent(input: {
         "Rules:",
         "- Return structured JSON for tool outputs when applicable.",
         "- Do not print secrets (API keys, tokens, cookies). Mask as `oxk_...abcd`.",
+        "- When calling `orgx_register_artifact`, self-assess and include `confidence_score` in [0,1].",
         "- If a tool fails, capture the exact error and fix root cause.",
         "- Prefer dry-run/previews when writing to user config.",
         "",

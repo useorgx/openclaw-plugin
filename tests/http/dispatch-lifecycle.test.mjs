@@ -93,6 +93,37 @@ test("requestDecisionSafe returns true when API fails but outbox buffering succe
   );
 });
 
+test("emitActivitySafe injects canonical run metadata for downstream linkage", async () => {
+  const emitCalls = [];
+  const lifecycle = createLifecycle({
+    emitActivity: async (payload) => {
+      emitCalls.push(payload);
+      return { ok: true, run_id: "remote-run-1", event_id: "evt-1", reused_run: false };
+    },
+  });
+
+  await lifecycle.emitActivitySafe({
+    initiativeId: "init-meta",
+    runId: "2df4888d-6c56-49ba-8ba5-9a3f5b2a5f5f",
+    correlationId: "corr-ignored-when-run-id-present",
+    phase: "execution",
+    message: "Autopilot dispatched slice",
+    metadata: {
+      event: "autopilot_slice_dispatched",
+      workstream_id: "ws-1",
+    },
+  });
+
+  assert.equal(emitCalls.length, 1);
+  const payload = emitCalls[0];
+  assert.equal(payload.run_id, "2df4888d-6c56-49ba-8ba5-9a3f5b2a5f5f");
+  assert.equal(payload.correlation_id, undefined);
+  assert.equal(payload.metadata?.initiative_id, "init-meta");
+  assert.equal(payload.metadata?.run_id, "2df4888d-6c56-49ba-8ba5-9a3f5b2a5f5f");
+  assert.equal(payload.metadata?.slice_run_id, "2df4888d-6c56-49ba-8ba5-9a3f5b2a5f5f");
+  assert.equal(payload.metadata?.workstream_id, "ws-1");
+});
+
 test("requestDecisionSafe returns false when API and outbox buffering both fail", async () => {
   const root = mkdtempSync(join(tmpdir(), "orgx-openclaw-outbox-fail-"));
   const fakeHomeFile = join(root, "openclaw-home-file");

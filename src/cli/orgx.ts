@@ -84,14 +84,40 @@ export function registerOrgxCli(deps: RegisterOrgxCliDeps): void {
         .description("Trigger manual memory sync")
         .option("--memory <text>", "Memory to push")
         .option("--daily-log <text>", "Daily log to push")
-        .action(async (opts: { memory?: string; dailyLog?: string } = {}) => {
+        .option(
+          "--agents-json <json>",
+          "JSON array of local agent states to include (id,name,domain,status)"
+        )
+        .action(
+          async (
+            opts: { memory?: string; dailyLog?: string; agentsJson?: string } = {}
+          ) => {
           try {
+            let agents:
+              | Array<{
+                  id: string;
+                  name: string;
+                  domain: string;
+                  status: "active" | "idle" | "throttled";
+                  currentTask?: string;
+                  lastActive?: string;
+                }>
+              | undefined;
+            if (typeof opts.agentsJson === "string" && opts.agentsJson.trim().length > 0) {
+              const parsed = JSON.parse(opts.agentsJson);
+              if (!Array.isArray(parsed)) {
+                throw new Error("--agents-json must be a JSON array");
+              }
+              agents = parsed as typeof agents;
+            }
             const resp = await deps.client.syncMemory({
               memory: opts.memory,
               dailyLog: opts.dailyLog,
+              agents,
             });
             console.log("Sync complete:");
             console.log(`  Initiatives: ${resp.initiatives?.length ?? 0}`);
+            console.log(`  Agents: ${resp.agents?.length ?? 0}`);
             console.log(`  Active tasks: ${resp.activeTasks?.length ?? 0}`);
             console.log(
               `  Pending decisions: ${resp.pendingDecisions?.length ?? 0}`
@@ -102,7 +128,8 @@ export function registerOrgxCli(deps: RegisterOrgxCliDeps): void {
             );
             process.exit(1);
           }
-        });
+          }
+        );
 
       cmd
         .command("doctor")

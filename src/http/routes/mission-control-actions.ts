@@ -230,6 +230,30 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterMissionControlActionsRoutesDeps<TReq, TRes>
 ): void {
+  const sendRouteError = (
+    res: TRes,
+    status: number,
+    location: string,
+    error: string,
+    extra: Record<string, unknown> = {}
+  ) => {
+    deps.sendJson(res, status, {
+      ok: false,
+      error,
+      error_location: location,
+      ...extra,
+    });
+  };
+
+  const sendRouteException = (
+    res: TRes,
+    location: string,
+    err: unknown,
+    extra: Record<string, unknown> = {}
+  ) => {
+    sendRouteError(res, 500, location, deps.safeErrorMessage(err), extra);
+  };
+
   router.add(
     "POST",
     "mission-control/next-up/play",
@@ -250,10 +274,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.play.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -298,10 +324,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         const agentId = agentIdRaw || "main";
         if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "agentId must be a simple identifier (letters, numbers, _ or -).",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.play.validation",
+            "agentId must be a simple identifier (letters, numbers, _ or -)."
+          );
           return;
         }
 
@@ -343,6 +371,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                   ? includeVerificationRaw
                   : null
               );
+        const ignoreSpawnGuardRateLimitRaw =
+          (payload as Record<string, unknown>).ignoreSpawnGuardRateLimit ??
+          (payload as Record<string, unknown>).ignore_spawn_guard_rate_limit ??
+          query.get("ignoreSpawnGuardRateLimit") ??
+          query.get("ignore_spawn_guard_rate_limit") ??
+          null;
+        const ignoreSpawnGuardRateLimit =
+          typeof ignoreSpawnGuardRateLimitRaw === "boolean"
+            ? ignoreSpawnGuardRateLimitRaw
+            : deps.parseBooleanQuery(
+                typeof ignoreSpawnGuardRateLimitRaw === "string"
+                  ? ignoreSpawnGuardRateLimitRaw
+                  : null
+              );
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         if (
@@ -363,6 +405,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             run: existingRun,
             activeWorkstreamId,
             activeWorkstreamTitle,
+            error_location: "mission-control.next-up.play.concurrent_run",
           });
           return;
         }
@@ -375,6 +418,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           includeVerification,
           allowedWorkstreamIds: [workstreamId],
           stopAfterSlice: true,
+          ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
         });
 
         let fallbackDispatch:
@@ -512,6 +556,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             workstreamId,
             agentId,
             fallbackDispatch,
+            error_location: "mission-control.next-up.play.dispatch",
           });
           return;
         }
@@ -526,7 +571,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           sessionId: run.activeRunId ?? fallbackDispatch?.sessionId ?? null,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.play.handler", err);
       }
     },
     "Mission-control next-up play"
@@ -568,10 +613,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim() || null;
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.pin.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -585,7 +632,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.pin.handler", err);
       }
     },
     "Mission-control next-up pin"
@@ -611,10 +658,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.unpin.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -622,7 +671,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         deps.clearNextUpQueueCache(initiativeId);
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.unpin.handler", err);
       }
     },
     "Mission-control next-up unpin"
@@ -640,7 +689,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         deps.clearNextUpQueueCache(null);
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.reorder.handler", err);
       }
     },
     "Mission-control next-up reorder"
@@ -673,10 +722,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         );
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.move.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -706,7 +757,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           updatedAt: next.updatedAt,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.move.handler", err);
       }
     },
     "Mission-control next-up move"
@@ -751,10 +802,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
               ) ?? false;
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.triage.stop.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -830,7 +883,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           updatedAt: next.updatedAt,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.triage.stop.handler", err);
       }
     },
     "Mission-control next-up triage stop"
@@ -939,7 +992,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           updatedAt: next.updatedAt,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.next-up.clear.handler", err);
       }
     },
     "Mission-control next-up clear"
@@ -965,10 +1018,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
 
         if (!initiativeId || !workstreamId) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "initiativeId and workstreamId are required",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.activity.auto-fix.validation",
+            "initiativeId and workstreamId are required"
+          );
           return;
         }
 
@@ -1029,7 +1084,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           scheduled: schedule,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.activity.auto-fix.handler", err);
       }
     },
     "Mission-control activity auto-fix"
@@ -1049,7 +1104,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
 
         if (!initiativeId) {
-          deps.sendJson(res, 400, { ok: false, error: "initiativeId is required" });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.auto-continue.start.validation",
+            "initiativeId is required"
+          );
           return;
         }
 
@@ -1061,10 +1121,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
         const agentId = agentIdRaw || "main";
         if (!/^[a-zA-Z0-9_-]+$/.test(agentId)) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "agentId must be a simple identifier (letters, numbers, _ or -).",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.auto-continue.start.validation",
+            "agentId must be a simple identifier (letters, numbers, _ or -)."
+          );
           return;
         }
 
@@ -1099,6 +1161,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                   ? includeVerificationRaw
                   : null
               );
+        const ignoreSpawnGuardRateLimitRaw =
+          (payload as Record<string, unknown>).ignoreSpawnGuardRateLimit ??
+          (payload as Record<string, unknown>).ignore_spawn_guard_rate_limit ??
+          query.get("ignoreSpawnGuardRateLimit") ??
+          query.get("ignore_spawn_guard_rate_limit") ??
+          null;
+        const ignoreSpawnGuardRateLimit =
+          typeof ignoreSpawnGuardRateLimitRaw === "boolean"
+            ? ignoreSpawnGuardRateLimitRaw
+            : deps.parseBooleanQuery(
+                typeof ignoreSpawnGuardRateLimitRaw === "string"
+                  ? ignoreSpawnGuardRateLimitRaw
+                  : null
+              );
 
         const workstreamFilter = deps.dedupeStrings([
           ...deps.pickStringArray(payload, [
@@ -1126,11 +1202,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           tokenBudget,
           includeVerification,
           allowedWorkstreamIds,
+          ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
         });
 
         deps.sendJson(res, 200, { ok: true, run });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.auto-continue.start.handler", err);
       }
     },
     "Mission-control auto-continue start"
@@ -1150,13 +1227,23 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .trim();
 
         if (!initiativeId) {
-          deps.sendJson(res, 400, { ok: false, error: "initiativeId is required" });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.auto-continue.stop.validation",
+            "initiativeId is required"
+          );
           return;
         }
 
         const run = deps.autoContinueRuns.get(initiativeId) ?? null;
         if (!run) {
-          deps.sendJson(res, 404, { ok: false, error: "No auto-continue run found" });
+          sendRouteError(
+            res,
+            404,
+            "mission-control.auto-continue.stop.lookup",
+            "No auto-continue run found"
+          );
           return;
         }
 
@@ -1177,7 +1264,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         deps.sendJson(res, 200, { ok: true, run });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.auto-continue.stop.handler", err);
       }
     },
     "Mission-control auto-continue stop"
@@ -1199,7 +1286,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         if (initiativeId) {
           const run = deps.autoContinueRuns.get(initiativeId) ?? null;
           if (!run) {
-            deps.sendJson(res, 404, { ok: false, error: "No auto-continue run found" });
+            sendRouteError(
+              res,
+              404,
+              "mission-control.auto-continue.tick.lookup",
+              "No auto-continue run found"
+            );
             return;
           }
           await deps.tickAutoContinueRun(run);
@@ -1210,7 +1302,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         await deps.tickAllAutoContinue();
         deps.sendJson(res, 200, { ok: true });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+        sendRouteException(res, "mission-control.auto-continue.tick.handler", err);
       }
     },
     "Mission-control auto-continue tick"
@@ -1231,10 +1323,12 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           deps.pickString(payload, ["summary", "description", "context"]) ?? null;
 
         if (!entityId || !entityType) {
-          deps.sendJson(res, 400, {
-            ok: false,
-            error: "entity_id and entity_type are required.",
-          });
+          sendRouteError(
+            res,
+            400,
+            "mission-control.assignments.auto.validation",
+            "entity_id and entity_type are required."
+          );
           return;
         }
 
@@ -1249,10 +1343,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         deps.sendJson(res, 200, assignment);
       } catch (err: unknown) {
-        deps.sendJson(res, 500, {
-          ok: false,
-          error: deps.safeErrorMessage(err),
-        });
+        sendRouteException(res, "mission-control.assignments.auto.handler", err);
       }
     },
     "Mission-control auto assignment"

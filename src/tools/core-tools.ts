@@ -3,6 +3,7 @@ import { randomUUID as randomUuidFn } from "node:crypto";
 import type { OrgXClient } from "../api.js";
 import { registerArtifact } from "../artifacts/register-artifact.js";
 import type { AutoAssignedAgent } from "../entities/auto-assignment.js";
+import { listBuiltInSentinels } from "../http/helpers/sentinel-catalog.js";
 import type { RegisteredTool } from "../mcp-http-handler.js";
 import { appendToOutbox } from "../outbox.js";
 import type {
@@ -140,6 +141,43 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
   // --- orgx_sync ---
   registerMcpTool(
     {
+      name: "orgx_sentinel_catalog",
+      description:
+        "List built-in proactive sentinel templates. Supports optional domain filter.",
+      parameters: {
+        type: "object",
+        properties: {
+          domain: {
+            type: "string",
+            description: "Optional domain filter (engineering, sales).",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { domain?: string } = {}
+      ) {
+        try {
+          const sentinels = listBuiltInSentinels({ domain: params.domain });
+          return json("Sentinel catalog:", {
+            generatedAt: new Date().toISOString(),
+            domain: params.domain ?? null,
+            count: sentinels.length,
+            sentinels,
+          });
+        } catch (err: unknown) {
+          return text(
+            `❌ Failed to load sentinel catalog: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
       name: "orgx_sync",
       description:
         "Push/pull memory sync with OrgX. Send local memory/daily log; receive initiatives, tasks, decisions, model routing policy.",
@@ -154,16 +192,49 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Today's session log to push",
           },
+          agents: {
+            type: "array",
+            description: "Optional local agent states to sync into OrgX",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                name: { type: "string" },
+                domain: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: ["active", "idle", "throttled"],
+                },
+                currentTask: { type: "string" },
+                lastActive: { type: "string" },
+              },
+              required: ["id", "name", "domain", "status"],
+              additionalProperties: false,
+            },
+          },
         },
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
-        params: { memory?: string; dailyLog?: string } = {}
+        params: {
+          memory?: string;
+          dailyLog?: string;
+          agents?: Array<{
+            id: string;
+            name: string;
+            domain: string;
+            status: "active" | "idle" | "throttled";
+            currentTask?: string;
+            lastActive?: string;
+          }>;
+        } = {}
       ) {
         try {
           const resp = await client.syncMemory({
             memory: params.memory,
             dailyLog: params.dailyLog,
+            agents: params.agents,
           });
           return json("Sync complete:", resp);
         } catch (err: unknown) {
@@ -756,6 +827,21 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
 
     const now = new Date().toISOString();
     const id = `progress:${randomUUID().slice(0, 8)}`;
+    const envWorkstreamId = pickNonEmptyString(process.env.ORGX_WORKSTREAM_ID);
+    const envTaskId = pickNonEmptyString(process.env.ORGX_TASK_ID);
+    const envAgentId = pickNonEmptyString(process.env.ORGX_AGENT_ID);
+    const envAgentName = pickNonEmptyString(process.env.ORGX_AGENT_NAME);
+    const canonicalMetadata: Record<string, unknown> = {
+      initiative_id: context.value.initiativeId,
+      run_id: context.value.runId ?? null,
+      slice_run_id: context.value.runId ?? null,
+      correlation_id: context.value.correlationId ?? null,
+      source_client: context.value.sourceClient ?? null,
+      ...(envWorkstreamId ? { workstream_id: envWorkstreamId } : {}),
+      ...(envTaskId ? { task_id: envTaskId } : {}),
+      ...(envAgentId ? { agent_id: envAgentId } : {}),
+      ...(envAgentName ? { agent_name: envAgentName } : {}),
+    };
     const normalizedPayload = {
       initiative_id: context.value.initiativeId,
       run_id: context.value.runId,
@@ -767,6 +853,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       level: payload.level ?? "info",
       next_step: payload.next_step,
       metadata: withProvenanceMetadata({
+        ...canonicalMetadata,
         ...(payload.metadata ?? {}),
         source,
       }),
@@ -1255,6 +1342,12 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Artifact type code (e.g., 'eng.diff_pack', 'pr', 'document'). Falls back to 'shared.project_handbook' if the type is not recognized by OrgX.",
           },
+          confidence_score: {
+            type: "number",
+            minimum: 0,
+            maximum: 1,
+            description: "Self-assessed confidence for this artifact in [0,1].",
+          },
           description: {
             type: "string",
             description: "What this artifact is and why it matters",
@@ -1279,6 +1372,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           entity_id?: string;
           name: string;
           artifact_type: string;
+          confidence_score?: number;
           description?: string;
           url?: string;
           content?: string;
@@ -1312,6 +1406,16 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         if (!params.url && !params.content) {
           return text("❌ Cannot register artifact: provide at least one of url or content.");
         }
+        if (
+          typeof params.confidence_score !== "undefined" &&
+          (!Number.isFinite(params.confidence_score) ||
+            params.confidence_score < 0 ||
+            params.confidence_score > 1)
+        ) {
+          return text("❌ Cannot register artifact: confidence_score must be a number between 0 and 1.");
+        }
+        const confidenceScore =
+          typeof params.confidence_score === "number" ? params.confidence_score : null;
 
         const baseUrl = client.getBaseUrl();
         const artifactId = randomUUID();
@@ -1334,6 +1438,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           metadata: withProvenanceMetadata({
             source: "orgx_register_artifact",
             artifact_type: params.artifact_type,
+            confidence_score: confidenceScore,
             url: params.url,
             entity_type: resolvedEntityType,
             entity_id: resolvedEntityId,
@@ -1347,6 +1452,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             entity_id: resolvedEntityId,
             name: params.name,
             artifact_type: params.artifact_type,
+            confidence_score: confidenceScore,
             description: params.description ?? null,
             external_url: params.url ?? null,
             preview_markdown: params.content ?? null,
@@ -1354,6 +1460,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             metadata: {
               source: "orgx_register_artifact",
               artifact_id: artifactId,
+              confidence_score: confidenceScore,
             },
             validate_persistence: true,
           });
@@ -1384,6 +1491,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
               artifact_id: artifactId,
               name: params.name,
               artifact_type: params.artifact_type,
+              confidence_score: confidenceScore,
               description: params.description,
               url: params.url,
               content: params.content,

@@ -45,6 +45,13 @@ const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 const DECISION_MUTATION_CONCURRENCY = 6;
 const DEFAULT_CLIENT_BASE_URL = "https://www.useorgx.com";
 
+function normalizeAgentStatus(value: unknown): "active" | "idle" | "throttled" {
+  if (value === "active" || value === "idle" || value === "throttled") {
+    return value;
+  }
+  return "idle";
+}
+
 function isUserScopedApiKey(apiKey: string): boolean {
   return apiKey.trim().toLowerCase().startsWith("oxk_");
 }
@@ -260,23 +267,54 @@ export class OrgXClient {
     return `?${search.toString()}`;
   }
 
+  private unwrapSyncResponse(
+    response: { ok?: boolean; data?: SyncResponse } | SyncResponse
+  ): SyncResponse {
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as SyncResponse;
+  }
+
   // ===========================================================================
   // Org Snapshot
   // ===========================================================================
 
   async getOrgSnapshot(): Promise<OrgSnapshot> {
     // Use the sync endpoint with POST (empty body = pull only)
-    const resp = await this.post<{ok: boolean; data: SyncResponse}>("/api/client/sync", {});
-    const data = resp.data;
+    const resp = await this.post<{ ok?: boolean; data?: SyncResponse } | SyncResponse>(
+      "/api/client/sync",
+      {}
+    );
+    const data = this.unwrapSyncResponse(resp);
     
     // Transform SyncResponse to OrgSnapshot format
+    const syncAgents = Array.isArray(data.agents) ? data.agents : [];
     return {
       initiatives: data.initiatives.map(i => ({
         id: i.id,
         title: i.title,
         status: i.status,
       })),
-      agents: [], // Not returned by sync endpoint
+      agents: syncAgents.map((agent) => ({
+        id: String(agent.id ?? ""),
+        name: String(agent.name ?? ""),
+        domain: String(agent.domain ?? ""),
+        status: normalizeAgentStatus(agent.status),
+        currentTask:
+          typeof agent.currentTask === "string" && agent.currentTask.trim().length > 0
+            ? agent.currentTask
+            : undefined,
+        lastActive:
+          typeof agent.lastActive === "string" && agent.lastActive.trim().length > 0
+            ? agent.lastActive
+            : undefined,
+      })),
       activeTasks: data.activeTasks.map(t => ({
         id: t.id,
         title: t.title,
@@ -302,15 +340,7 @@ export class OrgXClient {
       "/api/client/sync",
       payload
     );
-    if (
-      response &&
-      typeof response === "object" &&
-      "data" in response &&
-      response.data
-    ) {
-      return response.data;
-    }
-    return response as SyncResponse;
+    return this.unwrapSyncResponse(response);
   }
 
   // ===========================================================================

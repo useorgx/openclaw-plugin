@@ -169,6 +169,7 @@ import { registerMissionControlReadRoutes } from "./routes/mission-control-read.
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
 import { registerRunControlRoutes } from "./routes/run-control.js";
 import { registerRuntimeHookRoutes } from "./routes/runtime-hooks.js";
+import { registerSentinelsCatalogRoutes } from "./routes/sentinels-catalog.js";
 import { registerSettingsByokRoutes } from "./routes/settings-byok.js";
 import { registerSummaryRoutes } from "./routes/summary.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
@@ -432,10 +433,20 @@ function deriveStructuredActivityBucket(input: {
     ]) ?? 0;
 
   if (event === "autopilot_slice_result") {
+    // Any blocked slice result needs decision-first surfacing in the Activity UX.
+    if (input.phase === "blocked") return "decision";
     if (decisionRequired || blockingDecisions > 0) return "decision";
     if (artifacts > 0) return "artifact";
     if (decisions > 0 || nonBlockingDecisions > 0) return "decision";
     return "message";
+  }
+
+  if (event === "auto_continue_stopped") {
+    const stopReason =
+      typeof metadata?.stop_reason === "string"
+        ? metadata.stop_reason.trim().toLowerCase()
+        : "";
+    if (stopReason === "blocked" || stopReason === "error") return "decision";
   }
 
   if (event && ACTIVITY_ARTIFACT_EVENT_HINTS.has(event)) return "artifact";
@@ -2466,6 +2477,10 @@ export function createHttpHandler(
     loadLocalSnapshot: () => loadLocalOpenClawSnapshot(240).catch(() => null),
     readAgentContexts,
     readAgentRuns,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerSentinelsCatalogRoutes(apiRouter, {
     sendJson,
     safeErrorMessage,
   });

@@ -299,6 +299,38 @@ Notes:
 Manual dispatch:
 - Use `docs/marketing/manual-agent-dispatch-golden-prompt.md` when manually launching a marketing agent for a specific task (non-batched dispatch).
 
+## Version Harness E2E (Real Queue + Play + Auto)
+
+Use this when you need a real end-to-end validation of queue execution in a live plugin session:
+- seeds an isolated initiative with workstreams/milestones/tasks across domains
+- moves the harness workstream to top of Next Up
+- executes one manual `Play`
+- executes auto-continue for the remaining slices (default target is 5, auto-raised if needed to cover all seeded domains)
+- validates completed slices, run isolation (unique run IDs), skill/domain coverage, progress evidence, task/artifact updates, and exact output file contents
+- tears down seeded entities and restores queue order
+- writes a JSON report to `artifacts/harness-runs/`
+
+Safety gate (required):
+
+```bash
+export ORGX_E2E_ALLOW_WRITE=1
+```
+
+Run:
+
+```bash
+npm run verify:version-harness
+```
+
+Useful options:
+- `ORGX_HARNESS_BASE_URL` (default `http://127.0.0.1:18789`)
+- `ORGX_HARNESS_TARGET_COMPLETED_SLICES` (default `5`)
+- `ORGX_HARNESS_REQUEST_TIMEOUT_MS` (default `30000`; per-request API timeout)
+- `ORGX_HARNESS_DOMAINS` (default `engineering,product,design,marketing,operations,sales`)
+- `ORGX_HARNESS_REQUIRE_REAL_WORKER=1` (default true; fails if worker is `mock`)
+- `ORGX_HARNESS_KEEP=1` (skip teardown)
+- `ORGX_HARNESS_SEED_ONLY=1` (seed + queue-top only)
+
 ## SEO Automation (Keywords Everywhere + DataForSEO)
 
 This repo also includes a repo-local SEO pipeline runner (scripts only; not shipped in the plugin package) under `scripts/seo/`.

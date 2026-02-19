@@ -68,6 +68,7 @@ import { registerOrgxCli } from "./cli/orgx.js";
 import { instrumentPluginApi } from "./services/instrumentation.js";
 import { registerSyncService } from "./services/background.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
+import { buildLocalSyncAgentsFromRuns } from "./sync/local-agent-telemetry.js";
 import { registerCoreTools } from "./tools/core-tools.js";
 import { stableHash } from "./hash-utils.js";
 
@@ -1147,6 +1148,20 @@ export default function register(api: PluginAPI): void {
       try {
         await reconcileStoppedAgentRuns();
         let snapshotError: string | null = null;
+        const localAgents = buildLocalSyncAgentsFromRuns(readAgentRuns());
+        if (localAgents.length > 0) {
+          try {
+            await client.syncMemory({ agents: localAgents });
+          } catch (err: unknown) {
+            if (isAuthFailure(err)) {
+              throw err;
+            }
+            api.log?.warn?.("[orgx] Local agent telemetry sync failed (continuing)", {
+              error: toErrorMessage(err),
+              count: localAgents.length,
+            });
+          }
+        }
         try {
           updateCachedSnapshot(await client.getOrgSnapshot());
         } catch (err: unknown) {

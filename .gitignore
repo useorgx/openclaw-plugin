@@ -63,6 +63,7 @@ artifacts/**/*.png
 artifacts/**/*.jpg
 artifacts/**/*.jpeg
 artifacts/**/*.webp
+artifacts/orgx-design-tokens.json
 
 # Yarn Integrity file
 .yarn-integrity

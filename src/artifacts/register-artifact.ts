@@ -17,6 +17,7 @@ export interface RegisterArtifactInput {
   entity_id: string;
   name: string;
   artifact_type: string;
+  confidence_score?: number | null;
   /**
    * Required by OrgX work_artifacts schema.
    * If omitted, defaults to "human" (safe default for user-scoped oxk_ keys).
@@ -61,6 +62,12 @@ function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeConfidenceScore(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0 || value > 1) return null;
+  return value;
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value
@@ -103,6 +110,12 @@ export function validateRegisterArtifactInput(input: RegisterArtifactInput): str
 
   const artifactType = normalizeText(input.artifact_type);
   if (!artifactType) errors.push("artifact_type is required");
+  if (
+    typeof input.confidence_score !== "undefined" &&
+    normalizeConfidenceScore(input.confidence_score) == null
+  ) {
+    errors.push("confidence_score must be a number between 0 and 1 when provided");
+  }
 
   const createdByType = normalizeText(input.created_by_type);
   if (createdByType && createdByType !== "human" && createdByType !== "agent") {
@@ -247,6 +260,8 @@ export async function registerArtifact(
       ? input.metadata
       : {}),
   };
+  const confidenceScore = normalizeConfidenceScore(input.confidence_score);
+  if (confidenceScore != null) metadata.confidence_score = confidenceScore;
   if (input.external_url) metadata.external_url = String(input.external_url);
   if (input.preview_markdown) {
     const preview = String(input.preview_markdown);
@@ -274,6 +289,7 @@ export async function registerArtifact(
       entity_id: input.entity_id,
       name: input.name,
       artifact_type: input.artifact_type,
+      confidence_score: confidenceScore ?? undefined,
       description: input.description ?? undefined,
       artifact_url: artifactUrl,
       external_url: input.external_url ?? undefined,
@@ -303,6 +319,7 @@ export async function registerArtifact(
         name: input.name,
         description: input.description ?? undefined,
         artifact_type: input.artifact_type,
+        confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
         ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
@@ -323,6 +340,7 @@ export async function registerArtifact(
         name: input.name,
         description: input.description ?? undefined,
         artifact_type: "shared.project_handbook",
+        confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
         ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
