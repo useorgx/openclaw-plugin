@@ -243,6 +243,182 @@ test("Next-up play blocks on spawn-guard denial and raises decision", async () =
   );
 });
 
+test("Next-up play keeps run pending when spawn guard is rate-limited", async () => {
+  const config = {
+    apiKey: "oxk_test",
+    userId: "",
+    baseUrl: "https://www.useorgx.com",
+    syncIntervalMs: 300_000,
+    enabled: true,
+    dashboardEnabled: true,
+  };
+
+  const calls = {
+    listEntities: [],
+    updateEntity: [],
+    applyChangeset: [],
+    emitActivity: [],
+    checkSpawnGuard: [],
+  };
+
+  const client = {
+    getBaseUrl: () => config.baseUrl,
+    listEntities: async (type, filters) => {
+      calls.listEntities.push({ type, filters });
+      if (type === "initiative") {
+        return {
+          data: [{ id: "init-1", title: "Initiative 1", status: "active" }],
+          pagination: { total: 1, has_more: false },
+        };
+      }
+      if (type === "workstream") {
+        return {
+          data: [
+            {
+              id: "ws-1",
+              name: "Workstream 1",
+              status: "active",
+              initiative_id: "init-1",
+              assigned_agents: [{ id: "agent-1", name: "Engineering Agent", domain: "engineering" }],
+            },
+          ],
+          pagination: { total: 1, has_more: false },
+        };
+      }
+      if (type === "milestone") {
+        return {
+          data: [
+            {
+              id: "ms-1",
+              title: "Milestone 1",
+              status: "planned",
+              initiative_id: "init-1",
+              workstream_id: "ws-1",
+            },
+          ],
+          pagination: { total: 1, has_more: false },
+        };
+      }
+      if (type === "task") {
+        return {
+          data: [
+            {
+              id: "task-1",
+              title: "Implement dispatch reliability",
+              status: "todo",
+              initiative_id: "init-1",
+              workstream_id: "ws-1",
+              milestone_id: "ms-1",
+              priority: "high",
+            },
+          ],
+          pagination: { total: 1, has_more: false },
+        };
+      }
+      return {
+        data: [],
+        pagination: { total: 0, has_more: false },
+      };
+    },
+    updateEntity: async (type, id, updates) => {
+      calls.updateEntity.push({ type, id, updates });
+      return { ok: true, id };
+    },
+    applyChangeset: async (payload) => {
+      calls.applyChangeset.push(payload);
+      return {
+        ok: true,
+        changeset_id: "cs_1",
+        replayed: false,
+        run_id: "run_1",
+        applied_count: 1,
+        results: [],
+        event_id: null,
+      };
+    },
+    emitActivity: async (payload) => {
+      calls.emitActivity.push(payload);
+      return { ok: true, run_id: "run_1", event_id: null, reused_run: false };
+    },
+    getLiveAgents: async () => ({ agents: [], summary: {} }),
+    checkSpawnGuard: async (domain, taskId) => {
+      calls.checkSpawnGuard.push({ domain, taskId });
+      return {
+        allowed: false,
+        modelTier: "sonnet",
+        checks: {
+          rateLimit: { passed: false, current: 5, max: 5 },
+          qualityGate: { passed: true, score: 4, threshold: 3 },
+          taskAssigned: { passed: true, taskId, status: "todo" },
+        },
+        blockedReason: "rate limit: 5/5 domain, 11/15 total",
+      };
+    },
+  };
+
+  const handler = createHttpHandler(
+    config,
+    client,
+    () => null,
+    createNoopOnboarding(),
+    undefined,
+    {
+      openclaw: {
+        listAgents: async () => [{ id: "agent-1", name: "Engineering Agent", model: "local" }],
+        spawnAgentTurn: () => {
+          throw new Error("spawn should not be called when spawn guard is rate-limited");
+        },
+      },
+    }
+  );
+
+  const res = createStubResponse();
+  const req = {
+    method: "POST",
+    url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1&fastAck=true",
+    headers: {},
+  };
+
+  await handler(req, res);
+
+  assert.equal(res.status, 202);
+  const body = JSON.parse(res.body);
+  assert.equal(body?.ok, true);
+  assert.equal(body?.dispatchMode, "pending");
+  assert.equal(body?.run?.status, "running");
+  assert.equal(body?.run?.stopReason ?? null, null);
+
+  assert.equal(calls.checkSpawnGuard.length, 1);
+  assert.equal(calls.checkSpawnGuard[0].domain, "engineering");
+  assert.equal(calls.checkSpawnGuard[0].taskId, "task-1");
+
+  assert.ok(
+    !calls.updateEntity.some(
+      (entry) => entry.type === "task" && entry.id === "task-1" && entry.updates?.status === "blocked"
+    ),
+    "rate-limited spawn guard should not mark task blocked"
+  );
+
+  assert.ok(
+    !calls.applyChangeset.some(
+      (entry) =>
+        Array.isArray(entry.operations) &&
+        entry.operations.some((op) => op.op === "decision.create")
+    ),
+    "rate-limited spawn guard should not create blocking decisions"
+  );
+
+  const rateLimitedActivity = calls.emitActivity.find(
+    (entry) => entry?.metadata?.event === "auto_continue_spawn_guard_rate_limited"
+  );
+  assert.ok(rateLimitedActivity, "expected rate-limited activity event");
+  assert.equal(rateLimitedActivity?.level, "warn");
+  assert.ok(
+    Number(rateLimitedActivity?.metadata?.next_retry_in_ms) > 0,
+    "expected retry metadata in rate-limited event"
+  );
+});
+
 test("Next-up play fastAck responds pending even when queue/graph lookups are slow", async () => {
   await withEnv(
     {

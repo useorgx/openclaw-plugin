@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { LiveDecision } from '@/types';
 import { formatRelativeTime } from '@/lib/time';
 import { colors } from '@/lib/tokens';
+import { cn } from '@/lib/utils';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { DecisionDetailModal } from '@/components/decisions/DecisionDetailModal';
@@ -19,6 +20,7 @@ type DecisionBulkActionId =
   | 'reject_selected'
   | 'approve_visible'
   | 'reject_visible';
+type DecisionBulkScope = 'selected' | 'visible';
 
 interface DecisionQueueProps {
   decisions: LiveDecision[];
@@ -30,6 +32,13 @@ interface DecisionQueueProps {
     action: 'approve' | 'reject',
     note?: string
   ) => Promise<DecisionActionSummary>;
+}
+
+function composeBulkActionId(
+  action: 'approve' | 'reject',
+  scope: DecisionBulkScope
+): DecisionBulkActionId {
+  return `${action}_${scope}` as DecisionBulkActionId;
 }
 
 function urgencyAccent(waitingMinutes: number): { border: string; glow: string } {
@@ -292,6 +301,11 @@ export const DecisionQueue = memo(function DecisionQueue({
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
   const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
+  const pendingCount = sorted.length;
+  const longestWaitMinutes = sorted[0]?.waitingMinutes ?? 0;
+  const selectedScope: DecisionBulkScope =
+    selectedBulkOption?.id.includes('visible') ? 'visible' : 'selected';
+  const selectedVerb: 'approve' | 'reject' = selectedBulkOption?.action ?? 'approve';
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -302,39 +316,81 @@ export const DecisionQueue = memo(function DecisionQueue({
         onApprove={handleApproveFromDetail}
         onReject={handleRejectFromDetail}
       />
-      <div className="space-y-2 border-b border-subtle px-4 py-3.5">
+      <div className="space-y-2.5 border-b border-subtle px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
               <EntityIcon type="decision" size={14} />
               Decisions
             </h2>
-            <p className="hidden text-body text-secondary sm:block">
-              Select multiple items to bulk review and resolve
+            <p className="mt-0.5 text-caption text-secondary">
+              {pendingCount > 0
+                ? `${pendingCount} pending · longest wait ${longestWaitMinutes}m`
+                : 'No pending decisions'}
             </p>
           </div>
+          <button
+            onClick={handleApplyBulkAction}
+            disabled={!selectedEnabled}
+            data-state={selectedEnabled ? 'active' : 'idle'}
+            className="control-pill h-9 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+          >
+            {isApprovingAll ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
 
-          <div className="flex min-w-[220px] items-center gap-2">
-            <select
-              value={selectedBulkOption?.id ?? ''}
-              disabled={isApprovingAll || bulkOptions.length === 0}
-              onChange={(event) => setBulkAction(event.target.value as DecisionBulkActionId)}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-strong bg-white/[0.04] px-2.5 text-caption text-primary focus:outline-none focus:ring-1 focus:ring-lime/35 disabled:opacity-45"
-            >
-              {bulkOptions.map((option) => (
-                <option key={option.id} value={option.id} className="bg-black text-white">
-                  {option.label}
-                </option>
-              ))}
-            </select>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex items-center gap-1.5">
             <button
-              onClick={handleApplyBulkAction}
-              disabled={!selectedEnabled}
-              data-state={selectedEnabled ? 'active' : 'idle'}
-              className="control-pill flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+              type="button"
+              onClick={() => setBulkAction(composeBulkActionId(selectedVerb, 'selected'))}
+              disabled={isApprovingAll}
+              data-state={selectedScope === 'selected' ? 'active' : 'idle'}
+              className="control-pill h-8 flex-1 justify-between px-2.5 text-caption font-semibold disabled:opacity-45"
             >
-              {isApprovingAll ? 'Applying…' : 'Apply'}
+              <span>Selected</span>
+              <span className="ml-1.5 rounded-full border border-current/25 bg-black/20 px-1.5 text-micro text-current/75">
+                {selectedCount}
+              </span>
             </button>
+            <button
+              type="button"
+              onClick={() => setBulkAction(composeBulkActionId(selectedVerb, 'visible'))}
+              disabled={isApprovingAll}
+              data-state={selectedScope === 'visible' ? 'active' : 'idle'}
+              className="control-pill h-8 flex-1 justify-between px-2.5 text-caption font-semibold disabled:opacity-45"
+            >
+              <span>Visible</span>
+              <span className="ml-1.5 rounded-full border border-current/25 bg-black/20 px-1.5 text-micro text-current/75">
+                {visible.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setBulkAction(composeBulkActionId('approve', selectedScope))}
+              disabled={isApprovingAll}
+              data-state={selectedVerb === 'approve' ? 'active' : 'idle'}
+              className="control-pill h-8 flex-1 px-2.5 text-caption font-semibold disabled:opacity-45"
+            >
+              Approve
+            </button>
+            {onRejectDecision && (
+              <button
+                type="button"
+                onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
+                disabled={isApprovingAll}
+                data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
+                className={cn(
+                  'control-pill h-8 flex-1 px-2.5 text-caption font-semibold disabled:opacity-45',
+                  selectedVerb === 'reject' && 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100'
+                )}
+              >
+                Reject
+              </button>
+            )}
           </div>
         </div>
 
@@ -342,18 +398,35 @@ export const DecisionQueue = memo(function DecisionQueue({
           <button
             onClick={toggleSelectAll}
             disabled={sorted.length === 0 || isApprovingAll}
-            className="control-pill px-3 text-caption font-semibold disabled:opacity-45"
+            className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
           >
-            {allVisibleSelected ? 'Clear all' : 'Select all'}
+            {allVisibleSelected ? 'Clear visible' : 'Select visible'}
           </button>
+          {selectedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              disabled={isApprovingAll}
+              className="control-pill h-8 px-2.5 text-caption disabled:opacity-45"
+            >
+              Clear selection
+            </button>
+          )}
           <input
             value={bulkNote}
             onChange={(event) => setBulkNote(event.target.value)}
             placeholder="Optional note"
-            className="h-8 min-w-[160px] flex-1 rounded-md border border-strong bg-white/[0.03] px-2.5 text-caption text-primary placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/35"
+            className="h-8 min-w-[200px] flex-1 rounded-md border border-strong bg-white/[0.03] px-2.5 text-caption text-primary placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/35"
           />
-          <span className="text-caption text-secondary">
-            {selectedCount > 0 ? `${selectedCount} selected` : 'No selection'}
+          <span
+            className={cn(
+              'inline-flex h-8 items-center rounded-md border px-2.5 text-caption',
+              selectedCount > 0
+                ? 'border-lime/30 bg-lime/10 text-lime'
+                : 'border-strong bg-white/[0.02] text-secondary'
+            )}
+          >
+            {selectedCount > 0 ? `${selectedCount} selected` : 'Nothing selected'}
           </span>
         </div>
       </div>

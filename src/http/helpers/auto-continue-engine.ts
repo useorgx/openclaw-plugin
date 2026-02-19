@@ -27,6 +27,7 @@ import {
   isDoneStatus,
   isTodoStatus,
   readBudgetEnvNumber,
+  spawnGuardIsRateLimited,
   summarizeSpawnGuardBlockReason,
   type MissionControlNode,
 } from "./mission-control.js";
@@ -295,7 +296,38 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     10_000,
     { min: 1_000, max: 120_000 }
   );
+  const AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS = readBudgetEnvNumber(
+    "ORGX_AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS",
+    15_000,
+    { min: 1_000, max: 15 * 60_000 }
+  );
   const autoFixByScope = new Map<string, PendingAutoFix>();
+  const autoContinueSpawnGuardRetryByTask = new Map<
+    string,
+    { initiativeId: string; retryAtMs: number }
+  >();
+
+  const getSpawnGuardRetryAtMs = (
+    initiativeId: string,
+    taskId: string
+  ): number => {
+    const taskKey = taskId.trim();
+    if (!taskKey) return 0;
+    const entry = autoContinueSpawnGuardRetryByTask.get(taskKey);
+    if (!entry) return 0;
+    if (entry.initiativeId !== initiativeId || entry.retryAtMs <= Date.now()) {
+      autoContinueSpawnGuardRetryByTask.delete(taskKey);
+      return 0;
+    }
+    return entry.retryAtMs;
+  };
+
+  const clearSpawnGuardRetryStateForInitiative = (initiativeId: string): void => {
+    for (const [taskId, entry] of autoContinueSpawnGuardRetryByTask.entries()) {
+      if (entry.initiativeId !== initiativeId) continue;
+      autoContinueSpawnGuardRetryByTask.delete(taskId);
+    }
+  };
 
   const normalizeStatusValue = (value: unknown): string => {
     if (typeof value !== "string") return "";
@@ -542,6 +574,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     input.run.activeTaskId = null;
     input.run.activeTaskTokenEstimate = null;
     if (input.error) input.run.lastError = input.error;
+    clearSpawnGuardRetryStateForInitiative(input.run.initiativeId);
     clearAutoContinueSliceTransientState(activeRunId);
 
     // Only pause the initiative on non-terminal stops (error, blocked, user-requested).
@@ -1187,6 +1220,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     // Select the next eligible workstream by scanning ordered todos.
     let selectedWorkstreamId: string | null = null;
+    let deferredBySpawnGuardRateLimit = 0;
     for (const taskId of graph.recentTodos) {
       const node = nodeById.get(taskId);
       if (!node || node.type !== "task") continue;
@@ -1206,11 +1240,20 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       if (ws && !isDispatchableWorkstreamStatus(ws.status)) continue;
       if (!taskIsReady(node)) continue;
       if (taskHasBlockedParent(node)) continue;
+      const retryAtMs = getSpawnGuardRetryAtMs(run.initiativeId, node.id);
+      if (retryAtMs > 0) {
+        deferredBySpawnGuardRateLimit += 1;
+        continue;
+      }
       selectedWorkstreamId = node.workstreamId;
       break;
     }
 
     if (!selectedWorkstreamId) {
+      if (deferredBySpawnGuardRateLimit > 0) {
+        run.updatedAt = now;
+        return;
+      }
       await stopAutoContinueRun({ run, reason: "blocked" });
       return;
     }
@@ -1310,6 +1353,43 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       const allowed = (spawnGuardResult as Record<string, unknown>).allowed;
       if (allowed === false) {
         const blockedReason = summarizeSpawnGuardBlockReason(spawnGuardResult);
+        const retryable = spawnGuardIsRateLimited(spawnGuardResult);
+        if (retryable) {
+          const retryAtMs = Date.now() + AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS;
+          autoContinueSpawnGuardRetryByTask.set(primaryTask.id, {
+            initiativeId: run.initiativeId,
+            retryAtMs,
+          });
+          await emitActivitySafe({
+            initiativeId: run.initiativeId,
+            runId: sliceRunId,
+            correlationId: sliceRunId,
+            phase: "blocked",
+            level: "warn",
+            message: `Autopilot spawn guard rate-limited ${workstreamTitle ?? selectedWorkstreamId}; retrying shortly.`,
+            metadata: {
+              event: "auto_continue_spawn_guard_rate_limited",
+              task_id: primaryTask.id,
+              workstream_id: selectedWorkstreamId,
+              blocked_reason: blockedReason,
+              next_retry_at: new Date(retryAtMs).toISOString(),
+              next_retry_in_ms: AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS,
+              spawn_guard: spawnGuardResult,
+            },
+            nextStep: "Retry dispatch when spawn rate limits recover.",
+          });
+          run.lastError = blockedReason;
+          run.updatedAt = now;
+          try {
+            await updateInitiativeAutoContinueState({
+              initiativeId: run.initiativeId,
+              run,
+            });
+          } catch {
+            // best effort
+          }
+          return;
+        }
         // Maintain existing behavior: mark the primary task blocked when a quality gate denies dispatch.
         try {
           await client.updateEntity("task", primaryTask.id, { status: "blocked" });

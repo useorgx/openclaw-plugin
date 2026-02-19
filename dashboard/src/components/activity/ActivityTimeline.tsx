@@ -11,6 +11,7 @@ import { Modal } from '@/components/shared/Modal';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { ActivityEventIcon } from './activityVisuals';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
@@ -198,6 +199,28 @@ function normalizeActorValue(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+const GENERIC_REQUESTER_LABELS = new Set([
+  'main',
+  'system',
+  'local',
+  'cli',
+  'openclaw',
+  'runtime',
+  'unknown',
+]);
+
+function normalizeRequesterDisplay(label: string | null): { primary: string; secondary: string | null } {
+  if (!label || label.trim().length === 0 || label.trim() === '—') {
+    return { primary: 'System', secondary: null };
+  }
+  const trimmed = label.trim();
+  const normalized = trimmed.toLowerCase();
+  if (GENERIC_REQUESTER_LABELS.has(normalized)) {
+    return { primary: 'You', secondary: trimmed };
+  }
+  return { primary: trimmed, secondary: null };
 }
 
 function resolveActorFromMetadata(
@@ -2414,6 +2437,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ),
     [activeAutopilotContext, activeActorFlow, agentNameById]
   );
+  const activeAutopilotRequesterDisplay = useMemo(
+    () => normalizeRequesterDisplay(activeAutopilotRequesterLabel),
+    [activeAutopilotRequesterLabel]
+  );
   const activeAutopilotExecutorLabel = useMemo(() => {
     const label = formatAgentLabel(
       activeAutopilotContext?.agentName ?? activeActorFlow?.executor?.name ?? null,
@@ -4118,53 +4145,94 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          </div>
 	                        )}
 
-	                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requested by</div>
-	                            <div className="mt-1 text-body text-primary">{activeAutopilotRequesterLabel}</div>
+	                        <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+	                          <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
+	                            <ActivityEventIcon icon="handoff" size={12} className="text-lime/80" />
+	                            People
 	                          </div>
-	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executed by</div>
-	                            <div className="mt-1 text-body text-primary">{activeAutopilotExecutorLabel}</div>
-	                          </div>
-	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatched by</div>
-	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotContext.dispatcherClient
-	                                ? humanizeText(activeAutopilotContext.dispatcherClient)
-	                                : 'OpenClaw'}
+	                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requester</div>
+	                              <div className="mt-1 flex items-center gap-2 text-body text-primary">
+	                                <AgentAvatar
+	                                  name={activeAutopilotRequesterDisplay.primary}
+	                                  hint={activeAutopilotRequesterDisplay.secondary ?? activeAutopilotRequesterDisplay.primary}
+	                                  size="xs"
+	                                />
+	                                <span>{activeAutopilotRequesterDisplay.primary}</span>
+	                              </div>
+	                              {activeAutopilotRequesterDisplay.secondary && (
+	                                <p className="mt-1 text-micro text-secondary">
+	                                  via {activeAutopilotRequesterDisplay.secondary}
+	                                </p>
+	                              )}
 	                            </div>
-	                          </div>
-	                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
-	                            <div className="mt-1 text-body text-primary">
-	                              {activeAutopilotContext.domain ?? '—'}
-	                              {activeAutopilotContext.requiredSkills.length > 0
-	                                ? ` · ${activeAutopilotContext.requiredSkills.join(', ')}`
-	                                : ''}
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executor</div>
+	                              <div className="mt-1 flex items-center gap-2 text-body text-primary">
+	                                <AgentAvatar
+	                                  name={activeAutopilotExecutorLabel}
+	                                  hint={activeAutopilotExecutorLabel}
+	                                  size="xs"
+	                                />
+	                                <span>{activeAutopilotExecutorLabel}</span>
+	                              </div>
+	                            </div>
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatcher</div>
+	                              <div className="mt-1 text-body text-primary">
+	                                {activeAutopilotContext.dispatcherClient
+	                                  ? humanizeText(activeAutopilotContext.dispatcherClient)
+	                                  : 'OpenClaw'}
+	                              </div>
+	                            </div>
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
+	                              <div className="mt-1 text-body text-primary">
+	                                {activeAutopilotContext.domain ?? '—'}
+	                                {activeAutopilotContext.requiredSkills.length > 0
+	                                  ? ` · ${activeAutopilotContext.requiredSkills.join(', ')}`
+	                                  : ''}
+	                              </div>
 	                            </div>
 	                          </div>
 	                        </div>
 
 	                        {activeExecutionBreakdown && (
-	                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="flex items-center justify-between gap-2">
-	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Initiative</div>
-	                                {activeExecutionBreakdown.initiativeStatus && (
-	                                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
-	                                    {humanizeText(activeExecutionBreakdown.initiativeStatus)}
-	                                  </span>
-	                                )}
+	                          <div className="mt-3 space-y-3">
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+	                              <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
+	                                <ActivityEventIcon icon="workflow" size={12} className="text-lime/80" />
+	                                Scope
 	                              </div>
-	                              <p className="mt-1 text-body text-primary">
-	                                {activeExecutionBreakdown.initiativeTitle ?? activeExecutionBreakdown.initiativeId ?? '—'}
-	                              </p>
-	                              {activeExecutionBreakdown.initiativeId && (
-	                                <p className="mt-1 break-all font-mono text-micro text-secondary">
-	                                  {activeExecutionBreakdown.initiativeId}
-	                                </p>
-	                              )}
+	                              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+	                                <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                                  <div className="flex items-center justify-between gap-2">
+	                                    <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Initiative</div>
+	                                    {activeExecutionBreakdown.initiativeStatus && (
+	                                      <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+	                                        {humanizeText(activeExecutionBreakdown.initiativeStatus)}
+	                                      </span>
+	                                    )}
+	                                  </div>
+	                                  <p className="mt-1 text-body text-primary">
+	                                    {activeExecutionBreakdown.initiativeTitle ?? activeExecutionBreakdown.initiativeId ?? '—'}
+	                                  </p>
+	                                </div>
+	                                <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
+	                                  <div className="flex items-center justify-between gap-2">
+	                                    <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
+	                                    {activeExecutionBreakdown.workstreamStatus && (
+	                                      <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+	                                        {humanizeText(activeExecutionBreakdown.workstreamStatus)}
+	                                      </span>
+	                                    )}
+	                                  </div>
+	                                  <p className="mt-1 text-body text-primary">
+	                                    {activeExecutionBreakdown.workstreamTitle ?? activeExecutionBreakdown.workstreamId ?? '—'}
+	                                  </p>
+	                                </div>
+	                              </div>
 	                              {activeExecutionBreakdown.initiativeWorkstreamPct !== null && (
 	                                <div className="mt-2">
 	                                  <div className="mb-1 flex items-center justify-between text-micro text-secondary">
@@ -4184,28 +4252,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              )}
 	                            </div>
 
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="flex items-center justify-between gap-2">
-	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
-	                                {activeExecutionBreakdown.workstreamStatus && (
-	                                  <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
-	                                    {humanizeText(activeExecutionBreakdown.workstreamStatus)}
-	                                  </span>
-	                                )}
-	                              </div>
-	                              <p className="mt-1 text-body text-primary">
-	                                {activeExecutionBreakdown.workstreamTitle ?? activeExecutionBreakdown.workstreamId ?? '—'}
-	                              </p>
-	                              {activeExecutionBreakdown.workstreamId && (
-	                                <p className="mt-1 break-all font-mono text-micro text-secondary">
-	                                  {activeExecutionBreakdown.workstreamId}
-	                                </p>
-	                              )}
-	                            </div>
-
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
-	                                Completion breakdown
+	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+	                              <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
+	                                <ActivityEventIcon icon="check_circle" size={12} className="text-lime/80" />
+	                                Outcomes
 	                              </div>
 	                              <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
 	                                <div>
@@ -4232,14 +4282,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                    {activeExecutionBreakdown.statusUpdatesBuffered ?? 0}
 	                                  </div>
 	                                </div>
-	                              </div>
-	                            </div>
-
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
-	                                Outputs
-	                              </div>
-	                              <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
 	                                <div>
 	                                  <div className="text-micro text-secondary">Artifacts</div>
 	                                  <div className="mt-0.5 tabular-nums">{activeExecutionBreakdown.artifacts ?? 0}</div>
@@ -4277,8 +4319,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          activeExecutionBreakdown?.parsedStatus ||
 	                          activeExecutionBreakdown?.stopReason) && (
 	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">
-	                              Current scope
+	                            <div className="text-micro font-semibold tracking-[0.12em] text-secondary">
+	                              Current step
 	                            </div>
 	                            <div className="mt-1.5 space-y-1 text-caption text-primary">
 	                              {activeExecutionBreakdown.taskTitle && (
@@ -4317,39 +4359,57 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          </div>
 	                        )}
 
-	                        {(activeAutopilotContext.logPath || activeAutopilotContext.outputPath) && (
-	                          <div className="mt-3 space-y-2 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            {activeAutopilotContext.logPath && (
-	                              <p className="break-all font-mono text-caption text-secondary">
-	                                log: {activeAutopilotContext.logPath}
-	                              </p>
-	                            )}
-	                            {activeAutopilotContext.outputPath && (
-	                              <p className="break-all font-mono text-caption text-secondary">
-	                                output: {activeAutopilotContext.outputPath}
-	                              </p>
-	                            )}
-	                            <div className="flex flex-wrap gap-2">
+	                        {(activeAutopilotContext.logPath ||
+	                          activeAutopilotContext.outputPath ||
+	                          activeExecutionBreakdown?.initiativeId ||
+	                          activeExecutionBreakdown?.workstreamId) && (
+	                          <details className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+	                            <summary className="cursor-pointer text-micro font-semibold tracking-[0.12em] text-secondary">
+	                              Technical details
+	                            </summary>
+	                            <div className="mt-2 space-y-2">
+	                              {activeExecutionBreakdown?.initiativeId && (
+	                                <p className="break-all font-mono text-caption text-secondary">
+	                                  initiative: {activeExecutionBreakdown.initiativeId}
+	                                </p>
+	                              )}
+	                              {activeExecutionBreakdown?.workstreamId && (
+	                                <p className="break-all font-mono text-caption text-secondary">
+	                                  workstream: {activeExecutionBreakdown.workstreamId}
+	                                </p>
+	                              )}
 	                              {activeAutopilotContext.logPath && (
-	                                <button
-	                                  type="button"
-	                                  onClick={() => void copyText('Log path', activeAutopilotContext.logPath ?? '')}
-	                                  className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                                >
-	                                  Copy log path
-	                                </button>
+	                                <p className="break-all font-mono text-caption text-secondary">
+	                                  log: {activeAutopilotContext.logPath}
+	                                </p>
 	                              )}
 	                              {activeAutopilotContext.outputPath && (
-	                                <button
-	                                  type="button"
-	                                  onClick={() => void copyText('Output path', activeAutopilotContext.outputPath ?? '')}
-	                                  className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                                >
-	                                  Copy output path
-	                                </button>
+	                                <p className="break-all font-mono text-caption text-secondary">
+	                                  output: {activeAutopilotContext.outputPath}
+	                                </p>
 	                              )}
+	                              <div className="flex flex-wrap gap-2">
+	                                {activeAutopilotContext.logPath && (
+	                                  <button
+	                                    type="button"
+	                                    onClick={() => void copyText('Log path', activeAutopilotContext.logPath ?? '')}
+	                                    className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+	                                  >
+	                                    Copy log path
+	                                  </button>
+	                                )}
+	                                {activeAutopilotContext.outputPath && (
+	                                  <button
+	                                    type="button"
+	                                    onClick={() => void copyText('Output path', activeAutopilotContext.outputPath ?? '')}
+	                                    className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+	                                  >
+	                                    Copy output path
+	                                  </button>
+	                                )}
+	                              </div>
 	                            </div>
-	                          </div>
+	                          </details>
 	                        )}
 
 	                        {activeAutopilotContext.error && (

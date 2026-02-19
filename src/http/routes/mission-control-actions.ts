@@ -478,6 +478,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           });
           return;
         }
+        if (dispatchMode === "none" && run.status === "running" && !run.stopReason) {
+          deps.sendJson(res, 202, {
+            ok: true,
+            run,
+            initiativeId,
+            workstreamId,
+            agentId,
+            dispatchMode: "pending",
+            sessionId: null,
+          });
+          return;
+        }
         if (dispatchMode === "none") {
           const fallbackBlockedReason = fallbackDispatch?.blockedReason ?? null;
           const reason =
