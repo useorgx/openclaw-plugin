@@ -5,7 +5,17 @@ async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
 }
 
+function isUnknownApiEndpointError(response: Response, body: any | null): boolean {
+  if (response.status !== 404) return false;
+  const error = typeof body?.error === 'string' ? body.error : '';
+  const message = typeof body?.message === 'string' ? body.message : '';
+  return /unknown api endpoint/i.test(`${error} ${message}`);
+}
+
 function normalizeErrorMessage(response: Response, body: any | null, fallback: string): string {
+  if (isUnknownApiEndpointError(response, body)) {
+    return `${fallback}. This queue control is unavailable in the running plugin build.`;
+  }
   return (
     (typeof body?.error === 'string' && body.error.trim()) ||
     (typeof body?.message === 'string' && body.message.trim()) ||
@@ -93,6 +103,11 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
+        if (isUnknownApiEndpointError(response, body)) {
+          throw new Error(
+            'Queue placement controls require a newer plugin runtime. Refresh to latest main and retry.'
+          );
+        }
         throw new Error(normalizeErrorMessage(response, body, 'Failed to move Next Up item'));
       }
       return body;
@@ -116,6 +131,26 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
+        if (isUnknownApiEndpointError(response, body)) {
+          const legacyResponse = await fetch('/orgx/api/mission-control/auto-continue/stop', {
+            method: 'POST',
+            headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+            body: JSON.stringify({ initiativeId: payload.initiativeId }),
+          });
+          const legacyBody = await readResponseJson<{ error?: string; message?: string }>(
+            legacyResponse
+          );
+          if (!legacyResponse.ok) {
+            throw new Error(
+              normalizeErrorMessage(
+                legacyResponse,
+                legacyBody,
+                'Failed to pause triage with legacy fallback'
+              )
+            );
+          }
+          return { ok: true, fallback: 'auto-continue-stop' };
+        }
         throw new Error(normalizeErrorMessage(response, body, 'Failed to stop triage'));
       }
       return body;
@@ -139,6 +174,26 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
+        if (isUnknownApiEndpointError(response, body) && payload.initiativeId) {
+          const legacyResponse = await fetch('/orgx/api/mission-control/auto-continue/stop', {
+            method: 'POST',
+            headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+            body: JSON.stringify({ initiativeId: payload.initiativeId }),
+          });
+          const legacyBody = await readResponseJson<{ error?: string; message?: string }>(
+            legacyResponse
+          );
+          if (!legacyResponse.ok) {
+            throw new Error(
+              normalizeErrorMessage(
+                legacyResponse,
+                legacyBody,
+                'Failed to clear lifecycle state with legacy fallback'
+              )
+            );
+          }
+          return { ok: true, fallback: 'auto-continue-stop' };
+        }
         throw new Error(normalizeErrorMessage(response, body, 'Failed to clear Next Up lifecycle state'));
       }
       return body;

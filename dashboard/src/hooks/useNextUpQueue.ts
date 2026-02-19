@@ -39,11 +39,21 @@ async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
 }
 
+function isUnknownApiEndpointError(response: Response, body: any | null): boolean {
+  if (response.status !== 404) return false;
+  const error = typeof body?.error === 'string' ? body.error : '';
+  const message = typeof body?.message === 'string' ? body.message : '';
+  return /unknown api endpoint/i.test(`${error} ${message}`);
+}
+
 function normalizeErrorMessage(
   response: Response,
   body: any | null,
   fallback: string
 ): string {
+  if (isUnknownApiEndpointError(response, body)) {
+    return `${fallback}. This queue route is unavailable in the running plugin build.`;
+  }
   return (
     (typeof body?.error === 'string' && body.error.trim()) ||
     (typeof body?.message === 'string' && body.message.trim()) ||
