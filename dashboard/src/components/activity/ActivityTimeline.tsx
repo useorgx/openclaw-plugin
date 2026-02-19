@@ -443,6 +443,9 @@ const ACTIVITY_BUCKET_BY_EVENT = new Map<string, ActivityBucket>([
   ['autopilot_slice_mcp_handshake_failed', 'decision'],
   ['autopilot_slice_timeout', 'decision'],
   ['autopilot_slice_log_stall', 'decision'],
+  ['autopilot_autofix_scheduled', 'decision'],
+  ['autopilot_autofix_executed', 'message'],
+  ['autopilot_autofix_skipped', 'message'],
 ]);
 
 function normalizeActivityBucket(value: unknown): ActivityBucket | null {
@@ -719,8 +722,9 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
       : null;
   const eventName = event ?? '';
   const isAutopilotSliceEvent =
-    eventName.startsWith('autopilot_slice') &&
-    !eventName.includes('artifact');
+    (eventName.startsWith('autopilot_slice') &&
+      !eventName.includes('artifact')) ||
+    eventName.startsWith('autopilot_autofix');
   if (
     !event ||
     (!isAutopilotSliceEvent &&
@@ -1487,6 +1491,9 @@ function inferLifecycleProgress(detail: AutopilotSliceDetail): number | null {
   if (event === 'autopilot_slice_dispatched') return 14;
   if (event === 'autopilot_slice_status_updates_buffered') return 72;
   if (event === 'autopilot_slice_result') return 92;
+  if (event === 'autopilot_autofix_scheduled') return 6;
+  if (event === 'autopilot_autofix_executed') return 18;
+  if (event === 'autopilot_autofix_skipped') return 100;
   if (event === 'auto_continue_stopped') return 100;
   if (event.startsWith('autopilot_slice')) return 56;
 
@@ -1574,7 +1581,7 @@ function describeDetailOutcome(
     item.decisionRequired === true ||
     item.type === 'decision_requested' ||
     inferredBlockingDecisions > 0 ||
-    parsedStatus === 'needs_decision';
+    (parsedStatus === 'needs_decision' && inferredNonBlockingDecisions === 0);
   const completionLike =
     item.type === 'run_completed' ||
     item.type === 'milestone_completed' ||
@@ -1973,6 +1980,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
   const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | null>(null);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
+  const [autoFixPending, setAutoFixPending] = useState(false);
+  const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -2560,6 +2569,68 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () => (activeDecorated ? isOutboxSyncReplayEvent(activeDecorated.item) : false),
     [activeDecorated]
   );
+  const activeAutoFixTarget = useMemo(() => {
+    if (!activeAutopilotContext || !activeDecorated) return null;
+
+    const initiativeId =
+      activeAutopilotContext.initiativeId ??
+      activeDecorated.item.initiativeId ??
+      null;
+    const workstreamId =
+      activeAutopilotContext.workstreamId ?? extractWorkstreamId(activeDecorated.item);
+    if (!initiativeId || !workstreamId) return null;
+
+    const parsedStatus = normalizeStatusKey(
+      activeExecutionBreakdown?.parsedStatus ?? activeAutopilotContext.parsedStatus
+    );
+    const stopReason = normalizeStatusKey(
+      activeExecutionBreakdown?.stopReason ?? activeAutopilotContext.stopReason
+    );
+    const blockingDecisions = Math.max(
+      0,
+      activeExecutionBreakdown?.blockingDecisions ??
+        activeAutopilotContext.blockingDecisions ??
+        (activeDecorated.item.decisionRequired ? 1 : 0)
+    );
+    const nonBlockingDecisions = Math.max(
+      0,
+      activeExecutionBreakdown?.nonBlockingDecisions ??
+        activeAutopilotContext.nonBlockingDecisions ??
+        0
+    );
+    const blockedLike =
+      parsedStatus === "blocked" ||
+      parsedStatus === "error" ||
+      parsedStatus === "failed" ||
+      stopReason === "blocked" ||
+      stopReason === "error" ||
+      activeDecorated.item.type === "blocker_created";
+    const optionalDecisionLike =
+      !blockedLike &&
+      blockingDecisions === 0 &&
+      nonBlockingDecisions > 0 &&
+      (parsedStatus === "needs_decision" ||
+        parsedStatus === "completed" ||
+        stopReason === "completed");
+
+    if (!blockedLike && !optionalDecisionLike) return null;
+
+    return {
+      initiativeId,
+      workstreamId,
+      runId: activeDecorated.runId ?? null,
+      event: activeAutopilotContext.event,
+      requestedByAgentId:
+        activeAutopilotContext.requesterAgentId ?? activeDecorated.item.requesterAgentId ?? null,
+      requestedByAgentName:
+        activeAutopilotContext.requesterAgentName ?? activeDecorated.item.requesterAgentName ?? null,
+      actionLabel: blockedLike ? "Auto-fix in 10s" : "Auto-continue in 10s",
+      helperText: blockedLike
+        ? "Pause this workstream within 10 seconds to cancel the auto-fix."
+        : "Optional decision captured. Slice will continue automatically after the grace window.",
+      isBlockedFlow: blockedLike,
+    };
+  }, [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]);
 
   const closeDetail = useCallback(() => {
     setActiveItemId(null);
@@ -2580,6 +2651,49 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     },
     []
   );
+  const runAutoFixAction = useCallback(async () => {
+    if (!activeAutoFixTarget || autoFixPending) return;
+
+    setAutoFixPending(true);
+    setAutoFixNotice(null);
+    try {
+      const response = await fetch("/orgx/api/mission-control/activity/auto-fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          initiativeId: activeAutoFixTarget.initiativeId,
+          workstreamId: activeAutoFixTarget.workstreamId,
+          runId: activeAutoFixTarget.runId,
+          event: activeAutoFixTarget.event,
+          requestedByAgentId: activeAutoFixTarget.requestedByAgentId,
+          requestedByAgentName: activeAutoFixTarget.requestedByAgentName,
+          graceMs: 10_000,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { ok?: boolean; error?: string; scheduled?: { dueAt?: string } }
+        | null;
+      if (!response.ok || body?.ok !== true) {
+        throw new Error(body?.error || `Request failed (${response.status})`);
+      }
+
+      const dueAt = body?.scheduled?.dueAt ? new Date(body.scheduled.dueAt) : null;
+      const dueLabel =
+        dueAt && Number.isFinite(dueAt.getTime())
+          ? dueAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+          : null;
+      setAutoFixNotice(
+        dueLabel
+          ? `Scheduled. Auto action starts by ${dueLabel} unless you pause first.`
+          : "Scheduled. Auto action starts in 10s unless you pause first."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to schedule auto-fix";
+      setAutoFixNotice(message);
+    } finally {
+      setAutoFixPending(false);
+    }
+  }, [activeAutoFixTarget, autoFixPending]);
 
   useEffect(() => {
     if (!copyNotice) return undefined;
@@ -2605,6 +2719,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     setArtifactViewMode('structured');
     setDetailMenuOpen(false);
     setActiveDetailTab('overview');
+    setAutoFixPending(false);
+    setAutoFixNotice(null);
   }, [activeItemId]);
 
   useEffect(() => {
@@ -3880,7 +3996,27 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               Open evidence
                             </a>
                           )}
+                          {activeAutoFixTarget && (
+                            <button
+                              type="button"
+                              onClick={() => void runAutoFixAction()}
+                              disabled={autoFixPending}
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-caption font-semibold transition disabled:opacity-50",
+                                activeAutoFixTarget.isBlockedFlow
+                                  ? "border-amber-300/30 bg-amber-500/[0.12] text-amber-100 hover:bg-amber-500/[0.18]"
+                                  : "border-lime/30 bg-lime/[0.12] text-[#D8FFA1] hover:bg-lime/[0.18]"
+                              )}
+                            >
+                              {autoFixPending ? "Scheduling..." : activeAutoFixTarget.actionLabel}
+                            </button>
+                          )}
                         </div>
+                        {activeAutoFixTarget && (
+                          <p className="mt-2 text-caption text-secondary">
+                            {autoFixNotice ?? activeAutoFixTarget.helperText}
+                          </p>
+                        )}
                       </div>
                     )}
 

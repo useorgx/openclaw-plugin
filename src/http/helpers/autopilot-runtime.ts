@@ -2,12 +2,13 @@ import {
   chmodSync,
   createWriteStream,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 import type { RuntimeHookPayload, RuntimeInstanceRecord } from "../../runtime-instance-store.js";
@@ -79,7 +80,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     if (!envFlag("ORGX_AUTOPILOT_ISOLATE_CODEX_HOME", true)) return null;
 
     const configuredHome = (process.env.ORGX_AUTOPILOT_CODEX_HOME ?? "").trim();
-    const targetHome =
+    const preferredHome =
       configuredHome.length > 0
         ? configuredHome
         : join(getOrgxPluginConfigDir(), "codex-autopilot-home");
@@ -89,28 +90,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       join(homedir(), ".codex", "config.toml"),
       join(homedir(), ".config", "codex", "config.toml"),
     ];
-
-    try {
-      mkdirSync(targetHome, { recursive: true, mode: 0o700 });
-      try {
-        chmodSync(targetHome, 0o700);
-      } catch {
-        // best effort
-      }
-    } catch {
-      return null;
-    }
-
-    const sourceAuthPath = join(sourceHome, "auth.json");
-    const targetAuthPath = join(targetHome, "auth.json");
-    try {
-      if (existsSync(sourceAuthPath)) {
-        const authRaw = readFileSync(sourceAuthPath, "utf8");
-        writeFileSync(targetAuthPath, authRaw, { encoding: "utf8", mode: 0o600 });
-      }
-    } catch {
-      // best effort
-    }
 
     const mcpModeRaw = (process.env.ORGX_AUTOPILOT_CODEX_MCP_MODE ?? "").trim().toLowerCase();
     const mcpMode = mcpModeRaw.length > 0 ? mcpModeRaw : "orgx-openclaw";
@@ -137,16 +116,52 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       );
     }
 
+    const writeAutopilotHome = (targetHome: string): boolean => {
+      try {
+        mkdirSync(targetHome, { recursive: true, mode: 0o700 });
+        try {
+          chmodSync(targetHome, 0o700);
+        } catch {
+          // best effort
+        }
+      } catch {
+        return false;
+      }
+
+      const sourceAuthPath = join(sourceHome, "auth.json");
+      const targetAuthPath = join(targetHome, "auth.json");
+      try {
+        if (existsSync(sourceAuthPath)) {
+          const authRaw = readFileSync(sourceAuthPath, "utf8");
+          writeFileSync(targetAuthPath, authRaw, { encoding: "utf8", mode: 0o600 });
+        }
+      } catch {
+        // best effort
+      }
+
+      try {
+        writeFileSync(join(targetHome, "config.toml"), `${configLines.join("\n")}\n`, {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+      } catch {
+        return false;
+      }
+      return true;
+    };
+
+    if (writeAutopilotHome(preferredHome)) return preferredHome;
+
+    // Hard fallback: use an ephemeral isolated CODEX_HOME so slices do not
+    // inherit potentially broken global MCP config.
     try {
-      writeFileSync(join(targetHome, "config.toml"), `${configLines.join("\n")}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+      const fallbackHome = mkdtempSync(join(tmpdir(), "orgx-autopilot-codex-home-"));
+      if (writeAutopilotHome(fallbackHome)) return fallbackHome;
     } catch {
-      return null;
+      // best effort
     }
 
-    return targetHome;
+    return null;
   }
 
   function ensurePrivateDirForFile(pathname: string): void {
@@ -464,9 +479,14 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       ...deps.resolveByokEnvOverrides(),
       ...input.env,
     };
+    const shouldIsolateCodexHome = envFlag("ORGX_AUTOPILOT_ISOLATE_CODEX_HOME", true);
     const autopilotCodexHome = prepareAutopilotCodexHome();
     if (autopilotCodexHome) {
       childEnv.CODEX_HOME = autopilotCodexHome;
+      logStream.write(`codex_home: ${autopilotCodexHome}\n`);
+    } else if (shouldIsolateCodexHome) {
+      delete childEnv.CODEX_HOME;
+      logStream.write("codex_home: isolation unavailable (default lookup)\n");
     }
     if (codexBin.includes(sep)) {
       const binDir = dirname(codexBin);
