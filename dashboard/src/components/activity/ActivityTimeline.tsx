@@ -43,8 +43,10 @@ interface ActivityTimelineProps {
   onFocusRunId?: (runId: string) => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
+  onPauseWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
   onCreateInitiative?: () => void;
   onOpenMissionControl?: () => void;
+  onOpenSettings?: () => void;
   isLoading?: boolean;
 }
 
@@ -463,6 +465,13 @@ const ACTIVITY_BUCKET_BY_EVENT = new Map<string, ActivityBucket>([
   ['autopilot_slice_artifact_buffered', 'artifact'],
   ['decision_buffered', 'decision'],
   ['auto_continue_spawn_guard_blocked', 'decision'],
+  ['auto_continue_spawn_guard_rate_limited', 'decision'],
+  ['agent_launch_spawn_guard_blocked', 'decision'],
+  ['agent_launch_spawn_guard_rate_limited', 'decision'],
+  ['agent_restart_spawn_guard_blocked', 'decision'],
+  ['agent_restart_spawn_guard_rate_limited', 'decision'],
+  ['next_up_fallback_spawn_guard_blocked', 'decision'],
+  ['next_up_fallback_spawn_guard_rate_limited', 'decision'],
   ['autopilot_slice_mcp_handshake_failed', 'decision'],
   ['autopilot_slice_timeout', 'decision'],
   ['autopilot_slice_log_stall', 'decision'],
@@ -1187,6 +1196,106 @@ function metadataString(
   return null;
 }
 
+type SpawnGuardSnapshot = {
+  event: string | null;
+  blockedReason: string | null;
+  domain: string | null;
+  modelTier: string | null;
+  domainCurrent: number | null;
+  domainMax: number | null;
+  totalCurrent: number | null;
+  totalMax: number | null;
+  retryAt: string | null;
+  retryInMs: number | null;
+  isRateLimited: boolean;
+};
+
+function parseSpawnGuardRateCounters(reason: string | null): {
+  domainCurrent: number | null;
+  domainMax: number | null;
+  totalCurrent: number | null;
+  totalMax: number | null;
+} {
+  if (!reason) {
+    return {
+      domainCurrent: null,
+      domainMax: null,
+      totalCurrent: null,
+      totalMax: null,
+    };
+  }
+
+  const match = reason.match(
+    /rate limit:\s*(\d+)\s*\/\s*(\d+)\s*domain(?:\s*,\s*(\d+)\s*\/\s*(\d+)\s*total)?/i
+  );
+  if (!match) {
+    return {
+      domainCurrent: null,
+      domainMax: null,
+      totalCurrent: null,
+      totalMax: null,
+    };
+  }
+
+  return {
+    domainCurrent: Number.isFinite(Number(match[1])) ? Number(match[1]) : null,
+    domainMax: Number.isFinite(Number(match[2])) ? Number(match[2]) : null,
+    totalCurrent: Number.isFinite(Number(match[3])) ? Number(match[3]) : null,
+    totalMax: Number.isFinite(Number(match[4])) ? Number(match[4]) : null,
+  };
+}
+
+function extractSpawnGuardSnapshot(
+  item: LiveActivityItem | null,
+  detail: AutopilotSliceDetail | null
+): SpawnGuardSnapshot | null {
+  if (!item) return null;
+  const metadata = metadataForItem(item);
+  if (!metadata) return null;
+
+  const event = metadataString(metadata, ['event', 'event_name', 'eventName']);
+  const spawnGuard = asMetadataRecord(metadata.spawn_guard);
+  const checks = asMetadataRecord(spawnGuard?.checks);
+  const rateLimit = asMetadataRecord(checks?.rateLimit ?? checks?.rate_limit);
+
+  const blockedReason =
+    metadataString(metadata, ['blocked_reason', 'blockedReason', 'last_error', 'lastError']) ??
+    detail?.error ??
+    null;
+
+  const parsedCounters = parseSpawnGuardRateCounters(blockedReason);
+  const domainCurrent = numericFromValue(rateLimit?.current) ?? parsedCounters.domainCurrent;
+  const domainMax = numericFromValue(rateLimit?.max) ?? parsedCounters.domainMax;
+  const totalCurrent = parsedCounters.totalCurrent;
+  const totalMax = parsedCounters.totalMax;
+
+  const rateLimitPassed = typeof rateLimit?.passed === 'boolean' ? rateLimit.passed : null;
+  const isRateLimited =
+    (event?.includes('rate_limited') ?? false) ||
+    Boolean(blockedReason && /rate limit/i.test(blockedReason)) ||
+    rateLimitPassed === false;
+  const looksLikeSpawnGuardEvent = event?.includes('spawn_guard') ?? false;
+
+  if (!looksLikeSpawnGuardEvent && !isRateLimited && !spawnGuard && !blockedReason) return null;
+
+  return {
+    event,
+    blockedReason,
+    domain:
+      metadataString(metadata, ['domain']) ?? metadataString(spawnGuard, ['domain', 'task_domain']),
+    modelTier:
+      metadataString(metadata, ['spawn_guard_model_tier', 'model_tier']) ??
+      metadataString(spawnGuard, ['modelTier', 'model_tier']),
+    domainCurrent,
+    domainMax,
+    totalCurrent,
+    totalMax,
+    retryAt: metadataString(metadata, ['next_retry_at', 'nextRetryAt']),
+    retryInMs: numericFromValue(metadata.next_retry_in_ms ?? metadata.nextRetryInMs),
+    isRateLimited,
+  };
+}
+
 function inferAgentNameFromSkills(requiredSkills: string[]): string | null {
   if (requiredSkills.length !== 1) return null;
   const skill = requiredSkills[0]?.trim();
@@ -1581,6 +1690,9 @@ function describeDetailOutcome(
   } | null
 ): DetailOutcome | null {
   const metadata = metadataForItem(item);
+  const eventName = normalizeStatusKey(
+    metadataString(metadata, ['event', 'event_name', 'eventName'])
+  );
   const status = normalizeStatusKey(item.state ?? item.phase ?? item.kind ?? item.type);
   const parsedStatus = normalizeStatusKey(breakdown?.parsedStatus ?? detail?.parsedStatus ?? status);
   const stopReason = normalizeStatusKey(breakdown?.stopReason ?? detail?.stopReason);
@@ -1610,6 +1722,32 @@ function describeDetailOutcome(
     item.type === 'milestone_completed' ||
     isDoneLikeStatus(parsedStatus) ||
     stopReason === 'completed';
+  const spawnGuardRateLimited =
+    eventName.includes('spawn_guard_rate_limited') ||
+    Boolean(blockedReason && /rate limit/i.test(blockedReason));
+  const spawnGuardBlocked = eventName.includes('spawn_guard_blocked');
+
+  if (spawnGuardRateLimited) {
+    return {
+      label: 'Rate limited',
+      summary: blockedReason
+        ? humanizeActivityBody(blockedReason) ?? 'Spawn guard rate limit reached.'
+        : 'Spawn guard rate limit reached.',
+      hint: 'Adjust limits in settings or wait for the window to reset before retrying.',
+      tone: 'warning',
+    };
+  }
+
+  if (spawnGuardBlocked) {
+    return {
+      label: 'Spawn guard blocked',
+      summary: blockedReason
+        ? humanizeActivityBody(blockedReason) ?? 'Spawn guard denied dispatch.'
+        : 'Spawn guard denied dispatch.',
+      hint: 'Review guard checks, then retry or approve an override.',
+      tone: 'critical',
+    };
+  }
 
   if (
     item.type === 'run_failed' ||
@@ -1975,8 +2113,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onFocusRunId,
   onPlayNextUp,
   onStartAutopilot,
+  onPauseWorkstream,
   onCreateInitiative,
   onOpenMissionControl,
+  onOpenSettings,
   isLoading = false,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -2001,7 +2141,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
-  const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | null>(null);
+  const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | 'pause' | null>(null);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
   const [autoFixPending, setAutoFixPending] = useState(false);
   const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
@@ -2076,7 +2216,32 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return map;
   }, [initiatives]);
-  // "Next Up" queue controls live in the right sidebar, not in the Activity feed.
+  const sessionsByRecency = useMemo(() => {
+    const copy = [...sessions];
+    copy.sort((left, right) => {
+      const leftEpoch = toEpoch(left.updatedAt ?? left.lastEventAt ?? left.startedAt ?? null);
+      const rightEpoch = toEpoch(right.updatedAt ?? right.lastEventAt ?? right.startedAt ?? null);
+      return rightEpoch - leftEpoch;
+    });
+    return copy;
+  }, [sessions]);
+  const nowWorkingSession = useMemo(
+    () =>
+      sessionsByRecency.find((session) => {
+        const key = normalizeStatusKey(session.status);
+        return key === 'running' || key === 'active' || key === 'in_progress' || key === 'blocked';
+      }) ?? null,
+    [sessionsByRecency]
+  );
+  const nextQueuedSession = useMemo(
+    () =>
+      sessionsByRecency.find((session) => {
+        if (nowWorkingSession && session.id === nowWorkingSession.id) return false;
+        const key = normalizeStatusKey(session.status);
+        return key === 'queued' || key === 'pending' || key === 'paused' || key === 'todo';
+      }) ?? null,
+    [sessionsByRecency, nowWorkingSession]
+  );
 
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
@@ -2550,6 +2715,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () => metadataForItem(activeDecorated?.item ?? null),
     [activeDecorated]
   );
+  const activeSpawnGuard = useMemo(
+    () => extractSpawnGuardSnapshot(activeDecorated?.item ?? null, activeAutopilotContext),
+    [activeAutopilotContext, activeDecorated]
+  );
+  const activeSpawnGuardRetryLabel = useMemo(() => {
+    if (!activeSpawnGuard?.retryAt) return null;
+    const retryDate = new Date(activeSpawnGuard.retryAt);
+    if (!Number.isFinite(retryDate.getTime())) return null;
+    const absolute = retryDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const relative = formatRelativeTime(activeSpawnGuard.retryAt);
+    return relative ? `${absolute} (${relative})` : absolute;
+  }, [activeSpawnGuard]);
   const activeIdentity = useMemo(
     () =>
       activeDecorated
@@ -2664,7 +2841,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, []);
 
   const runEmptyAction = useCallback(
-    async (action: 'play' | 'autopilot', handler: (() => Promise<void> | void) | undefined) => {
+    async (
+      action: 'play' | 'autopilot' | 'pause',
+      handler: (() => Promise<void> | void) | undefined
+    ) => {
       if (!handler) return;
       setEmptyActionError(null);
       setEmptyActionPending(action);
@@ -3384,6 +3564,68 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 </div>
               </div>
 
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-micro uppercase tracking-[0.08em] text-muted">Now working</p>
+                    <p
+                      className="truncate text-body font-semibold text-primary"
+                      title={nowWorkingSession?.title ?? 'No active workstream'}
+                    >
+                      {nowWorkingSession?.title ?? 'No active workstream'}
+                    </p>
+                    <p
+                      className="truncate text-caption text-secondary"
+                      title={nextQueuedSession?.title ?? 'Queue is empty'}
+                    >
+                      Up next: {nextQueuedSession?.title ?? 'Queue is empty'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void runEmptyAction(
+                          'pause',
+                          nowWorkingSession && onPauseWorkstream
+                            ? () => onPauseWorkstream(nowWorkingSession)
+                            : undefined
+                        )
+                      }
+                      disabled={!nowWorkingSession || !onPauseWorkstream || emptyActionPending !== null}
+                      className="rounded-full border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.08] disabled:opacity-45"
+                    >
+                      {emptyActionPending === 'pause' ? 'Pausing...' : 'Pause'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runEmptyAction('play', onPlayNextUp)}
+                      disabled={!onPlayNextUp || emptyActionPending !== null}
+                      className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-2.5 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
+                    >
+                      {emptyActionPending === 'play' ? 'Starting...' : 'Start next'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runEmptyAction('autopilot', onStartAutopilot)}
+                      disabled={!onStartAutopilot || emptyActionPending !== null}
+                      className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-2.5 py-1 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
+                    >
+                      {emptyActionPending === 'autopilot' ? 'Enabling...' : 'Auto'}
+                    </button>
+                    {onOpenMissionControl && (
+                      <button
+                        type="button"
+                        onClick={onOpenMissionControl}
+                        className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
+                      >
+                        Open queue
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
@@ -3549,7 +3791,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     disabled={emptyActionPending !== null}
                     className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
                   >
-                    {emptyActionPending === 'play' ? 'Dispatching...' : 'Play Next Up'}
+                    {emptyActionPending === 'play' ? 'Starting...' : 'Start next'}
                   </button>
                 )}
                 {onStartAutopilot && (
@@ -3559,7 +3801,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     disabled={emptyActionPending !== null}
                     className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-3 py-1.5 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
                   >
-                    {emptyActionPending === 'autopilot' ? 'Starting...' : 'Start Autopilot'}
+                    {emptyActionPending === 'autopilot' ? 'Enabling...' : 'Auto'}
                   </button>
                 )}
                 {onCreateInitiative && (
@@ -3577,7 +3819,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     onClick={onOpenMissionControl}
                     className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
                   >
-                    Open Mission Control
+                    Open queue
                   </button>
                 )}
               </div>
@@ -4044,6 +4286,82 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             {autoFixNotice ?? activeAutoFixTarget.helperText}
                           </p>
                         )}
+                      </div>
+                    )}
+
+                    {activeDetailTab === 'overview' && activeSpawnGuard && (
+                      <div className="mt-3 rounded-xl border border-amber-300/26 bg-amber-500/[0.08] px-3.5 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-amber-100/85">
+                            Spawn guard
+                          </p>
+                          <Pill tone={activeSpawnGuard.isRateLimited ? 'muted' : 'red'}>
+                            {activeSpawnGuard.isRateLimited ? 'Rate limited' : 'Blocked'}
+                          </Pill>
+                        </div>
+                        <p className="mt-1 text-caption text-amber-100/80">
+                          Dispatch was stopped before launch. Adjust limits or retry after the window resets.
+                        </p>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Domain window</div>
+                            <div className="mt-1 text-body font-semibold tabular-nums text-primary">
+                              {activeSpawnGuard.domainCurrent !== null && activeSpawnGuard.domainMax !== null
+                                ? `${activeSpawnGuard.domainCurrent}/${activeSpawnGuard.domainMax} per hour`
+                                : 'Not provided'}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
+                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Global window</div>
+                            <div className="mt-1 text-body font-semibold tabular-nums text-primary">
+                              {activeSpawnGuard.totalCurrent !== null && activeSpawnGuard.totalMax !== null
+                                ? `${activeSpawnGuard.totalCurrent}/${activeSpawnGuard.totalMax} per hour`
+                                : 'Not provided'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 text-caption text-secondary">
+                          {activeSpawnGuard.domain && (
+                            <Pill tone="muted">Domain: {humanizeText(activeSpawnGuard.domain)}</Pill>
+                          )}
+                          {activeSpawnGuard.modelTier && (
+                            <Pill tone="muted">Tier: {humanizeText(activeSpawnGuard.modelTier)}</Pill>
+                          )}
+                          {activeSpawnGuardRetryLabel && (
+                            <Pill tone="muted">Retry: {activeSpawnGuardRetryLabel}</Pill>
+                          )}
+                          {!activeSpawnGuardRetryLabel && activeSpawnGuard.retryInMs !== null && (
+                            <Pill tone="muted">
+                              Retry in ~{Math.max(1, Math.round(activeSpawnGuard.retryInMs / 1000))}s
+                            </Pill>
+                          )}
+                        </div>
+                        {activeSpawnGuard.blockedReason && (
+                          <p className="mt-2 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 text-caption text-primary">
+                            {humanizeActivityBody(activeSpawnGuard.blockedReason) ?? activeSpawnGuard.blockedReason}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {onOpenSettings && (
+                            <button
+                              type="button"
+                              onClick={onOpenSettings}
+                              className="rounded-full border border-amber-300/32 bg-amber-500/[0.14] px-3 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-500/[0.2]"
+                            >
+                              Edit limits
+                            </button>
+                          )}
+                          {activeAutoFixTarget && (
+                            <button
+                              type="button"
+                              onClick={() => void runAutoFixAction()}
+                              disabled={autoFixPending}
+                              className="rounded-full border border-lime/30 bg-lime/[0.12] px-3 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-lime/[0.18] disabled:opacity-50"
+                            >
+                              {autoFixPending ? 'Scheduling...' : 'Retry now'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
 
