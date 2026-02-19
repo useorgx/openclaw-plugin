@@ -2105,8 +2105,10 @@ function DashboardShell({
 	            onFocusRunId={focusActivityRunId}
               onPlayNextUp={playNextUpFromActivity}
               onStartAutopilot={startAutopilotFromActivity}
+              onPauseWorkstream={pauseSessionWorkstream}
               onCreateInitiative={startInitiative}
               onOpenMissionControl={() => switchDashboardView('mission-control')}
+              onOpenSettings={() => openSettings('orgx')}
               isLoading={isLoading}
 	          />
 	        </section>

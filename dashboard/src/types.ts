@@ -287,6 +287,9 @@ export interface MissionControlGraphResponse {
 
 export type NextUpRunnerSource = 'assigned' | 'inferred' | 'fallback';
 export type NextUpQueueState = 'queued' | 'running' | 'blocked' | 'idle';
+export type NextUpPlaybackState = 'queued' | 'running' | 'blocked' | 'paused' | 'idle';
+export type NextUpAutoRuntimeState = 'idle' | 'running' | 'stopping' | 'error';
+export type NextUpQueueOrigin = 'hierarchy' | 'initiative_modal' | 'timeline' | 'system';
 
 export interface NextUpQueueItem {
   initiativeId: string;
@@ -306,6 +309,10 @@ export interface NextUpQueueItem {
   blockReason: string | null;
   isPinned?: boolean;
   pinnedRank?: number | null;
+  playbackState?: NextUpPlaybackState;
+  autoIntentEnabled?: boolean;
+  autoRuntimeState?: NextUpAutoRuntimeState;
+  queueOrigin?: NextUpQueueOrigin;
   autoContinue: {
     status: AutoContinueStatus;
     activeTaskId: string | null;

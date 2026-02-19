@@ -12,6 +12,7 @@ import type {
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
@@ -344,6 +345,9 @@ function MissionControlInner({
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
+  const [railActionKey, setRailActionKey] = useState<
+    'start' | 'pause' | 'defer' | 'auto' | null
+  >(null);
   const [selectedInitiativeIds, setSelectedInitiativeIds] = useState<Set<string>>(new Set());
   const [confirmBulkInitiativeDelete, setConfirmBulkInitiativeDelete] = useState(false);
   const [bulkInitiativeNotice, setBulkInitiativeNotice] = useState<{
@@ -640,7 +644,29 @@ function MissionControlInner({
     embedMode,
     enabled: initiatives.length > 0,
   });
+  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextActionQueueItem = nextActionQueue.items[0] ?? null;
+  const nowWorkingItem = useMemo(
+    () =>
+      nextActionQueue.items.find(
+        (item) => item.playbackState === 'running' || item.playbackState === 'blocked'
+      ) ??
+      nextActionQueue.items.find(
+        (item) => item.queueState === 'running' || item.queueState === 'blocked'
+      ) ??
+      null,
+    [nextActionQueue.items]
+  );
+  const nextQueuedItem = useMemo(
+    () =>
+      nextActionQueue.items.find((item) => {
+        if (nowWorkingItem && item.initiativeId === nowWorkingItem.initiativeId && item.workstreamId === nowWorkingItem.workstreamId) {
+          return false;
+        }
+        return item.playbackState === 'queued' || item.playbackState === 'idle' || item.queueState === 'queued' || item.queueState === 'idle';
+      }) ?? null,
+    [nextActionQueue.items, nowWorkingItem]
+  );
   const nextActionInitiative = useMemo(() => {
     if (!nextActionQueueItem) return fallbackNextActionInitiative;
     return (
@@ -648,7 +674,9 @@ function MissionControlInner({
       fallbackNextActionInitiative
     );
   }, [fallbackNextActionInitiative, initiatives, nextActionQueueItem]);
-  const autopilotInitiativeId = nextActionInitiative?.id ?? null;
+  const railFocusItem = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem ?? null;
+  const autopilotInitiativeId =
+    railFocusItem?.initiativeId ?? nextActionInitiative?.id ?? null;
 
   const setInitiativeSelected = useCallback(
     (initiativeId: string, selected: boolean, shiftKey: boolean) => {
@@ -1000,39 +1028,91 @@ function MissionControlInner({
         });
       });
   }, [mutations.updateEntity, nextActionInitiative, openInitiativeFromNextUp]);
-  const startNextAction = useCallback(() => {
-    if (!nextActionQueueItem) {
-      if (nextActionInitiative) {
-        openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
-      }
-      return;
-    }
-
-    setNextActionNotice(null);
-    void nextActionQueue
-      .playWorkstream({
-        initiativeId: nextActionQueueItem.initiativeId,
-        workstreamId: nextActionQueueItem.workstreamId,
-        agentId: nextActionQueueItem.runnerAgentId,
-      })
-      .then(() => {
+  const runRailAction = useCallback(
+    async (
+      key: 'start' | 'pause' | 'defer' | 'auto',
+      action: () => Promise<unknown>,
+      successMessage: string
+    ) => {
+      setRailActionKey(key);
+      setNextActionNotice(null);
+      try {
+        await action();
         setNextActionNotice({
           tone: 'success',
-          message: `Dispatched ${nextActionQueueItem.workstreamTitle}.`,
+          message: successMessage,
         });
-      })
-      .catch((err) => {
+      } catch (error) {
         setNextActionNotice({
           tone: 'error',
-          message: err instanceof Error ? err.message : 'Failed to dispatch next workstream.',
+          message: error instanceof Error ? error.message : 'Action failed.',
         });
-      });
-  }, [
-    nextActionQueue,
-    nextActionQueueItem,
-    nextActionInitiative,
-    openInitiativeFromNextUp,
-  ]);
+      } finally {
+        setRailActionKey(null);
+      }
+    },
+    []
+  );
+  const pauseNowWorking = useCallback(() => {
+    if (!nowWorkingItem) return Promise.resolve();
+    return runRailAction(
+      'pause',
+      () =>
+        nextUpActions.stopTriage({
+          initiativeId: nowWorkingItem.initiativeId,
+          workstreamId: nowWorkingItem.workstreamId,
+          placement: 'bottom',
+          resetToTodo: false,
+        }),
+      `Paused ${nowWorkingItem.workstreamTitle} and moved it to bottom of queue.`
+    );
+  }, [nextUpActions, nowWorkingItem, runRailAction]);
+  const deferNowWorking = useCallback(() => {
+    if (!nowWorkingItem) return Promise.resolve();
+    const isRunningLike =
+      nowWorkingItem.playbackState === 'running' ||
+      nowWorkingItem.playbackState === 'blocked' ||
+      nowWorkingItem.queueState === 'running' ||
+      nowWorkingItem.queueState === 'blocked';
+    return runRailAction(
+      'defer',
+      () =>
+        isRunningLike
+          ? nextUpActions.stopTriage({
+              initiativeId: nowWorkingItem.initiativeId,
+              workstreamId: nowWorkingItem.workstreamId,
+              placement: 'bottom',
+              resetToTodo: false,
+            })
+          : nextUpActions.move({
+              initiativeId: nowWorkingItem.initiativeId,
+              workstreamId: nowWorkingItem.workstreamId,
+              placement: 'bottom',
+            }),
+      `Deferred ${nowWorkingItem.workstreamTitle} to bottom of queue.`
+    );
+  }, [nextUpActions, nowWorkingItem, runRailAction]);
+  const toggleRailAutoContinue = useCallback(() => {
+    const target = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem;
+    if (!target) return Promise.resolve();
+    const autoEnabled =
+      target.autoIntentEnabled === true &&
+      (target.autoRuntimeState === 'running' || target.autoRuntimeState === 'stopping');
+    return runRailAction(
+      'auto',
+      () =>
+        autoEnabled
+          ? nextActionQueue.stopInitiativeAutoContinue({ initiativeId: target.initiativeId })
+          : nextActionQueue.startWorkstreamAutoContinue({
+              initiativeId: target.initiativeId,
+              workstreamId: target.workstreamId,
+              agentId: target.runnerAgentId,
+            }),
+      autoEnabled
+        ? `Stopped auto-continue for ${target.initiativeTitle}.`
+        : `Auto-continue enabled for ${target.workstreamTitle}.`
+    );
+  }, [nextActionQueue, nextActionQueueItem, nextQueuedItem, nowWorkingItem, runRailAction]);
   const openNextActionInitiative = useCallback(() => {
     if (!nextActionInitiative) return;
     openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
@@ -1058,9 +1138,13 @@ function MissionControlInner({
   );
   const nextActionMode = useMemo(() => {
     if (!nextActionInitiative) return 'none' as const;
+    if (nowWorkingItem?.queueState === 'running' || nowWorkingItem?.playbackState === 'running') {
+      return 'running' as const;
+    }
     if (
-      nextActionQueueItem?.queueState === 'running' ||
-      nextActionQueueItem?.autoContinue?.status === 'running'
+      nextActionQueueItem?.autoIntentEnabled === true &&
+      (nextActionQueueItem.autoRuntimeState === 'running' ||
+        nextActionQueueItem.autoRuntimeState === 'stopping')
     ) {
       return 'running' as const;
     }
@@ -1076,7 +1160,13 @@ function MissionControlInner({
       return 'completed' as const;
     }
     return 'active_no_queue' as const;
-  }, [nextActionInitiative, nextActionQueueItem, nextActionStartableStatuses, nextActionStatusKey]);
+  }, [
+    nextActionInitiative,
+    nextActionQueueItem,
+    nextActionStartableStatuses,
+    nextActionStatusKey,
+    nowWorkingItem,
+  ]);
   const nextActionSummary = useMemo(() => {
     if (!nextActionInitiative) {
       return {
@@ -1139,14 +1229,42 @@ function MissionControlInner({
     if (nextActionMode === 'completed') return 'Review initiative';
     return 'Open initiative';
   }, [nextActionMode]);
-  const nextUpInlineSummary = nextActionQueueItem
-    ? nextActionQueueItem.workstreamTitle
-    : 'No queued workstream';
-  const nextUpInlineContextLabel =
-    nextActionQueueItem?.initiativeTitle ?? nextActionInitiative?.name ?? 'No initiative selected';
-  const nextUpInlineSubline = nextActionQueueItem?.nextTaskTitle ?? nextActionSummary.detail;
-  const nextUpInlineStatusLabel = nextUpModeLabel(nextActionMode);
-  const nextUpInlineStatusTone = nextUpModeTone(nextActionMode);
+  const railMode = useMemo(() => {
+    if (nowWorkingItem?.playbackState === 'running' || nowWorkingItem?.queueState === 'running') {
+      return 'running' as const;
+    }
+    if (nowWorkingItem?.playbackState === 'blocked' || nowWorkingItem?.queueState === 'blocked') {
+      return 'blocked' as const;
+    }
+    if (nextQueuedItem) return 'queued' as const;
+    if (nextActionMode === 'startable') return 'startable' as const;
+    if (nextActionMode === 'completed') return 'completed' as const;
+    if (nextActionInitiative) return 'active_no_queue' as const;
+    return 'none' as const;
+  }, [nextActionInitiative, nextActionMode, nextQueuedItem, nowWorkingItem]);
+  const nowWorkingHeadline = nowWorkingItem?.workstreamTitle ?? 'No active workstream';
+  const nowWorkingInitiativeLabel =
+    nowWorkingItem?.initiativeTitle ?? nextActionInitiative?.name ?? 'No initiative selected';
+  const nowWorkingSubline = nowWorkingItem
+    ? [
+        nowWorkingItem.nextTaskTitle ? `Next: ${nowWorkingItem.nextTaskTitle}` : null,
+        nowWorkingItem.blockReason ? `Blocked: ${nowWorkingItem.blockReason}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : nextQueuedItem
+      ? `Next up: ${nextQueuedItem.workstreamTitle}`
+      : nextActionSummary.detail;
+  const nextQueuedHeadline = nextQueuedItem?.workstreamTitle ?? 'Queue is empty';
+  const nextQueuedSubline = nextQueuedItem?.nextTaskTitle
+    ? `Next task: ${nextQueuedItem.nextTaskTitle}`
+    : 'Add or reorder workstreams in queue.';
+  const railStatusLabel = nextUpModeLabel(railMode);
+  const railStatusTone = nextUpModeTone(railMode);
+  const railAutoTarget = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem;
+  const railAutoEnabled =
+    railAutoTarget?.autoIntentEnabled === true &&
+    (railAutoTarget.autoRuntimeState === 'running' || railAutoTarget.autoRuntimeState === 'stopping');
   const nextUpRailLayoutId = 'next-up-surface';
   const nextUpMorphTransition = useMemo(
     () => ({ type: 'spring' as const, stiffness: 340, damping: 38, mass: 0.72 }),
@@ -1186,7 +1304,15 @@ function MissionControlInner({
 
   useEffect(() => {
     setNextActionNotice(null);
-  }, [nextActionInitiative?.id, nextActionQueueItem?.initiativeId, nextActionQueueItem?.workstreamId]);
+  }, [
+    nextActionInitiative?.id,
+    nextActionQueueItem?.initiativeId,
+    nextActionQueueItem?.workstreamId,
+    nowWorkingItem?.initiativeId,
+    nowWorkingItem?.workstreamId,
+    nextQueuedItem?.initiativeId,
+    nextQueuedItem?.workstreamId,
+  ]);
 
   useEffect(() => {
     if (!modalTarget) return;
@@ -1612,10 +1738,10 @@ function MissionControlInner({
                       <div className="flex min-w-0 flex-1 items-center gap-2.5">
                         {nextActionQueue.isLoading ? (
                           <Skeleton className="h-6 w-6 rounded-full" />
-                        ) : nextActionQueueItem ? (
+                        ) : railFocusItem ? (
                           <AgentAvatar
-                            name={nextActionQueueItem.runnerAgentName}
-                            hint={`${nextActionQueueItem.runnerAgentId} ${nextActionQueueItem.runnerSource}`}
+                            name={railFocusItem.runnerAgentName}
+                            hint={`${railFocusItem.runnerAgentId} ${railFocusItem.runnerSource}`}
                             size="xs"
                           />
                         ) : (
@@ -1624,7 +1750,7 @@ function MissionControlInner({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/76">
-                              Next Up
+                              Now Working
                             </span>
                             {nextActionQueue.isLoading ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-white/[0.04] px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] text-secondary">
@@ -1632,8 +1758,8 @@ function MissionControlInner({
                                 Syncing
                               </span>
                             ) : (
-                              <span className={`rounded-full border px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] ${nextUpInlineStatusTone}`}>
-                                {nextUpInlineStatusLabel}
+                              <span className={`rounded-full border px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] ${railStatusTone}`}>
+                                {railStatusLabel}
                               </span>
                             )}
                           </div>
@@ -1644,12 +1770,16 @@ function MissionControlInner({
                             </div>
                           ) : (
                             <>
-                              <p className="truncate text-body font-semibold leading-snug text-bright" title={nextUpInlineSummary}>
-                                {nextUpInlineSummary}
+                              <p className="truncate text-body font-semibold leading-snug text-bright" title={nowWorkingHeadline}>
+                                {nowWorkingHeadline}
                               </p>
-                              <p className="truncate text-caption leading-snug text-secondary" title={nextUpInlineSubline}>
-                                {nextUpInlineContextLabel}
-                                {nextUpInlineSubline ? ` · ${nextUpInlineSubline}` : ''}
+                              <p className="truncate text-caption leading-snug text-secondary" title={nowWorkingSubline}>
+                                {nowWorkingInitiativeLabel}
+                                {nowWorkingSubline ? ` · ${nowWorkingSubline}` : ''}
+                              </p>
+                              <p className="truncate text-micro leading-snug text-secondary/85" title={nextQueuedHeadline}>
+                                Up next: {nextQueuedHeadline}
+                                {nextQueuedSubline ? ` · ${nextQueuedSubline}` : ''}
                               </p>
                             </>
                           )}
@@ -1658,24 +1788,60 @@ function MissionControlInner({
                       <div className="ml-auto flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={startNextAction}
-                          disabled={!nextActionQueueItem || nextActionBusy}
+                          onClick={() => {
+                            const startCandidate = nextQueuedItem ?? nextActionQueueItem;
+                            if (nowWorkingItem) {
+                              void pauseNowWorking();
+                              return;
+                            }
+                            if (startCandidate) {
+                              void runRailAction(
+                                'start',
+                                () =>
+                                  nextActionQueue.playWorkstream({
+                                    initiativeId: startCandidate.initiativeId,
+                                    workstreamId: startCandidate.workstreamId,
+                                    agentId: startCandidate.runnerAgentId,
+                                  }),
+                                `Started ${startCandidate.workstreamTitle}.`
+                              );
+                              return;
+                            }
+                            openNextActionInitiative();
+                          }}
+                          disabled={nextActionBusy || railActionKey === 'start' || railActionKey === 'pause'}
                           className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
-                          title={
-                            nextActionQueueItem
-                              ? `Dispatch ${nextActionQueueItem.workstreamTitle}`
-                              : 'No queued workstream to dispatch'
-                          }
+                          title={nowWorkingItem ? `Pause ${nowWorkingItem.workstreamTitle}` : 'Start next workstream'}
                         >
-                          Play
+                          {nowWorkingItem ? 'Pause' : 'Start'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deferNowWorking()}
+                          disabled={!nowWorkingItem || railActionKey === 'defer' || nextActionBusy}
+                          className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+                          title="Send current workstream to the bottom of queue"
+                        >
+                          Defer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void toggleRailAutoContinue()}
+                          disabled={!railAutoTarget || railActionKey === 'auto' || nextActionBusy}
+                          className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+                          data-state={railAutoEnabled ? 'active' : 'idle'}
+                          data-tone="teal"
+                          title={railAutoEnabled ? 'Stop automatic continuation' : 'Continue automatically for this initiative'}
+                        >
+                          {railAutoEnabled ? 'Auto on' : 'Auto'}
                         </button>
                         <button
                           type="button"
                           onClick={toggleNextUpSurface}
                           className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold"
-                          title="Expand Next Up rail"
+                          title="Open queue"
                         >
-                          Open
+                          Queue
                         </button>
                       </div>
                     </motion.div>
@@ -1741,7 +1907,7 @@ function MissionControlInner({
                     />
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-[240px]">
-                        <p className="section-kicker">Next action</p>
+                        <p className="section-kicker">Playback context</p>
                         <p className="mt-1 text-heading font-semibold leading-snug tracking-tight text-bright">
                           {nextActionSummary.headline}
                         </p>
@@ -1761,21 +1927,7 @@ function MissionControlInner({
                         )}
                       </div>
                       <div className="ml-auto flex flex-wrap items-center gap-2.5 xl:self-end">
-                        {(nextActionMode === 'queued' || nextActionMode === 'running') && nextActionQueueItem ? (
-                          <button
-                            type="button"
-                            onClick={
-                              nextActionMode === 'running'
-                                ? () => handleFollowFromNextUp(nextActionQueueItem)
-                                : startNextAction
-                            }
-                            disabled={nextActionBusy}
-                            className="control-pill h-9 px-4 text-body font-semibold disabled:opacity-45"
-                            data-state="active"
-                          >
-                            {nextActionMode === 'running' ? 'Follow workstream' : 'Play next workstream'}
-                          </button>
-                        ) : nextActionMode === 'startable' ? (
+                        {nextActionMode === 'startable' ? (
                           <button
                             type="button"
                             onClick={startInitiativeFromNextAction}
@@ -1800,7 +1952,7 @@ function MissionControlInner({
                           onClick={toggleNextUpSurface}
                           className="control-pill h-9 px-4 text-body font-semibold"
                         >
-                          {nextUpRailOpen ? 'Hide Next Up' : 'Open Next Up'}
+                          {nextUpRailOpen ? 'Hide Queue' : 'Open Queue'}
                         </button>
                       </div>
                     </div>

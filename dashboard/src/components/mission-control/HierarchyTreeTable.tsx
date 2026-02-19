@@ -12,6 +12,7 @@ import type { useEntityMutations } from '@/hooks/useEntityMutations';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useMissionControl } from './MissionControlContext';
+import { buildOrgxHeaders } from '@/lib/http';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
 
@@ -431,7 +432,7 @@ export function HierarchyTreeTable({
     const milestoneId = node.type === 'milestone' ? node.id : null;
 
     if (!initiativeId || !workstreamId) {
-      setBulkNotice({ tone: 'error', message: 'Cannot add to Next Up: missing initiative/workstream id.' });
+      setBulkNotice({ tone: 'error', message: 'Cannot add to queue: missing initiative/workstream id.' });
       return;
     }
 
@@ -441,16 +442,60 @@ export function HierarchyTreeTable({
         tone: 'success',
         message:
           node.type === 'task'
-            ? 'Pinned task workstream to Next Up.'
+            ? 'Added task workstream to queue.'
             : node.type === 'milestone'
-              ? 'Pinned milestone workstream to Next Up.'
-              : 'Pinned workstream to Next Up.',
+              ? 'Added milestone workstream to queue.'
+              : 'Added workstream to queue.',
       });
       window.setTimeout(() => setBulkNotice(null), 1800);
     } catch (err) {
       setBulkNotice({
         tone: 'error',
-        message: err instanceof Error ? err.message : 'Failed to pin to Next Up.',
+        message: err instanceof Error ? err.message : 'Failed to add workstream to queue.',
+      });
+      window.setTimeout(() => setBulkNotice(null), 2400);
+    }
+  };
+
+  const playNow = async (node: MissionControlNode) => {
+    const initiativeId = node.initiativeId ?? '';
+    const workstreamId =
+      node.type === 'workstream' ? node.id : (node.workstreamId ?? '');
+
+    if (!initiativeId || !workstreamId) {
+      setBulkNotice({ tone: 'error', message: 'Cannot start now: missing initiative/workstream id.' });
+      return;
+    }
+
+    try {
+      const response = await fetch('/orgx/api/mission-control/next-up/play', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify({
+          initiativeId,
+          workstreamId,
+          fastAck: true,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; message?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(
+          body?.error ??
+            body?.message ??
+            `Failed to start workstream (${response.status})`
+        );
+      }
+      setBulkNotice({
+        tone: 'success',
+        message: `Started ${node.title}.`,
+      });
+      window.setTimeout(() => setBulkNotice(null), 1800);
+    } catch (err) {
+      setBulkNotice({
+        tone: 'error',
+        message: err instanceof Error ? err.message : 'Failed to start workstream now.',
       });
       window.setTimeout(() => setBulkNotice(null), 2400);
     }
@@ -917,7 +962,7 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2 lg:overflow-visible">
+      <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
           <thead>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
@@ -1105,12 +1150,25 @@ export function HierarchyTreeTable({
 
                           <button
                             type="button"
-                            title="Add to Next Up"
+                            title="Play now"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void playNow(node);
+                            }}
+                            aria-label={`Play now: ${node.type} ${node.title}`}
+                            className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-teal-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                          </button>
+
+                          <button
+                            type="button"
+                            title="Add to queue"
                             onClick={(event) => {
                               event.stopPropagation();
                               void addToNextUp(node);
                             }}
-                            aria-label={`Add to Next Up: ${node.type} ${node.title}`}
+                            aria-label={`Add to queue: ${node.type} ${node.title}`}
                             className="flex items-center justify-center w-5 h-5 rounded text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">

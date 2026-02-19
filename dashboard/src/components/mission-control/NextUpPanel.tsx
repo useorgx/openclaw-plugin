@@ -173,10 +173,15 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
 }
 
 function isAutoRunningForItem(item: NextUpQueueItem): boolean {
+  if (item.autoIntentEnabled === true) {
+    return item.autoRuntimeState === 'running' || item.autoRuntimeState === 'stopping';
+  }
   if (!item.autoContinue) return false;
   const status = item.autoContinue.status;
   if (status !== 'running' && status !== 'stopping') return false;
-  return item.queueState === 'running';
+  // Avoid ghost "Auto on" states from stale status snapshots.
+  if (!item.autoContinue.activeRunId && !item.autoContinue.activeTaskId) return false;
+  return item.queueState === 'running' || item.queueState === 'blocked';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -315,11 +320,11 @@ export function NextUpPanel({
     [isCompact, items]
   );
   const nowPlaying = useMemo(
-    () => items.find((item) => item.queueState === 'running') ?? null,
+    () => items.find((item) => item.queueState === 'running' || item.queueState === 'blocked') ?? null,
     [items]
   );
-  const runningOrBlockedCount = useMemo(
-    () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+  const blockedCount = useMemo(
+    () => items.filter((item) => item.queueState === 'blocked').length,
     [items]
   );
   const playableItem = useMemo(
@@ -552,9 +557,9 @@ export function NextUpPanel({
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-micro uppercase tracking-[0.08em] text-muted">Now playing</p>
+                <p className="text-micro uppercase tracking-[0.08em] text-muted">Now working</p>
                 <p className="truncate text-caption font-semibold text-white" title={nowPlaying?.workstreamTitle ?? ''}>
-                  {nowPlaying ? nowPlaying.workstreamTitle : 'Queue paused'}
+                  {nowPlaying ? nowPlaying.workstreamTitle : 'No active workstream'}
                 </p>
                 {!nowPlaying && playableItem && (
                   <p
@@ -628,26 +633,26 @@ export function NextUpPanel({
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
               >
-                Play next
+                Start next
               </button>
               <button
                 type="button"
-                disabled={runningOrBlockedCount === 0 || actionKey === 'triage-clear'}
+                disabled={blockedCount === 0 || actionKey === 'triage-clear'}
                 onClick={() =>
                   void runAction(
                     'triage-clear',
                     () =>
                       nextUpActions.clear({
                         initiativeId: initiativeId ?? undefined,
-                        states: ['running', 'blocked'],
+                        states: ['blocked'],
                         placement: triagePlacement,
                       }),
-                    (result) => nextUpClearNotice(result, runningOrBlockedCount)
+                    (result) => nextUpClearNotice(result, blockedCount)
                   )
                 }
                 className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
               >
-                Clear blocked / in progress
+                Clear blocked
               </button>
             </div>
           </div>
@@ -770,7 +775,7 @@ export function NextUpPanel({
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={isRunningRow ? 'Pause this running workstream' : 'Dispatch now'}
+                      title={isRunningRow ? 'Pause this running workstream' : 'Start now'}
                     >
                       <span className="inline-flex items-center gap-1">
                         {isRunningRow ? (
@@ -778,7 +783,7 @@ export function NextUpPanel({
                         ) : (
                           <PlayGlyph className="h-3 w-3 opacity-85" />
                         )}
-                        <span>{isRunningRow ? 'Pause' : 'Play'}</span>
+                        <span>{isRunningRow ? 'Pause' : 'Start'}</span>
                       </span>
                     </button>
                     <button
@@ -800,7 +805,7 @@ export function NextUpPanel({
                       title={`Move this workstream to ${triagePlacement}`}
                     >
                       <span className="inline-flex items-center gap-1">
-                        <span>{triagePlacement === 'top' ? 'To top' : 'To bottom'}</span>
+                        <span>{triagePlacement === 'top' ? 'Queue top' : 'Queue bottom'}</span>
                       </span>
                     </button>
                     <button
@@ -819,13 +824,13 @@ export function NextUpPanel({
                                 }),
                           isAutoRunning
                             ? `Stopped auto-continue for ${item.initiativeTitle}.`
-                            : `Auto-continue started for ${item.workstreamTitle}.`
+                            : `Automatic continuation enabled for ${item.workstreamTitle}.`
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
                       data-state={isAutoRunning ? 'active' : 'idle'}
                       data-tone="teal"
-                      title={isAutoRunning ? 'Stop auto-continue' : 'Auto-continue'}
+                      title={isAutoRunning ? 'Stop automatic continuation' : 'Continue automatically'}
                     >
                       <span className="inline-flex items-center gap-1">
                         <AutoGlyph className="h-3 w-3 opacity-85" />
@@ -1144,7 +1149,7 @@ function NextUpReorderRow({
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={isRunningRow ? 'Pause this running workstream' : 'Dispatch this workstream now (single run)'}
+            title={isRunningRow ? 'Pause this running workstream' : 'Start this workstream now (single run)'}
           >
             <span className="inline-flex items-center gap-1">
               {isRunningRow ? (
@@ -1152,7 +1157,7 @@ function NextUpReorderRow({
               ) : (
                 <PlayGlyph className="h-3 w-3 opacity-85" />
               )}
-              <span>{isRunningRow ? 'Pause' : 'Play'}</span>
+              <span>{isRunningRow ? 'Pause' : 'Start'}</span>
             </span>
           </button>
           <button
@@ -1168,7 +1173,7 @@ function NextUpReorderRow({
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
             title={`Move this workstream to ${triagePlacement}`}
           >
-            <span>{triagePlacement === 'top' ? 'To top' : 'To bottom'}</span>
+            <span>{triagePlacement === 'top' ? 'Queue top' : 'Queue bottom'}</span>
           </button>
           <button
             type="button"
@@ -1186,7 +1191,7 @@ function NextUpReorderRow({
                       }),
                 isAutoRunning
                   ? `Stopped auto-continue for ${item.initiativeTitle}.`
-                  : `Auto-continue started for ${item.workstreamTitle}.`
+                  : `Automatic continuation enabled for ${item.workstreamTitle}.`
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
@@ -1195,7 +1200,7 @@ function NextUpReorderRow({
             title={
               isAutoRunning
                 ? 'Stop auto-continue for this initiative'
-                : 'Auto-continue this workstream'
+                : 'Continue automatically for this workstream'
             }
           >
             <span className="inline-flex items-center gap-1">

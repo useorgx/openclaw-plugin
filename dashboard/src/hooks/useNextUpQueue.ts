@@ -77,6 +77,40 @@ function shouldIncludeSyntheticEntities(): boolean {
   }
 }
 
+function resolveAutoRuntimeState(item: NextUpQueueItem): NextUpQueueItem['autoRuntimeState'] {
+  const status = item.autoContinue?.status ?? 'stopped';
+  if (status === 'running') return 'running';
+  if (status === 'stopping') return 'stopping';
+  if (item.autoContinue?.stopReason === 'error') return 'error';
+  return 'idle';
+}
+
+function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
+  if (!item.autoContinue) return false;
+  const status = item.autoContinue.status;
+  if (status !== 'running' && status !== 'stopping') return false;
+  return Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
+}
+
+function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
+  return {
+    ...item,
+    playbackState: item.queueState,
+    autoIntentEnabled: hasExplicitAutoIntent(item),
+    autoRuntimeState: resolveAutoRuntimeState(item),
+    queueOrigin: item.queueOrigin ?? 'system',
+  };
+}
+
+function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueResponse {
+  const items = response.items.map((item) => decorateQueueItem(item));
+  return {
+    ...response,
+    items,
+    total: items.length,
+  };
+}
+
 export function useNextUpQueue({
   initiativeId = null,
   authToken = null,
@@ -135,16 +169,15 @@ export function useNextUpQueue({
         } satisfies NextUpQueueResponse;
       }
       if (shouldIncludeSyntheticEntities()) {
-        return normalized;
+        return normalizeQueueResponse(normalized);
       }
       const visibleItems = normalized.items.filter(
         (item) => !isSyntheticInitiativeId(item.initiativeId)
       );
-      return {
+      return normalizeQueueResponse({
         ...normalized,
         items: visibleItems,
-        total: visibleItems.length,
-      };
+      });
     },
     refetchInterval: (state) => {
       const payload = state.state.data;
@@ -184,10 +217,10 @@ export function useNextUpQueue({
         ...previous,
         items: previous.items.map((item) => {
           if (item.initiativeId === input.initiativeId && item.workstreamId === input.workstreamId) {
-            return { ...item, queueState: 'running' };
+            return { ...item, queueState: 'running', playbackState: 'running' };
           }
           // Only one workstream can be "running" in the queue UI.
-          if (item.queueState === 'running') return { ...item, queueState: 'idle' };
+          if (item.queueState === 'running') return { ...item, queueState: 'idle', playbackState: 'idle' };
           return item;
         }),
       });
