@@ -269,7 +269,16 @@ function DashboardShell({
     };
   }, [dashboardView]);
 
-  const { data, isLoading, error, refetch, approveDecision, rejectDecision, approveAllDecisions } = useLiveData({
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+    approveDecision,
+    rejectDecision,
+    approveAllDecisions,
+    bulkDecisionAction,
+  } = useLiveData({
     useMock: demoMode,
     enabled: true,
     enableDecisions: shouldAttemptDecisions,
@@ -2057,6 +2066,7 @@ function DashboardShell({
                   onApproveDecision={approveDecision}
                   onRejectDecision={rejectDecision}
                   onApproveAll={approveAllDecisions}
+                  onBulkDecisionAction={bulkDecisionAction}
                 />
               ) : (
                 <PremiumCard className="flex h-full min-h-[220px] flex-col card-enter">
@@ -2275,6 +2285,7 @@ function DashboardShell({
         onApproveDecision={approveDecision}
         onRejectDecision={rejectDecision}
         onApproveAll={approveAllDecisions}
+        onBulkDecisionAction={bulkDecisionAction}
       />
 
       <BulkOutboxModal

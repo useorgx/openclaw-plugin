@@ -1286,6 +1286,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     return applyDecisionMutation(allDecisionIds, 'approve');
   }, [applyDecisionMutation]);
 
+  const bulkDecisionAction = useCallback(
+    async (decisionIds: string[], action: 'approve' | 'reject', note?: string) =>
+      applyDecisionMutation(decisionIds, action, note),
+    [applyDecisionMutation]
+  );
+
   useEffect(() => {
     if (enableDecisions) return;
     setData((prev) => {
@@ -1607,5 +1613,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     approveDecision,
     rejectDecision,
     approveAllDecisions,
+    bulkDecisionAction,
   };
 }

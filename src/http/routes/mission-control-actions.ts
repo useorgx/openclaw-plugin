@@ -12,7 +12,9 @@ type AutoContinueRunRecord = Record<string, any> & {
 
 type NextUpQueue = {
   items: Array<{
+    initiativeId: string;
     workstreamId: string;
+    queueState: "queued" | "running" | "blocked" | "idle";
     runnerAgentId?: string | null;
     runnerAgentName?: string | null;
     runnerSource?: string | null;
@@ -23,6 +25,8 @@ type NextUpQueue = {
   }>;
   degraded: string[];
 };
+
+type NextUpQueuePlacement = "top" | "bottom";
 
 type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   parseJsonRequest: (req: TReq) => Promise<JsonRecord>;
@@ -35,7 +39,7 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
     agentId: string,
     fallbackName: string | null
   ) => Promise<string | null>;
-  buildNextUpQueue: (input: { initiativeId: string }) => Promise<NextUpQueue>;
+  buildNextUpQueue: (input: { initiativeId?: string | null }) => Promise<NextUpQueue>;
   startAutoContinueRun: (input: any) => Promise<AutoContinueRunRecord>;
   autoContinueRuns: Map<string, any>;
   autoContinueSliceRuns: Map<string, any>;
@@ -64,6 +68,7 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   setNextUpQueuePinOrder: (input: {
     order: Array<{ initiativeId: string; workstreamId: string }>;
   }) => { pins: unknown[]; updatedAt: string };
+  clearNextUpQueueCache: (initiativeId?: string | null) => void;
   resolveAutoAssignments: (input: any) => Promise<unknown>;
   client: any;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
@@ -76,6 +81,19 @@ const PLAY_QUEUE_LOOKUP_TIMEOUT_MS = (() => {
   if (!Number.isFinite(parsed)) return 350;
   return Math.max(200, Math.floor(parsed));
 })();
+
+const IN_PROGRESS_TASK_STATUSES = new Set([
+  "in_progress",
+  "inprogress",
+  "active",
+  "running",
+  "working",
+  "planning",
+  "dispatching",
+  "pending",
+]);
+
+const BLOCKED_TASK_STATUSES = new Set(["blocked", "stalled", "failed", "error"]);
 
 async function withSoftTimeout<T>(
   work: Promise<T>,
@@ -94,6 +112,100 @@ async function withSoftTimeout<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function normalizeStatusValue(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function normalizePlacement(
+  value: unknown,
+  fallback: NextUpQueuePlacement = "bottom"
+): NextUpQueuePlacement {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "top") return "top";
+  if (normalized === "bottom") return "bottom";
+  return fallback;
+}
+
+function parseQueueOrder(input: unknown, deps: Pick<RegisterMissionControlActionsRoutesDeps<any, any>, "pickString">): Array<{
+  initiativeId: string;
+  workstreamId: string;
+}> {
+  const rawOrder = Array.isArray(input) ? input : [];
+  const order: Array<{ initiativeId: string; workstreamId: string }> = [];
+
+  for (const entry of rawOrder) {
+    if (!entry) continue;
+    if (typeof entry === "string") {
+      const [initiativeId, workstreamId] = entry.split(":", 2).map((s) => s.trim());
+      if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
+      continue;
+    }
+    if (typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const initiativeId = (deps.pickString(record, ["initiativeId", "initiative_id"]) ?? "").trim();
+    const workstreamId = (deps.pickString(record, ["workstreamId", "workstream_id"]) ?? "").trim();
+    if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
+  }
+
+  return order;
+}
+
+function dedupeQueueOrder(
+  order: Array<{ initiativeId: string; workstreamId: string }>
+): Array<{ initiativeId: string; workstreamId: string }> {
+  const next: Array<{ initiativeId: string; workstreamId: string }> = [];
+  const seen = new Set<string>();
+  for (const entry of order) {
+    const initiativeId = (entry.initiativeId ?? "").trim();
+    const workstreamId = (entry.workstreamId ?? "").trim();
+    if (!initiativeId || !workstreamId) continue;
+    const key = `${initiativeId}:${workstreamId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({ initiativeId, workstreamId });
+  }
+  return next;
+}
+
+function buildPlacedOrder(input: {
+  order: Array<{ initiativeId: string; workstreamId: string }>;
+  targets: Set<string>;
+  placement: NextUpQueuePlacement;
+}): Array<{ initiativeId: string; workstreamId: string }> {
+  if (input.targets.size === 0) return input.order;
+  const selected: Array<{ initiativeId: string; workstreamId: string }> = [];
+  const remaining: Array<{ initiativeId: string; workstreamId: string }> = [];
+  for (const entry of input.order) {
+    const key = `${entry.initiativeId}:${entry.workstreamId}`;
+    if (input.targets.has(key)) selected.push(entry);
+    else remaining.push(entry);
+  }
+  if (selected.length === 0) return input.order;
+  return input.placement === "top"
+    ? [...selected, ...remaining]
+    : [...remaining, ...selected];
+}
+
+function shouldResetTaskStatus(
+  status: unknown,
+  states: Set<string>
+): boolean {
+  const normalized = normalizeStatusValue(status);
+  if (!normalized) return false;
+  if (normalized === "todo" || normalized === "done" || normalized === "completed") {
+    return false;
+  }
+  if (states.has("running") && IN_PROGRESS_TASK_STATUSES.has(normalized)) {
+    return true;
+  }
+  if (states.has("blocked") && BLOCKED_TASK_STATUSES.has(normalized)) {
+    return true;
+  }
+  return false;
 }
 
 export function registerMissionControlActionsRoutes<TReq, TRes>(
@@ -439,6 +551,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           preferredTaskId,
           preferredMilestoneId,
         });
+        deps.clearNextUpQueueCache(initiativeId);
 
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
@@ -476,6 +589,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         }
 
         const next = deps.removeNextUpQueuePin({ initiativeId, workstreamId });
+        deps.clearNextUpQueueCache(initiativeId);
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
         deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
@@ -490,37 +604,315 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
     async ({ req, res }) => {
       try {
         const payload = await deps.parseJsonRequest(req);
-        const rawOrder = Array.isArray((payload as any)?.order)
-          ? ((payload as any).order as unknown[])
-          : [];
-        const order: Array<{ initiativeId: string; workstreamId: string }> = [];
-
-        for (const entry of rawOrder) {
-          if (!entry) continue;
-          if (typeof entry === "string") {
-            const [initiativeId, workstreamId] = entry.split(":", 2).map((s) => s.trim());
-            if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
-            continue;
-          }
-          if (typeof entry === "object") {
-            const record = entry as Record<string, unknown>;
-            const initiativeId = (
-              deps.pickString(record, ["initiativeId", "initiative_id"]) ?? ""
-            ).trim();
-            const workstreamId = (
-              deps.pickString(record, ["workstreamId", "workstream_id"]) ?? ""
-            ).trim();
-            if (initiativeId && workstreamId) order.push({ initiativeId, workstreamId });
-          }
-        }
+        const order = dedupeQueueOrder(parseQueueOrder((payload as any)?.order, deps));
 
         const next = deps.setNextUpQueuePinOrder({ order });
+        deps.clearNextUpQueueCache(null);
         deps.sendJson(res, 200, { ok: true, pins: next.pins, updatedAt: next.updatedAt });
       } catch (err: unknown) {
         deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
       }
     },
     "Mission-control next-up reorder"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/next-up/move",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+        const workstreamId =
+          (deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+            query.get("workstreamId") ??
+            query.get("workstream_id") ??
+            "")
+            .trim();
+        const placement = normalizePlacement(
+          deps.pickString(payload, ["placement", "queuePlacement", "queue_placement"]) ??
+            query.get("placement") ??
+            query.get("queuePlacement") ??
+            query.get("queue_placement"),
+          "bottom"
+        );
+
+        if (!initiativeId || !workstreamId) {
+          deps.sendJson(res, 400, {
+            ok: false,
+            error: "initiativeId and workstreamId are required",
+          });
+          return;
+        }
+
+        const queue = await deps.buildNextUpQueue({ initiativeId });
+        const order = dedupeQueueOrder(
+          queue.items.map((item) => ({
+            initiativeId: item.initiativeId,
+            workstreamId: item.workstreamId,
+          }))
+        );
+        const key = `${initiativeId}:${workstreamId}`;
+        const current = order.filter(
+          (entry) => `${entry.initiativeId}:${entry.workstreamId}` !== key
+        );
+        const nextOrder =
+          placement === "top"
+            ? [{ initiativeId, workstreamId }, ...current]
+            : [...current, { initiativeId, workstreamId }];
+
+        const next = deps.setNextUpQueuePinOrder({ order: nextOrder });
+        deps.clearNextUpQueueCache(initiativeId);
+        deps.sendJson(res, 200, {
+          ok: true,
+          placement,
+          orderApplied: nextOrder.length,
+          pins: next.pins,
+          updatedAt: next.updatedAt,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Mission-control next-up move"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/next-up/triage/stop",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+        const workstreamId =
+          (deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+            query.get("workstreamId") ??
+            query.get("workstream_id") ??
+            "")
+            .trim();
+        const placement = normalizePlacement(
+          deps.pickString(payload, ["placement", "queuePlacement", "queue_placement"]) ??
+            query.get("placement") ??
+            query.get("queuePlacement") ??
+            query.get("queue_placement"),
+          "bottom"
+        );
+        const resetToTodoRaw =
+          (payload as Record<string, unknown>).resetToTodo ??
+          (payload as Record<string, unknown>).reset_to_todo ??
+          query.get("resetToTodo") ??
+          query.get("reset_to_todo") ??
+          null;
+        const resetToTodo =
+          typeof resetToTodoRaw === "boolean"
+            ? resetToTodoRaw
+            : deps.parseBooleanQuery(
+                typeof resetToTodoRaw === "string" ? resetToTodoRaw : null
+              ) ?? false;
+
+        if (!initiativeId || !workstreamId) {
+          deps.sendJson(res, 400, {
+            ok: false,
+            error: "initiativeId and workstreamId are required",
+          });
+          return;
+        }
+
+        const run = deps.autoContinueRuns.get(initiativeId) ?? null;
+        let stoppedAutoContinue = false;
+        if (run) {
+          const now = new Date().toISOString();
+          run.stopRequested = true;
+          run.status = run.activeRunId ? "stopping" : "stopped";
+          run.updatedAt = now;
+
+          if (!run.activeRunId) {
+            await deps.stopAutoContinueRun({ run, reason: "stopped" });
+          } else {
+            try {
+              await deps.updateInitiativeAutoContinueState({ initiativeId, run });
+            } catch {
+              // best effort
+            }
+          }
+          stoppedAutoContinue = true;
+        }
+
+        let resetTaskCount = 0;
+        if (resetToTodo) {
+          const taskResult = await deps.client.listEntities("task", {
+            initiative_id: initiativeId,
+            workstream_id: workstreamId,
+            limit: 1000,
+          });
+          const tasks = Array.isArray(taskResult?.data) ? taskResult.data : [];
+          const statesToReset = new Set(["running", "blocked"]);
+          for (const task of tasks) {
+            if (!task || typeof task !== "object") continue;
+            const record = task as Record<string, unknown>;
+            const taskId = deps.pickString(record, ["id"]);
+            if (!taskId) continue;
+            if (!shouldResetTaskStatus(record.status, statesToReset)) continue;
+            await deps.client.updateEntity("task", taskId, { status: "todo" });
+            resetTaskCount += 1;
+          }
+        }
+
+        const queue = await deps.buildNextUpQueue({ initiativeId });
+        const order = dedupeQueueOrder(
+          queue.items.map((item) => ({
+            initiativeId: item.initiativeId,
+            workstreamId: item.workstreamId,
+          }))
+        );
+        const targetKey = `${initiativeId}:${workstreamId}`;
+        const nextOrder = buildPlacedOrder({
+          order,
+          targets: new Set([targetKey]),
+          placement,
+        });
+        const next = deps.setNextUpQueuePinOrder({
+          order:
+            nextOrder.length > 0
+              ? nextOrder
+              : [{ initiativeId, workstreamId }],
+        });
+        deps.clearNextUpQueueCache(initiativeId);
+
+        deps.sendJson(res, 200, {
+          ok: true,
+          placement,
+          stoppedAutoContinue,
+          resetToTodo,
+          resetTaskCount,
+          run,
+          pins: next.pins,
+          updatedAt: next.updatedAt,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Mission-control next-up triage stop"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/next-up/clear",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeIdRaw =
+          deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+          query.get("initiativeId") ??
+          query.get("initiative_id") ??
+          "";
+        const initiativeId = initiativeIdRaw.trim() || null;
+        const workstreamIdRaw =
+          deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+          query.get("workstreamId") ??
+          query.get("workstream_id") ??
+          "";
+        const workstreamId = workstreamIdRaw.trim() || null;
+        const placement = normalizePlacement(
+          deps.pickString(payload, ["placement", "queuePlacement", "queue_placement"]) ??
+            query.get("placement") ??
+            query.get("queuePlacement") ??
+            query.get("queue_placement"),
+          "bottom"
+        );
+
+        const requestedStates = deps.dedupeStrings([
+          ...deps.pickStringArray(payload, ["states", "queueStates", "queue_states"]),
+          ...(query.get("states") ?? query.get("queueStates") ?? query.get("queue_states") ?? "")
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean),
+        ])
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => entry === "running" || entry === "blocked");
+        const states = new Set(requestedStates.length > 0 ? requestedStates : ["running", "blocked"]);
+
+        const queue = await deps.buildNextUpQueue({ initiativeId });
+        const scopedItems = queue.items.filter((item) => {
+          if (initiativeId && item.initiativeId !== initiativeId) return false;
+          if (workstreamId && item.workstreamId !== workstreamId) return false;
+          return states.has(item.queueState);
+        });
+
+        const updatedTaskIds = new Set<string>();
+        let failedUpdates = 0;
+        for (const item of scopedItems) {
+          let taskRows: unknown[] = [];
+          try {
+            const response = await deps.client.listEntities("task", {
+              initiative_id: item.initiativeId,
+              workstream_id: item.workstreamId,
+              limit: 1000,
+            });
+            taskRows = Array.isArray(response?.data) ? response.data : [];
+          } catch {
+            // best effort: keep progressing through queue
+            continue;
+          }
+
+          for (const row of taskRows) {
+            if (!row || typeof row !== "object") continue;
+            const record = row as Record<string, unknown>;
+            const taskId = deps.pickString(record, ["id"]);
+            if (!taskId || updatedTaskIds.has(taskId)) continue;
+            if (!shouldResetTaskStatus(record.status, states)) continue;
+            try {
+              await deps.client.updateEntity("task", taskId, { status: "todo" });
+              updatedTaskIds.add(taskId);
+            } catch {
+              failedUpdates += 1;
+            }
+          }
+        }
+
+        const baseOrder = dedupeQueueOrder(
+          queue.items.map((item) => ({
+            initiativeId: item.initiativeId,
+            workstreamId: item.workstreamId,
+          }))
+        );
+        const targetKeys = new Set(
+          scopedItems.map((item) => `${item.initiativeId}:${item.workstreamId}`)
+        );
+        const nextOrder = buildPlacedOrder({
+          order: baseOrder,
+          targets: targetKeys,
+          placement,
+        });
+        const next = deps.setNextUpQueuePinOrder({ order: nextOrder });
+        deps.clearNextUpQueueCache(initiativeId);
+
+        deps.sendJson(res, 200, {
+          ok: true,
+          placement,
+          states: Array.from(states),
+          queueItemsCleared: scopedItems.length,
+          tasksReset: updatedTaskIds.size,
+          taskResetFailures: failedUpdates,
+          pins: next.pins,
+          updatedAt: next.updatedAt,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { ok: false, error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Mission-control next-up clear"
   );
 
   router.add(

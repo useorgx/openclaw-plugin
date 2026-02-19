@@ -1779,6 +1779,19 @@ export function createHttpHandler(
     });
   };
 
+  const clearNextUpQueueCache = (initiativeId?: string | null): void => {
+    const normalized = initiativeId?.trim() || null;
+    if (!normalized) {
+      nextUpQueueCache.clear();
+      nextUpQueueInFlight.clear();
+      return;
+    }
+    nextUpQueueCache.delete(nextUpQueueCacheKeyFor(normalized));
+    nextUpQueueCache.delete(nextUpQueueCacheKeyFor(null));
+    nextUpQueueInFlight.delete(nextUpQueueCacheKeyFor(normalized));
+    nextUpQueueInFlight.delete(nextUpQueueCacheKeyFor(null));
+  };
+
   async function buildNextUpQueueUncached(input?: {
     initiativeId?: string | null;
   }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
@@ -2572,6 +2585,7 @@ export function createHttpHandler(
     upsertNextUpQueuePin,
     removeNextUpQueuePin,
     setNextUpQueuePinOrder,
+    clearNextUpQueueCache,
     resolveAutoAssignments,
     client,
     sendJson,
