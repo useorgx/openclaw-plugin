@@ -3703,29 +3703,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     >
                       {emptyActionPending === 'pause' ? 'Pausing...' : 'Pause'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void runEmptyAction('play', onPlayNextUp)}
-                      disabled={!onPlayNextUp || emptyActionPending !== null}
-                      className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-2.5 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
-                    >
-                      {emptyActionPending === 'play' ? 'Starting...' : 'Start next'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void runEmptyAction('autopilot', onStartAutopilot)}
-                      disabled={!onStartAutopilot || emptyActionPending !== null}
-                      className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-2.5 py-1 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
-                    >
-                      {emptyActionPending === 'autopilot' ? 'Enabling...' : 'Auto'}
-                    </button>
                     {onOpenMissionControl && (
                       <button
                         type="button"
                         onClick={onOpenMissionControl}
                         className="rounded-full border border-strong bg-white/[0.03] px-2.5 py-1 text-caption font-semibold text-secondary transition hover:bg-white/[0.08] hover:text-primary"
                       >
-                        Open queue
+                        Queue
                       </button>
                     )}
                   </div>
