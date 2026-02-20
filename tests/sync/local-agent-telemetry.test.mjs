@@ -196,6 +196,10 @@ test("buildLocalSyncAgentsFromRuns prefers fresher stopped local state over stal
   const { buildLocalSyncAgentsFromRuns } = await import(
     "../../dist/sync/local-agent-telemetry.js"
   );
+  const now = Date.now();
+  const stoppedAt = new Date(now - 45 * 60_000).toISOString();
+  const startedAt = new Date(now - 90 * 60_000).toISOString();
+  const staleMirrorAt = new Date(now - 2.5 * 60 * 60_000).toISOString();
 
   const agents = buildLocalSyncAgentsFromRuns({
     runs: {
@@ -210,8 +214,8 @@ test("buildLocalSyncAgentsFromRuns prefers fresher stopped local state over stal
         initiativeTitle: null,
         workstreamId: null,
         taskId: null,
-        startedAt: "2026-02-19T02:00:00.000Z",
-        stoppedAt: "2026-02-19T02:40:00.000Z",
+        startedAt,
+        stoppedAt,
         status: "stopped",
       },
     },
@@ -222,7 +226,7 @@ test("buildLocalSyncAgentsFromRuns prefers fresher stopped local state over stal
         domain: "product",
         status: "active",
         currentTask: "stale-task",
-        lastActive: "2026-02-19T01:30:00.000Z",
+        lastActive: staleMirrorAt,
       },
     ],
   });
@@ -233,6 +237,6 @@ test("buildLocalSyncAgentsFromRuns prefers fresher stopped local state over stal
     name: "Product Mirror",
     domain: "product",
     status: "idle",
-    lastActive: "2026-02-19T02:40:00.000Z",
+    lastActive: stoppedAt,
   });
 });

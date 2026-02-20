@@ -3,13 +3,15 @@ import { cn } from '@/lib/utils';
 interface PremiumCardProps {
   children: React.ReactNode;
   className?: string;
+  surface?: boolean;
 }
 
-export function PremiumCard({ children, className = '' }: PremiumCardProps) {
+export function PremiumCard({ children, className = '', surface = true }: PremiumCardProps) {
   return (
     <section
       className={cn(
-        'surface-tier-1 relative overflow-hidden rounded-2xl',
+        'relative overflow-hidden rounded-2xl',
+        surface ? 'surface-tier-1' : '',
         className
       )}
     >

@@ -119,6 +119,7 @@ import { createLocalArtifactDetailFallbackBuilder } from "./helpers/artifact-fal
 import {
   buildMissionControlGraph,
   dedupeStrings,
+  isDispatchableWorkstreamStatus,
   isDoneStatus,
   isInProgressStatus,
   isTodoStatus,
@@ -2819,6 +2820,31 @@ export function createHttpHandler(
     applyLocalInitiativeOverrides,
     formatInitiatives,
     getSnapshot,
+    scheduleWorkstreamReassignment: async (input) => {
+      const initiativeId = input.initiativeId.trim();
+      const workstreamId = input.workstreamId.trim();
+      if (!initiativeId || !workstreamId) return null;
+      const normalizedStatus = (input.status ?? "").trim().toLowerCase();
+      const shouldRedispatch =
+        normalizedStatus === "active" ||
+        normalizedStatus === "ready" ||
+        normalizedStatus === "queued" ||
+        normalizedStatus === "running" ||
+        normalizedStatus === "in_progress" ||
+        normalizedStatus === "pending";
+      if (!shouldRedispatch) return null;
+      if (!isDispatchableWorkstreamStatus(normalizedStatus)) return null;
+      const liveRun = runningAutoContinueForWorkstream(initiativeId, workstreamId);
+      return await scheduleAutoFixForWorkstream({
+        initiativeId,
+        workstreamId,
+        runId: liveRun?.activeRunId ?? null,
+        event: input.event,
+        requestedByAgentId: "system",
+        requestedByAgentName: "System",
+        graceMs: 5_000,
+      });
+    },
     sendJson,
     safeErrorMessage,
   });

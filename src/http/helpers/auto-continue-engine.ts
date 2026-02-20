@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID as randomUuidFn } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readdir, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -416,6 +417,40 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
   const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
+
+  // Prune old autopilot logs on engine init (7-day TTL, 50 MB cap).
+  const AUTOPILOT_LOG_TTL_MS = 7 * 24 * 60 * 60_000;
+  const AUTOPILOT_LOG_MAX_BYTES = 50 * 1024 * 1024;
+  (async () => {
+    try {
+      const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
+      if (!existsSync(logsDir)) return;
+      const entries = await readdir(logsDir);
+      const now = Date.now();
+      const fileStats: { name: string; path: string; mtimeMs: number; size: number }[] = [];
+      for (const name of entries) {
+        if (!name.endsWith(".log") && !name.endsWith(".output.json")) continue;
+        const filePath = join(logsDir, name);
+        try {
+          const s = await stat(filePath);
+          if (s.mtimeMs < now - AUTOPILOT_LOG_TTL_MS) {
+            await unlink(filePath);
+          } else {
+            fileStats.push({ name, path: filePath, mtimeMs: s.mtimeMs, size: s.size });
+          }
+        } catch { /* skip */ }
+      }
+      // Enforce total size cap by deleting oldest first.
+      fileStats.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      let totalSize = fileStats.reduce((sum, f) => sum + f.size, 0);
+      for (const f of fileStats) {
+        if (totalSize <= AUTOPILOT_LOG_MAX_BYTES) break;
+        try { await unlink(f.path); } catch { /* skip */ }
+        totalSize -= f.size;
+      }
+    } catch { /* best effort */ }
+  })();
+
   const AUTO_FIX_DEFAULT_GRACE_MS = readBudgetEnvNumber(
     "ORGX_AUTOPILOT_AUTOFIX_GRACE_MS",
     10_000,

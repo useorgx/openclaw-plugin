@@ -1,0 +1,89 @@
+{
+  "artifact_type": "initiative",
+  "title": "Reassignment Plan: AI Eval Framework v2 Ankur",
+  "summary": "Defines the verified ownership split for AI Eval Framework v2 Ankur so execution aligns with role fit: product owns metric definition and acceptance thresholds, engineering owns dataset construction and pipeline implementation. This scope reduces handoff ambiguity and keeps task-level accountability explicit for execution tracking.",
+  "initiative_id": "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+  "workstream_id": "fe7d7021-e37d-4f5a-9bef-476bc14234ae",
+  "milestone_id": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+  "task_id": "71964b43-a2bd-451d-a778-c54196ac7f70",
+  "effective_date": "2026-02-20",
+  "assignment_changes": [
+    {
+      "scope": "Success Criteria & Metrics",
+      "owner_domain": "product",
+      "expected_outputs": [
+        "North-star and guardrail metrics",
+        "Target thresholds for pass/fail",
+        "Decision rubric for release readiness"
+      ]
+    },
+    {
+      "scope": "Dataset Construction",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Dataset schema and versioning approach",
+        "Collection and labeling pipeline",
+        "Reproducible dataset build procedure"
+      ]
+    },
+    {
+      "scope": "Eval Criteria & Failure Analysis",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Executable evaluation criteria",
+        "Failure bucket taxonomy",
+        "Root-cause analysis report template"
+      ]
+    },
+    {
+      "scope": "Offline & Online Pipelines",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Offline batch evaluation pipeline",
+        "Online monitoring hooks",
+        "Regression alerting checkpoints"
+      ]
+    }
+  ],
+  "success_metrics": [
+    {
+      "name": "Ownership clarity",
+      "target": "100% of listed scopes have one primary owner domain"
+    },
+    {
+      "name": "Execution readiness",
+      "target": "4/4 scopes include explicit outputs and handoff expectations"
+    }
+  ],
+  "milestones": [
+    {
+      "name": "Ownership map confirmed",
+      "due_date": "2026-02-20",
+      "deliverables": [
+        "Signed-off assignment matrix",
+        "Task status request prepared for coordinator"
+      ]
+    },
+    {
+      "name": "Task ownership reflected in mission control",
+      "due_date": "2026-02-21",
+      "deliverables": [
+        "Coordinator-applied task metadata updates",
+        "Dashboard verification of owner domains"
+      ]
+    },
+    {
+      "name": "Execution kickoff",
+      "due_date": "2026-02-24",
+      "deliverables": [
+        "Product metric definition kickoff",
+        "Engineering pipeline implementation kickoff"
+      ]
+    }
+  ],
+  "verification_steps": [
+    "Parse this file as valid JSON.",
+    "Confirm each of the four scopes appears exactly once with the required target owner domain.",
+    "Confirm success_metrics count is at least 2 and milestones count is 3."
+  ]
+}
