@@ -42,6 +42,12 @@ test("computeOrgxAgentSuitePlan plans to add missing suite agents without clobbe
   assert.equal(plan.openclawConfigWouldUpdate, true);
   assert.ok(plan.openclawConfigAddedAgents.length >= 6);
   assert.ok(plan.openclawConfigAddedAgents.includes("orgx-engineering"));
+  const engineering = plan.agents.find((agent) => agent.id === "orgx-engineering");
+  assert.ok(engineering, "expected engineering suite agent");
+  assert.equal(engineering.configHealth.status, "needs_apply");
+  assert.equal(engineering.configHealth.totalChecks > 0, true);
+  assert.equal(engineering.configHealth.evalPassRate, 0);
+  assert.equal(engineering.configHealth.lastChangedAt, null);
 });
 
 test("applyOrgxAgentSuitePlan dryRun does not mutate openclaw.json or create workspaces", async () => {
@@ -116,4 +122,3 @@ test("applyOrgxAgentSuitePlan writes managed + composite files and appends local
   assert.ok(composite.includes("# === ORGX LOCAL OVERRIDES"), "expected local overrides header in composite");
   assert.ok(composite.includes("Local note: keep commits small."), "expected local override appended to composite");
 });
-

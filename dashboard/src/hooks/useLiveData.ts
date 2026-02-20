@@ -10,6 +10,10 @@ import type {
   HandoffSummary,
   OutboxStatus,
   SliceRunProjection,
+  WorkSliceProjectionV2,
+  SliceTimelineNarrativeProjectionV2,
+  NextUpInitiativeProjection,
+  SliceDataHealthSummary,
 } from '@/types';
 import { createMockData } from '@/data/mockData';
 import { formatRelativeTime } from '@/lib/time';
@@ -916,7 +920,18 @@ function buildLiveData(
   sliceRuns: SliceRunProjection[] = [],
   outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
   generatedAt: string | null = null,
-  runtimeInstances: RuntimeInstance[] = []
+  runtimeInstances: RuntimeInstance[] = [],
+  extra?: {
+    workSliceProjections?: WorkSliceProjectionV2[];
+    timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
+    nextUpByInitiative?: NextUpInitiativeProjection[];
+    runningWorkSlices?: number;
+    needsInputTotal?: number;
+    failedActionableTotal?: number;
+    completedTodayTotal?: number;
+    consistencyFlags?: string[];
+    dataHealth?: SliceDataHealthSummary;
+  }
 ): LiveData {
   const latestActivityAt = activity[0]?.timestamp ?? null;
   const latestDecisionAt = decisions[0]?.requestedAt ?? decisions[0]?.updatedAt ?? null;
@@ -936,6 +951,15 @@ function buildLiveData(
     sliceRuns,
     outbox: normalizeOutboxStatus(outbox),
     runtimeInstances,
+    workSliceProjections: extra?.workSliceProjections ?? [],
+    timelineNarrative: extra?.timelineNarrative ?? [],
+    nextUpByInitiative: extra?.nextUpByInitiative ?? [],
+    runningWorkSlices: extra?.runningWorkSlices ?? 0,
+    needsInputTotal: extra?.needsInputTotal ?? 0,
+    failedActionableTotal: extra?.failedActionableTotal ?? 0,
+    completedTodayTotal: extra?.completedTodayTotal ?? 0,
+    consistencyFlags: extra?.consistencyFlags ?? [],
+    dataHealth: extra?.dataHealth,
   };
 }
 
@@ -977,6 +1001,26 @@ function sameRuntimeInstancesShape(
 function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): SliceRunProjection[] {
   if (!Array.isArray(input) || input.length === 0) return [];
   const byId = new Map<string, SliceRunProjection>();
+  const normalizeLineageIds = (
+    values: unknown,
+    fallback?: string | null
+  ): string[] => {
+    const out: string[] = [];
+    const push = (entry: unknown) => {
+      if (typeof entry !== 'string') return;
+      const trimmed = entry.trim();
+      if (!trimmed) return;
+      if (out.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) return;
+      out.push(trimmed);
+    };
+    if (Array.isArray(values)) {
+      for (const entry of values) push(entry);
+    } else if (typeof values === 'string') {
+      for (const entry of values.split(/[\n,;]+/g)) push(entry);
+    }
+    if (fallback) push(fallback);
+    return out;
+  };
   for (const item of input) {
     if (!item || typeof item !== 'object') continue;
     const sliceRunId =
@@ -986,10 +1030,31 @@ function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): Sli
           ? item.id.trim()
           : null);
     if (!sliceRunId) continue;
+    const initiativeIds = normalizeLineageIds(item.initiativeIds, item.initiativeId ?? null);
+    const workstreamIds = normalizeLineageIds(item.workstreamIds, item.workstreamId ?? null);
+    const iwmtIds = normalizeLineageIds(item.iwmtIds, item.iwmtId ?? null);
+    const initiativeId =
+      (typeof item.initiativeId === 'string' && item.initiativeId.trim().length > 0
+        ? item.initiativeId.trim()
+        : initiativeIds[0] ?? null);
+    const workstreamId =
+      (typeof item.workstreamId === 'string' && item.workstreamId.trim().length > 0
+        ? item.workstreamId.trim()
+        : workstreamIds[0] ?? null);
+    const iwmtId =
+      (typeof item.iwmtId === 'string' && item.iwmtId.trim().length > 0
+        ? item.iwmtId.trim()
+        : iwmtIds[0] ?? null);
     byId.set(sliceRunId, {
       ...item,
       id: sliceRunId,
       sliceRunId,
+      initiativeId,
+      initiativeIds,
+      workstreamId,
+      workstreamIds,
+      iwmtId,
+      iwmtIds,
       artifacts: Array.isArray(item.artifacts) ? item.artifacts : [],
       decisionOptions: Array.isArray(item.decisionOptions) ? item.decisionOptions : [],
       taskIds: Array.isArray(item.taskIds) ? item.taskIds : [],
@@ -999,6 +1064,163 @@ function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): Sli
   return Array.from(byId.values()).sort(
     (a, b) => toEpoch(b.updatedAt ?? b.lastEventAt) - toEpoch(a.updatedAt ?? a.lastEventAt)
   );
+}
+
+function normalizeWorkSliceProjections(
+  input: WorkSliceProjectionV2[] | null | undefined
+): WorkSliceProjectionV2[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  const byId = new Map<string, WorkSliceProjectionV2>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const sliceRunId =
+      typeof item.sliceRunId === 'string' && item.sliceRunId.trim().length > 0
+        ? item.sliceRunId.trim()
+        : null;
+    if (!sliceRunId) continue;
+    const lineage = item.lineage && typeof item.lineage === 'object' ? item.lineage : null;
+    byId.set(sliceRunId, {
+      ...item,
+      sliceRunId,
+      consistencyFlags: Array.isArray(item.consistencyFlags) ? item.consistencyFlags : [],
+      lineage: {
+        initiativeIds: Array.isArray(lineage?.initiativeIds) ? lineage.initiativeIds : [],
+        initiativeTitles: Array.isArray(lineage?.initiativeTitles) ? lineage.initiativeTitles : [],
+        workstreamIds: Array.isArray(lineage?.workstreamIds) ? lineage.workstreamIds : [],
+        workstreamTitles: Array.isArray(lineage?.workstreamTitles) ? lineage.workstreamTitles : [],
+        taskIds: Array.isArray(lineage?.taskIds) ? lineage.taskIds : [],
+        milestoneIds: Array.isArray(lineage?.milestoneIds) ? lineage.milestoneIds : [],
+        iwmtIds: Array.isArray(lineage?.iwmtIds) ? lineage.iwmtIds : [],
+        sliceRunId,
+        sessionId: typeof lineage?.sessionId === 'string' ? lineage.sessionId : null,
+      },
+      artifacts: Array.isArray(item.artifacts) ? item.artifacts : [],
+    });
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => toEpoch(b.updatedAt ?? b.completedAt ?? b.failedAt) - toEpoch(a.updatedAt ?? a.completedAt ?? a.failedAt)
+  );
+}
+
+function normalizeTimelineNarrative(
+  input: SliceTimelineNarrativeProjectionV2[] | null | undefined
+): SliceTimelineNarrativeProjectionV2[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  const byId = new Map<string, SliceTimelineNarrativeProjectionV2>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const sliceRunId =
+      typeof item.sliceRunId === 'string' && item.sliceRunId.trim().length > 0
+        ? item.sliceRunId.trim()
+        : null;
+    if (!sliceRunId) continue;
+    byId.set(sliceRunId, {
+      ...item,
+      sliceRunId,
+      highlights: Array.isArray(item.highlights) ? item.highlights : [],
+      technicalTrace: item.technicalTrace ?? { eventCount: 0, eventIds: [] },
+    });
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => toEpoch(b.occurredAt) - toEpoch(a.occurredAt)
+  );
+}
+
+function normalizeNextUpByInitiative(
+  input: NextUpInitiativeProjection[] | null | undefined
+): NextUpInitiativeProjection[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  return input
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      initiativeId:
+        typeof item.initiativeId === 'string' && item.initiativeId.trim().length > 0
+          ? item.initiativeId.trim()
+          : null,
+      initiativeTitle:
+        typeof item.initiativeTitle === 'string' && item.initiativeTitle.trim().length > 0
+          ? item.initiativeTitle.trim()
+          : 'Unscoped initiative',
+      pendingCount:
+        typeof item.pendingCount === 'number' && Number.isFinite(item.pendingCount)
+          ? Math.max(0, Math.floor(item.pendingCount))
+          : 0,
+      queue: Array.isArray(item.queue) ? item.queue : [],
+    }))
+    .sort((a, b) => b.pendingCount - a.pendingCount);
+}
+
+function sliceRunsFromWorkSliceProjections(
+  projections: WorkSliceProjectionV2[]
+): SliceRunProjection[] {
+  if (!Array.isArray(projections) || projections.length === 0) return [];
+  const mapped: SliceRunProjection[] = [];
+  for (const projection of projections) {
+    if (projection.sliceKind !== 'work_slice') continue;
+    const initiativeId = projection.lineage.initiativeIds[0] ?? null;
+    const workstreamId = projection.lineage.workstreamIds[0] ?? null;
+    const workstreamTitle =
+      projection.lineage.workstreamTitles[0] ??
+      projection.lineage.workstreamIds[0] ??
+      null;
+    const status: SliceRunProjection['status'] =
+      projection.lifecycleState === 'completed' && projection.outcomeState === 'succeeded_without_artifacts'
+        ? 'needs_review'
+        : projection.lifecycleState;
+    const primaryAction: SliceRunProjection['primaryAction'] =
+      projection.actionContract?.actionType === 'open_artifact'
+        ? 'open_artifact'
+        : projection.actionContract?.actionType === 'approve' ||
+            projection.actionContract?.actionType === 'provide_context'
+          ? 'resolve_decision'
+          : projection.actionContract?.actionType === 'retry' ||
+              projection.actionContract?.actionType === 'resume'
+            ? 'retry_slice'
+            : projection.outcomeState === 'succeeded_without_artifacts'
+              ? 'review_output'
+              : 'none';
+    mapped.push({
+      id: projection.sliceRunId,
+      sliceRunId: projection.sliceRunId,
+      runId: projection.runId,
+      initiativeId,
+      initiativeIds: projection.lineage.initiativeIds,
+      workstreamId,
+      workstreamIds: projection.lineage.workstreamIds,
+      iwmtId: projection.lineage.iwmtIds[0] ?? null,
+      iwmtIds: projection.lineage.iwmtIds,
+      workstreamTitle,
+      taskIds: projection.lineage.taskIds,
+      milestoneIds: projection.lineage.milestoneIds,
+      status,
+      statusExplainer: projection.statusExplainer,
+      primaryAction,
+      hasArtifact: projection.hasArtifact,
+      artifactCount: projection.artifactCount,
+      artifacts: projection.artifacts.map((artifact) => ({
+        id: artifact.artifactId,
+        type: artifact.type,
+        title: artifact.title,
+        url: artifact.url,
+        createdAt: artifact.producedAt,
+      })),
+      decisionCount: projection.outcomeState === 'needs_input' ? 1 : 0,
+      blockingDecisionCount: projection.outcomeState === 'needs_input' ? 1 : 0,
+      decisionOptions: [],
+      sourceClient: projection.sourceClient,
+      runtimeState: projection.runtimeState,
+      startedAt: null,
+      updatedAt: projection.updatedAt,
+      completedAt: projection.completedAt,
+      failedAt: projection.failedAt,
+      archivedAt: projection.archivedAt,
+      lastEventAt: projection.updatedAt,
+      lastEventSummary: projection.statusExplainer,
+      correlationId: projection.sliceRunId,
+      confidence: projection.confidence,
+    });
+  }
+  return normalizeSliceRuns(mapped);
 }
 
 function sameSliceRunsShape(left: SliceRunProjection[], right: SliceRunProjection[]): boolean {
@@ -1020,6 +1242,91 @@ function sameSliceRunsShape(left: SliceRunProjection[], right: SliceRunProjectio
     }
   }
   return true;
+}
+
+function sameWorkSliceProjectionShape(
+  left: WorkSliceProjectionV2[],
+  right: WorkSliceProjectionV2[]
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.sliceRunId !== b.sliceRunId ||
+      a.lifecycleState !== b.lifecycleState ||
+      a.outcomeState !== b.outcomeState ||
+      a.updatedAt !== b.updatedAt ||
+      a.artifactCount !== b.artifactCount ||
+      a.lineage.sessionId !== b.lineage.sessionId
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameTimelineNarrativeShape(
+  left: SliceTimelineNarrativeProjectionV2[],
+  right: SliceTimelineNarrativeProjectionV2[]
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.sliceRunId !== b.sliceRunId ||
+      a.occurredAt !== b.occurredAt ||
+      a.outcome.state !== b.outcome.state ||
+      a.outcome.artifactCount !== b.outcome.artifactCount
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameNextUpByInitiativeShape(
+  left: NextUpInitiativeProjection[],
+  right: NextUpInitiativeProjection[]
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.initiativeId !== b.initiativeId ||
+      a.pendingCount !== b.pendingCount ||
+      a.queue.length !== b.queue.length
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameStringArrayShape(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function sameDataHealthShape(
+  left: SliceDataHealthSummary | undefined,
+  right: SliceDataHealthSummary | undefined
+): boolean {
+  if (!left && !right) return true;
+  if (!left || !right) return false;
+  return (
+    left.status === right.status &&
+    left.totals.slices === right.totals.slices &&
+    left.totals.missingTerminal === right.totals.missingTerminal &&
+    left.totals.lineageGap === right.totals.lineageGap &&
+    left.totals.artifactMismatch === right.totals.artifactMismatch &&
+    left.totals.invalidActor === right.totals.invalidActor
+  );
 }
 
 export function useLiveData(options: UseLiveDataOptions = {}) {
@@ -1053,7 +1360,18 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       sliceRunsInput: SliceRunProjection[] | null = null,
       outboxInput: OutboxStatus | null = null,
       generatedAtInput: string | null = null,
-      runtimeInstancesInput: RuntimeInstance[] | null = null
+      runtimeInstancesInput: RuntimeInstance[] | null = null,
+      v2Input: {
+        workSliceProjections?: WorkSliceProjectionV2[] | null;
+        timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
+        nextUpByInitiative?: NextUpInitiativeProjection[] | null;
+        runningWorkSlices?: number | null;
+        needsInputTotal?: number | null;
+        failedActionableTotal?: number | null;
+        completedTodayTotal?: number | null;
+        consistencyFlags?: string[] | null;
+        dataHealth?: SliceDataHealthSummary | null;
+      } | null = null
     ) => {
       lastSuccessAtRef.current = Date.now();
       authBlockedRef.current = false;
@@ -1079,6 +1397,44 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           runtimeInstancesInput === null
             ? prev.runtimeInstances ?? []
             : normalizeRuntimeInstances(runtimeInstancesInput);
+        const workSliceProjections =
+          v2Input?.workSliceProjections == null
+            ? prev.workSliceProjections ?? []
+            : normalizeWorkSliceProjections(v2Input.workSliceProjections);
+        const timelineNarrative =
+          v2Input?.timelineNarrative == null
+            ? prev.timelineNarrative ?? []
+            : normalizeTimelineNarrative(v2Input.timelineNarrative);
+        const nextUpByInitiative =
+          v2Input?.nextUpByInitiative == null
+            ? prev.nextUpByInitiative ?? []
+            : normalizeNextUpByInitiative(v2Input.nextUpByInitiative);
+        const runningWorkSlices =
+          typeof v2Input?.runningWorkSlices === 'number' && Number.isFinite(v2Input.runningWorkSlices)
+            ? Math.max(0, Math.floor(v2Input.runningWorkSlices))
+            : prev.runningWorkSlices ?? 0;
+        const needsInputTotal =
+          typeof v2Input?.needsInputTotal === 'number' && Number.isFinite(v2Input.needsInputTotal)
+            ? Math.max(0, Math.floor(v2Input.needsInputTotal))
+            : prev.needsInputTotal ?? 0;
+        const failedActionableTotal =
+          typeof v2Input?.failedActionableTotal === 'number' &&
+          Number.isFinite(v2Input.failedActionableTotal)
+            ? Math.max(0, Math.floor(v2Input.failedActionableTotal))
+            : prev.failedActionableTotal ?? 0;
+        const completedTodayTotal =
+          typeof v2Input?.completedTodayTotal === 'number' &&
+          Number.isFinite(v2Input.completedTodayTotal)
+            ? Math.max(0, Math.floor(v2Input.completedTodayTotal))
+            : prev.completedTodayTotal ?? 0;
+        const consistencyFlags =
+          v2Input?.consistencyFlags == null
+            ? prev.consistencyFlags ?? []
+            : v2Input.consistencyFlags.filter((flag): flag is string => typeof flag === 'string');
+        const dataHealth =
+          v2Input?.dataHealth === undefined || v2Input?.dataHealth === null
+            ? prev.dataHealth
+            : v2Input.dataHealth;
 
         if (
           sameSessionsShape(prev.sessions, sessions) &&
@@ -1088,6 +1444,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameSliceRunsShape(prev.sliceRuns, sliceRuns) &&
           sameOutboxShape(prev.outbox, outbox) &&
           sameRuntimeInstancesShape(prev.runtimeInstances, runtimeInstances) &&
+          sameWorkSliceProjectionShape(prev.workSliceProjections ?? [], workSliceProjections) &&
+          sameTimelineNarrativeShape(prev.timelineNarrative ?? [], timelineNarrative) &&
+          sameNextUpByInitiativeShape(prev.nextUpByInitiative ?? [], nextUpByInitiative) &&
+          (prev.runningWorkSlices ?? 0) === runningWorkSlices &&
+          (prev.needsInputTotal ?? 0) === needsInputTotal &&
+          (prev.failedActionableTotal ?? 0) === failedActionableTotal &&
+          (prev.completedTodayTotal ?? 0) === completedTodayTotal &&
+          sameStringArrayShape(prev.consistencyFlags ?? [], consistencyFlags) &&
+          sameDataHealthShape(prev.dataHealth, dataHealth) &&
           prev.lastSnapshotAt === generatedAtInput &&
           prev.connection === 'connected'
         ) {
@@ -1102,7 +1467,18 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sliceRuns,
           outbox,
           generatedAtInput,
-          runtimeInstances
+          runtimeInstances,
+          {
+            workSliceProjections,
+            timelineNarrative,
+            nextUpByInitiative,
+            runningWorkSlices,
+            needsInputTotal,
+            failedActionableTotal,
+            completedTodayTotal,
+            consistencyFlags,
+            dataHealth,
+          }
         );
       });
 
@@ -1140,6 +1516,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           include_idle: 'true',
         });
         const endpoints = [
+          { label: 'live/snapshot-v2', url: `/orgx/api/live/snapshot-v2?${query.toString()}` },
           { label: 'dashboard-bundle', url: `/orgx/api/dashboard-bundle?${query.toString()}` },
           { label: 'live/snapshot', url: `/orgx/api/live/snapshot?${query.toString()}` },
         ];
@@ -1174,9 +1551,19 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         const decisions = enableDecisions && Array.isArray(snapshot.decisions)
           ? snapshot.decisions
           : [];
-        const sliceRuns = normalizeSliceRuns(
-          Array.isArray(snapshot.sliceRuns) ? snapshot.sliceRuns : []
+        const workSliceProjections = normalizeWorkSliceProjections(
+          Array.isArray(snapshot.projections) ? snapshot.projections : []
         );
+        const timelineNarrative = normalizeTimelineNarrative(
+          Array.isArray(snapshot.timelineNarrative) ? snapshot.timelineNarrative : []
+        );
+        const nextUpByInitiative = normalizeNextUpByInitiative(
+          Array.isArray(snapshot.nextUpByInitiative) ? snapshot.nextUpByInitiative : []
+        );
+        const sliceRuns =
+          workSliceProjections.length > 0
+            ? sliceRunsFromWorkSliceProjections(workSliceProjections)
+            : normalizeSliceRuns(Array.isArray(snapshot.sliceRuns) ? snapshot.sliceRuns : []);
         const sessions =
           snapshot.sessions &&
           Array.isArray(snapshot.sessions.nodes) &&
@@ -1193,7 +1580,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sliceRuns,
           snapshot.outbox ?? null,
           snapshot.generatedAt ?? null,
-          snapshot.runtimeInstances ?? null
+          snapshot.runtimeInstances ?? null,
+          {
+            workSliceProjections,
+            timelineNarrative,
+            nextUpByInitiative,
+            runningWorkSlices: snapshot.runningWorkSlices ?? null,
+            needsInputTotal: snapshot.needsInput ?? null,
+            failedActionableTotal: snapshot.failedActionable ?? null,
+            completedTodayTotal: snapshot.completedToday ?? null,
+            consistencyFlags: Array.isArray(snapshot.consistencyFlags)
+              ? snapshot.consistencyFlags
+              : null,
+            dataHealth: snapshot.dataHealth ?? null,
+          }
         );
 
         const degradedReasons = Array.isArray(snapshot.degraded)
@@ -1504,6 +1904,17 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           outbox: OutboxStatus | null;
           generatedAt: string;
           runtimeInstances: RuntimeInstance[] | null;
+          v2: {
+            workSliceProjections?: WorkSliceProjectionV2[] | null;
+            timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
+            nextUpByInitiative?: NextUpInitiativeProjection[] | null;
+            runningWorkSlices?: number | null;
+            needsInputTotal?: number | null;
+            failedActionableTotal?: number | null;
+            completedTodayTotal?: number | null;
+            consistencyFlags?: string[] | null;
+            dataHealth?: SliceDataHealthSummary | null;
+          } | null;
         }
       | null = null;
     let pendingRuntimeInstances: RuntimeInstance[] | null = null;
@@ -1534,7 +1945,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           snapshot.sliceRuns,
           snapshot.outbox,
           snapshot.generatedAt,
-          snapshot.runtimeInstances
+          snapshot.runtimeInstances,
+          snapshot.v2
         );
         return;
       }
@@ -1668,6 +2080,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           handoffs?: HandoffSummary[];
           decisions?: LiveDecision[];
           sliceRuns?: SliceRunProjection[];
+          projections?: WorkSliceProjectionV2[];
+          timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
+          nextUpByInitiative?: NextUpInitiativeProjection[];
+          runningWorkSlices?: number;
+          needsInput?: number;
+          failedActionable?: number;
+          completedToday?: number;
+          consistencyFlags?: string[];
+          dataHealth?: SliceDataHealthSummary;
           outbox?: OutboxStatus;
           generatedAt?: string;
           runtimeInstances?: RuntimeInstance[];
@@ -1683,12 +2104,38 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity: payload.activity ?? [],
           handoffs: payload.handoffs ?? [],
           decisions: enableDecisions ? payload.decisions ?? null : [],
-          sliceRuns: Array.isArray(payload.sliceRuns) ? normalizeSliceRuns(payload.sliceRuns) : null,
+          sliceRuns: Array.isArray(payload.sliceRuns)
+            ? normalizeSliceRuns(payload.sliceRuns)
+            : Array.isArray(payload.projections)
+              ? sliceRunsFromWorkSliceProjections(normalizeWorkSliceProjections(payload.projections))
+              : null,
           outbox: payload.outbox ?? null,
           generatedAt,
           runtimeInstances: Array.isArray(payload.runtimeInstances)
             ? payload.runtimeInstances
             : null,
+          v2: {
+            workSliceProjections: Array.isArray(payload.projections)
+              ? normalizeWorkSliceProjections(payload.projections)
+              : null,
+            timelineNarrative: Array.isArray(payload.timelineNarrative)
+              ? normalizeTimelineNarrative(payload.timelineNarrative)
+              : null,
+            nextUpByInitiative: Array.isArray(payload.nextUpByInitiative)
+              ? normalizeNextUpByInitiative(payload.nextUpByInitiative)
+              : null,
+            runningWorkSlices:
+              typeof payload.runningWorkSlices === 'number' ? payload.runningWorkSlices : null,
+            needsInputTotal: typeof payload.needsInput === 'number' ? payload.needsInput : null,
+            failedActionableTotal:
+              typeof payload.failedActionable === 'number' ? payload.failedActionable : null,
+            completedTodayTotal:
+              typeof payload.completedToday === 'number' ? payload.completedToday : null,
+            consistencyFlags: Array.isArray(payload.consistencyFlags)
+              ? payload.consistencyFlags
+              : null,
+            dataHealth: payload.dataHealth ?? null,
+          },
         };
         scheduleFlush();
       } catch (err) {

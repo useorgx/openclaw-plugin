@@ -5,10 +5,14 @@ import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/lib/humanize';
-import type { Initiative, LiveActivityItem, LiveActivityType, SessionTreeNode } from '@/types';
+import type {
+  Initiative,
+  LiveActivityItem,
+  LiveActivityType,
+  SessionTreeNode,
+  SliceTimelineNarrativeProjectionV2,
+} from '@/types';
 import { MarkdownText } from '@/components/shared/MarkdownText';
-import { Modal } from '@/components/shared/Modal';
-import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
@@ -19,17 +23,14 @@ import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
-
-const itemVariants = {
-  initial: { opacity: 0, y: 8, scale: 0.98 },
-  animate: { opacity: 1, y: 0, scale: 1 },
-  exit: { opacity: 0, y: -4, scale: 0.98 },
-};
+import { ActivityTimelineItem } from './ActivityTimelineItem';
+import { ActivityDetailModal } from './ActivityDetailModal';
 
 interface ActivityTimelineProps {
   activity: LiveActivityItem[];
   sessions: SessionTreeNode[];
   initiatives?: Initiative[];
+  timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
   selectedRunIds: string[];
   selectedSessionLabel?: string | null;
   selectedWorkstreamId?: string | null;
@@ -63,12 +64,14 @@ const MAX_RENDER_COUNT = 3_600;
 const MAX_FILTER_POOL = 12_000;
 
 type ActivityBucket = 'message' | 'artifact' | 'decision';
-type ActivityFilterId = 'all' | 'messages' | 'artifacts' | 'decisions';
+type ActivityFilterId = 'all' | 'completed' | 'needs_attention' | 'in_progress';
 type SortOrder = 'newest' | 'oldest';
-type DetailTabId = 'overview' | 'flow' | 'technical';
+type ActivityUserState = 'update' | 'needs_input' | 'completed' | 'issue' | 'in_progress';
 interface DecoratedActivityItem {
   item: LiveActivityItem;
   bucket: ActivityBucket;
+  userState: ActivityUserState;
+  userStateWhy: string;
   runId: string | null;
   timestampEpoch: number;
   searchText: string;
@@ -85,9 +88,9 @@ interface DeduplicatedCluster {
 
 const filterLabels: Record<ActivityFilterId, string> = {
   all: 'All',
-  messages: 'Messages',
-  artifacts: 'Artifacts',
-  decisions: 'Decisions',
+  completed: 'Completed',
+  needs_attention: 'Needs attention',
+  in_progress: 'In progress',
 };
 
 function runtimeProviderIdFromLogo(
@@ -173,7 +176,15 @@ function resolveRunId(item: LiveActivityItem): string | null {
   if (item.runId) return item.runId;
   const metadata = metadataForItem(item);
   if (!metadata) return null;
-  const candidates = ['runId', 'run_id', 'sessionId', 'session_id', 'agentRunId'];
+  const candidates = [
+    'runId',
+    'run_id',
+    'sliceRunId',
+    'slice_run_id',
+    'sessionId',
+    'session_id',
+    'agentRunId',
+  ];
   for (const key of candidates) {
     const value = metadata[key];
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -659,39 +670,115 @@ function dayLabel(dayKey: string): string {
   });
 }
 
-function bucketLabel(bucket: ActivityBucket): string {
-  if (bucket === 'artifact') return 'Artifact';
-  if (bucket === 'decision') return 'Decision';
-  return 'Message';
+function isInProgressStatus(status: string): boolean {
+  return [
+    'running',
+    'dispatching',
+    'queued',
+    'in_progress',
+    'pending',
+    'resumed',
+  ].includes(status);
 }
 
-function bucketColor(bucket: ActivityBucket): string {
-  if (bucket === 'artifact') return colors.cyan;
-  if (bucket === 'decision') return colors.amber;
+function isIssueStatus(status: string): boolean {
+  return ['failed', 'error', 'blocked', 'timeout'].includes(status);
+}
+
+function isCompletedStatus(status: string): boolean {
+  return ['completed', 'done', 'resolved', 'success', 'succeeded'].includes(status);
+}
+
+function userStateLabel(state: ActivityUserState): string {
+  if (state === 'completed') return 'Completed';
+  if (state === 'needs_input') return 'Needs attention';
+  if (state === 'issue') return 'Issue';
+  if (state === 'in_progress') return 'In progress';
+  return 'Update';
+}
+
+function userStateColor(state: ActivityUserState): string {
+  if (state === 'completed') return colors.lime;
+  if (state === 'needs_input') return colors.amber;
+  if (state === 'issue') return colors.red;
+  if (state === 'in_progress') return colors.teal;
   return colors.teal;
 }
 
+function resolveActivityUserState(
+  item: LiveActivityItem,
+  bucket: ActivityBucket,
+  sessionStatus: string | null
+): { state: ActivityUserState; why: string } {
+  const metadata = metadataForItem(item);
+  const statusHint = normalizeStatusKey(
+    metadataString(metadata, [
+      'status',
+      'state',
+      'phase',
+      'lifecycle_state',
+      'lifecycleState',
+      'parsed_status',
+      'parsedStatus',
+      'run_status',
+      'runStatus',
+      'stop_reason',
+      'stopReason',
+    ]) ?? sessionStatus ?? ''
+  );
+  const blockingDecisions =
+    metadataCount(metadata, [
+      'blocking_decisions',
+      'blockingDecisions',
+      'blocking_decision_count',
+      'blockingDecisionCount',
+    ]) ?? 0;
+  const nonBlockingDecisions =
+    metadataCount(metadata, [
+      'non_blocking_decisions',
+      'nonBlockingDecisions',
+      'decision_count',
+      'decisionCount',
+      'decisions',
+    ]) ?? 0;
 
-type ActivitySeverity = 'critical' | 'positive' | 'warning' | 'neutral';
+  if (
+    item.type === 'run_failed' ||
+    item.type === 'blocker_created' ||
+    isIssueStatus(statusHint)
+  ) {
+    return { state: 'issue', why: 'Execution encountered an error or blocker.' };
+  }
 
-function activitySeverity(item: LiveActivityItem): ActivitySeverity {
-  if (item.type === 'run_failed' || item.type === 'blocker_created') return 'critical';
-  if (item.type === 'decision_requested') return 'warning';
+  if (
+    item.decisionRequired === true ||
+    blockingDecisions > 0 ||
+    item.type === 'decision_requested'
+  ) {
+    return { state: 'needs_input', why: 'Waiting on a decision to continue.' };
+  }
+
+  if (isInProgressStatus(statusHint) || item.type === 'run_started') {
+    return { state: 'in_progress', why: 'Execution is currently active.' };
+  }
+
   if (
     item.type === 'run_completed' ||
     item.type === 'milestone_completed' ||
-    item.type === 'decision_resolved'
+    item.type === 'decision_resolved' ||
+    isCompletedStatus(statusHint)
   ) {
-    return 'positive';
+    if (nonBlockingDecisions > 0) {
+      return { state: 'completed', why: 'Completed with optional follow-up decisions.' };
+    }
+    return { state: 'completed', why: 'Execution completed successfully.' };
   }
-  return 'neutral';
-}
 
-function severityColor(severity: ActivitySeverity): string {
-  if (severity === 'critical') return colors.red;
-  if (severity === 'warning') return colors.amber;
-  if (severity === 'positive') return colors.lime;
-  return colors.teal;
+  if (bucket === 'artifact') {
+    return { state: 'completed', why: 'Produced an artifact output.' };
+  }
+
+  return { state: 'update', why: 'Informational activity update.' };
 }
 
 function metadataToJson(metadata: Record<string, unknown> | undefined): string | null {
@@ -1459,20 +1546,31 @@ function formatAgentLabel(
   const normalizedId = typeof explicitId === 'string' && explicitId.trim().length > 0
     ? explicitId.trim()
     : null;
-  const defaultNameById: Record<string, string> = {
-    main: 'Holt',
-  };
-  const inferredFromId = normalizedId
-    ? namesById?.get(normalizedId) ?? defaultNameById[normalizedId] ?? null
-    : null;
-  const name = normalizedName ?? inferredFromId;
-
-  if (name && normalizedId && normalizedId !== name) return `${name} · ${normalizedId}`;
-  if (name) return name;
-  return normalizedId ?? '—';
+  const inferredFromId = normalizedId ? namesById?.get(normalizedId) ?? null : null;
+  const resolvedName = normalizedName ?? inferredFromId;
+  if (resolvedName) return humanizeActorName(resolvedName);
+  if (!normalizedId) return 'OrgX';
+  const idKey = normalizedId.toLowerCase();
+  if (
+    idKey === 'main' ||
+    idKey === 'system' ||
+    idKey === 'unknown' ||
+    idKey === 'runtime' ||
+    idKey === 'orgx' ||
+    idKey === 'openclaw' ||
+    idKey === 'null' ||
+    idKey === 'undefined'
+  ) {
+    return humanizeActorName(normalizedId);
+  }
+  if (UUID_LIKE_REGEX.test(normalizedId) || HEX_LIKE_ID_REGEX.test(normalizedId)) {
+    return 'OrgX';
+  }
+  return humanizeActorName(normalizedId);
 }
 
 const UUID_LIKE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HEX_LIKE_ID_REGEX = /^[0-9a-f]{20,}$/i;
 const UUID_EXTRACT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
@@ -2297,6 +2395,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   activity,
   sessions,
   initiatives = [],
+  timelineNarrative = [],
   selectedRunIds,
   selectedSessionLabel = null,
   selectedWorkstreamId = null,
@@ -2337,7 +2436,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [detailMenuOpen, setDetailMenuOpen] = useState(false);
   const [detailDirection, setDetailDirection] = useState<1 | -1>(1);
-  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabId>('overview');
   const [artifactViewMode, setArtifactViewMode] = useState<'structured' | 'json'>('structured');
   const [detailSummaryOverride, setDetailSummaryOverride] = useState<string | null>(null);
   const [detailSummarySource, setDetailSummarySource] = useState<'feed' | 'local' | 'missing'>('feed');
@@ -2466,6 +2564,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return activity.map((item) => {
       const runId = resolveRunId(item);
       const bucket = classifyActivity(item);
+      const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
+      const userState = resolveActivityUserState(item, bucket, sessionStatus);
       const searchText = [
         item.title,
         item.description,
@@ -2480,12 +2580,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       return {
         item,
         bucket,
+        userState: userState.state,
+        userStateWhy: userState.why,
         runId,
         timestampEpoch: toEpoch(item.timestamp),
         searchText,
       } satisfies DecoratedActivityItem;
     });
-  }, [activity]);
+  }, [activity, sessionStatusById]);
 
   const isLive = useMemo(() => {
     let newest = 0;
@@ -2579,10 +2681,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         continue;
       }
 
-      const bucket = decorated.bucket;
-      if (activeFilter === 'messages' && bucket !== 'message') continue;
-      if (activeFilter === 'artifacts' && bucket !== 'artifact') continue;
-      if (activeFilter === 'decisions' && bucket !== 'decision') continue;
+      if (activeFilter === 'completed' && decorated.userState !== 'completed') continue;
+      if (
+        activeFilter === 'needs_attention' &&
+        decorated.userState !== 'needs_input' &&
+        decorated.userState !== 'issue'
+      ) {
+        continue;
+      }
+      if (activeFilter === 'in_progress' && decorated.userState !== 'in_progress') continue;
 
       if (normalizedQuery.length > 0) {
         const runLabel = runId ? runLabelById.get(runId) ?? runId : '';
@@ -2802,6 +2909,21 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [activeItemId, filtered]);
 
   const activeDecorated = activeIndex >= 0 ? filtered[activeIndex] : null;
+  const narrativeBySliceRunId = useMemo(() => {
+    const map = new Map<string, SliceTimelineNarrativeProjectionV2>();
+    for (const narrative of timelineNarrative) {
+      const id = narrative?.sliceRunId?.trim();
+      if (!id || map.has(id)) continue;
+      map.set(id, narrative);
+    }
+    return map;
+  }, [timelineNarrative]);
+  const activeNarrative = useMemo(() => {
+    if (!activeDecorated) return null;
+    const runId = activeDecorated.runId ?? resolveRunId(activeDecorated.item);
+    if (!runId) return null;
+    return narrativeBySliceRunId.get(runId) ?? null;
+  }, [activeDecorated, narrativeBySliceRunId]);
   const activeArtifact = useMemo(
     () => extractArtifactPayload(activeDecorated?.item ?? null),
     [activeDecorated]
@@ -2937,6 +3059,38 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         : null,
     [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]
   );
+  const activeResultItems = useMemo(() => {
+    if (!activeExecutionBreakdown) return [];
+    const resultItems: Array<{ label: string; value: number | string }> = [];
+    if (activeExecutionBreakdown.scopedTaskCount > 0) {
+      resultItems.push({ label: 'Tasks', value: activeExecutionBreakdown.scopedTaskCount });
+    }
+    if (activeExecutionBreakdown.scopedMilestoneCount > 0) {
+      resultItems.push({ label: 'Milestones', value: activeExecutionBreakdown.scopedMilestoneCount });
+    }
+    const artifactCount = activeExecutionBreakdown.artifacts ?? 0;
+    if (artifactCount > 0) {
+      resultItems.push({ label: 'Artifacts', value: artifactCount });
+    }
+    const decisionCount = activeExecutionBreakdown.decisions ?? 0;
+    if (decisionCount > 0) {
+      resultItems.push({ label: 'Decisions', value: decisionCount });
+    }
+    if (activeExecutionBreakdown.blockingDecisions && activeExecutionBreakdown.blockingDecisions > 0) {
+      resultItems.push({ label: 'Blocking', value: activeExecutionBreakdown.blockingDecisions });
+    }
+    const tokenLabel = formatTokens(
+      activeExecutionBreakdown.tokensUsed,
+      activeExecutionBreakdown.tokenBudget,
+    );
+    if (tokenLabel) {
+      resultItems.push({ label: 'Token usage', value: tokenLabel });
+    }
+    if (resultItems.length === 0 && activeOutcome) {
+      resultItems.push({ label: 'Status', value: activeOutcome.label });
+    }
+    return resultItems;
+  }, [activeExecutionBreakdown, activeOutcome]);
   const activeDecisionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const id of extractActivityDecisionIds(activeDecorated?.item ?? null)) {
@@ -3214,7 +3368,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   useEffect(() => {
     setArtifactViewMode('structured');
     setDetailMenuOpen(false);
-    setActiveDetailTab('overview');
     setAutoFixPending(false);
     setAutoFixNotice(null);
   }, [activeItemId]);
@@ -3400,192 +3553,50 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       identity.agentId ||
       item.agentName ||
       'OrgX';
-    const severity = activitySeverity(item);
-    const railColor = severityColor(severity);
+    const railColor = userStateColor(decorated.userState);
     const isRecent = sortOrder === 'newest' && index < 2;
-    const bucket = decorated.bucket;
     const runId = decorated.runId;
-    const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
     const syncSummary = syncReplaySummary(item);
-    const isSyncReplay = syncSummary !== null;
-
-    const { title: displayTitle, isSystem: isSystemEvent } = cleanSystemTitle(item);
-    const actorSubtitle = isSystemEvent ? 'OrgX' : actorFlow.subtitle;
-    const showHandoffFlow =
-      actorFlow.mode === 'handoff' && actorFlow.requester !== null && actorFlow.executor !== null;
+    const { title: displayTitle } = cleanSystemTitle(item);
     const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
+    const headline = summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null);
     const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
     const workstreamId =
       extractWorkstreamId(item) ?? (runId ? sessionWorkstreamByRunId.get(runId) ?? null : null);
     const workstreamName = workstreamId
       ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
       : null;
-    const kindLabel = isSyncReplay ? 'Sync' : bucketLabel(bucket);
-    const primaryTag = isSyncReplay
-      ? 'Synced'
-      : severity === 'critical'
-        ? 'Error'
-        : severity === 'warning'
-          ? 'Needs review'
-          : severity === 'positive'
-            ? 'Completed'
-            : 'Update';
+    const breadcrumb = [initiativeName, workstreamName].filter(Boolean).join(' > ');
+    const contextLabel = breadcrumb || initiativeName || workstreamName || humanizeText(item.type);
+    const primaryTag = userStateLabel(decorated.userState);
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
       hour: 'numeric',
       minute: '2-digit',
     });
-
-    const commonClassName =
-      "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
-
-    const content = (
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5">
-          {showHandoffFlow ? (
-            <div className="flex items-center gap-1">
-              <div className="inline-flex -space-x-2">
-                <span className="rounded-full bg-[#080808] p-[1px]">
-                  <AgentAvatar
-                    name={actorFlow.requester?.label ?? 'Requester'}
-                    hint={actorAvatarHint(actorFlow.requester)}
-                    size="xs"
-                  />
-                </span>
-                <span className="rounded-full bg-[#080808] p-[1px]">
-                  <AgentAvatar
-                    name={actorFlow.executor?.label ?? 'Executor'}
-                    hint={actorAvatarHint(actorFlow.executor)}
-                    size="xs"
-                  />
-                </span>
-              </div>
-              <span className="text-micro text-muted">→</span>
-            </div>
-          ) : (
-            <AgentAvatar
-              name={displayAgentName}
-              hint={
-                actorAvatarHint(primaryActor) ||
-                [identity.agentId, identity.agentName, displayAgentName].filter(Boolean).join(' ')
-              }
-              size="xs"
-            />
-          )}
-        </div>
-        <div className="relative min-w-0 flex-1 pl-3">
-          <span
-            className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full', isRecent && 'pulse-soft')}
-            style={{
-              backgroundColor: railColor,
-              boxShadow: `0 0 14px ${railColor}66`,
-            }}
-          />
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className={`line-clamp-2 break-words text-body font-semibold leading-snug ${isSystemEvent ? 'text-muted' : 'text-bright'}`}>
-                {displayTitle}
-              </p>
-              <p className="mt-0.5 truncate text-caption text-secondary" title={actorSubtitle}>
-                {actorSubtitle}
-                {sessionStatus ? ` · ${humanizeText(sessionStatus)}` : ''}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <span className="text-micro font-semibold tracking-[0.02em] text-muted">
-                {kindLabel}
-              </span>
-              <span className="text-caption text-secondary">{timeLabel}</span>
-            </div>
-          </div>
-
-          {(displaySummary || displayDesc) && (
-            <div className="mt-1.5 line-clamp-2 text-caption leading-relaxed text-secondary">
-              <MarkdownText mode="inline" text={displaySummary ?? displayDesc ?? ''} />
-            </div>
-          )}
-
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro">
-            <span
-	              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tracking-[0.01em]"
-              style={{
-                borderColor: `${railColor}55`,
-                backgroundColor: `${railColor}1A`,
-                color: railColor,
-              }}
-            >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
-              {primaryTag}
-            </span>
-            {showHandoffFlow && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-cyan-300/25 bg-cyan-500/[0.10] px-2 py-0.5 text-cyan-100">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-200" />
-                Handoff
-              </span>
-            )}
-            {initiativeName ? (
-              <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
-                title={initiativeName}
-              >
-                <EntityIcon type="initiative" size={10} className="opacity-85" />
-                <span className="truncate">{initiativeName}</span>
-              </span>
-            ) : workstreamName ? (
-              <span
-                className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
-                title={workstreamName}
-              >
-                <EntityIcon type="workstream" size={10} className="opacity-90" />
-                <span className="truncate">{workstreamName}</span>
-              </span>
-            ) : null}
-            <span className="text-secondary">{formatRelativeTime(item.timestamp)}</span>
-          </div>
-        </div>
-      </div>
-    );
-
-    if (!enableItemMotion) {
-      return (
-        <button
-          type="button"
-          key={renderKey}
-          onClick={() => {
-            setDetailDirection(1);
-            setActiveItemId(item.id);
-          }}
-          className={cn(
-            commonClassName,
-            "transform-gpu transition-[transform,background-color,border-color,color] hover:-translate-y-[1px] active:scale-[0.995]"
-          )}
-          aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
-        >
-          {content}
-        </button>
-      );
-    }
+    const relativeTime = formatRelativeTime(item.timestamp);
 
     return (
-      <motion.button
-        type="button"
-        key={renderKey}
-        variants={itemVariants}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-        transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-        whileHover={{ y: -1.5 }}
-        whileTap={{ scale: 0.995 }}
-        onClick={() => {
+      <ActivityTimelineItem
+        renderKey={renderKey}
+        displayTitle={displayTitle}
+        headline={headline}
+        contextLabel={contextLabel}
+        detailText={(displaySummary ?? displayDesc) !== headline ? displaySummary ?? displayDesc : null}
+        displayAgentName={displayAgentName}
+        railColor={railColor}
+        userStateLabel={primaryTag}
+        userStateWhy={decorated.userStateWhy}
+        relativeTime={relativeTime}
+        timeLabel={timeLabel}
+        isRecent={isRecent}
+        enableMotion={enableItemMotion}
+        onOpen={() => {
           setDetailDirection(1);
           setActiveItemId(item.id);
         }}
-        className={commonClassName}
-        aria-label={`Open activity details for ${displayTitle || labelForType(item.type)}`}
-      >
-        {content}
-      </motion.button>
+        ariaLabel={`Open activity details for ${displayTitle || labelForType(item.type)}`}
+      />
     );
   };
 
@@ -3655,7 +3666,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   <div
                     className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
                     role="group"
-                    aria-label="Activity type filters"
+                    aria-label="Activity status filters"
                   >
                     {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
                       const active = activeFilter === filterId;
@@ -3800,7 +3811,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                             <div>
                               <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
-                                Type
+                                Status
                               </p>
                               <div className="grid grid-cols-2 gap-1">
                                 {(Object.keys(filterLabels) as ActivityFilterId[]).map((filterId) => {
@@ -4217,7 +4228,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         </>
       )}
 
-      <Modal open={activeDecorated !== null} onClose={closeDetail} maxWidth="max-w-3xl">
+      <ActivityDetailModal open={activeDecorated !== null} onClose={closeDetail}>
         {activeDecorated && (
           <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
             <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
@@ -4227,12 +4238,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                 <span
                   className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                   style={{
-                    backgroundColor: bucketColor(activeDecorated.bucket),
-                    boxShadow: `0 0 12px ${bucketColor(activeDecorated.bucket)}55`,
+                    backgroundColor: userStateColor(activeDecorated.userState),
+                    boxShadow: `0 0 12px ${userStateColor(activeDecorated.userState)}55`,
                   }}
                 />
                 <span className="text-caption text-secondary">
-                  {bucketLabel(activeDecorated.bucket)} · {activeIndex + 1}/{filtered.length}
+                  {userStateLabel(activeDecorated.userState)} · {activeIndex + 1}/{filtered.length}
                 </span>
                 {copyNotice && (
                   <Pill tone="neutral" className="text-micro font-semibold tracking-[0.02em]">
@@ -4350,102 +4361,42 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-caption">
-                      <Pill
-                        tone="neutral"
-                        className="font-semibold tracking-[0.02em]"
-                        style={{
-                          borderColor: `${bucketColor(activeDecorated.bucket)}55`,
-                          color: bucketColor(activeDecorated.bucket),
-                          backgroundColor: `${bucketColor(activeDecorated.bucket)}12`,
-                        }}
-                      >
-                        {bucketLabel(activeDecorated.bucket)}
+                      {(() => {
+                        const workstreamId =
+                          activeAutopilotContext?.workstreamId ??
+                          extractWorkstreamId(activeDecorated.item) ??
+                          (activeDecorated.runId ? sessionWorkstreamByRunId.get(activeDecorated.runId) ?? null : null);
+                        const workstreamName = workstreamId
+                          ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
+                          : null;
+                        const initiativeTitle =
+                          activeAutopilotContext?.initiativeTitle ??
+                          (activeDecorated.item.initiativeId
+                            ? initiativeNameById.get(activeDecorated.item.initiativeId) ?? null
+                            : null);
+                        const breadcrumb = [initiativeTitle, workstreamName].filter(Boolean).join(' > ');
+                        if (!breadcrumb) return null;
+                        return (
+                          <Pill tone="muted" className="max-w-full">
+                            <span className="truncate">{breadcrumb}</span>
+                          </Pill>
+                        );
+                      })()}
+                      <Pill tone="neutral" className="font-semibold tracking-[0.02em]">
+                        {userStateLabel(activeDecorated.userState)}
                       </Pill>
                       <Pill tone="muted">
-                        {labelForType(activeDecorated.item.type)}
+                        <AgentAvatar
+                          name={activePrimaryActor?.label ?? activeActorFlow?.primaryLabel ?? 'OrgX'}
+                          hint={activePrimaryActor ? actorAvatarHint(activePrimaryActor) : activeActorFlow?.primaryLabel ?? 'OrgX'}
+                          size="xs"
+                        />
+                        <span>{activePrimaryActor?.label ?? activeActorFlow?.primaryLabel ?? 'OrgX'}</span>
                       </Pill>
-                      {activeIsSyncReplay && (
-                        <Pill tone="lime">
-                          Sync replay
-                        </Pill>
-                      )}
-                      {activeActorFlow?.mode === 'handoff' &&
-                        activeActorFlow.requester &&
-                        activeActorFlow.executor && (
-                          <Pill tone="cyan">
-                            <AgentAvatar
-                              name={activeActorFlow.requester.label}
-                              hint={actorAvatarHint(activeActorFlow.requester)}
-                              size="xs"
-                            />
-                            <span className="text-micro text-cyan-100/80">→</span>
-                            <AgentAvatar
-                              name={activeActorFlow.executor.label}
-                              hint={actorAvatarHint(activeActorFlow.executor)}
-                              size="xs"
-                            />
-                          </Pill>
-                        )}
-                      {activeActorFlow?.mode !== 'handoff' && activePrimaryActor && (
-                        <Pill tone="muted">
-                          <AgentAvatar
-                            name={activePrimaryActor.label}
-                            hint={actorAvatarHint(activePrimaryActor)}
-                            size="xs"
-                          />
-                          <span>{activePrimaryActor.label}</span>
-                        </Pill>
-                      )}
-                      {activeDecorated.runId && (
-                        <Pill tone="muted">
-                          {runLabelById.get(activeDecorated.runId) ?? humanizeText(activeDecorated.runId)}
-                        </Pill>
-                      )}
+                      {activeIsSyncReplay && <Pill tone="lime">Sync replay</Pill>}
                     </div>
 
-                    <div className="inline-flex rounded-full border border-white/[0.12] bg-white/[0.03] p-1 text-caption">
-                      <button
-                        type="button"
-                        onClick={() => setActiveDetailTab('overview')}
-                        aria-pressed={activeDetailTab === 'overview'}
-                        className={cn(
-                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
-                          activeDetailTab === 'overview'
-                            ? 'bg-white/[0.14] text-primary'
-                            : 'text-secondary hover:text-primary'
-                        )}
-                      >
-                        Overview
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveDetailTab('flow')}
-                        aria-pressed={activeDetailTab === 'flow'}
-                        className={cn(
-                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
-                          activeDetailTab === 'flow'
-                            ? 'bg-cyan-500/[0.16] text-cyan-100'
-                            : 'text-secondary hover:text-primary'
-                        )}
-                      >
-                        Flow
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveDetailTab('technical')}
-                        aria-pressed={activeDetailTab === 'technical'}
-                        className={cn(
-                          'rounded-full px-2.5 py-1 font-semibold transition-colors',
-                          activeDetailTab === 'technical'
-                            ? 'bg-lime/[0.16] text-[#E1FFB2]'
-                            : 'text-secondary hover:text-primary'
-                        )}
-                      >
-                        Technical
-                      </button>
-                    </div>
-
-                    {activeDetailTab === 'overview' && activeOutcome && (
+                    {activeOutcome && (
                       <div
                         className={cn(
                           'rounded-xl border px-3.5 py-3',
@@ -4476,7 +4427,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               }}
                               className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.1]"
                             >
-                              Open session
+                              Open work session
                             </button>
                           )}
                           {canOpenDecisionFromDetail && (
@@ -4488,7 +4439,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               }}
                               className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-3 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
                             >
-                              {activeDecisionIds.length > 0 ? 'Open decision' : 'Open decisions'}
+                              {activeDecisionIds.length > 0 ? 'Resolve decision' : 'Resolve decisions'}
                             </button>
                           )}
                           {activeArtifactId && (
@@ -4497,7 +4448,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               onClick={() => openArtifactViewer(activeArtifactId)}
                               className="rounded-full border border-cyan-300/25 bg-cyan-500/[0.1] px-3 py-1 text-caption font-semibold text-cyan-100 transition hover:bg-cyan-500/[0.16]"
                             >
-                              View artifact
+                              Open artifact
                             </button>
                           )}
                           {primaryEvidenceHref && (
@@ -4507,7 +4458,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               rel="noopener noreferrer"
                               className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption font-semibold text-primary transition hover:bg-white/[0.1]"
                             >
-                              Open evidence
+                              Review evidence
                             </a>
                           )}
                           {activeAutoFixTarget && (
@@ -4534,7 +4485,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {activeDetailTab === 'overview' && activeSpawnGuard && (
+                    {activeSpawnGuard && (
                       <div className="mt-3 rounded-xl border border-amber-300/26 bg-amber-500/[0.08] px-3.5 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-micro font-semibold uppercase tracking-[0.08em] text-amber-100/85">
@@ -4610,7 +4561,29 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {activeDetailTab === 'flow' && activeActorFlow && (
+                    {activeResultItems.length > 0 && (
+                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                        <p className="text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                          Results
+                        </p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary sm:grid-cols-3">
+                          {activeResultItems.map((item) => (
+                            <div key={item.label} className="rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2">
+                              <div className="text-micro text-secondary">{item.label}</div>
+                              <div className="mt-1 tabular-nums">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(activeActorFlow || activeAutopilotContext) && (
+                      <details className="rounded-xl border border-white/[0.08] bg-black/20 p-3" open>
+                        <summary className="cursor-pointer text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                          Execution details
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                    {activeActorFlow && !activeAutopilotContext && (
                       <div className="rounded-xl border border-cyan-300/24 bg-cyan-500/[0.07] p-3">
                         <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
                           Delegation flow
@@ -4667,7 +4640,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeDetailTab === 'flow' && activeAutopilotContext && (
+	                    {activeAutopilotContext && (
 	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">
 	                        <div className="flex flex-wrap items-center justify-between gap-2">
 	                          <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">
@@ -4815,44 +4788,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              )}
 	                            </div>
 
-	                            {(() => {
-	                              const outcomeItems: Array<{ label: string; value: number | string }> = [];
-	                              if (activeExecutionBreakdown.scopedTaskCount)
-	                                outcomeItems.push({ label: 'Tasks', value: activeExecutionBreakdown.scopedTaskCount });
-	                              if (activeExecutionBreakdown.scopedMilestoneCount)
-	                                outcomeItems.push({ label: 'Milestones', value: activeExecutionBreakdown.scopedMilestoneCount });
-	                              if (activeExecutionBreakdown.statusUpdatesApplied)
-	                                outcomeItems.push({ label: 'Status updates', value: activeExecutionBreakdown.statusUpdatesApplied });
-	                              if (activeExecutionBreakdown.artifacts)
-	                                outcomeItems.push({ label: 'Artifacts', value: activeExecutionBreakdown.artifacts });
-	                              if (activeExecutionBreakdown.decisions)
-	                                outcomeItems.push({ label: 'Decisions', value: activeExecutionBreakdown.decisions });
-	                              const tokenLabel = formatTokens(
-	                                activeExecutionBreakdown.tokensUsed,
-	                                activeExecutionBreakdown.tokenBudget,
-	                              );
-	                              if (tokenLabel)
-	                                outcomeItems.push({ label: 'Token usage', value: tokenLabel });
-
-	                              if (outcomeItems.length === 0) return null;
-
-	                              return (
-	                                <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-	                                  <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
-	                                    <ActivityEventIcon icon="check_circle" size={12} className="text-lime/80" />
-	                                    Outcomes
-	                                  </div>
-	                                  <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary">
-	                                    {outcomeItems.map((item) => (
-	                                      <div key={item.label}>
-	                                        <div className="text-micro text-secondary">{item.label}</div>
-	                                        <div className="mt-0.5 tabular-nums">{item.value}</div>
-	                                      </div>
-	                                    ))}
-	                                  </div>
-	                                </div>
-	                              );
-	                            })()}
 	                          </div>
 	                        )}
 
@@ -4963,9 +4898,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                        )}
 	                      </div>
 	                    )}
+                        </div>
+                      </details>
+                    )}
 
-                    {activeDetailTab === 'technical' && activeProvenance && (
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+                    {activeProvenance && (
+                      <details className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
+                        <summary className="cursor-pointer text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                          Technical
+                        </summary>
+                        <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
 	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Provenance</p>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           {activeProvenance.domain && (
@@ -5050,10 +4992,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             </div>
                           )}
                         </div>
-                      </div>
+                        </div>
+                      </details>
                     )}
 
-	                    {activeDetailTab === 'overview' && activeSummaryText && (
+	                    {activeSummaryText && (
 		                      <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
 		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Summary</p>
 	                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
@@ -5069,19 +5012,48 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </div>
 	                    )}
 
-	                    {activeDetailTab === 'overview' && humanizeActivityBody(activeDecorated.item.description) && (
-		                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
-		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
-	                        <MarkdownText
+	                    {humanizeActivityBody(activeDecorated.item.description) && (
+			                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
+			                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
+		                        <MarkdownText
 	                          mode="block"
 	                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
 	                          className="mt-1.5 text-body leading-relaxed text-secondary"
 	                        />
+		                      </div>
+	                    )}
+
+	                    {activeNarrative && (
+	                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
+	                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Slice narrative</p>
+	                        <div className="mt-2 space-y-2 text-caption text-secondary">
+	                          <p>
+	                            <span className="text-white/80">Intent:</span> {activeNarrative.intent}
+	                          </p>
+	                          <p>
+	                            <span className="text-white/80">Dispatch:</span> {activeNarrative.dispatch}
+	                          </p>
+	                          {activeNarrative.highlights.length > 0 && (
+	                            <div>
+	                              <span className="text-white/80">Highlights:</span>
+	                              <ul className="mt-1 list-disc space-y-1 pl-4">
+	                                {activeNarrative.highlights.slice(0, 3).map((highlight, index) => (
+	                                  <li key={`${activeNarrative.sliceRunId}:highlight:${index}`}>
+	                                    {highlight}
+	                                  </li>
+	                                ))}
+	                              </ul>
+	                            </div>
+	                          )}
+	                          <p>
+	                            <span className="text-white/80">Outcome:</span> {activeNarrative.outcome.summary}
+	                          </p>
+	                        </div>
 	                      </div>
 	                    )}
 
-                    {activeDetailTab === 'technical' && activeFileEvidence.length > 0 && (
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
+	                    {activeFileEvidence.length > 0 && (
+	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                         <p className="text-caption font-semibold tracking-[0.02em] text-secondary">
                           Filesystem evidence
                         </p>
@@ -5126,7 +5098,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                    )}
 
                     {/* View registered artifact button (loop closure) */}
-                    {activeDetailTab === 'overview' && activeDecorated && extractArtifactId(activeDecorated.item) && (
+                    {activeDecorated && extractArtifactId(activeDecorated.item) && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5145,7 +5117,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </button>
                     )}
 
-                    {activeDetailTab === 'technical' && activeArtifact && (
+                    {activeArtifact && (
 	                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
 	                        <div className="flex items-center justify-between gap-2">
 	                          <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
@@ -5191,7 +5163,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeDetailTab === 'technical' && activeResolvedMetadataJson && activeResolvedMetadataJson !== activeMetadataJson && (
+	                    {activeResolvedMetadataJson && activeResolvedMetadataJson !== activeMetadataJson && (
 	                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
 	                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
 	                          Parsed metadata
@@ -5202,7 +5174,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </details>
 	                    )}
 
-	                    {activeDetailTab === 'technical' && activeMetadataJson && (
+	                    {activeMetadataJson && (
 		                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
 		                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
 		                          Raw metadata
@@ -5222,7 +5194,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
           </div>
         )}
-      </Modal>
+      </ActivityDetailModal>
     </div>
   );
 });

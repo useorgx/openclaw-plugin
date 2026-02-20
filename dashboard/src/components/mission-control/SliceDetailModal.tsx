@@ -1,0 +1,861 @@
+import { useCallback, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { Modal } from '@/components/shared/Modal';
+import { ModalShell } from '@/components/shared/ModalShell';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { EntityIcon } from '@/components/shared/EntityIcon';
+import { formatRelativeTime } from '@/lib/time';
+import { sanitizeDisplayText } from '@/lib/humanize';
+import { statusColor, formatEntityStatus } from '@/lib/entityStatusColors';
+import { colors, motion as motionTokens } from '@/lib/tokens';
+import type { NextUpQueueItem, SliceRunProjection } from '@/types';
+import type { InProgressRow } from './InProgressPanel';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type SliceDetailTarget =
+  | { source: 'queue'; item: NextUpQueueItem; linkedSliceRun: SliceRunProjection | null }
+  | { source: 'in_progress'; row: InProgressRow; sliceRun: SliceRunProjection | null }
+  | { source: 'needs_input'; sliceRun: SliceRunProjection };
+
+interface SliceDetailModalProps {
+  target: SliceDetailTarget | null;
+  onClose: () => void;
+  onPlayWorkstream?: (initiativeId: string, workstreamId: string, agentId?: string) => void;
+  onStartAutoContinue?: (initiativeId: string, workstreamId: string, agentId?: string) => void;
+  onMoveWorkstream?: (initiativeId: string, workstreamId: string, placement: 'top' | 'bottom') => void;
+  onRemoveFromQueue?: (initiativeId: string, workstreamId: string) => void;
+  onOpenSession?: (sessionId: string) => void;
+  onFocusRunId?: (runId: string) => void;
+  onOpenInitiative?: (initiativeId: string) => void;
+  onReviewActivity?: (sliceRun: SliceRunProjection) => void;
+  onOpenDecisions?: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function queueAccentStyle(state: string): React.CSSProperties {
+  switch (state) {
+    case 'running':
+      return { background: `linear-gradient(to right, ${colors.lime}, ${colors.teal})` };
+    case 'blocked':
+      return { background: `linear-gradient(to right, ${colors.red}, ${colors.amber})` };
+    case 'idle':
+      return { background: `linear-gradient(to right, ${colors.iris}99, transparent)` };
+    default:
+      return { background: `linear-gradient(to right, ${colors.lime}B3, ${colors.teal}66)` };
+  }
+}
+
+function queueStateLabel(state: string): string {
+  switch (state) {
+    case 'running':
+      return 'Running';
+    case 'blocked':
+      return 'Blocked';
+    case 'idle':
+      return 'Idle';
+    case 'queued':
+      return 'Queued';
+    default:
+      return state.replace(/_/g, ' ');
+  }
+}
+
+function queueStateDotColor(state: string): string {
+  switch (state) {
+    case 'running':
+      return colors.lime;
+    case 'blocked':
+      return colors.red;
+    case 'idle':
+      return colors.iris;
+    case 'queued':
+      return colors.teal;
+    default:
+      return colors.amber;
+  }
+}
+
+function priorityColor(priority: number | null): string {
+  if (priority === 0) return colors.red;
+  if (priority === 1) return colors.amber;
+  if (priority === 2) return colors.iris;
+  return 'rgba(255,255,255,0.5)';
+}
+
+function priorityLabel(priority: number | null): string {
+  if (priority === 0) return 'P0';
+  if (priority === 1) return 'P1';
+  if (priority === 2) return 'P2';
+  if (priority === 3) return 'P3';
+  return '';
+}
+
+function confidenceDots(level: 'low' | 'medium' | 'high'): { filled: number; color: string } {
+  switch (level) {
+    case 'high':
+      return { filled: 5, color: colors.lime };
+    case 'medium':
+      return { filled: 3, color: colors.amber };
+    case 'low':
+      return { filled: 1, color: colors.red };
+    default:
+      return { filled: 0, color: colors.iris };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Animation variants
+// ---------------------------------------------------------------------------
+
+const heroVariants = {
+  hidden: { opacity: 0, y: -4 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.28,
+      delay: i * 0.04,
+      ease: [0.16, 1, 0.3, 1],
+    },
+  }),
+  exit: { opacity: 0, transition: { duration: 0.18 } },
+};
+
+const sectionVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.22,
+      delay: i * 0.04,
+      ease: motionTokens.easingStandard as [number, number, number, number],
+    },
+  }),
+  exit: { opacity: 0, transition: { duration: 0.18 } },
+};
+
+// ---------------------------------------------------------------------------
+// Data extraction helpers
+// ---------------------------------------------------------------------------
+
+function extractData(target: SliceDetailTarget) {
+  if (target.source === 'queue') {
+    const { item, linkedSliceRun } = target;
+    return {
+      initiativeId: item.initiativeId,
+      initiativeTitle: sanitizeDisplayText(item.initiativeTitle),
+      initiativeStatus: item.initiativeStatus,
+      workstreamId: item.workstreamId,
+      workstreamTitle: sanitizeDisplayText(item.workstreamTitle),
+      workstreamStatus: item.workstreamStatus,
+      nextTaskTitle: item.nextTaskTitle ? sanitizeDisplayText(item.nextTaskTitle) : null,
+      nextTaskPriority: item.nextTaskPriority,
+      nextTaskDueAt: item.nextTaskDueAt,
+      agentId: item.runnerAgentId,
+      agentName: item.runnerAgentName,
+      agentSource: item.runnerSource,
+      queueState: item.queueState,
+      blockReason: item.blockReason ? sanitizeDisplayText(item.blockReason) : null,
+      autoContinue: item.autoContinue,
+      sliceRun: linkedSliceRun,
+      sessionId: null as string | null,
+      runId: linkedSliceRun?.runId ?? null,
+    };
+  }
+
+  if (target.source === 'in_progress') {
+    const { row, sliceRun } = target;
+    return {
+      initiativeId: row.initiativeId,
+      initiativeTitle: row.initiativeTitle ? sanitizeDisplayText(row.initiativeTitle) : null,
+      initiativeStatus: null as string | null,
+      workstreamId: row.workstreamId,
+      workstreamTitle: row.workstreamTitle ? sanitizeDisplayText(row.workstreamTitle) : row.title,
+      workstreamStatus: row.status,
+      nextTaskTitle: null as string | null,
+      nextTaskPriority: null as number | null,
+      nextTaskDueAt: null as string | null,
+      agentId: row.session?.agentId ?? null,
+      agentName: row.session?.agentName ?? 'OrgX',
+      agentSource: null as string | null,
+      queueState: row.status === 'running' ? 'running' : 'queued',
+      blockReason: null as string | null,
+      autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+      sliceRun: sliceRun,
+      sessionId: row.session?.id ?? null,
+      runId: row.runId,
+    };
+  }
+
+  // needs_input
+  const { sliceRun } = target;
+  return {
+    initiativeId: sliceRun.initiativeId,
+    initiativeTitle: null as string | null,
+    initiativeStatus: null as string | null,
+    workstreamId: sliceRun.workstreamId,
+    workstreamTitle: sliceRun.workstreamTitle ? sanitizeDisplayText(sliceRun.workstreamTitle) : 'Work slice',
+    workstreamStatus: sliceRun.status,
+    nextTaskTitle: null as string | null,
+    nextTaskPriority: null as number | null,
+    nextTaskDueAt: null as string | null,
+    agentId: null as string | null,
+    agentName: 'OrgX',
+    agentSource: null as string | null,
+    queueState: 'blocked' as string,
+    blockReason: sliceRun.statusExplainer || null,
+    autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+    sliceRun: sliceRun,
+    sessionId: null as string | null,
+    runId: sliceRun.runId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Divider
+// ---------------------------------------------------------------------------
+
+function SectionDivider() {
+  return <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function SliceDetailModal({
+  target,
+  onClose,
+  onPlayWorkstream,
+  onStartAutoContinue,
+  onMoveWorkstream,
+  onRemoveFromQueue,
+  onOpenSession,
+  onFocusRunId,
+  onOpenInitiative,
+  onReviewActivity,
+  onOpenDecisions,
+}: SliceDetailModalProps) {
+  const open = target !== null;
+
+  // Keyboard shortcut: Cmd+Enter → Start
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!target) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        const d = extractData(target);
+        if (d.initiativeId && d.workstreamId) {
+          onPlayWorkstream?.(d.initiativeId, d.workstreamId, d.agentId ?? undefined);
+        }
+      }
+    },
+    [target, onPlayWorkstream]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, handleKeyDown]);
+
+  if (!target) return null;
+
+  const d = extractData(target);
+  const sr = d.sliceRun;
+
+  const breadcrumbs = [
+    ...(d.initiativeTitle
+      ? [{
+          label: d.initiativeTitle,
+          onClick: d.initiativeId ? () => onOpenInitiative?.(d.initiativeId!) : undefined,
+        }]
+      : []),
+    { label: d.workstreamTitle },
+  ];
+
+  const isRunning = d.queueState === 'running';
+  const canStart = d.initiativeId && d.workstreamId && !isRunning;
+  const nextActionLabel =
+    target.source === 'needs_input' && sr
+      ? sr.primaryAction === 'resolve_decision'
+        ? 'Resolve decision'
+        : sr.primaryAction === 'open_artifact'
+          ? 'Open result'
+          : 'Review activity'
+      : null;
+
+  // -------------------------------------------------------------------------
+  // Footer
+  // -------------------------------------------------------------------------
+
+  const footer = (
+    <div className="flex items-center gap-2">
+      {target.source === 'queue' && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              if (d.initiativeId && d.workstreamId) {
+                onRemoveFromQueue?.(d.initiativeId, d.workstreamId);
+                onClose();
+              }
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold text-red-100 hover:bg-red-500/[0.12]"
+          >
+            Remove
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (d.initiativeId && d.workstreamId) {
+                onMoveWorkstream?.(d.initiativeId, d.workstreamId, 'top');
+              }
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            Move top
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (d.initiativeId && d.workstreamId) {
+                onMoveWorkstream?.(d.initiativeId, d.workstreamId, 'bottom');
+              }
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            Move bottom
+          </button>
+        </>
+      )}
+      {target.source === 'in_progress' && d.sessionId && (
+        <button
+          type="button"
+          onClick={() => {
+            onOpenSession?.(d.sessionId!);
+            onClose();
+          }}
+          className="control-pill h-8 px-3 text-caption font-semibold"
+        >
+          Open session
+        </button>
+      )}
+      {target.source === 'needs_input' && sr && (
+        <>
+          {sr.primaryAction === 'resolve_decision' ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenDecisions?.();
+                onClose();
+              }}
+              className="control-pill h-8 px-3 text-caption font-semibold"
+              data-tone="teal"
+            >
+              Resolve decision
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              onReviewActivity?.(sr);
+              onClose();
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+            data-tone={sr.status === 'failed' ? 'teal' : undefined}
+          >
+            Review activity
+          </button>
+        </>
+      )}
+      {d.runId && (
+        <button
+          type="button"
+          onClick={() => {
+            onFocusRunId?.(d.runId!);
+            onClose();
+          }}
+          className="control-pill h-8 px-3 text-caption font-semibold"
+        >
+          Focus in Activity
+        </button>
+      )}
+      <div className="flex-1" />
+      {canStart && (
+        <button
+          type="button"
+          data-modal-autofocus="true"
+          onClick={() => {
+            onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
+            onClose();
+          }}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-caption font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+          title="Start (⌘ Enter)"
+        >
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
+            <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
+          </svg>
+          Start
+        </button>
+      )}
+    </div>
+  );
+
+  // -------------------------------------------------------------------------
+  // Section index for stagger
+  // -------------------------------------------------------------------------
+
+  let sectionIndex = 0;
+
+  return (
+    <Modal open={open} onClose={onClose} maxWidth="max-w-xl">
+      <div className="relative flex h-full min-h-0 flex-col">
+        {/* Status accent bar */}
+        <div
+          className="h-[2px] flex-shrink-0 rounded-t-2xl"
+          style={queueAccentStyle(d.queueState)}
+          aria-hidden
+        />
+
+        <ModalShell breadcrumbs={breadcrumbs} onClose={onClose} footer={footer}>
+          <div className="px-6 py-5 space-y-5">
+
+            {/* ───── 1. Hero ───── */}
+            <motion.div
+              variants={heroVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              custom={sectionIndex++}
+              className="flex items-start gap-3"
+            >
+              <AgentAvatar
+                name={d.agentName ?? 'OrgX'}
+                hint={d.agentId}
+                size="md"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[20px] font-semibold leading-snug text-white">
+                  {d.workstreamTitle}
+                </p>
+                {d.initiativeTitle && (
+                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-muted">
+                    {d.initiativeTitle}
+                  </p>
+                )}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {d.workstreamStatus && (
+                    <span
+                      className="inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em]"
+                      style={{
+                        color: statusColor(d.workstreamStatus),
+                        borderColor: `${statusColor(d.workstreamStatus)}33`,
+                        backgroundColor: `${statusColor(d.workstreamStatus)}14`,
+                      }}
+                    >
+                      {formatEntityStatus(d.workstreamStatus)}
+                    </span>
+                  )}
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] text-secondary"
+                  >
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                    />
+                    {queueStateLabel(d.queueState)}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+
+            <SectionDivider />
+
+            {target.source === 'needs_input' && sr ? (
+              <>
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.08] px-4 py-3"
+                >
+                  <p className="section-kicker">What to do now</p>
+                  <p className="mt-1 text-body text-primary">
+                    {sr.artifactCount > 0
+                      ? `${sr.artifactCount} artifact${sr.artifactCount === 1 ? '' : 's'} are ready. Review and confirm next steps.`
+                      : sr.blockingDecisionCount > 0
+                        ? `${sr.blockingDecisionCount} decision${sr.blockingDecisionCount === 1 ? '' : 's'} are waiting for your input.`
+                        : sr.statusExplainer}
+                  </p>
+                  {nextActionLabel ? (
+                    <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
+                  ) : null}
+                </motion.div>
+                <SectionDivider />
+              </>
+            ) : null}
+
+            {/* ───── 2. Status & Context card ───── */}
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              custom={sectionIndex++}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+            >
+              <p className="section-kicker">Status &amp; Context</p>
+              <div className="flex flex-wrap items-center gap-2 text-caption text-primary">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                  />
+                  {queueStateLabel(d.queueState)}
+                </span>
+                {d.agentSource && d.agentSource !== 'assigned' && (
+                  <span className="text-secondary">· Runner: {d.agentSource}</span>
+                )}
+              </div>
+
+              {d.blockReason && (
+                <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
+                  {d.blockReason}
+                </div>
+              )}
+
+              {d.autoContinue && (
+                <div className="flex items-center gap-2 text-caption text-secondary">
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-[#0AD4C4]">
+                    <path
+                      d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span>
+                    Auto-continue: <span className="text-primary capitalize">{d.autoContinue.status}</span>
+                    {d.autoContinue.laneState && (
+                      <span className="text-muted"> · Lane: {d.autoContinue.laneState.replace(/_/g, ' ')}</span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {d.autoContinue?.laneBlockedReason && (
+                <p className="text-micro text-red-100/75">
+                  Lane blocked: {d.autoContinue.laneBlockedReason}
+                </p>
+              )}
+
+              {d.autoContinue?.stopReason && (
+                <p className="text-micro text-amber-100/75">
+                  Stop reason: {d.autoContinue.stopReason.replace(/_/g, ' ')}
+                </p>
+              )}
+            </motion.div>
+
+            {/* ───── 3. Next Task card ───── */}
+            {d.nextTaskTitle && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-1.5"
+                >
+                  <p className="section-kicker">Next Task</p>
+                  <div className="flex items-start gap-2">
+                    <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
+                    <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                      <span
+                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        style={{
+                          color: priorityColor(d.nextTaskPriority),
+                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                        }}
+                      >
+                        {priorityLabel(d.nextTaskPriority)}
+                      </span>
+                    )}
+                    {d.nextTaskDueAt && (
+                      <span className="text-micro text-secondary">
+                        Due {formatRelativeTime(d.nextTaskDueAt)}
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 4. Slice Run section ───── */}
+            {sr && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-3"
+                >
+                  <p className="section-kicker">Slice Run</p>
+
+                  {sr.statusExplainer && (
+                    <p className="text-caption leading-relaxed text-secondary">{sr.statusExplainer}</p>
+                  )}
+
+                  {/* Timestamp grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {sr.startedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
+                      </div>
+                    )}
+                    {sr.updatedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
+                      </div>
+                    )}
+                    {sr.completedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
+                      </div>
+                    )}
+                    {sr.failedAt && !sr.completedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
+                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Confidence indicator */}
+                  {sr.confidence && (
+                    <div className="flex items-center gap-2">
+                      <p className="text-micro uppercase tracking-[0.08em] text-muted">Confidence</p>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: 5 }, (_, i) => {
+                          const { filled, color } = confidenceDots(sr.confidence);
+                          return (
+                            <span
+                              key={i}
+                              className="inline-block h-1.5 w-1.5 rounded-full"
+                              style={{
+                                backgroundColor: i < filled ? color : 'rgba(255,255,255,0.1)',
+                              }}
+                            />
+                          );
+                        })}
+                        <span className="ml-1 text-micro capitalize text-secondary">{sr.confidence}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Last event */}
+                  {sr.lastEventSummary && (
+                    <div>
+                      <p className="text-micro uppercase tracking-[0.08em] text-muted">Last Event</p>
+                      <p className="mt-0.5 text-caption leading-snug text-secondary">
+                        {sr.lastEventSummary}
+                        {sr.lastEventAt && (
+                          <span className="text-muted"> · {formatRelativeTime(sr.lastEventAt)}</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 5. Artifacts section ───── */}
+            {sr && sr.artifactCount > 0 && sr.artifacts.length > 0 && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-2"
+                >
+                  <p className="section-kicker">
+                    Artifacts <span className="text-muted tabular-nums">{sr.artifactCount}</span>
+                  </p>
+                  <div className="space-y-1">
+                    {sr.artifacts.map((artifact, idx) => (
+                      <div
+                        key={artifact.id ?? idx}
+                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.04]"
+                      >
+                        <EntityIcon
+                          type={artifact.type === 'pull_request' ? 'session' : 'workstream'}
+                          size={13}
+                          className="flex-shrink-0 opacity-75"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-caption text-primary">
+                          {artifact.title}
+                        </span>
+                        {artifact.url && (
+                          <a
+                            href={artifact.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-shrink-0 text-micro text-secondary transition-colors hover:text-white"
+                            title="Open artifact"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                              <polyline points="15 3 21 3 21 9" />
+                              <line x1="10" y1="14" x2="21" y2="3" />
+                            </svg>
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 6. Decisions section ───── */}
+            {sr && sr.decisionCount > 0 && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="section-kicker">
+                      Decisions <span className="text-muted tabular-nums">{sr.decisionCount}</span>
+                    </p>
+                    {sr.blockingDecisionCount > 0 && (
+                      <span
+                        className="inline-flex rounded-full border px-1.5 py-[0.5px] text-micro font-semibold tabular-nums"
+                        style={{
+                          color: colors.red,
+                          borderColor: `${colors.red}33`,
+                          backgroundColor: `${colors.red}14`,
+                        }}
+                      >
+                        {sr.blockingDecisionCount} blocking
+                      </span>
+                    )}
+                  </div>
+                  {sr.decisionOptions.length > 0 && (
+                    <div className="space-y-1.5">
+                      {sr.decisionOptions.slice(0, 4).map((opt) => (
+                        <div
+                          key={opt.id}
+                          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                        >
+                          <p className="text-caption font-semibold text-primary">{opt.label}</p>
+                          {opt.description && (
+                            <p className="mt-0.5 text-micro leading-snug text-secondary">
+                              {opt.description}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 7. Runtime section ───── */}
+            {sr && (sr.sourceClient || sr.runtimeState || sr.correlationId || sr.runId) && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-2"
+                >
+                  <p className="section-kicker">Runtime</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {sr.sourceClient && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Source</p>
+                        <p className="mt-0.5 font-mono text-caption text-primary">{sr.sourceClient}</p>
+                      </div>
+                    )}
+                    {sr.runtimeState && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Runtime State</p>
+                        <p className="mt-0.5 font-mono text-caption text-primary">{sr.runtimeState}</p>
+                      </div>
+                    )}
+                    {sr.correlationId && (
+                      <div className="col-span-2">
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Correlation ID</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(sr.correlationId!);
+                          }}
+                          className="mt-0.5 font-mono text-caption text-primary transition-colors hover:text-white"
+                          title="Click to copy"
+                        >
+                          {sr.correlationId}
+                        </button>
+                      </div>
+                    )}
+                    {sr.runId && (
+                      <div className="col-span-2">
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Run ID</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(sr.runId!);
+                          }}
+                          className="mt-0.5 font-mono text-caption text-primary transition-colors hover:text-white"
+                          title="Click to copy"
+                        >
+                          {sr.runId}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </>
+            )}
+
+          </div>
+        </ModalShell>
+      </div>
+    </Modal>
+  );
+}

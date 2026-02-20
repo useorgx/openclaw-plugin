@@ -1,0 +1,58 @@
+{
+  "name": "AgentSettingsPageTabbedLayout",
+  "description": "Settings page shell for configuring one OrgX agent at a time through a tabbed interface, with grouped controls that show descriptions and current values to reduce accidental behavior changes.",
+  "usage": "Use as the primary surface at /orgx/live for per-agent behavior tuning. Tabs switch the active agent context; each settings group renders label, help text, and current effective value, with unsaved draft deltas shown inline.",
+  "props": [
+    {
+      "name": "agents",
+      "type": "Array<{ id: string; name: string; role: string; status: 'online' | 'idle' | 'offline'; hasDraftChanges: boolean }>"
+    },
+    {
+      "name": "activeAgentId",
+      "type": "string"
+    },
+    {
+      "name": "groupedSettings",
+      "type": "Array<{ groupId: 'execution' | 'guardrails' | 'reporting'; title: string; description: string; settings: Array<{ key: string; label: string; helpText: string; currentValueLabel: string; draftValueLabel: string | null; state: 'clean' | 'dirty' | 'invalid' }> }>"
+    },
+    {
+      "name": "validationSummary",
+      "type": "{ isValid: boolean; blockingErrors: number; warnings: number }"
+    },
+    {
+      "name": "onSelectAgent",
+      "type": "(agentId: string) => void"
+    },
+    {
+      "name": "onSettingChange",
+      "type": "(agentId: string, key: string, value: unknown) => void"
+    },
+    {
+      "name": "onDiscardDraft",
+      "type": "(agentId: string) => void"
+    },
+    {
+      "name": "onSaveDraft",
+      "type": "(agentId: string) => Promise<void>"
+    }
+  ],
+  "accessibility": {
+    "notes": "Keyboard: tablist uses ArrowLeft/ArrowRight/Home/End navigation and keeps Tab for controls inside the active panel; focus order is tablist -> group headings -> controls -> sticky action row. ARIA: tabs use role='tablist'/'tab'/'tabpanel' with aria-controls and aria-selected; each setting help text is linked via aria-describedby; current value badges include text labels ('Current', 'Draft'). Status cannot rely on color alone."
+  },
+  "examples": [
+    "<AgentSettingsPageTabbedLayout agents={agents} activeAgentId='orion' groupedSettings={groups} validationSummary={validation} onSelectAgent={setAgent} onSettingChange={updateSetting} onDiscardDraft={discardDraft} onSaveDraft={saveDraft} />",
+    "<AgentSettingsPageTabbedLayout agents={agents} activeAgentId='eli' groupedSettings={groups} validationSummary={{ isValid: false, blockingErrors: 2, warnings: 1 }} onSelectAgent={setAgent} onSettingChange={updateSetting} onDiscardDraft={discardDraft} onSaveDraft={saveDraft} />"
+  ],
+  "dos": [
+    "Group settings by Execution, Guardrails, and Reporting with a short plain-language description under each group title.",
+    "Show current effective value beside editable draft value for every setting so operators can compare before saving.",
+    "Keep mobile behavior at 375px with horizontal agent tabs and a sticky 44px-min action row for Discard and Save.",
+    "Use existing dashboard tokens for surfaces, spacing, and motion; keep accent usage to one highlight color per element."
+  ],
+  "donts": [
+    "Do not hide current values behind hover-only interactions.",
+    "Do not mix lime and teal accents on the same badge, button, or field state.",
+    "Do not allow Save when blocking validation errors exist.",
+    "Do not break tab semantics by rendering non-tab controls inside the tablist container."
+  ]
+}

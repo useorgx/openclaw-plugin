@@ -26,6 +26,7 @@ import type {
   LiveActivityItem,
   SessionTreeResponse,
   HandoffSummary,
+  EntityUpdateResult,
   CheckpointSummary,
   RestoreRequest,
   DelegationPreflightResult,
@@ -36,6 +37,8 @@ import type {
   KickoffContextResponse,
   SkillPack,
   SkillPackResponse,
+  ClientRuntimeSettingsResponse,
+  ClientRuntimeSettingsUpdateRequest,
 } from "./types.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
@@ -432,6 +435,30 @@ export class OrgXClient {
     }
   }
 
+  // ===========================================================================
+  // Client Agent Runtime Settings
+  // ===========================================================================
+
+  async getClientAgentRuntimeSettings(input?: {
+    projectId?: string | null;
+  }): Promise<ClientRuntimeSettingsResponse> {
+    const query = this.buildQuery({
+      project_id: input?.projectId ?? null,
+    });
+    return this.get<ClientRuntimeSettingsResponse>(
+      `/api/client/agents/runtime-settings${query}`
+    );
+  }
+
+  async updateClientAgentRuntimeSettings(
+    payload: ClientRuntimeSettingsUpdateRequest
+  ): Promise<ClientRuntimeSettingsResponse> {
+    return this.patch<ClientRuntimeSettingsResponse>(
+      "/api/client/agents/runtime-settings",
+      payload
+    );
+  }
+
   async delegationPreflight(payload: {
     intent: string;
     acceptanceCriteria?: string[];
@@ -528,12 +555,51 @@ export class OrgXClient {
     id: string,
     updates: Record<string, unknown>
   ): Promise<Entity> {
-    const resp = await this.patch<{ type: string; data: Entity }>("/api/entities", {
+    const result = await this.updateEntityDetailed(type, id, updates);
+    return result.entity;
+  }
+
+  /**
+   * Update an OrgX entity and preserve reassignment metadata when present.
+   * PATCH /api/entities { type, id, ...updates }
+   */
+  async updateEntityDetailed(
+    type: string,
+    id: string,
+    updates: Record<string, unknown>
+  ): Promise<EntityUpdateResult> {
+    const resp = await this.patch<
+      | { type?: string; data?: Entity; entity?: Entity; reassignment?: unknown; initiative_reassignment?: unknown }
+      | Entity
+    >("/api/entities", {
       type,
       id,
       ...updates,
     });
-    return resp.data ?? resp as unknown as Entity;
+
+    if (resp && typeof resp === "object") {
+      const envelope = resp as {
+        data?: Entity;
+        entity?: Entity;
+        reassignment?: unknown;
+        initiative_reassignment?: unknown;
+      };
+      const entity = envelope.entity ?? envelope.data ?? (resp as Entity);
+      return {
+        entity,
+        reassignment:
+          envelope.reassignment && typeof envelope.reassignment === "object"
+            ? (envelope.reassignment as EntityUpdateResult["reassignment"])
+            : null,
+        initiative_reassignment:
+          envelope.initiative_reassignment &&
+          typeof envelope.initiative_reassignment === "object"
+            ? (envelope.initiative_reassignment as EntityUpdateResult["initiative_reassignment"])
+            : null,
+      };
+    }
+
+    return { entity: resp as Entity };
   }
 
   /**
@@ -770,24 +836,31 @@ export class OrgXClient {
     action: DecisionAction,
     input?: DecisionMutationInput
   ): Promise<Entity> {
-    const note = input?.note;
-    const optionId = input?.optionId;
+    const note = input?.note?.trim() || null;
+    const optionId = input?.optionId?.trim() || null;
     const resolvedStatus = action === "approve" ? "approved" : "declined";
+    const primaryPatch: Record<string, unknown> = {
+      status: resolvedStatus,
+      ...(note ? { resolution_summary: note } : {}),
+      ...(optionId ? { option_id: optionId } : {}),
+    };
 
     try {
-      return await this.updateEntity("decision", id, {
-        status: resolvedStatus,
-        resolution: resolvedStatus,
-        note: note ?? undefined,
-        ...(optionId ? { option_id: optionId } : {}),
-      });
+      return await this.updateEntity("decision", id, primaryPatch);
     } catch {
-      // Fallback for backends that only support generic "resolved" status.
+      // Keep fallback payload schema-safe for strict entity routes.
       return this.updateEntity("decision", id, {
-        status: "resolved",
-        decision_status: resolvedStatus,
-        resolution: resolvedStatus,
-        note: note ?? undefined,
+        status: resolvedStatus,
+        ...(note
+          ? {
+              metadata: {
+                resolution: {
+                  summary: note,
+                  note,
+                },
+              },
+            }
+          : {}),
         ...(optionId ? { option_id: optionId } : {}),
       });
     }

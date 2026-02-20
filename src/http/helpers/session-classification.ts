@@ -169,10 +169,14 @@ function firstSpecificReason(values: Array<string | null | undefined>): string |
 function hasBlockerContext(context: SessionBlockerContext): boolean {
   return Boolean(
     nonEmpty(context.initiativeId) ||
+      (Array.isArray(context.initiativeIds) && context.initiativeIds.length > 0) ||
       nonEmpty(context.workstreamId) ||
+      (Array.isArray(context.workstreamIds) && context.workstreamIds.length > 0) ||
       nonEmpty(context.workstreamTitle) ||
       context.taskIds.length > 0 ||
       context.milestoneIds.length > 0 ||
+      nonEmpty(context.iwmtId ?? null) ||
+      (Array.isArray(context.iwmtIds) && context.iwmtIds.length > 0) ||
       nonEmpty(context.sliceRunId) ||
       nonEmpty(context.parallelMode) ||
       nonEmpty(context.logPath) ||
@@ -183,10 +187,14 @@ function hasBlockerContext(context: SessionBlockerContext): boolean {
 function emptyBlockerContext(): SessionBlockerContext {
   return {
     initiativeId: null,
+    initiativeIds: [],
     workstreamId: null,
+    workstreamIds: [],
     workstreamTitle: null,
     taskIds: [],
     milestoneIds: [],
+    iwmtId: null,
+    iwmtIds: [],
     sliceRunId: null,
     parallelMode: null,
     logPath: null,
@@ -199,13 +207,30 @@ function mergeRunContext(
   item: LiveActivityItem,
   metadata: Record<string, unknown> | null
 ): SessionBlockerContext {
+  const initiativeIds = dedupeStrings([
+    ...(Array.isArray(context.initiativeIds) ? context.initiativeIds : []),
+    ...(context.initiativeId ? [context.initiativeId] : []),
+    ...(item.initiativeId ? [item.initiativeId] : []),
+    ...metadataStringArray(metadata, ["initiative_ids", "initiativeIds"]),
+  ]);
   const initiativeId = firstNonEmpty([
     item.initiativeId,
     metadataString(metadata, ["initiative_id", "initiativeId"]),
+    initiativeIds[0] ?? null,
   ]);
+  if (initiativeIds.length > 0) context.initiativeIds = initiativeIds;
   if (initiativeId) context.initiativeId = initiativeId;
 
-  const workstreamId = metadataString(metadata, ["workstream_id", "workstreamId"]);
+  const workstreamIds = dedupeStrings([
+    ...(Array.isArray(context.workstreamIds) ? context.workstreamIds : []),
+    ...(context.workstreamId ? [context.workstreamId] : []),
+    ...metadataStringArray(metadata, ["workstream_ids", "workstreamIds"]),
+  ]);
+  const workstreamId = firstNonEmpty([
+    metadataString(metadata, ["workstream_id", "workstreamId"]),
+    workstreamIds[0] ?? null,
+  ]);
+  if (workstreamIds.length > 0) context.workstreamIds = workstreamIds;
   if (workstreamId) context.workstreamId = workstreamId;
 
   const workstreamTitle = metadataString(metadata, ["workstream_title", "workstreamTitle"]);
@@ -225,6 +250,18 @@ function mergeRunContext(
   if (milestoneIds.length > 0) {
     context.milestoneIds = dedupeStrings([...context.milestoneIds, ...milestoneIds]);
   }
+
+  const iwmtIds = dedupeStrings([
+    ...(Array.isArray(context.iwmtIds) ? context.iwmtIds : []),
+    ...(context.iwmtId ? [context.iwmtId] : []),
+    ...metadataStringArray(metadata, ["iwmt_ids", "iwmtIds"]),
+  ]);
+  const iwmtId = firstNonEmpty([
+    metadataString(metadata, ["iwmt_id", "iwmtId"]),
+    iwmtIds[0] ?? null,
+  ]);
+  if (iwmtIds.length > 0) context.iwmtIds = iwmtIds;
+  if (iwmtId) context.iwmtId = iwmtId;
 
   const sliceRunId = metadataString(metadata, [
     "slice_run_id",
@@ -415,10 +452,14 @@ function arraysEqual(a: string[], b: string[]): boolean {
 function blockerContextsEqual(a: SessionBlockerContext, b: SessionBlockerContext): boolean {
   return (
     a.initiativeId === b.initiativeId &&
+    arraysEqual(a.initiativeIds ?? [], b.initiativeIds ?? []) &&
     a.workstreamId === b.workstreamId &&
+    arraysEqual(a.workstreamIds ?? [], b.workstreamIds ?? []) &&
     a.workstreamTitle === b.workstreamTitle &&
     arraysEqual(a.taskIds, b.taskIds) &&
     arraysEqual(a.milestoneIds, b.milestoneIds) &&
+    (a.iwmtId ?? null) === (b.iwmtId ?? null) &&
+    arraysEqual(a.iwmtIds ?? [], b.iwmtIds ?? []) &&
     a.sliceRunId === b.sliceRunId &&
     a.parallelMode === b.parallelMode &&
     a.logPath === b.logPath &&
@@ -480,6 +521,14 @@ function mergeReportingBlockerDetails(
     ...signal.context,
     initiativeId: signal.context.initiativeId ?? node.initiativeId ?? null,
     workstreamId: signal.context.workstreamId ?? node.workstreamId ?? null,
+    initiativeIds: dedupeStrings([
+      ...(signal.context.initiativeIds ?? []),
+      ...(node.initiativeId ? [node.initiativeId] : []),
+    ]),
+    workstreamIds: dedupeStrings([
+      ...(signal.context.workstreamIds ?? []),
+      ...(node.workstreamId ? [node.workstreamId] : []),
+    ]),
   };
   const diagnostics: SessionBlockerDiagnostics | null =
     latest || hasBlockerContext(context)

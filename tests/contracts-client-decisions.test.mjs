@@ -15,14 +15,16 @@ test("OrgXClient.decideDecision omits legacy fields rejected by current API", as
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].status, "approved");
-  assert.equal(calls[0].resolution, "approved");
+  assert.equal(calls[0].resolution_summary, "looks good");
   assert.ok(!Object.hasOwn(calls[0], "option_id"));
+  assert.ok(!Object.hasOwn(calls[0], "note"));
+  assert.ok(!Object.hasOwn(calls[0], "resolution"));
   assert.ok(!Object.hasOwn(calls[0], "decided_at"));
   assert.ok(!Object.hasOwn(calls[0], "decided_by"));
   assert.ok(!Object.hasOwn(calls[0], "resolved_at"));
 });
 
-test("OrgXClient.decideDecision fallback also omits legacy fields", async () => {
+test("OrgXClient.decideDecision fallback remains schema-safe", async () => {
   const { OrgXClient } = await import("../dist/contracts/client.js");
   const client = new OrgXClient("oxk_test", "https://www.useorgx.com", "user-1");
 
@@ -37,12 +39,15 @@ test("OrgXClient.decideDecision fallback also omits legacy fields", async () => 
     return { id: "dec-2" };
   };
 
-  await client.decideDecision("dec-2", "reject");
+  await client.decideDecision("dec-2", "reject", { note: "need more context" });
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].status, "declined");
-  assert.equal(calls[1].status, "resolved");
-  assert.equal(calls[1].decision_status, "declined");
+  assert.equal(calls[1].status, "declined");
+  assert.equal(calls[1].metadata?.resolution?.note, "need more context");
+  assert.ok(!Object.hasOwn(calls[1], "decision_status"));
+  assert.ok(!Object.hasOwn(calls[0], "note"));
+  assert.ok(!Object.hasOwn(calls[1], "note"));
   assert.ok(!Object.hasOwn(calls[0], "decided_at"));
   assert.ok(!Object.hasOwn(calls[0], "decided_by"));
   assert.ok(!Object.hasOwn(calls[0], "resolved_at"));

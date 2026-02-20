@@ -147,14 +147,42 @@ export interface LiveDecisionOption {
   requiresNote: boolean;
 }
 
+export interface LiveDecisionEvidenceRef {
+  evidenceType: string | null;
+  title: string | null;
+  summary: string | null;
+  sourceUrl: string | null;
+  sourcePointer: string | null;
+  freshness: string | null;
+  confidence: number | null;
+  payload: Record<string, unknown> | null;
+}
+
 export interface LiveDecision {
   id: string;
   title: string;
   context: string | null;
   status: string;
+  priority?: string | null;
+  decisionType?: string | null;
   agentName: string | null;
+  agentId?: string | null;
+  initiativeId?: string | null;
+  workstreamId?: string | null;
+  dueAt?: string | null;
   requestedAt: string | null;
   updatedAt: string | null;
+  sourceSystem?: string | null;
+  conflictSource?: string | null;
+  dedupeKey?: string | null;
+  recommendedAction?: string | null;
+  occurrenceCount?: number | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  sourceRunId?: string | null;
+  sourceSessionId?: string | null;
+  sourceStreamId?: string | null;
+  evidenceRefs?: LiveDecisionEvidenceRef[];
   waitingMinutes: number;
   metadata?: Record<string, unknown>;
   options?: LiveDecisionOption[];
@@ -163,10 +191,14 @@ export interface LiveDecision {
 
 export interface SessionBlockerContext {
   initiativeId: string | null;
+  initiativeIds?: string[];
   workstreamId: string | null;
+  workstreamIds?: string[];
   workstreamTitle: string | null;
   taskIds: string[];
   milestoneIds: string[];
+  iwmtId?: string | null;
+  iwmtIds?: string[];
   sliceRunId: string | null;
   parallelMode: string | null;
   logPath: string | null;

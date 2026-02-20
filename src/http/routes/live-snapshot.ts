@@ -3,6 +3,13 @@ import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { OutboxSummary } from "../../outbox.js";
 import { normalizeReportingBlockedSessions } from "../helpers/session-classification.js";
 import { buildSliceRunProjections } from "../helpers/slice-run-projections.js";
+import {
+  buildSliceExperienceSnapshotV2,
+  findSessionDetailProjection,
+  findSliceNarrative,
+  type SnapshotV2Payload,
+  type WorkSliceProjectionV2,
+} from "../helpers/slice-experience-v2.js";
 import type {
   AgentLaunchContext,
   RunLaunchContext,
@@ -49,7 +56,7 @@ async function withSoftTimeout<T>(
   }
 }
 
-type LiveSnapshotRoutesDeps<TRes> = {
+type LiveSnapshotRoutesDeps<TReq, TRes> = {
   parsePositiveInt: (raw: string | null, fallback: number) => number;
   readSnapshotResponseCache: (key: string) => Record<string, unknown> | null;
   writeSnapshotResponseCache: (key: string, payload: Record<string, unknown>) => void;
@@ -136,8 +143,41 @@ type LiveSnapshotRoutesDeps<TRes> = {
   snapshotActivityPersistMinIntervalMs: number;
   readSnapshotPersistState: () => SnapshotPersistState;
   writeSnapshotPersistState: (state: SnapshotPersistState) => void;
+  parseJsonRequest?: (req: TReq) => Promise<Record<string, unknown>>;
+  buildNextUpQueue?: (input: {
+    initiativeId?: string | null;
+  }) => Promise<{ items: Array<Record<string, unknown>>; degraded: string[] }>;
+  bulkDecideDecisions?: (
+    ids: string[],
+    action: "approve" | "reject",
+    input?: { note?: string; optionId?: string }
+  ) => Promise<Array<{ id?: string; ok?: boolean; error?: string }>>;
+  runAction?: (
+    runId: string,
+    action: "pause" | "resume" | "cancel" | "rollback",
+    input?: { checkpointId?: string; reason?: string }
+  ) => Promise<unknown>;
 
   sendJson: (res: TRes, status: number, payload: unknown) => void;
+};
+
+type LegacySnapshotPayload = {
+  sessions: SessionTreeResponse;
+  activity: LiveActivityItem[];
+  handoffs: HandoffSummary[];
+  decisions: Array<Record<string, unknown>>;
+  sliceRuns: ReturnType<typeof buildSliceRunProjections>;
+  agents: Array<Record<string, unknown>>;
+  runtimeInstances: RuntimeInstanceRecord[];
+  outbox: Record<string, unknown>;
+  generatedAt: string;
+  degraded?: string[];
+};
+
+type SnapshotBundle = {
+  payload: LegacySnapshotPayload;
+  v2: SnapshotV2Payload & { projections: WorkSliceProjectionV2[] };
+  decisionsRaw: Array<Record<string, unknown>>;
 };
 
 function outboxStatusFromSummary(summary: OutboxSummary): Record<string, unknown> {
@@ -206,15 +246,83 @@ function maybeFilterActivity(
   return filtered;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function pickString(input: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!input) return null;
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function resolveActivitySliceRunId(item: LiveActivityItem): string | null {
+  if (item.runId && item.runId.trim().length > 0) return item.runId.trim();
+  const metadata = asRecord(item.metadata);
+  return pickString(metadata, [
+    "slice_run_id",
+    "sliceRunId",
+    "active_run_id",
+    "activeRunId",
+    "run_id",
+    "runId",
+    "correlation_id",
+    "correlationId",
+  ]);
+}
+
+function resolveDecisionIdsForSlice(
+  decisions: Array<Record<string, unknown>>,
+  sliceRunId: string
+): string[] {
+  const target = sliceRunId.trim();
+  if (!target) return [];
+  const matched: string[] = [];
+  for (const decision of decisions) {
+    const decisionId = pickString(decision, ["id"]);
+    if (!decisionId) continue;
+    const metadata = asRecord(decision.metadata);
+    const linkedSliceRunId = pickString(metadata, [
+      "slice_run_id",
+      "sliceRunId",
+      "run_id",
+      "runId",
+      "correlation_id",
+      "correlationId",
+    ]);
+    if (!linkedSliceRunId || linkedSliceRunId !== target) continue;
+    const status = (pickString(decision, ["status"]) ?? "pending").toLowerCase();
+    if (status === "approved" || status === "declined" || status === "resolved" || status === "cancelled") {
+      continue;
+    }
+    if (matched.includes(decisionId)) continue;
+    matched.push(decisionId);
+  }
+  return matched;
+}
+
 export function registerLiveSnapshotRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
-  deps: LiveSnapshotRoutesDeps<TRes>
+  deps: LiveSnapshotRoutesDeps<TReq, TRes>
 ): void {
-  async function renderSnapshot(
-    path: string,
-    query: URLSearchParams,
-    res: TRes
-  ): Promise<void> {
+  type SnapshotQuery = {
+    sessionsLimit: number;
+    activityLimit: number;
+    decisionsLimit: number;
+    initiative: string | null;
+    run: string | null;
+    since: string | null;
+    decisionStatus: string;
+    includeIdle: boolean | undefined;
+  };
+
+  function parseSnapshotQuery(query: URLSearchParams): SnapshotQuery {
     const sessionsLimit = deps.parsePositiveInt(
       query.get("sessionsLimit") ?? query.get("sessions_limit"),
       320
@@ -233,12 +341,30 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     const decisionStatus = query.get("status") ?? "pending";
     const includeIdleRaw = query.get("include_idle");
     const includeIdle = includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
-    const snapshotCacheKey = `${path}?${query.toString()}`;
-    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
-    if (cachedSnapshot) {
-      deps.sendJson(res, 200, cachedSnapshot);
-      return;
-    }
+    return {
+      sessionsLimit,
+      activityLimit,
+      decisionsLimit,
+      initiative,
+      run,
+      since,
+      decisionStatus,
+      includeIdle,
+    };
+  }
+
+  async function buildSnapshotBundle(query: URLSearchParams): Promise<SnapshotBundle> {
+    const parsed = parseSnapshotQuery(query);
+    const {
+      sessionsLimit,
+      activityLimit,
+      decisionsLimit,
+      initiative,
+      run,
+      since,
+      decisionStatus,
+      includeIdle,
+    } = parsed;
 
     const degraded: string[] = [];
     const contextStore = deps.readAgentContexts();
@@ -512,9 +638,334 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       outbox: outboxStatus,
       generatedAt: new Date().toISOString(),
       degraded: degraded.length > 0 ? degraded : undefined,
+    } as LegacySnapshotPayload;
+
+    let nextUpItems: Array<Record<string, unknown>> = [];
+    if (typeof deps.buildNextUpQueue === "function") {
+      try {
+        const nextUp = await deps.buildNextUpQueue({ initiativeId: initiative });
+        nextUpItems = Array.isArray(nextUp.items)
+          ? nextUp.items.filter((item): item is Record<string, unknown> => Boolean(item))
+          : [];
+        for (const warning of nextUp.degraded ?? []) {
+          if (typeof warning !== "string" || warning.trim().length === 0) continue;
+          degraded.push(`next-up ${warning}`);
+        }
+      } catch (err: unknown) {
+        degraded.push(`next-up unavailable (${deps.safeErrorMessage(err)})`);
+      }
+    }
+
+    const v2 = buildSliceExperienceSnapshotV2({
+      generatedAt: payload.generatedAt,
+      sliceRuns: payload.sliceRuns,
+      sessions: payload.sessions.nodes,
+      activity: payload.activity,
+      runtimeInstances: payload.runtimeInstances,
+      nextUpItems,
+    });
+
+    return {
+      payload: {
+        ...payload,
+        degraded: degraded.length > 0 ? degraded : undefined,
+      },
+      v2,
+      decisionsRaw: decisions,
+    };
+  }
+
+  async function renderSnapshot(path: string, query: URLSearchParams, res: TRes): Promise<void> {
+    const snapshotCacheKey = `${path}?${query.toString()}`;
+    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
+    if (cachedSnapshot) {
+      deps.sendJson(res, 200, cachedSnapshot);
+      return;
+    }
+    const bundle = await buildSnapshotBundle(query);
+    deps.writeSnapshotResponseCache(snapshotCacheKey, bundle.payload as Record<string, unknown>);
+    deps.sendJson(res, 200, bundle.payload);
+  }
+
+  async function renderSnapshotV2(path: string, query: URLSearchParams, res: TRes): Promise<void> {
+    const snapshotCacheKey = `${path}?${query.toString()}`;
+    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
+    if (cachedSnapshot) {
+      deps.sendJson(res, 200, cachedSnapshot);
+      return;
+    }
+
+    const bundle = await buildSnapshotBundle(query);
+    const payload = {
+      ...bundle.v2,
+      sessions: bundle.payload.sessions,
+      activity: bundle.payload.activity,
+      handoffs: bundle.payload.handoffs,
+      decisions: bundle.payload.decisions,
+      sliceRuns: bundle.payload.sliceRuns,
+      agents: bundle.payload.agents,
+      runtimeInstances: bundle.payload.runtimeInstances,
+      outbox: bundle.payload.outbox,
+      degraded: bundle.payload.degraded,
     } as Record<string, unknown>;
     deps.writeSnapshotResponseCache(snapshotCacheKey, payload);
     deps.sendJson(res, 200, payload);
+  }
+
+  async function renderSliceNarrative(
+    path: string,
+    query: URLSearchParams,
+    res: TRes
+  ): Promise<void> {
+    const narrativeMatch = path.match(/^slices\/([^/]+)\/narrative$/);
+    const timelineMatch = path.match(/^slices\/([^/]+)\/timeline$/);
+    const match = narrativeMatch ?? timelineMatch;
+    if (!match) {
+      deps.sendJson(res, 404, { error: "Unknown API endpoint" });
+      return;
+    }
+
+    const sliceRunId = decodeURIComponent(match[1]).trim();
+    if (!sliceRunId) {
+      deps.sendJson(res, 400, { error: "sliceRunId is required." });
+      return;
+    }
+
+    const bundle = await buildSnapshotBundle(query);
+    const narrative = findSliceNarrative(bundle.v2.timelineNarrative, sliceRunId);
+    const projection =
+      bundle.v2.projections.find((entry) => entry.sliceRunId === sliceRunId) ?? null;
+    if (!narrative || !projection) {
+      deps.sendJson(res, 404, { error: "Slice narrative not found." });
+      return;
+    }
+
+    const chronology = bundle.payload.activity
+      .filter((item) => {
+        const activitySliceRunId = resolveActivitySliceRunId(item);
+        if (activitySliceRunId === sliceRunId) return true;
+        if (projection.runId && item.runId === projection.runId) return true;
+        return false;
+      })
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .map((item) => ({
+        id: item.id,
+        timestamp: item.timestamp,
+        type: item.type,
+        title: item.title,
+        summary: item.summary ?? item.description ?? null,
+        metadata: item.metadata ?? null,
+      }));
+
+    deps.sendJson(res, 200, {
+      ok: true,
+      sliceRunId,
+      narrative,
+      projection,
+      chronology,
+    });
+  }
+
+  async function renderSessionDetailV2(
+    path: string,
+    query: URLSearchParams,
+    res: TRes
+  ): Promise<void> {
+    const detailMatch = path.match(/^sessions\/([^/]+)\/detail-v2$/);
+    if (!detailMatch) {
+      deps.sendJson(res, 404, { error: "Unknown API endpoint" });
+      return;
+    }
+
+    const sessionId = decodeURIComponent(detailMatch[1]).trim();
+    if (!sessionId) {
+      deps.sendJson(res, 400, { error: "sessionId is required." });
+      return;
+    }
+
+    const bundle = await buildSnapshotBundle(query);
+    const projection = findSessionDetailProjection(bundle.v2.projections, sessionId);
+    if (!projection) {
+      deps.sendJson(res, 404, { error: "Session detail not found." });
+      return;
+    }
+
+    const narrative = findSliceNarrative(bundle.v2.timelineNarrative, projection.sliceRunId);
+    const chronology = bundle.payload.activity
+      .filter((item) => {
+        const activitySliceRunId = resolveActivitySliceRunId(item);
+        if (activitySliceRunId === projection.sliceRunId) return true;
+        if (projection.runId && item.runId === projection.runId) return true;
+        if (item.runId && item.runId === sessionId) return true;
+        return false;
+      })
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .map((item) => ({
+        id: item.id,
+        timestamp: item.timestamp,
+        type: item.type,
+        title: item.title,
+        summary: item.summary ?? item.description ?? null,
+        metadata: item.metadata ?? null,
+      }));
+
+    deps.sendJson(res, 200, {
+      ok: true,
+      sessionId,
+      activeSliceSummary: projection,
+      initiativeBreakdown: {
+        initiativeIds: projection.lineage.initiativeIds,
+        initiativeTitles: projection.lineage.initiativeTitles,
+        workstreamIds: projection.lineage.workstreamIds,
+        workstreamTitles: projection.lineage.workstreamTitles,
+        taskIds: projection.lineage.taskIds,
+        milestoneIds: projection.lineage.milestoneIds,
+        iwmtIds: projection.lineage.iwmtIds,
+      },
+      progressModel: {
+        lifecycleState: projection.lifecycleState,
+        outcomeState: projection.outcomeState,
+        confidence: projection.confidence,
+        statusExplainer: projection.statusExplainer,
+      },
+      artifactBundle: projection.artifacts,
+      decisionAction: projection.actionContract,
+      chronology,
+      narrative,
+    });
+  }
+
+  async function executeSliceAction(path: string, query: URLSearchParams, req: TReq, res: TRes): Promise<void> {
+    const actionMatch = path.match(/^slices\/([^/]+)\/actions\/([^/]+)$/);
+    if (!actionMatch) {
+      deps.sendJson(res, 404, { error: "Unknown API endpoint" });
+      return;
+    }
+    const sliceRunId = decodeURIComponent(actionMatch[1]).trim();
+    const actionType = decodeURIComponent(actionMatch[2]).trim().toLowerCase();
+    if (!sliceRunId) {
+      deps.sendJson(res, 400, { error: "sliceRunId is required." });
+      return;
+    }
+
+    const payload =
+      typeof deps.parseJsonRequest === "function"
+        ? await deps.parseJsonRequest(req)
+        : {};
+    const note = pickString(payload, ["note", "context", "reason"]);
+    const optionId = pickString(payload, ["option_id", "optionId"]);
+
+    const bundle = await buildSnapshotBundle(query);
+    const projection =
+      bundle.v2.projections.find((entry) => entry.sliceRunId === sliceRunId) ?? null;
+    if (!projection) {
+      deps.sendJson(res, 404, { error: "Slice projection not found." });
+      return;
+    }
+
+    const declaredAction = projection.actionContract?.actionType ?? null;
+    if (declaredAction && declaredAction !== actionType && !(declaredAction === "open_artifact" && actionType === "open_artifact")) {
+      deps.sendJson(res, 409, {
+        error: "Action does not match current slice state.",
+        expectedAction: declaredAction,
+        requestedAction: actionType,
+      });
+      return;
+    }
+
+    if (actionType === "open_artifact") {
+      const artifact = projection.artifacts[0] ?? null;
+      if (!artifact) {
+        deps.sendJson(res, 409, { error: "No artifact is available for this slice." });
+        return;
+      }
+      deps.sendJson(res, 200, {
+        ok: true,
+        action: "open_artifact",
+        sliceRunId,
+        artifact,
+      });
+      return;
+    }
+
+    if (actionType === "retry" || actionType === "resume") {
+      if (typeof deps.runAction !== "function") {
+        deps.sendJson(res, 501, { error: "Run actions are not configured." });
+        return;
+      }
+      const runId = projection.runId ?? projection.sliceRunId;
+      const result = await deps.runAction(runId, "resume", {
+        reason: note ?? `slice_action:${actionType}`,
+      });
+      deps.sendJson(res, 200, {
+        ok: true,
+        action: "resume",
+        sliceRunId,
+        runId,
+        result,
+      });
+      return;
+    }
+
+    if (actionType === "approve" || actionType === "reject") {
+      if (typeof deps.bulkDecideDecisions !== "function") {
+        deps.sendJson(res, 501, { error: "Decision actions are not configured." });
+        return;
+      }
+      const decisionIdsFromBody = Array.isArray(payload.decisionIds)
+        ? payload.decisionIds
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean)
+        : [];
+      const singleDecisionId = pickString(payload, ["decisionId", "decision_id"]);
+      const decisionIds = Array.from(
+        new Set([
+          ...decisionIdsFromBody,
+          ...(singleDecisionId ? [singleDecisionId] : []),
+          ...resolveDecisionIdsForSlice(bundle.decisionsRaw, sliceRunId),
+        ])
+      );
+      if (decisionIds.length === 0) {
+        deps.sendJson(res, 400, {
+          error: "No matching pending decision was found for this slice.",
+        });
+        return;
+      }
+      const results = await deps.bulkDecideDecisions(decisionIds, actionType, {
+        note: note ?? undefined,
+        optionId: optionId ?? undefined,
+      });
+      const updated = results.filter((entry) => entry.ok === true).length;
+      deps.sendJson(res, updated > 0 ? 200 : 207, {
+        ok: updated > 0,
+        action: actionType,
+        sliceRunId,
+        requested: decisionIds.length,
+        updated,
+        failed: decisionIds.length - updated,
+        results,
+      });
+      return;
+    }
+
+    if (actionType === "provide_context") {
+      deps.sendJson(res, 200, {
+        ok: true,
+        action: "provide_context",
+        sliceRunId,
+        note: note ?? null,
+        message: note
+          ? "Context captured for this slice."
+          : "No note submitted. Provide a note to attach additional context.",
+      });
+      return;
+    }
+
+    deps.sendJson(res, 400, {
+      error: "Unsupported action type.",
+      actionType,
+      supported: ["approve", "reject", "retry", "resume", "open_artifact", "provide_context"],
+    });
   }
 
   router.add(
@@ -540,5 +991,47 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     "live/snapshot",
     async ({ path, query, res }) => renderSnapshot(path, query, res),
     "Live snapshot (HEAD)"
+  );
+  router.add(
+    "GET",
+    "live/snapshot-v2",
+    async ({ path, query, res }) => renderSnapshotV2(path, query, res),
+    "Live snapshot (v2 projections)"
+  );
+  router.add(
+    "HEAD",
+    "live/snapshot-v2",
+    async ({ path, query, res }) => renderSnapshotV2(path, query, res),
+    "Live snapshot (v2 projections, HEAD)"
+  );
+  router.add(
+    "GET",
+    "slices/*",
+    async ({ path, query, res }) => renderSliceNarrative(path, query, res),
+    "Slice narrative/timeline projections"
+  );
+  router.add(
+    "HEAD",
+    "slices/*",
+    async ({ path, query, res }) => renderSliceNarrative(path, query, res),
+    "Slice narrative/timeline projections (HEAD)"
+  );
+  router.add(
+    "POST",
+    "slices/*",
+    async ({ path, query, req, res }) => executeSliceAction(path, query, req, res),
+    "Slice action contracts"
+  );
+  router.add(
+    "GET",
+    "sessions/*",
+    async ({ path, query, res }) => renderSessionDetailV2(path, query, res),
+    "Session detail (v2 projections)"
+  );
+  router.add(
+    "HEAD",
+    "sessions/*",
+    async ({ path, query, res }) => renderSessionDetailV2(path, query, res),
+    "Session detail (v2 projections, HEAD)"
   );
 }

@@ -12,6 +12,17 @@ type LiveDecisionOption = {
   requiresNote: boolean;
 };
 
+type LiveDecisionEvidenceRef = {
+  evidenceType: string | null;
+  title: string | null;
+  summary: string | null;
+  sourceUrl: string | null;
+  sourcePointer: string | null;
+  freshness: string | null;
+  confidence: number | null;
+  payload: Record<string, unknown> | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -27,10 +38,36 @@ function normalizeOptionStatus(value: unknown): LiveDecisionOptionStatus | null 
   return null;
 }
 
+function pickStringFromRecords(
+  records: Array<Record<string, unknown> | null>,
+  keys: string[]
+): string | null {
+  for (const record of records) {
+    if (!record) continue;
+    const value = pickString(record, keys);
+    if (value) return value;
+  }
+  return null;
+}
+
+function pickNumberFromRecords(
+  records: Array<Record<string, unknown> | null>,
+  keys: string[]
+): number | null {
+  for (const record of records) {
+    if (!record) continue;
+    const value = pickNumber(record, keys);
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 function parseDecisionOptions(record: Record<string, unknown>): LiveDecisionOption[] {
-  const containers: Record<string, unknown>[] = [record];
   const metadata = asRecord(record.metadata);
+  const envelope = metadata ? asRecord(metadata.envelope_v2) : null;
+  const containers: Record<string, unknown>[] = [record];
   if (metadata) containers.push(metadata);
+  if (envelope) containers.push(envelope);
 
   const rawItems: unknown[] = [];
   for (const container of containers) {
@@ -116,10 +153,50 @@ function parseSelectedOptionId(record: Record<string, unknown>): string | null {
   return selected;
 }
 
+function parseEvidenceRefs(record: Record<string, unknown>): LiveDecisionEvidenceRef[] {
+  const metadata = asRecord(record.metadata);
+  const envelope = metadata ? asRecord(metadata.envelope_v2) : null;
+  const rawGroups: unknown[] = [
+    record.evidence_refs,
+    metadata?.evidence_refs,
+    metadata?.decision_evidence,
+    envelope?.evidence_refs,
+  ];
+  const refs: LiveDecisionEvidenceRef[] = [];
+
+  for (const group of rawGroups) {
+    if (!Array.isArray(group)) continue;
+    for (const item of group) {
+      const evidence = asRecord(item);
+      if (!evidence) continue;
+      const confidenceRaw = pickNumber(evidence, ["confidence"]);
+      refs.push({
+        evidenceType: pickString(evidence, ["evidence_type", "evidenceType", "type"]),
+        title: pickString(evidence, ["title", "name"]),
+        summary: pickString(evidence, ["summary", "description"]),
+        sourceUrl: pickString(evidence, ["source_url", "sourceUrl", "url"]),
+        sourcePointer: pickString(evidence, ["source_pointer", "sourcePointer", "pointer", "path"]),
+        freshness: pickString(evidence, ["freshness"]),
+        confidence:
+          typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+            ? confidenceRaw
+            : null,
+        payload: asRecord(evidence.payload),
+      });
+    }
+  }
+
+  return refs.slice(0, 20);
+}
+
 export function mapDecisionEntity(entity: Entity) {
   const record = entity as Record<string, unknown>;
+  const metadata = asRecord(record.metadata);
+  const envelope = metadata ? asRecord(metadata.envelope_v2) : null;
+  const containers: Array<Record<string, unknown> | null> = [record, metadata, envelope];
+
   const requestedAt = toIsoString(
-    pickString(record, [
+    pickStringFromRecords(containers, [
       "requestedAt",
       "requested_at",
       "createdAt",
@@ -129,10 +206,11 @@ export function mapDecisionEntity(entity: Entity) {
     ])
   );
   const updatedAt = toIsoString(
-    pickString(record, ["updatedAt", "updated_at", "createdAt", "created_at"])
+    pickStringFromRecords(containers, ["updatedAt", "updated_at", "createdAt", "created_at"])
   );
+  const dueAt = toIsoString(pickStringFromRecords(containers, ["dueAt", "due_at"]));
 
-  const waitingMinutesFromEntity = pickNumber(record, [
+  const waitingMinutesFromEntity = pickNumberFromRecords(containers, [
     "waitingMinutes",
     "waiting_minutes",
     "ageMinutes",
@@ -144,13 +222,23 @@ export function mapDecisionEntity(entity: Entity) {
       ? Math.max(0, Math.floor((Date.now() - Date.parse(requestedAt)) / 60_000))
       : 0);
   const options = parseDecisionOptions(record);
+  const evidenceRefs = parseEvidenceRefs(record);
 
   return {
     id: String(record.id ?? ""),
-    title: pickString(record, ["title", "name"]) ?? "Decision",
-    context: pickString(record, ["context", "summary", "description", "details"]),
-    status: pickString(record, ["status", "decision_status"]) ?? "pending",
-    agentName: pickString(record, [
+    title: pickStringFromRecords(containers, ["title", "name"]) ?? "Decision",
+    context: pickStringFromRecords(containers, [
+      "context",
+      "summary",
+      "description",
+      "details",
+      "recommended_action",
+      "recommendedAction",
+    ]),
+    status: pickStringFromRecords(containers, ["status", "decision_status"]) ?? "pending",
+    priority: pickStringFromRecords(containers, ["priority"]),
+    decisionType: pickStringFromRecords(containers, ["decision_type", "decisionType"]),
+    agentName: pickStringFromRecords(containers, [
       "agentName",
       "agent_name",
       "requestedBy",
@@ -161,8 +249,31 @@ export function mapDecisionEntity(entity: Entity) {
       "createdBy",
       "created_by",
     ]),
+    agentId: pickStringFromRecords(containers, ["agent_id", "agentId"]),
+    initiativeId: pickStringFromRecords(containers, ["initiative_id", "initiativeId"]),
+    workstreamId: pickStringFromRecords(containers, ["workstream_id", "workstreamId"]),
+    dueAt,
     requestedAt,
     updatedAt,
+    sourceSystem: pickStringFromRecords(containers, ["source_system", "sourceSystem"]),
+    conflictSource: pickStringFromRecords(containers, ["conflict_source", "conflictSource"]),
+    dedupeKey: pickStringFromRecords(containers, ["dedupe_key", "dedupeKey"]),
+    recommendedAction: pickStringFromRecords(containers, [
+      "recommended_action",
+      "recommendedAction",
+    ]),
+    occurrenceCount: pickNumberFromRecords(containers, ["occurrence_count", "occurrenceCount"]),
+    firstSeenAt: toIsoString(pickStringFromRecords(containers, ["first_seen_at", "firstSeenAt"])),
+    lastSeenAt: toIsoString(pickStringFromRecords(containers, ["last_seen_at", "lastSeenAt"])),
+    sourceRunId: pickStringFromRecords(containers, ["source_run_id", "sourceRunId"]),
+    sourceSessionId: pickStringFromRecords(containers, [
+      "source_session_id",
+      "sourceSessionId",
+      "session_id",
+      "sessionId",
+    ]),
+    sourceStreamId: pickStringFromRecords(containers, ["source_stream_id", "sourceStreamId"]),
+    evidenceRefs,
     waitingMinutes,
     metadata: record,
     options,

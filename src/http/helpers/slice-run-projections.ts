@@ -39,7 +39,11 @@ export type SliceRunProjection = {
   sliceRunId: string;
   runId: string | null;
   initiativeId: string | null;
+  initiativeIds?: string[];
   workstreamId: string | null;
+  workstreamIds?: string[];
+  iwmtId: string | null;
+  iwmtIds?: string[];
   workstreamTitle: string | null;
   taskIds: string[];
   milestoneIds: string[];
@@ -197,6 +201,19 @@ function dedupeStrings(values: string[]): string[] {
   return output;
 }
 
+function mergeScopedIds(
+  existing: string[] | undefined,
+  scalar: string | null | undefined,
+  additions: string[]
+): string[] {
+  const merged = dedupeStrings([
+    ...(Array.isArray(existing) ? existing : []),
+    ...(scalar ? [scalar] : []),
+    ...additions,
+  ]);
+  return merged;
+}
+
 function resolveEventName(metadata: Record<string, unknown> | null): string {
   const fromMeta = metadataString(metadata, ["event"]);
   if (fromMeta) return fromMeta.toLowerCase();
@@ -301,7 +318,11 @@ function createProjection(sliceRunId: string): MutableSliceRunProjection {
     sliceRunId,
     runId: sliceRunId,
     initiativeId: null,
+    initiativeIds: [],
     workstreamId: null,
+    workstreamIds: [],
+    iwmtId: null,
+    iwmtIds: [],
     workstreamTitle: null,
     taskIds: [],
     milestoneIds: [],
@@ -391,12 +412,49 @@ function updateProjectionContext(
   item: LiveActivityItem,
   metadata: Record<string, unknown> | null
 ): void {
-  projection.initiativeId =
-    projection.initiativeId ??
-    item.initiativeId ??
-    metadataString(metadata, ["initiative_id", "initiativeId"]);
-  projection.workstreamId =
-    projection.workstreamId ?? metadataString(metadata, ["workstream_id", "workstreamId"]);
+  const initiativeIdFromMetadata = metadataString(metadata, [
+    "initiative_id",
+    "initiativeId",
+  ]);
+  const initiativeIds = mergeScopedIds(
+    projection.initiativeIds,
+    projection.initiativeId,
+    [
+      ...(item.initiativeId ? [item.initiativeId] : []),
+      ...metadataStringArray(metadata, ["initiative_ids", "initiativeIds"]),
+      ...(initiativeIdFromMetadata ? [initiativeIdFromMetadata] : []),
+    ].filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+  );
+  projection.initiativeIds = initiativeIds;
+  projection.initiativeId = projection.initiativeId ?? initiativeIds[0] ?? null;
+
+  const workstreamIdFromMetadata = metadataString(metadata, [
+    "workstream_id",
+    "workstreamId",
+  ]);
+  const workstreamIds = mergeScopedIds(
+    projection.workstreamIds,
+    projection.workstreamId,
+    [
+      ...metadataStringArray(metadata, ["workstream_ids", "workstreamIds"]),
+      ...(workstreamIdFromMetadata ? [workstreamIdFromMetadata] : []),
+    ].filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+  );
+  projection.workstreamIds = workstreamIds;
+  projection.workstreamId = projection.workstreamId ?? workstreamIds[0] ?? null;
+
+  const iwmtIdFromMetadata = metadataString(metadata, ["iwmt_id", "iwmtId"]);
+  const iwmtIds = mergeScopedIds(
+    projection.iwmtIds,
+    projection.iwmtId,
+    [
+      ...metadataStringArray(metadata, ["iwmt_ids", "iwmtIds"]),
+      ...(iwmtIdFromMetadata ? [iwmtIdFromMetadata] : []),
+    ].filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+  );
+  projection.iwmtIds = iwmtIds;
+  projection.iwmtId = projection.iwmtId ?? iwmtIds[0] ?? null;
+
   projection.workstreamTitle =
     projection.workstreamTitle ??
     metadataString(metadata, ["workstream_title", "workstreamTitle"]);
@@ -494,6 +552,19 @@ function applySessionFallback(
 ): void {
   const status = (session.status ?? "").trim().toLowerCase();
   const updatedAt = toIso(session.updatedAt ?? session.lastEventAt ?? session.startedAt);
+  projection.initiativeIds = mergeScopedIds(
+    projection.initiativeIds,
+    projection.initiativeId,
+    session.initiativeId ? [session.initiativeId] : []
+  );
+  projection.workstreamIds = mergeScopedIds(
+    projection.workstreamIds,
+    projection.workstreamId,
+    session.workstreamId ? [session.workstreamId] : []
+  );
+  projection.initiativeId = projection.initiativeId ?? projection.initiativeIds[0] ?? null;
+  projection.workstreamId = projection.workstreamId ?? projection.workstreamIds[0] ?? null;
+
   if (RUN_LIKE_STATUS.has(projection.status)) {
     if (!projection.workstreamId && session.workstreamId) projection.workstreamId = session.workstreamId;
     if (!projection.workstreamTitle && session.title) projection.workstreamTitle = session.title;
@@ -790,6 +861,19 @@ export function buildSliceRunProjections(
     const projection = projections.get(runId);
     if (!projection) continue;
 
+    projection.initiativeIds = mergeScopedIds(
+      projection.initiativeIds,
+      projection.initiativeId,
+      runtime.initiativeId ? [runtime.initiativeId] : []
+    );
+    projection.workstreamIds = mergeScopedIds(
+      projection.workstreamIds,
+      projection.workstreamId,
+      runtime.workstreamId ? [runtime.workstreamId] : []
+    );
+    projection.initiativeId = projection.initiativeId ?? projection.initiativeIds[0] ?? null;
+    projection.workstreamId = projection.workstreamId ?? projection.workstreamIds[0] ?? null;
+
     projection.runtimeState = runtime.state;
     if (runtime.state === "error" && projection.status !== "failed") {
       setStatus({
@@ -869,7 +953,11 @@ export function buildSliceRunProjections(
       sliceRunId: projection.sliceRunId,
       runId: projection.runId,
       initiativeId: projection.initiativeId,
+      initiativeIds: projection.initiativeIds,
       workstreamId: projection.workstreamId,
+      workstreamIds: projection.workstreamIds,
+      iwmtId: projection.iwmtId,
+      iwmtIds: projection.iwmtIds,
       workstreamTitle: projection.workstreamTitle,
       taskIds: projection.taskIds,
       milestoneIds: projection.milestoneIds,

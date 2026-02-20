@@ -80,14 +80,29 @@ function hasOwn(input: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
 }
 
+function hasMeaningfulReassignmentValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== null && value !== undefined;
+}
+
 function includesWorkstreamReassignmentMutation(payload: Record<string, unknown>): boolean {
-  return WORKSTREAM_REASSIGNMENT_FIELDS.some((field) => hasOwn(payload, field));
+  return WORKSTREAM_REASSIGNMENT_FIELDS.some(
+    (field) => hasOwn(payload, field) && hasMeaningfulReassignmentValue(payload[field])
+  );
 }
 
 function isActiveOrReadyStatus(status: string | null | undefined): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
   if (!normalized) return false;
-  return normalized === "active" || normalized === "ready";
+  return (
+    normalized === "active" ||
+    normalized === "ready" ||
+    normalized === "in_progress" ||
+    normalized === "running" ||
+    normalized === "queued" ||
+    normalized === "pending"
+  );
 }
 
 function toObjectArray(input: unknown): Array<Record<string, unknown>> {

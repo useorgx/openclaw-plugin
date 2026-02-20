@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1472, height=792">
+<title>OrgX — Empty State Illustrations</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  body { width: 1472px; height: 792px; overflow: hidden; }
+
+  .empty-states-grid {
+    width: 1472px;
+    height: 792px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 16px;
+    padding: 24px;
+    background:
+      radial-gradient(ellipse 700px 700px at 12% -20%, rgba(191,255,0,0.06) 0%, transparent 58%),
+      radial-gradient(ellipse 500px 700px at 90% -20%, rgba(20,184,166,0.06) 0%, transparent 64%),
+      var(--bg-root);
+  }
+
+  .empty-state-card {
+    background: rgba(12,14,20,0.8);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .empty-state-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  }
+
+  .card-label {
+    position: absolute;
+    top: 16px;
+    left: 20px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  /* ─── Illustration containers ─── */
+  .illustration {
+    width: 120px;
+    height: 120px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ─── Initiatives Empty — Orbiting dots ─── */
+  .illust-initiatives {
+    position: relative;
+  }
+
+  .illust-initiatives .center-glow {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(191,255,0,0.2) 0%, transparent 70%);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .illust-initiatives .orbit {
+    position: absolute;
+    border: 1px dashed rgba(191,255,0,0.08);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .illust-initiatives .orbit-1 { width: 50px; height: 50px; }
+  .illust-initiatives .orbit-2 { width: 80px; height: 80px; }
+  .illust-initiatives .orbit-3 { width: 110px; height: 110px; }
+
+  .illust-initiatives .dot {
+    position: absolute;
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    margin: -4px;
+  }
+
+  .illust-initiatives .dot-1 {
+    width: 8px; height: 8px;
+    background: var(--lime);
+    box-shadow: 0 0 12px rgba(191,255,0,0.4);
+    animation: orbit 5s linear infinite;
+  }
+
+  .illust-initiatives .dot-2 {
+    width: 6px; height: 6px;
+    background: var(--teal);
+    box-shadow: 0 0 8px rgba(20,184,166,0.4);
+    animation: orbit 7s linear reverse infinite;
+  }
+
+  .illust-initiatives .dot-3 {
+    width: 5px; height: 5px;
+    background: var(--iris);
+    box-shadow: 0 0 8px rgba(139,92,246,0.4);
+    animation: orbit 9s linear infinite;
+  }
+
+  /* ─── Sessions Empty — Terminal with cursor ─── */
+  .illust-sessions {
+    width: 140px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .illust-sessions .term-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .illust-sessions .term-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+  }
+
+  .illust-sessions .term-body {
+    padding: 8px 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 10px;
+    line-height: 1.7;
+  }
+
+  .illust-sessions .term-prompt {
+    color: var(--lime);
+    opacity: 0.6;
+  }
+
+  .illust-sessions .term-text {
+    color: var(--text-muted);
+  }
+
+  .illust-sessions .term-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 12px;
+    background: var(--lime);
+    opacity: 0.8;
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+
+  /* ─── Activity Empty — Timeline with fading dots ─── */
+  .illust-activity {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .timeline-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .timeline-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .timeline-line {
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.04);
+  }
+
+  .timeline-row:nth-child(1) .timeline-dot { background: rgba(191,255,0,0.5); animation: pulse-glow 3s ease infinite; }
+  .timeline-row:nth-child(1) .timeline-line { width: 80px; background: linear-gradient(90deg, rgba(191,255,0,0.15), transparent); }
+
+  .timeline-row:nth-child(2) .timeline-dot { background: rgba(20,184,166,0.4); animation: pulse-glow 3s ease 1s infinite; }
+  .timeline-row:nth-child(2) .timeline-line { width: 60px; background: linear-gradient(90deg, rgba(20,184,166,0.12), transparent); }
+
+  .timeline-row:nth-child(3) .timeline-dot { background: rgba(139,92,246,0.3); animation: pulse-glow 3s ease 2s infinite; }
+  .timeline-row:nth-child(3) .timeline-line { width: 40px; background: linear-gradient(90deg, rgba(139,92,246,0.1), transparent); }
+
+  .timeline-row:nth-child(4) .timeline-dot { background: rgba(255,255,255,0.1); }
+  .timeline-row:nth-child(4) .timeline-line { width: 25px; }
+
+  /* ─── Decisions Empty — Shield with pulse ─── */
+  .illust-decisions {
+    position: relative;
+  }
+
+  .illust-decisions .shield-glow {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation: pulse-glow 3s ease infinite;
+  }
+
+  .illust-decisions svg {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ─── Empty state text ─── */
+  .empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: center;
+  }
+
+  .empty-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    text-align: center;
+    max-width: 280px;
+    line-height: 1.5;
+  }
+
+  .empty-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .variant-label {
+    position: fixed;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--text-faint);
+    z-index: 20;
+  }
+</style>
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+</head>
+<body>
+<div class="empty-states-grid">
+  <!-- Initiatives Empty -->
+  <div class="empty-state-card animate-in">
+    <span class="card-label">Initiatives Panel</span>
+    <div class="illustration">
+      <div class="illust-initiatives">
+        <div class="center-glow"></div>
+        <div class="orbit orbit-1"></div>
+        <div class="orbit orbit-2"></div>
+        <div class="orbit orbit-3"></div>
+        <div class="dot dot-1"></div>
+        <div class="dot dot-2"></div>
+        <div class="dot dot-3"></div>
+      </div>
+    </div>
+    <div class="empty-title">No initiatives yet</div>
+    <div class="empty-desc">Create your first initiative to start orchestrating workstreams and tracking execution progress.</div>
+    <div class="empty-actions">
+      <button class="btn-primary press-feedback" style="font-size:12px;padding:8px 16px;">Create Initiative</button>
+      <button class="btn-ghost" style="font-size:12px;padding:8px 16px;">Import from OrgX</button>
+    </div>
+  </div>
+
+  <!-- Sessions Empty -->
+  <div class="empty-state-card animate-in-1">
+    <span class="card-label">Agent Sessions</span>
+    <div class="illustration">
+      <div class="illust-sessions">
+        <div class="term-titlebar">
+          <div class="term-dot"></div>
+          <div class="term-dot"></div>
+          <div class="term-dot"></div>
+        </div>
+        <div class="term-body">
+          <div><span class="term-prompt">$</span> <span class="term-text">orgx start</span></div>
+          <div><span class="term-text">waiting for agent...</span></div>
+          <div><span class="term-prompt">></span> <span class="term-cursor"></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="empty-title">No active sessions</div>
+    <div class="empty-desc">Launch an agent session to begin autonomous code execution with live progress tracking.</div>
+    <div class="empty-actions">
+      <button class="btn-primary press-feedback" style="font-size:12px;padding:8px 16px;">Launch Session</button>
+      <span class="kbd-badge">⌘ N</span>
+    </div>
+  </div>
+
+  <!-- Activity Empty -->
+  <div class="empty-state-card animate-in-2">
+    <span class="card-label">Activity Timeline</span>
+    <div class="illustration">
+      <div class="illust-activity">
+        <div class="timeline-row">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-row">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-row">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+        <div class="timeline-row">
+          <div class="timeline-dot"></div>
+          <div class="timeline-line"></div>
+        </div>
+      </div>
+    </div>
+    <div class="empty-title">No activity yet</div>
+    <div class="empty-desc">Activity will appear here as agents create files, run tests, make decisions, and hit milestones.</div>
+    <div class="empty-actions">
+      <button class="btn-ghost press-feedback" style="font-size:12px;padding:8px 16px;">View Demo Activity</button>
+    </div>
+  </div>
+
+  <!-- Decisions Empty (All Clear) -->
+  <div class="empty-state-card animate-in-3">
+    <span class="card-label">Decision Queue</span>
+    <div class="illustration">
+      <div class="illust-decisions">
+        <div class="shield-glow"></div>
+        <svg width="64" height="72" viewBox="0 0 64 72" fill="none">
+          <path d="M32 4L4 18V36C4 52 16 64 32 68C48 64 60 52 60 36V18L32 4Z" stroke="rgba(139,92,246,0.25)" stroke-width="1.5" fill="rgba(139,92,246,0.03)"/>
+          <path d="M22 36L28 42L42 28" stroke="rgba(139,92,246,0.6)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+    <div class="empty-title" style="color: rgba(139,92,246,0.8);">All clear</div>
+    <div class="empty-desc">No pending decisions. Agents are running autonomously — you'll be notified when approval is needed.</div>
+    <div class="empty-actions">
+      <span class="pill" style="background:rgba(139,92,246,0.06);border-color:rgba(139,92,246,0.15);color:rgba(139,92,246,0.6);font-size:10px;">0 pending</span>
+      <button class="btn-ghost" style="font-size:12px;padding:8px 16px;">View History</button>
+    </div>
+  </div>
+</div>
+
+<div class="variant-label">Empty State Illustrations — Animated SVG with CTAs</div>
+</body>
+</html>

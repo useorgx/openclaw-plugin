@@ -99,7 +99,12 @@ import {
   type RuntimeSourceClient,
 } from "../runtime-instance-store.js";
 import { parseJsonSafe } from "../json-utils.js";
-import { readSkillPackState, refreshSkillPackState, updateSkillPackPolicy } from "../skill-pack-state.js";
+import {
+  readSkillPackState,
+  refreshSkillPackState,
+  rollbackSkillPackPolicy,
+  updateSkillPackPolicy,
+} from "../skill-pack-state.js";
 import { posthogCapture } from "../telemetry/posthog.js";
 import { createRouter } from "./router.js";
 import { summarizeActivityHeadline } from "./helpers/activity-headline.js";
@@ -1077,6 +1082,71 @@ function enrichSessionsWithRuntime(
   return { ...input, nodes };
 }
 
+function metadataHasStructuredScope(meta: Record<string, unknown>): boolean {
+  const scalarScope =
+    pickString(meta, [
+      "initiative_id",
+      "initiativeId",
+      "workstream_id",
+      "workstreamId",
+      "workstream_title",
+      "workstreamTitle",
+      "task_id",
+      "taskId",
+      "task_title",
+      "taskTitle",
+      "slice_run_id",
+      "sliceRunId",
+      "iwmt_id",
+      "iwmtId",
+      "milestone_id",
+      "milestoneId",
+      "milestone_title",
+      "milestoneTitle",
+    ]) ?? null;
+  if (scalarScope) return true;
+
+  const listScopeKeys = [
+    "initiative_ids",
+    "initiativeIds",
+    "workstream_ids",
+    "workstreamIds",
+    "task_ids",
+    "taskIds",
+    "milestone_ids",
+    "milestoneIds",
+    "iwmt_ids",
+    "iwmtIds",
+  ];
+  for (const key of listScopeKeys) {
+    const value = meta[key];
+    if (!Array.isArray(value)) continue;
+    if (
+      value.some((entry) => typeof entry === "string" && entry.trim().length > 0)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldInjectRuntimeInstanceAsSession(
+  instance: RuntimeInstanceRecord,
+  runId: string,
+  meta: Record<string, unknown>
+): boolean {
+  if (instance.state !== "active") return false;
+  // Synthetic hook correlation ids are telemetry-only and should never render as user-facing sessions.
+  if (runId.toLowerCase().startsWith("hook-")) return false;
+
+  const workstreamId = instance.workstreamId?.trim() ?? "";
+  const taskId = instance.taskId?.trim() ?? "";
+  if (workstreamId.length > 0 || taskId.length > 0) return true;
+
+  // Keep only runtime records that include structured execution scope.
+  return metadataHasStructuredScope(meta);
+}
+
 function injectRuntimeInstancesAsSessions(
   input: SessionTreeResponse,
   instances: RuntimeInstanceRecord[]
@@ -1103,10 +1173,6 @@ function injectRuntimeInstancesAsSessions(
     if (!runId) continue;
     if (existingRunIds.has(runId)) continue;
 
-    // Only surface active runtime instances as synthetic sessions.
-    // Stale instances are reconciled onto existing sessions but shouldn't appear as fresh work.
-    if (instance.state !== "active") continue;
-
     const initiativeId = instance.initiativeId?.trim() || null;
     const workstreamId = instance.workstreamId?.trim() || null;
     const runtimeClient = normalizeRuntimeSource(instance.sourceClient);
@@ -1117,6 +1183,7 @@ function injectRuntimeInstancesAsSessions(
       instance.metadata && typeof instance.metadata === "object"
         ? (instance.metadata as Record<string, unknown>)
         : {};
+    if (!shouldInjectRuntimeInstanceAsSession(instance, runId, meta)) continue;
     const titleHint =
       pickString(meta, ["workstream_title", "workstreamTitle"]) ??
       (workstreamId ? `Workstream ${workstreamId.slice(0, 8)}` : null);
@@ -2741,6 +2808,13 @@ export function createHttpHandler(
     applyOrgxAgentSuitePlan,
     generateAgentSuiteOperationId,
     updateSkillPackPolicy,
+    rollbackSkillPackPolicy,
+    fetchAgentRuntimeSettings: ({ projectId } = {}) =>
+      client.getClientAgentRuntimeSettings({
+        projectId: projectId ?? null,
+      }),
+    updateAgentRuntimeSettings: (payload) =>
+      client.updateClientAgentRuntimeSettings(payload),
     posthogCapture,
     sendJson,
     safeErrorMessage,
@@ -3154,6 +3228,11 @@ export function createHttpHandler(
       lastSnapshotActivityFingerprint = state.lastFingerprint;
       lastSnapshotActivityPersistAt = state.lastPersistAt;
     },
+    parseJsonRequest,
+    buildNextUpQueue: ({ initiativeId }) => buildNextUpQueue({ initiativeId }),
+    bulkDecideDecisions: (ids, action, input) =>
+      client.bulkDecideDecisions(ids, action, input),
+    runAction: (runId, action, input) => client.runAction(runId, action, input),
     sendJson,
   });
   registerRuntimeHookRoutes(apiRouter, {

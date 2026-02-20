@@ -168,11 +168,7 @@ export async function main({
   const runId = pickString(args.run_id, env.ORGX_RUN_ID);
   const correlationId = runId
     ? undefined
-    : pickString(
-        args.correlation_id,
-        env.ORGX_CORRELATION_ID,
-        `hook-${now()}`
-      );
+    : pickString(args.correlation_id, env.ORGX_CORRELATION_ID);
 
   const event = pickString(args.event, "hook_event");
   const phase = pickString(args.phase, "execution");

@@ -34,6 +34,108 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     await queryClient.invalidateQueries({ queryKey: ['live-data'] });
   };
 
+  const moveQueueItem = async (payload: {
+    initiativeId: string;
+    workstreamId: string;
+    placement?: 'top' | 'bottom';
+  }) => {
+    const response = await fetch('/orgx/api/mission-control/next-up/move', {
+      method: 'POST',
+      headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+      body: JSON.stringify(payload),
+    });
+    const body = await readResponseJson<{ error?: string; message?: string }>(response);
+    if (response.ok) return body;
+
+    if (!isUnknownApiEndpointError(response, body)) {
+      throw new Error(normalizeErrorMessage(response, body, 'Failed to move Next Up item'));
+    }
+
+    // Fallback for older runtimes: emulate move via fetch + reorder.
+    const queueResponse = await fetch('/orgx/api/mission-control/next-up', {
+      headers: buildOrgxHeaders({ authToken, embedMode }),
+    });
+    const queueBody = await readResponseJson<{ items?: Array<{ initiativeId?: string; workstreamId?: string }>; error?: string; message?: string }>(queueResponse);
+    if (!queueResponse.ok) {
+      throw new Error(
+        normalizeErrorMessage(queueResponse, queueBody, 'Failed to read queue for move fallback')
+      );
+    }
+    const queueItems = Array.isArray(queueBody?.items) ? queueBody.items : [];
+    const currentOrder = queueItems
+      .map((item) => {
+        const initiativeId =
+          typeof item?.initiativeId === 'string' ? item.initiativeId : null;
+        const workstreamId =
+          typeof item?.workstreamId === 'string' ? item.workstreamId : null;
+        if (!initiativeId || !workstreamId) return null;
+        return { initiativeId, workstreamId };
+      })
+      .filter((item): item is { initiativeId: string; workstreamId: string } => Boolean(item));
+
+    if (currentOrder.length === 0) {
+      throw new Error('Queue placement controls require a newer plugin runtime. Refresh to latest main and retry.');
+    }
+
+    const targetIndex = currentOrder.findIndex(
+      (item) =>
+        item.initiativeId === payload.initiativeId && item.workstreamId === payload.workstreamId
+    );
+    if (targetIndex === -1) return { ok: true, fallback: 'reorder-move-skip' };
+
+    const [target] = currentOrder.splice(targetIndex, 1);
+    if ((payload.placement ?? 'top') === 'bottom') currentOrder.push(target);
+    else currentOrder.unshift(target);
+
+    const reorderResponse = await fetch('/orgx/api/mission-control/next-up/reorder', {
+      method: 'POST',
+      headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+      body: JSON.stringify({ order: currentOrder }),
+    });
+    const reorderBody = await readResponseJson<{ error?: string; message?: string }>(reorderResponse);
+    if (!reorderResponse.ok) {
+      throw new Error(
+        normalizeErrorMessage(
+          reorderResponse,
+          reorderBody,
+          'Failed to move Next Up item with reorder fallback'
+        )
+      );
+    }
+    return reorderBody ?? { ok: true, fallback: 'reorder-move' };
+  };
+
+  const removeQueueItem = async (payload: { initiativeId: string; workstreamId: string }) => {
+    const response = await fetch('/orgx/api/mission-control/next-up/remove', {
+      method: 'POST',
+      headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+      body: JSON.stringify(payload),
+    });
+    const body = await readResponseJson<{ error?: string; message?: string }>(response);
+    if (response.ok) return body;
+
+    if (isUnknownApiEndpointError(response, body)) {
+      const legacyResponse = await fetch('/orgx/api/mission-control/next-up/unpin', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const legacyBody = await readResponseJson<{ error?: string; message?: string }>(legacyResponse);
+      if (!legacyResponse.ok) {
+        throw new Error(
+          normalizeErrorMessage(
+            legacyResponse,
+            legacyBody,
+            'Failed to remove item from queue with legacy fallback'
+          )
+        );
+      }
+      return legacyBody ?? { ok: true, fallback: 'next-up-unpin' };
+    }
+
+    throw new Error(normalizeErrorMessage(response, body, 'Failed to remove item from queue'));
+  };
+
   const pin = useMutation({
     mutationFn: async (payload: {
       initiativeId: string;
@@ -91,27 +193,7 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
   });
 
   const move = useMutation({
-    mutationFn: async (payload: {
-      initiativeId: string;
-      workstreamId: string;
-      placement?: 'top' | 'bottom';
-    }) => {
-      const response = await fetch('/orgx/api/mission-control/next-up/move', {
-        method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify(payload),
-      });
-      const body = await readResponseJson<{ error?: string; message?: string }>(response);
-      if (!response.ok) {
-        if (isUnknownApiEndpointError(response, body)) {
-          throw new Error(
-            'Queue placement controls require a newer plugin runtime. Refresh to latest main and retry.'
-          );
-        }
-        throw new Error(normalizeErrorMessage(response, body, 'Failed to move Next Up item'));
-      }
-      return body;
-    },
+    mutationFn: moveQueueItem,
     onSuccess: () => {
       void invalidate();
     },
@@ -161,38 +243,7 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
   });
 
   const remove = useMutation({
-    mutationFn: async (payload: { initiativeId: string; workstreamId: string }) => {
-      const response = await fetch('/orgx/api/mission-control/next-up/remove', {
-        method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify(payload),
-      });
-      const body = await readResponseJson<{ error?: string; message?: string }>(response);
-      if (!response.ok) {
-        if (isUnknownApiEndpointError(response, body)) {
-          const legacyResponse = await fetch('/orgx/api/mission-control/next-up/unpin', {
-            method: 'POST',
-            headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-            body: JSON.stringify(payload),
-          });
-          const legacyBody = await readResponseJson<{ error?: string; message?: string }>(
-            legacyResponse
-          );
-          if (!legacyResponse.ok) {
-            throw new Error(
-              normalizeErrorMessage(
-                legacyResponse,
-                legacyBody,
-                'Failed to remove item from queue with legacy fallback'
-              )
-            );
-          }
-          return legacyBody ?? { ok: true, fallback: 'next-up-unpin' };
-        }
-        throw new Error(normalizeErrorMessage(response, body, 'Failed to remove item from queue'));
-      }
-      return body;
-    },
+    mutationFn: removeQueueItem,
     onSuccess: () => {
       void invalidate();
     },
@@ -253,7 +304,36 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
-        throw new Error(normalizeErrorMessage(response, body, 'Failed to apply bulk queue action'));
+        if (!isUnknownApiEndpointError(response, body)) {
+          throw new Error(normalizeErrorMessage(response, body, 'Failed to apply bulk queue action'));
+        }
+        let updated = 0;
+        let failed = 0;
+        const errors: string[] = [];
+        for (const item of payload.items) {
+          try {
+            if (payload.action === 'remove') {
+              await removeQueueItem(item);
+            } else {
+              await moveQueueItem({
+                initiativeId: item.initiativeId,
+                workstreamId: item.workstreamId,
+                placement: payload.action === 'move_top' ? 'top' : 'bottom',
+              });
+            }
+            updated += 1;
+          } catch (err) {
+            failed += 1;
+            errors.push(err instanceof Error ? err.message : 'Queue action failed');
+          }
+        }
+        return {
+          ok: failed === 0,
+          updated,
+          failed,
+          errors,
+          fallback: 'sequential',
+        } as const;
       }
       return body;
     },

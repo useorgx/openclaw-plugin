@@ -37,6 +37,14 @@ function providerLabel(provider: ProviderId): string {
   return PROVIDERS.find((p) => p.id === provider)?.label ?? provider;
 }
 
+type RunPreviewProvider = {
+  id: ProviderId;
+  label: string;
+  configured: boolean;
+  source: string;
+  pending: 'save' | 'none';
+};
+
 export function ByokSettingsPanel({
   authToken = null,
   embedMode = false,
@@ -86,6 +94,30 @@ export function ByokSettingsPanel({
       Number(status.providers.openrouter.configured)
     );
   }, [status]);
+
+  const runPreview = useMemo(() => {
+    const providers: RunPreviewProvider[] = PROVIDERS.map((provider) => {
+      const providerStatus = status?.providers?.[provider.id];
+      const pendingSave = dirty[provider.id] && values[provider.id].trim().length > 0;
+      return {
+        id: provider.id,
+        label: provider.label,
+        configured: pendingSave || Boolean(providerStatus?.configured),
+        source: pendingSave ? 'pending stored key' : providerStatus?.source ?? 'none',
+        pending: pendingSave ? 'save' : 'none',
+      };
+    });
+
+    const activeProviders = providers.filter((provider) => provider.configured);
+    const summary =
+      activeProviders.length === 0
+        ? 'Run preview: launch blocked until at least one provider key is configured.'
+        : activeProviders.length === 1
+          ? `Run preview: launches with ${activeProviders[0]?.label} as the only provider.`
+          : `Run preview: launches with ${activeProviders.length} providers available for routing.`;
+
+    return { providers, activeProviders, summary };
+  }, [dirty, status, values]);
 
   const saveProvider = async (provider: ProviderId) => {
     if (!enabled) return;
@@ -166,6 +198,34 @@ export function ByokSettingsPanel({
           If you set an env var (e.g.{' '}
           <code className="rounded bg-black/40 px-1">OPENAI_API_KEY</code>), it will be used unless a saved key overrides it.
         </p>
+      </div>
+
+      <div className="mb-4 rounded-2xl border border-lime/20 bg-lime/[0.05] p-4">
+        <p className="text-body font-semibold text-[#D8FFA1]">Agent run preview</p>
+        <p className="mt-1 text-body leading-relaxed text-secondary">{runPreview.summary}</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {runPreview.providers.map((provider) => (
+            <div key={provider.id} className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-caption font-semibold text-primary">{provider.label}</span>
+                <span
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]',
+                    provider.configured
+                      ? 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]'
+                      : 'border-white/[0.14] bg-white/[0.04] text-secondary'
+                  )}
+                >
+                  {provider.configured ? 'Available' : 'Missing'}
+                </span>
+              </div>
+              <p className="mt-1 text-caption text-muted">
+                Source: {provider.source}
+                {provider.pending === 'save' ? ' (not saved yet)' : ''}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
@@ -300,4 +360,3 @@ export function ByokSettingsPanel({
     </div>
   );
 }
-

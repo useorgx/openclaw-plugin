@@ -108,6 +108,16 @@ const DOMAIN_ALIASES = {
   ops: "operations",
 };
 
+const DEFAULT_ARTIFACT_TYPE_BY_DOMAIN = {
+  engineering: "pr_link",
+  marketing: "content_draft",
+  sales: "account_update",
+  design: "design_mock",
+  product: "spec_doc",
+  operations: "runbook_update",
+  orchestration: "status_report",
+};
+
 function usage() {
   return [
     "Usage: node scripts/run-codex-dispatch-job.mjs [options]",
@@ -612,6 +622,160 @@ function toWorkerCwd(task, jobConfig) {
   return resolve(jobConfig.defaultCwd || "/Users/hopeatina/Code/orgx-openclaw-plugin");
 }
 
+function pickObjectString(source, keys) {
+  if (!source || typeof source !== "object") return undefined;
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value !== "string") continue;
+    const normalized = pickString(value);
+    if (normalized) return normalized;
+  }
+  return undefined;
+}
+
+function normalizeBehaviorContext(value, maxLength = 1_200) {
+  const normalized = pickString(value);
+  if (!normalized) return undefined;
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength - 1)}…`
+    : normalized;
+}
+
+function normalizeArtifactType(value) {
+  const normalized = pickString(value);
+  if (!normalized) return undefined;
+  return normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeAutomationLevel(value) {
+  const normalized = pickString(value)?.toLowerCase() ?? "";
+  if (!normalized) return undefined;
+  if (normalized === "auto" || normalized === "supervised" || normalized === "manual") {
+    return normalized;
+  }
+  if (normalized === "full_auto" || normalized === "full-auto" || normalized === "automatic") {
+    return "auto";
+  }
+  return undefined;
+}
+
+export function resolveBehaviorConfig(task = {}, workstream = null, domain = "engineering") {
+  const taskMetadata =
+    task && typeof task.metadata === "object" ? task.metadata : null;
+  const workstreamMetadata =
+    workstream && typeof workstream.metadata === "object"
+      ? workstream.metadata
+      : null;
+
+  const configId =
+    pickObjectString(task, ["behavior_config_id", "behaviorConfigId"]) ??
+    pickObjectString(taskMetadata, ["behavior_config_id", "behaviorConfigId"]) ??
+    pickObjectString(workstream, ["behavior_config_id", "behaviorConfigId"]) ??
+    pickObjectString(workstreamMetadata, ["behavior_config_id", "behaviorConfigId"]);
+  const version =
+    pickObjectString(task, ["behavior_config_version", "behaviorConfigVersion"]) ??
+    pickObjectString(taskMetadata, ["behavior_config_version", "behaviorConfigVersion"]) ??
+    pickObjectString(workstream, ["behavior_config_version", "behaviorConfigVersion"]) ??
+    pickObjectString(workstreamMetadata, ["behavior_config_version", "behaviorConfigVersion"]);
+  const hash =
+    pickObjectString(task, ["behavior_config_hash", "behaviorConfigHash"]) ??
+    pickObjectString(taskMetadata, ["behavior_config_hash", "behaviorConfigHash"]) ??
+    pickObjectString(workstream, ["behavior_config_hash", "behaviorConfigHash"]) ??
+    pickObjectString(workstreamMetadata, ["behavior_config_hash", "behaviorConfigHash"]);
+  const policySource =
+    pickObjectString(task, ["policy_source", "policySource"]) ??
+    pickObjectString(taskMetadata, ["policy_source", "policySource"]) ??
+    pickObjectString(workstream, ["policy_source", "policySource"]) ??
+    pickObjectString(workstreamMetadata, ["policy_source", "policySource"]);
+  const automationLevel =
+    normalizeAutomationLevel(
+      pickObjectString(task, ["automation_level", "automationLevel"]) ??
+        pickObjectString(taskMetadata, ["automation_level", "automationLevel"]) ??
+        pickObjectString(workstream, ["automation_level", "automationLevel"]) ??
+        pickObjectString(workstreamMetadata, ["automation_level", "automationLevel"])
+    ) ?? "auto";
+  const context = normalizeBehaviorContext(
+    pickObjectString(task, [
+      "behavior_context",
+      "behaviorContext",
+      "behavior_prompt",
+      "behaviorPrompt",
+    ]) ??
+      pickObjectString(taskMetadata, [
+        "behavior_context",
+        "behaviorContext",
+        "behavior_prompt",
+        "behaviorPrompt",
+      ]) ??
+      pickObjectString(workstream, [
+        "behavior_context",
+        "behaviorContext",
+        "behavior_prompt",
+        "behaviorPrompt",
+      ]) ??
+      pickObjectString(workstreamMetadata, [
+        "behavior_context",
+        "behaviorContext",
+        "behavior_prompt",
+        "behaviorPrompt",
+      ])
+  );
+  const artifactType =
+    normalizeArtifactType(
+      pickObjectString(task, [
+        "artifact_type",
+        "artifactType",
+        "default_artifact_type",
+        "defaultArtifactType",
+        "output_artifact_type",
+        "outputArtifactType",
+      ]) ??
+        pickObjectString(taskMetadata, [
+          "artifact_type",
+          "artifactType",
+          "default_artifact_type",
+          "defaultArtifactType",
+          "output_artifact_type",
+          "outputArtifactType",
+        ]) ??
+        pickObjectString(workstream, [
+          "artifact_type",
+          "artifactType",
+          "default_artifact_type",
+          "defaultArtifactType",
+          "output_artifact_type",
+          "outputArtifactType",
+        ]) ??
+        pickObjectString(workstreamMetadata, [
+          "artifact_type",
+          "artifactType",
+          "default_artifact_type",
+          "defaultArtifactType",
+          "output_artifact_type",
+          "outputArtifactType",
+        ])
+    ) ??
+    DEFAULT_ARTIFACT_TYPE_BY_DOMAIN[domain] ??
+    DEFAULT_ARTIFACT_TYPE_BY_DOMAIN.engineering;
+
+  if (!configId && !version && !hash && !policySource && !context && !artifactType) {
+    return null;
+  }
+
+  return {
+    configId: configId ?? null,
+    version: version ?? null,
+    hash: hash ?? null,
+    policySource: policySource ?? (artifactType ? "domain_default" : null),
+    automationLevel,
+    context: context ?? null,
+    artifactType: artifactType ?? null,
+  };
+}
+
 const skillDocCache = new Map();
 
 function resolveSkillDocPath(skillName) {
@@ -683,6 +847,7 @@ export function buildCodexPrompt({
   taskDomain,
   requiredSkills,
   spawnGuardResult,
+  behaviorConfig,
   skillDocs,
 }) {
   const skillLine =
@@ -729,6 +894,18 @@ export function buildCodexPrompt({
     `- Spawn domain: ${taskDomain ?? "engineering"}`,
     `- Required OrgX skills: ${skillLine}`,
     `- Spawn guard model tier: ${pickString(spawnGuardResult?.modelTier) ?? "unknown"}`,
+    ...(behaviorConfig
+      ? [
+          "- Behavior config (runtime enforcement):",
+          `  - behavior_config_id: ${pickString(behaviorConfig.configId) ?? "none"}`,
+          `  - behavior_config_version: ${pickString(behaviorConfig.version) ?? "none"}`,
+          `  - behavior_config_hash: ${pickString(behaviorConfig.hash) ?? "none"}`,
+          `  - policy_source: ${pickString(behaviorConfig.policySource) ?? "none"}`,
+          `  - automation_level: ${pickString(behaviorConfig.automationLevel) ?? "auto"}`,
+          `  - behavior_context: ${pickString(behaviorConfig.context) ?? "none"}`,
+          `  - artifact_output_type: ${pickString(behaviorConfig.artifactType) ?? "none"}`,
+        ]
+      : []),
     "",
     `Original Plan Reference: ${planPath ?? "none"}`,
     "Relevant Plan Excerpt:",
@@ -1748,6 +1925,9 @@ export async function main({
       pickString(workstream.name, workstream.title, workstream.id) ?? workstream.id,
     ])
   );
+  const workstreamById = new Map(
+    workstreams.map((workstream) => [workstream.id, workstream])
+  );
 
   const trackedMilestoneIds = new Set(
     limitedQueue
@@ -1894,6 +2074,8 @@ export async function main({
   let lastHeartbeatAt = 0;
   let completedCount = completed.size;
   let lastResourceThrottleAt = 0;
+  let supervisedStopAfterCurrentSlice = false;
+  let supervisedStopContext = null;
 
   // Reporting is best-effort; don't abort the dispatch loop on transient API errors.
   await reporter
@@ -1975,6 +2157,12 @@ export async function main({
         pickString(jobConfig.workstreamPrompt?.[task.workstream_id]) ?? "";
       const taskPromptSuffix = pickString(jobConfig.taskPrompt?.[task.id]) ?? "";
       const workerLogPath = join(logsDir, `${task.id}-attempt-${nextAttempt}.log`);
+      const taskPolicy = deriveTaskExecutionPolicy(task);
+      const behaviorConfig = resolveBehaviorConfig(
+        task,
+        workstreamById.get(task.workstream_id) ?? null,
+        taskPolicy.domain
+      );
       const workerEnv = {
         ...env,
         ORGX_INITIATIVE_ID: initiativeId,
@@ -1983,9 +2171,126 @@ export async function main({
         ORGX_SOURCE_CLIENT: sourceClient,
         ORGX_PLAN_FILE: planPath,
         ORGX_DISPATCH_JOB_ID: jobId,
+        ORGX_BEHAVIOR_CONFIG_ID: behaviorConfig?.configId ?? undefined,
+        ORGX_BEHAVIOR_CONFIG_VERSION: behaviorConfig?.version ?? undefined,
+        ORGX_BEHAVIOR_CONFIG_HASH: behaviorConfig?.hash ?? undefined,
+        ORGX_BEHAVIOR_POLICY_SOURCE: behaviorConfig?.policySource ?? undefined,
+        ORGX_AUTOMATION_LEVEL: behaviorConfig?.automationLevel ?? "auto",
+        ORGX_BEHAVIOR_ARTIFACT_TYPE: behaviorConfig?.artifactType ?? undefined,
       };
 
-      const taskPolicy = deriveTaskExecutionPolicy(task);
+      if (behaviorConfig?.automationLevel === "manual") {
+        const blockedReason =
+          "Behavior automation level is manual; autonomous dispatch is blocked for this task.";
+        state.taskStates[task.id] = {
+          status: "blocked",
+          attempts: nextAttempt,
+          guardBlocked: true,
+          finishedAt: nowIso(),
+          logPath: workerLogPath,
+          blockedReason,
+        };
+        failed.add(task.id);
+        state.failed = failed.size;
+        if (autoComplete) {
+          try {
+            await reporter.taskStatus({
+              taskId: task.id,
+              status: "blocked",
+              attempt: nextAttempt,
+              reason: blockedReason,
+              metadata: {
+                event: "status_update",
+                to: "blocked",
+                behavior_automation_level: "manual",
+              },
+            });
+            taskStatusById.set(task.id, "blocked");
+            await syncParentRollups(task, nextAttempt);
+          } catch (error) {
+            console.warn(
+              `[job] task status update failed on manual automation block (${task.id}): ${error.message}`
+            );
+          }
+        }
+        await reporter.emit({
+          message: `Task blocked by behavior automation level (manual): ${summarizeTask(task)}.`,
+          phase: PHASE_BY_EVENT.failure,
+          level: "warn",
+          progressPct: toPercent(completedCount, totalTasks),
+          metadata: {
+            event: "behavior_automation_manual_blocked",
+            task_id: task.id,
+            task_title: task.title,
+            workstream_id: task.workstream_id,
+            attempt: nextAttempt,
+            behavior_config_id: behaviorConfig?.configId ?? null,
+            behavior_config_version: behaviorConfig?.version ?? null,
+            behavior_automation_level: "manual",
+            blocked_reason: blockedReason,
+          },
+          nextStep: "Dispatch manually or change automation level to supervised/auto.",
+        }).catch((error) => {
+          console.warn(`[job] activity emit failed on manual automation block ${task.id}: ${error.message}`);
+        });
+        if (decisionOnBlock) {
+          await reporter.requestDecision({
+            title: `Manual dispatch required for ${task.title}`,
+            summary: [
+              `Task ${task.id} is configured with automation level manual.`,
+              "Autonomous dispatch job paused this task before worker spawn.",
+              `Workstream: ${task.workstream_name ?? task.workstream_id}.`,
+              `Attempt: ${nextAttempt}/${maxAttempts}.`,
+            ].join(" "),
+            urgency: "high",
+            options: [
+              "Dispatch manually now",
+              "Switch automation level to supervised",
+              "Switch automation level to auto",
+            ],
+            blocking: true,
+            idempotencyParts: ["automation-manual", task.id, String(nextAttempt)],
+            metadata: {
+              task_id: task.id,
+              workstream_id: task.workstream_id,
+              behavior_config_id: behaviorConfig?.configId ?? null,
+              behavior_automation_level: "manual",
+            },
+          }).catch((error) => {
+            console.warn(`[job] decision request failed on manual automation block ${task.id}: ${error.message}`);
+          });
+        }
+        persistState(stateFile, state);
+        continue;
+      }
+
+      if (behaviorConfig?.automationLevel === "supervised" && !supervisedStopAfterCurrentSlice) {
+        supervisedStopAfterCurrentSlice = true;
+        supervisedStopContext = {
+          taskId: task.id,
+          workstreamId: task.workstream_id,
+          workstreamName: task.workstream_name ?? null,
+          behaviorConfigId: behaviorConfig?.configId ?? null,
+        };
+        await reporter.emit({
+          message:
+            `Supervised automation level active for ${summarizeTask(task)}; this run will stop after one slice.`,
+          phase: "execution",
+          level: "info",
+          progressPct: toPercent(completedCount, totalTasks),
+          metadata: {
+            event: "behavior_automation_supervised_one_shot",
+            task_id: task.id,
+            workstream_id: task.workstream_id,
+            behavior_config_id: behaviorConfig?.configId ?? null,
+            behavior_automation_level: "supervised",
+          },
+          nextStep: "Resume dispatch job to continue remaining supervised work.",
+        }).catch((error) => {
+          console.warn(`[job] activity emit failed on supervised one-shot ${task.id}: ${error.message}`);
+        });
+      }
+
       let spawnGuardResult = null;
       let spawnGuardError = null;
       try {
@@ -2152,6 +2457,7 @@ export async function main({
         taskDomain: taskPolicy.domain,
         requiredSkills: taskPolicy.requiredSkills,
         spawnGuardResult,
+        behaviorConfig,
         skillDocs,
       });
 
@@ -2172,6 +2478,11 @@ export async function main({
           required_skills: taskPolicy.requiredSkills,
           spawn_guard_model_tier: spawnGuardResult?.modelTier ?? null,
           spawn_guard_allowed: spawnGuardResult?.allowed ?? null,
+          behavior_config_id: behaviorConfig?.configId ?? null,
+          behavior_config_version: behaviorConfig?.version ?? null,
+          behavior_config_hash: behaviorConfig?.hash ?? null,
+          behavior_policy_source: behaviorConfig?.policySource ?? null,
+          behavior_automation_level: behaviorConfig?.automationLevel ?? "auto",
           worker_log: workerLogPath,
         },
       }).catch((error) => {
@@ -2255,6 +2566,10 @@ export async function main({
           forcedFailure: runningEntry?.forcedFailure ?? null,
         });
       });
+
+      if (supervisedStopAfterCurrentSlice) {
+        break;
+      }
     }
 
     while (finishedEvents.length > 0) {
@@ -2566,36 +2881,51 @@ export async function main({
     if (pending.length === 0 && running.size === 0) {
       break;
     }
+    if (supervisedStopAfterCurrentSlice && running.size === 0) {
+      break;
+    }
 
     await sleep(pollIntervalMs);
   }
 
-  const success = failed.size === 0;
-  state.result = success ? "completed" : "completed_with_blockers";
+  const pausedBySupervisedGate = supervisedStopAfterCurrentSlice && pending.length > 0;
+  const success = failed.size === 0 && !pausedBySupervisedGate;
+  state.result = pausedBySupervisedGate
+    ? "paused_supervised"
+    : success
+      ? "completed"
+      : "completed_with_blockers";
   state.finishedAt = nowIso();
   state.completed = completed.size;
   state.failed = failed.size;
   persistState(stateFile, state);
 
   await reporter.emit({
-    message: success
-      ? `Dispatch job completed successfully. ${completed.size}/${totalTasks} tasks completed.`
-      : `Dispatch job finished with blockers. ${completed.size}/${totalTasks} completed, ${failed.size} blocked.`,
+    message: pausedBySupervisedGate
+      ? `Dispatch job paused by supervised automation level after one slice. ${completed.size}/${totalTasks} tasks completed; ${pending.length} queued.`
+      : success
+        ? `Dispatch job completed successfully. ${completed.size}/${totalTasks} tasks completed.`
+        : `Dispatch job finished with blockers. ${completed.size}/${totalTasks} completed, ${failed.size} blocked.`,
     phase: PHASE_BY_EVENT.complete,
-    level: success ? "info" : "warn",
+    level: pausedBySupervisedGate || success ? "info" : "warn",
     progressPct: toPercent(completed.size, totalTasks),
     metadata: {
       event: "job_complete",
       completed: completed.size,
       total: totalTasks,
       blocked: failed.size,
+      queued_remaining: pending.length,
+      supervised_stop_after_slice: supervisedStopAfterCurrentSlice,
+      supervised_stop_context: supervisedStopContext,
       state_file: stateFile,
       run_id: reporter.getRunId(),
       decision_on_block: decisionOnBlock,
     },
-    nextStep: success
-      ? "Validate merged outputs and close launch milestone."
-      : "Unblock failed tasks and rerun with --task_ids.",
+    nextStep: pausedBySupervisedGate
+      ? "Review this supervised slice, then resume dispatch to continue queued tasks."
+      : success
+        ? "Validate merged outputs and close launch milestone."
+        : "Unblock failed tasks and rerun with --task_ids.",
   }).catch((error) => {
     console.warn(`[job] final emit failed: ${error.message}`);
   });
@@ -2609,11 +2939,13 @@ export async function main({
   }
 
   return {
-    ok: success,
+    ok: failed.size === 0,
     jobId,
     totalTasks,
     completed: completed.size,
     blocked: failed.size,
+    queuedRemaining: pending.length,
+    pausedBySupervisedGate,
     stateFile,
   };
 }

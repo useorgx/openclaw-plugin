@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 import type { OrgXClient } from "../../api.js";
 import type { Entity } from "../../types.js";
-import { upsertAgentContext } from "../../agent-context-store.js";
+import { upsertAgentContext, upsertRunContext } from "../../agent-context-store.js";
 import {
   readOpenClawGatewayPort,
   readOpenClawSettingsSnapshot,
@@ -24,6 +24,9 @@ import {
   buildMissionControlGraph,
   DEFAULT_TOKEN_BUDGET_ASSUMPTIONS,
   dedupeStrings,
+  detectBehaviorConfigDrift,
+  deriveBehaviorAutomationLevel,
+  deriveBehaviorConfigContext,
   deriveExecutionPolicy,
   isDispatchableWorkstreamStatus,
   isDoneStatus,
@@ -85,8 +88,22 @@ export interface CreateAutoContinueEngineDeps {
     title: string;
     summary?: string | null;
     urgency?: "low" | "medium" | "high" | "urgent";
-    options?: string[];
+    options?: Array<string | Record<string, unknown>>;
     blocking?: boolean;
+    decisionType?: string | null;
+    workstreamId?: string | null;
+    agentId?: string | null;
+    dueAt?: string | null;
+    sourceSystem?: string | null;
+    conflictSource?: string | null;
+    dedupeKey?: string | null;
+    recommendedAction?: string | null;
+    sourceRunId?: string | null;
+    sourceSessionId?: string | null;
+    sourceStreamId?: string | null;
+    sourceRef?: Record<string, unknown> | null;
+    evidenceRefs?: Array<Record<string, unknown>> | null;
+    metadata?: Record<string, unknown> | null;
   }) => Promise<boolean | { queued: boolean; decisionIds?: string[] }>;
   registerArtifactSafe: (input: {
     initiativeId: string;
@@ -160,6 +177,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     resolveByokEnvOverrides,
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
+  const decisionAutoResolveGuardedEnabled =
+    String(process.env.DECISION_AUTO_RESOLVE_GUARDED_ENABLED ?? "true")
+      .trim()
+      .toLowerCase() !== "false";
   /** Spread into any metadata object to flag mock-worker activity. */
   function mockMeta(slice: { isMockWorker: boolean }): Record<string, unknown> {
     return slice.isMockWorker ? { mock: true } : {};
@@ -361,6 +382,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     agentName: string | null;
     domain: string;
     requiredSkills: string[];
+    behaviorConfigId: string | null;
+    behaviorConfigVersion: string | null;
+    behaviorConfigHash: string | null;
+    behaviorPolicySource: string | null;
+    behaviorAutomationLevel: "auto" | "supervised" | "manual";
     sourceClient: RuntimeSourceClient;
     pid: number | null;
     status: AutoContinueSliceStatus;
@@ -1198,6 +1224,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 		                  requested_by_agent_name: run.agentName,
 		                  domain: slice.domain,
 		                  required_skills: slice.requiredSkills,
+                      behavior_config_id: slice.behaviorConfigId,
+                      behavior_config_version: slice.behaviorConfigVersion,
+                      behavior_config_hash: slice.behaviorConfigHash,
+                      policy_source: slice.behaviorPolicySource,
+                      behavior_automation_level: slice.behaviorAutomationLevel,
 		                  workstream_id: slice.workstreamId,
 	                    workstream_title: slice.workstreamTitle ?? null,
 	                    task_ids: slice.taskIds,
@@ -1276,6 +1307,38 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  "Skip this workstream for now",
 	                ],
 	                blocking: true,
+                  decisionType: "autopilot_failure",
+                  workstreamId: slice.workstreamId,
+                  agentId: slice.agentId,
+                  sourceSystem: "orgx-autopilot",
+                  conflictSource: "mcp_handshake_failure",
+                  dedupeKey: [
+                    "autopilot",
+                    run.initiativeId,
+                    slice.workstreamId,
+                    "mcp_handshake_failure",
+                    mcpHandshake.server ?? "unknown",
+                  ].join(":"),
+                  recommendedAction: "Retry once. If it fails again, pause autopilot and inspect MCP server configuration.",
+                  sourceRunId: slice.runId,
+                  sourceRef: {
+                    run_id: slice.runId,
+                    workstream_id: slice.workstreamId,
+                    mcp_server: mcpHandshake.server ?? null,
+                  },
+                  evidenceRefs: [
+                    {
+                      evidence_type: "mcp_diagnostic",
+                      title: "MCP handshake failure",
+                      summary: `MCP handshake failed${mcpHandshake.server ? ` for ${mcpHandshake.server}` : ""}.`,
+                      source_pointer: slice.logPath,
+                      payload: {
+                        mcp_server: mcpHandshake.server ?? null,
+                        mcp_line: mcpHandshake.line ?? null,
+                        output_path: slice.outputPath,
+                      },
+                    },
+                  ],
 		              });
 
                   setLaneState(run, {
@@ -1371,6 +1434,51 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  "Skip this workstream for now",
 	                ],
 	                blocking: true,
+                  decisionType: "autopilot_failure",
+                  workstreamId: slice.workstreamId,
+                  agentId: slice.agentId,
+                  sourceSystem: "orgx-autopilot",
+                  conflictSource:
+                    killDecision.kind === "timeout"
+                      ? "slice_timeout"
+                      : "slice_stall_no_output",
+                  dedupeKey: [
+                    "autopilot",
+                    run.initiativeId,
+                    slice.workstreamId,
+                    killDecision.kind === "timeout"
+                      ? "slice_timeout"
+                      : "slice_stall_no_output",
+                  ].join(":"),
+                  recommendedAction:
+                    "Review logs and output, then retry once. If repeated, pause autopilot and investigate worker/runtime health.",
+                  sourceRunId: slice.runId,
+                  sourceRef: {
+                    run_id: slice.runId,
+                    workstream_id: slice.workstreamId,
+                    kill_kind: killDecision.kind,
+                    elapsed_ms: killDecision.elapsedMs,
+                    idle_ms: killDecision.idleMs,
+                  },
+                  evidenceRefs: [
+                    {
+                      evidence_type:
+                        killDecision.kind === "timeout"
+                          ? "timeout_diagnostic"
+                          : "stall_diagnostic",
+                      title:
+                        killDecision.kind === "timeout"
+                          ? "Slice timed out"
+                          : "Slice stalled",
+                      summary: killDecision.reason,
+                      source_pointer: slice.logPath,
+                      payload: {
+                        elapsed_ms: killDecision.elapsedMs,
+                        idle_ms: killDecision.idleMs,
+                        output_path: slice.outputPath,
+                      },
+                    },
+                  ],
 		              });
 
                   setLaneState(run, {
@@ -1502,16 +1610,54 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         for (const decision of decisions) {
           const isBlocking =
             typeof decision.blocking === "boolean" ? decision.blocking : defaultDecisionBlocking;
+          const normalizedQuestion = decision.question.trim();
           const decisionResult = await requestDecisionQueued({
             initiativeId: run.initiativeId,
             correlationId: slice.runId,
-            title: decision.question.trim(),
+            title: normalizedQuestion,
             summary: decision.summary ?? parsed?.summary ?? null,
             urgency: decision.urgency ?? "high",
             options: Array.isArray(decision.options)
               ? decision.options.filter((opt: string) => typeof opt === "string" && opt.trim())
               : [],
             blocking: isBlocking,
+            decisionType: isBlocking
+              ? "autopilot_blocking_decision"
+              : "autopilot_followup_decision",
+            workstreamId: slice.workstreamId,
+            agentId: slice.agentId,
+            sourceSystem: "orgx-autopilot",
+            conflictSource:
+              parsedStatus === "needs_decision"
+                ? "slice_needs_decision"
+                : "slice_reported_decision",
+            dedupeKey: [
+              "autopilot",
+              run.initiativeId,
+              slice.workstreamId,
+              "slice_reported_decision",
+              normalizedQuestion.toLowerCase(),
+            ].join(":"),
+            recommendedAction:
+              "Resolve this decision to continue the slice or safely defer workstream execution.",
+            sourceRunId: slice.runId,
+            sourceRef: {
+              run_id: slice.runId,
+              workstream_id: slice.workstreamId,
+              parsed_status: parsedStatus,
+            },
+            evidenceRefs: [
+              {
+                evidence_type: "slice_output_summary",
+                title: "Slice requested a decision",
+                summary: decision.summary ?? parsed?.summary ?? "Decision required by slice output.",
+                source_pointer: slice.outputPath,
+                payload: {
+                  log_path: slice.logPath,
+                  blocking: isBlocking,
+                },
+              },
+            ],
           });
           if (decisionResult.queued && isBlocking) blockingDecisionQueued = true;
           if (decisionResult.decisionIds.length > 0) {
@@ -1620,6 +1766,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             agent_name: slice.agentName,
             domain: slice.domain,
             required_skills: slice.requiredSkills,
+            behavior_config_id: slice.behaviorConfigId,
+            behavior_config_version: slice.behaviorConfigVersion,
+            behavior_config_hash: slice.behaviorConfigHash,
+            policy_source: slice.behaviorPolicySource,
+            behavior_automation_level: slice.behaviorAutomationLevel,
             task_ids: slice.taskIds,
             milestone_ids: slice.milestoneIds,
             parsed_status: effectiveParsedStatus,
@@ -1670,6 +1821,42 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                 "Skip this workstream for now",
               ],
               blocking: true,
+              decisionType: blockedLike ? "autopilot_blocked_without_decision" : "autopilot_failure",
+              workstreamId: slice.workstreamId,
+              agentId: slice.agentId,
+              sourceSystem: "orgx-autopilot",
+              conflictSource: blockedLike
+                ? "slice_missing_blocking_decision"
+                : "slice_invalid_output",
+              dedupeKey: [
+                "autopilot",
+                run.initiativeId,
+                slice.workstreamId,
+                blockedLike ? "slice_missing_blocking_decision" : "slice_invalid_output",
+              ].join(":"),
+              recommendedAction:
+                "Review the output contract and logs, then retry or pause autopilot until the blocker is resolved.",
+              sourceRunId: slice.runId,
+              sourceRef: {
+                run_id: slice.runId,
+                workstream_id: slice.workstreamId,
+                parsed_status: effectiveParsedStatus,
+              },
+              evidenceRefs: [
+                {
+                  evidence_type: "slice_output_validation",
+                  title: "Slice output requires fallback decision",
+                  summary:
+                    parsed?.summary ??
+                    slice.lastError ??
+                    "Slice did not provide a blocking decision payload.",
+                  source_pointer: slice.outputPath,
+                  payload: {
+                    log_path: slice.logPath,
+                    parsed_status: effectiveParsedStatus,
+                  },
+                },
+              ],
             });
           }
 
@@ -1732,6 +1919,44 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               "Skip this workstream for now",
             ],
 	            blocking: true,
+            decisionType: completionHadNoOutcome
+              ? "autopilot_completed_without_outcome"
+              : "autopilot_failure",
+            workstreamId: slice.workstreamId,
+            agentId: slice.agentId,
+            sourceSystem: "orgx-autopilot",
+            conflictSource: completionHadNoOutcome
+              ? "slice_completed_without_outcome"
+              : "slice_invalid_output",
+            dedupeKey: [
+              "autopilot",
+              run.initiativeId,
+              slice.workstreamId,
+              completionHadNoOutcome
+                ? "slice_completed_without_outcome"
+                : "slice_invalid_output",
+            ].join(":"),
+            recommendedAction:
+              "Verify slice outputs and status updates, then retry once or pause for investigation.",
+            sourceRunId: slice.runId,
+            sourceRef: {
+              run_id: slice.runId,
+              workstream_id: slice.workstreamId,
+              parsed_status: parsedStatus,
+            },
+            evidenceRefs: [
+              {
+                evidence_type: "slice_output_validation",
+                title: "Slice output needs verification",
+                summary: attentionSummary,
+                source_pointer: slice.outputPath,
+                payload: {
+                  log_path: slice.logPath,
+                  parsed_status: parsedStatus,
+                  completion_had_no_outcome: completionHadNoOutcome,
+                },
+              },
+            ],
 	          });
 
             setLaneState(run, {
@@ -2087,7 +2312,246 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
 
     const executionPolicy = deriveExecutionPolicy(primaryTask, workstreamNode);
+    const behaviorConfig = deriveBehaviorConfigContext(primaryTask, workstreamNode);
+    const behaviorAutomationLevel = deriveBehaviorAutomationLevel(primaryTask, workstreamNode);
     const sliceRunId = randomUUID();
+    const behaviorConfigDrift = detectBehaviorConfigDrift({
+      taskNode: primaryTask,
+      workstreamNode,
+      behaviorConfig,
+      behaviorAutomationLevel,
+    });
+
+    if (behaviorConfigDrift) {
+      await emitActivitySafe({
+        initiativeId: run.initiativeId,
+        runId: sliceRunId,
+        correlationId: sliceRunId,
+        phase: "review",
+        level: "warn",
+        message:
+          `Behavior config drift detected for ${workstreamTitle ?? selectedWorkstreamId}; ` +
+          `runtime behavior differs from declared workstream config.`,
+        metadata: {
+          event: "auto_continue_behavior_config_drift_detected",
+          task_id: primaryTask.id,
+          workstream_id: selectedWorkstreamId,
+          drift_fields: behaviorConfigDrift.fields,
+          declared_behavior_config_id: behaviorConfigDrift.declared.configId,
+          declared_behavior_config_version: behaviorConfigDrift.declared.version,
+          declared_behavior_config_hash: behaviorConfigDrift.declared.hash,
+          declared_policy_source: behaviorConfigDrift.declared.policySource,
+          declared_behavior_context: behaviorConfigDrift.declared.context,
+          declared_behavior_automation_level: behaviorConfigDrift.declared.automationLevel,
+          runtime_behavior_config_id: behaviorConfigDrift.runtime.configId,
+          runtime_behavior_config_version: behaviorConfigDrift.runtime.version,
+          runtime_behavior_config_hash: behaviorConfigDrift.runtime.hash,
+          runtime_policy_source: behaviorConfigDrift.runtime.policySource,
+          runtime_behavior_context: behaviorConfigDrift.runtime.context,
+          runtime_behavior_automation_level: behaviorConfigDrift.runtime.automationLevel,
+          error_location: "mission-control.auto-continue.engine.behavior-config.drift",
+        },
+        nextStep:
+          "Review task/workstream behavior metadata and reconcile the declared config if override is unintended.",
+      });
+    }
+
+    if (behaviorConfig.requiresApproval) {
+      const blockedReason = `Behavior config approval required before dispatch for ${workstreamTitle ?? selectedWorkstreamId}.`;
+      await emitActivitySafe({
+        initiativeId: run.initiativeId,
+        runId: sliceRunId,
+        correlationId: sliceRunId,
+        phase: "blocked",
+        level: "warn",
+        message: blockedReason,
+        metadata: {
+          event: "auto_continue_behavior_config_approval_required",
+          task_id: primaryTask.id,
+          workstream_id: selectedWorkstreamId,
+          behavior_config_id: behaviorConfig.configId,
+          behavior_config_version: behaviorConfig.version,
+          behavior_config_hash: behaviorConfig.hash,
+          behavior_approval_status: behaviorConfig.approvalStatus,
+          behavior_approval_decision_id: behaviorConfig.approvalDecisionId,
+          blocked_reason: blockedReason,
+          error_location: "mission-control.auto-continue.engine.behavior-config.approval",
+        },
+        nextStep: "Approve the behavior config, then rerun Play/auto-continue for this workstream.",
+      });
+      const decisionResult = await requestDecisionQueued({
+        initiativeId: run.initiativeId,
+        correlationId: sliceRunId,
+        title: `Approve behavior config for ${workstreamTitle ?? selectedWorkstreamId}`,
+        summary: [
+          `Autopilot paused before dispatch because behavior config requires approval.`,
+          `Task: ${primaryTask.id}.`,
+          behaviorConfig.configId ? `Config: ${behaviorConfig.configId}.` : "",
+          behaviorConfig.version ? `Version: ${behaviorConfig.version}.` : "",
+          behaviorConfig.approvalStatus ? `Approval status: ${behaviorConfig.approvalStatus}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        urgency: "high",
+        options: [
+          "Approve config and continue execution",
+          "Reject config and revise policy",
+          "Pause this workstream",
+        ],
+        blocking: true,
+        decisionType: "autopilot_behavior_config_approval",
+        workstreamId: selectedWorkstreamId,
+        sourceSystem: "orgx-autopilot",
+        conflictSource: "behavior_config_requires_approval",
+        dedupeKey: [
+          "autopilot",
+          run.initiativeId,
+          selectedWorkstreamId,
+          "behavior_config_requires_approval",
+          behaviorConfig.configId ?? "default",
+          behaviorConfig.version ?? "unknown",
+        ].join(":"),
+        recommendedAction: "Resolve approval state before allowing autopilot to spawn a worker.",
+        sourceRunId: sliceRunId,
+        sourceRef: {
+          run_id: sliceRunId,
+          workstream_id: selectedWorkstreamId,
+          task_id: primaryTask.id,
+          behavior_config_id: behaviorConfig.configId,
+          behavior_approval_status: behaviorConfig.approvalStatus,
+          behavior_approval_decision_id: behaviorConfig.approvalDecisionId,
+        },
+      });
+      if (!run.blockedWorkstreamIds.includes(selectedWorkstreamId)) {
+        run.blockedWorkstreamIds.push(selectedWorkstreamId);
+      }
+      setLaneState(run, {
+        workstreamId: selectedWorkstreamId,
+        state: "blocked",
+        activeRunId: null,
+        activeTaskIds: [],
+        blockedReason,
+        waitingOnWorkstreamIds: [],
+        retryAt: null,
+      });
+      await stopAutoContinueRun({
+        run,
+        reason: "blocked",
+        error: blockedReason,
+        decisionRequired: decisionResult.queued,
+        decisionIds: decisionResult.decisionIds,
+      });
+      return;
+    }
+
+    const isManualPlayDispatch =
+      run.stopAfterSlice &&
+      Array.isArray(run.allowedWorkstreamIds) &&
+      run.allowedWorkstreamIds.length === 1;
+    if (behaviorAutomationLevel === "manual" && !isManualPlayDispatch) {
+      const blockedReason =
+        `Automation level manual prevents auto-continue dispatch for ${workstreamTitle ?? selectedWorkstreamId}.`;
+      await emitActivitySafe({
+        initiativeId: run.initiativeId,
+        runId: sliceRunId,
+        correlationId: sliceRunId,
+        phase: "blocked",
+        level: "warn",
+        message: blockedReason,
+        metadata: {
+          event: "auto_continue_behavior_automation_manual_blocked",
+          task_id: primaryTask.id,
+          workstream_id: selectedWorkstreamId,
+          behavior_config_id: behaviorConfig.configId,
+          behavior_config_version: behaviorConfig.version,
+          behavior_automation_level: behaviorAutomationLevel,
+          blocked_reason: blockedReason,
+          error_location: "mission-control.auto-continue.engine.behavior.automation.manual",
+        },
+        nextStep: "Use manual Play to dispatch this workstream slice.",
+      });
+      const decisionResult = await requestDecisionQueued({
+        initiativeId: run.initiativeId,
+        correlationId: sliceRunId,
+        title: `Manual dispatch required for ${workstreamTitle ?? selectedWorkstreamId}`,
+        summary: [
+          "Autopilot paused because behavior automation level is manual.",
+          `Task: ${primaryTask.id}.`,
+          behaviorConfig.configId ? `Config: ${behaviorConfig.configId}.` : "",
+          behaviorConfig.version ? `Version: ${behaviorConfig.version}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        urgency: "high",
+        options: [
+          "Dispatch this workstream manually now",
+          "Switch automation level to supervised",
+          "Switch automation level to auto",
+        ],
+        blocking: true,
+        decisionType: "autopilot_behavior_manual_dispatch_required",
+        workstreamId: selectedWorkstreamId,
+        sourceSystem: "orgx-autopilot",
+        conflictSource: "behavior_automation_level_manual",
+        dedupeKey: [
+          "autopilot",
+          run.initiativeId,
+          selectedWorkstreamId,
+          "behavior_automation_level_manual",
+          behaviorConfig.configId ?? "default",
+          behaviorConfig.version ?? "unknown",
+        ].join(":"),
+        recommendedAction:
+          "Dispatch manually for this workstream, or switch behavior automation level before rerunning auto-continue.",
+        sourceRunId: sliceRunId,
+        sourceRef: {
+          run_id: sliceRunId,
+          workstream_id: selectedWorkstreamId,
+          task_id: primaryTask.id,
+          behavior_config_id: behaviorConfig.configId,
+          behavior_automation_level: behaviorAutomationLevel,
+        },
+      });
+      if (!run.blockedWorkstreamIds.includes(selectedWorkstreamId)) {
+        run.blockedWorkstreamIds.push(selectedWorkstreamId);
+      }
+      setLaneState(run, {
+        workstreamId: selectedWorkstreamId,
+        state: "blocked",
+        activeRunId: null,
+        activeTaskIds: [],
+        blockedReason,
+        waitingOnWorkstreamIds: [],
+        retryAt: null,
+      });
+      await stopAutoContinueRun({
+        run,
+        reason: "blocked",
+        error: blockedReason,
+        decisionRequired: decisionResult.queued,
+        decisionIds: decisionResult.decisionIds,
+      });
+      return;
+    }
+
+    if (behaviorAutomationLevel === "supervised" && !run.stopAfterSlice) {
+      run.stopAfterSlice = true;
+      await emitActivitySafe({
+        initiativeId: run.initiativeId,
+        runId: sliceRunId,
+        correlationId: sliceRunId,
+        phase: "execution",
+        level: "info",
+        message: `Supervised automation level: dispatching one slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
+        metadata: {
+          event: "auto_continue_behavior_automation_supervised_one_shot",
+          task_id: primaryTask.id,
+          workstream_id: selectedWorkstreamId,
+          behavior_automation_level: behaviorAutomationLevel,
+        },
+        nextStep: "Resume to dispatch the next slice after this one completes.",
+      });
+    }
 
 	    const spawnGuardResult = await checkSpawnGuardSafe({
 	      domain: executionPolicy.domain,
@@ -2241,6 +2705,39 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               "Pause and investigate quality gate",
             ],
 	            blocking: true,
+            decisionType: "autopilot_spawn_guard_block",
+            workstreamId: selectedWorkstreamId,
+            sourceSystem: "orgx-autopilot",
+            conflictSource: "spawn_guard_blocked",
+            dedupeKey: [
+              "autopilot",
+              run.initiativeId,
+              selectedWorkstreamId,
+              "spawn_guard_blocked",
+              executionPolicy.domain,
+            ].join(":"),
+            recommendedAction:
+              "Choose exception, reassignment, or pause so dispatch can proceed safely.",
+            sourceRunId: sliceRunId,
+            sourceRef: {
+              run_id: sliceRunId,
+              workstream_id: selectedWorkstreamId,
+              task_id: primaryTask.id,
+              domain: executionPolicy.domain,
+            },
+            evidenceRefs: [
+              {
+                evidence_type: "spawn_guard_result",
+                title: "Spawn guard denied dispatch",
+                summary: blockedReason,
+                source_pointer: null,
+                payload: {
+                  spawn_guard: spawnGuardResult,
+                  task_id: primaryTask.id,
+                  domain: executionPolicy.domain,
+                },
+              },
+            ],
 	          });
           if (!run.blockedWorkstreamIds.includes(selectedWorkstreamId)) {
             run.blockedWorkstreamIds.push(selectedWorkstreamId);
@@ -2290,6 +2787,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       milestoneSummaries,
       taskSummaries,
       executionPolicy,
+      behaviorConfig,
       runId: sliceRunId,
       schemaPath,
     });
@@ -2338,6 +2836,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	            ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
 	            ORGX_TASK_ID: primaryTask.id,
               ORGX_REQUIRED_SKILLS: executionPolicy.requiredSkills.join(","),
+              ORGX_BEHAVIOR_CONFIG_ID: behaviorConfig.configId ?? undefined,
+              ORGX_BEHAVIOR_CONFIG_VERSION: behaviorConfig.version ?? undefined,
+              ORGX_BEHAVIOR_CONFIG_HASH: behaviorConfig.hash ?? undefined,
+              ORGX_POLICY_SOURCE: behaviorConfig.policySource ?? undefined,
+              ORGX_AUTOMATION_LEVEL: behaviorAutomationLevel,
+              ORGX_BEHAVIOR_CONTEXT: behaviorConfig.context ?? undefined,
 	            ORGX_AGENT_ID: sliceAgent.id,
 	            ORGX_AGENT_NAME: sliceAgent.name,
 	            ORGX_OUTPUT_PATH: outputPath,
@@ -2356,6 +2860,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	      agentName: sliceAgent.name,
 	      domain: executionPolicy.domain,
 	      requiredSkills: executionPolicy.requiredSkills,
+        behaviorConfigId: behaviorConfig.configId,
+        behaviorConfigVersion: behaviorConfig.version,
+        behaviorConfigHash: behaviorConfig.hash,
+        behaviorPolicySource: behaviorConfig.policySource,
+        behaviorAutomationLevel,
 	      sourceClient: executorSourceClient,
 	      pid: spawned.pid,
 	      status: "running",
@@ -2395,6 +2904,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           requested_by_agent_name: run.agentName,
           domain: executionPolicy.domain,
           required_skills: executionPolicy.requiredSkills,
+          behavior_config_id: behaviorConfig.configId,
+          behavior_config_version: behaviorConfig.version,
+          behavior_config_hash: behaviorConfig.hash,
+          policy_source: behaviorConfig.policySource,
+          behavior_automation_level: behaviorAutomationLevel,
           task_ids: slice.taskIds,
           initiative_title: initiativeTitle ?? null,
           workstream_title: workstreamTitle ?? null,
@@ -2428,6 +2942,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         agent_name: sliceAgent.name,
         domain: executionPolicy.domain,
         required_skills: executionPolicy.requiredSkills,
+        behavior_config_id: behaviorConfig.configId,
+        behavior_config_version: behaviorConfig.version,
+        behavior_config_hash: behaviorConfig.hash,
+        policy_source: behaviorConfig.policySource,
+        behavior_automation_level: behaviorAutomationLevel,
         initiative_title: initiativeTitle ?? null,
         workstream_id: selectedWorkstreamId,
         workstream_title: workstreamTitle ?? null,
@@ -2440,6 +2959,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     });
 
     upsertAgentContext({
+      agentId: slice.agentId,
+      initiativeId: run.initiativeId,
+      initiativeTitle: initiativeTitle ?? null,
+      workstreamId: selectedWorkstreamId,
+      taskId: primaryTask.id,
+    });
+    upsertRunContext({
+      runId: sliceRunId,
       agentId: slice.agentId,
       initiativeId: run.initiativeId,
       initiativeTitle: initiativeTitle ?? null,
@@ -2680,34 +3207,43 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	      }
 
       let optionalDecisionsApproved = 0;
-      try {
-        const decisionResult = await client.listEntities("decision", {
-          initiative_id: initiativeId,
-          status: "pending",
-          limit: 500,
-        });
-        const decisionRows = Array.isArray(decisionResult?.data) ? decisionResult.data : [];
-        for (const row of decisionRows) {
-          if (!row || typeof row !== "object") continue;
-          const record = row as Record<string, unknown>;
-          const decisionId = pickString(record, ["id"])?.trim() ?? "";
-          if (!decisionId) continue;
-          if (!isPendingDecisionStatus(record.status ?? record.decision_status)) continue;
-          if (!decisionMatchesWorkstream(record, workstreamId, runId)) continue;
-          if (decisionIsBlocking(record)) continue;
-          await client.updateEntity("decision", decisionId, {
-            status: "approved",
-            resolution: "approved",
-            decided_at: null,
-            decided_by: null,
-            resolved_at: null,
-            note:
-              "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).",
+      if (decisionAutoResolveGuardedEnabled) {
+        try {
+          const decisionResult = await client.listEntities("decision", {
+            initiative_id: initiativeId,
+            status: "pending",
+            limit: 500,
           });
-          optionalDecisionsApproved += 1;
+          const decisionRows = Array.isArray(decisionResult?.data) ? decisionResult.data : [];
+          for (const row of decisionRows) {
+            if (!row || typeof row !== "object") continue;
+            const record = row as Record<string, unknown>;
+            const decisionId = pickString(record, ["id"])?.trim() ?? "";
+            if (!decisionId) continue;
+            if (!isPendingDecisionStatus(record.status ?? record.decision_status)) continue;
+            if (!decisionMatchesWorkstream(record, workstreamId, runId)) continue;
+            if (decisionIsBlocking(record)) continue;
+            const autoApprovalNote =
+              "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).";
+            if (typeof (client as { decideDecision?: unknown }).decideDecision === "function") {
+              await (client as {
+                decideDecision: (
+                  id: string,
+                  action: "approve" | "reject",
+                  input?: { note?: string }
+                ) => Promise<unknown>;
+              }).decideDecision(decisionId, "approve", { note: autoApprovalNote });
+            } else {
+              await client.updateEntity("decision", decisionId, {
+                status: "approved",
+                resolution_summary: autoApprovalNote,
+              });
+            }
+            optionalDecisionsApproved += 1;
+          }
+        } catch {
+          // best effort
         }
-      } catch {
-        // best effort
       }
 
       let resetTaskCount = 0;

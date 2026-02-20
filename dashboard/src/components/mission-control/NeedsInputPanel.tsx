@@ -11,6 +11,8 @@ interface NeedsInputPanelProps {
   panelStyle?: 'card' | 'flat';
   onOpenDecisions?: () => void;
   onFocusRunId?: (runId: string) => void;
+  onReviewActivity?: (sliceRun: SliceRunProjection) => void;
+  onOpenSliceDetail?: (sliceRun: SliceRunProjection) => void;
 }
 
 const NEEDS_INPUT_STATES = new Set(['awaiting_input', 'needs_review', 'failed']);
@@ -29,11 +31,24 @@ function statusLabel(status: SliceRunProjection['status']): string {
 }
 
 function actionLabel(item: SliceRunProjection): string {
-  if (item.primaryAction === 'resolve_decision') return 'Review decisions';
-  if (item.primaryAction === 'open_artifact') return 'Open artifact';
-  if (item.primaryAction === 'retry_slice') return 'Open timeline';
-  if (item.primaryAction === 'review_output') return 'Review output';
+  if (item.primaryAction === 'resolve_decision') return 'Review choices';
+  if (item.primaryAction === 'open_artifact') return 'Open result';
+  if (item.primaryAction === 'retry_slice') return 'Review and retry';
+  if (item.primaryAction === 'review_output') return 'Review activity';
   return 'Open details';
+}
+
+function valueSummary(item: SliceRunProjection): string {
+  if (item.artifactCount > 0) {
+    return `${item.artifactCount} artifact${item.artifactCount === 1 ? '' : 's'} ready to review.`;
+  }
+  if (item.blockingDecisionCount > 0 || item.decisionCount > 0) {
+    const count = Math.max(item.blockingDecisionCount, item.decisionCount);
+    return `${count} decision${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} your input.`;
+  }
+  if (item.status === 'failed') return 'Execution stopped before finishing.';
+  if (item.status === 'needs_review') return 'Output is available and needs a quick review.';
+  return 'Execution is waiting on your next action.';
 }
 
 export const NeedsInputPanel = memo(function NeedsInputPanel({
@@ -44,6 +59,8 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   panelStyle = 'card',
   onOpenDecisions,
   onFocusRunId,
+  onReviewActivity,
+  onOpenSliceDetail,
 }: NeedsInputPanelProps) {
   const rows = useMemo(() => {
     const filtered = sliceRuns.filter((item) => NEEDS_INPUT_STATES.has(item.status));
@@ -61,12 +78,18 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
       onOpenDecisions?.();
       return;
     }
+    if (item.primaryAction === 'review_output' || item.primaryAction === 'retry_slice') {
+      onReviewActivity?.(item);
+      return;
+    }
     if (item.primaryAction === 'open_artifact') {
       const firstUrl = item.artifacts.find((artifact) => artifact.url)?.url;
       if (firstUrl && typeof window !== 'undefined') {
         window.open(firstUrl, '_blank', 'noopener,noreferrer');
         return;
       }
+      onReviewActivity?.(item);
+      return;
     }
     if (item.runId) {
       onFocusRunId?.(item.runId);
@@ -100,7 +123,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
           {rows.map((item) => {
-            const label = item.workstreamTitle ?? item.workstreamId ?? item.sliceRunId;
+            const primaryWorkstreamId =
+              (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
+                ? item.workstreamIds[0]
+                : item.workstreamId) ?? null;
+            const label = item.workstreamTitle ?? primaryWorkstreamId ?? item.sliceRunId;
             const subtitle =
               item.statusExplainer?.trim().length
                 ? item.statusExplainer
@@ -109,14 +136,26 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
             return (
               <div
                 key={item.sliceRunId}
-                className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
+                className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14]"
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpenSliceDetail?.(item)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpenSliceDetail?.(item);
+                  }
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="line-clamp-2 text-body font-semibold leading-snug text-white" title={label}>
                       {label}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={subtitle}>
+                    <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={valueSummary(item)}>
+                      {valueSummary(item)}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted" title={subtitle}>
                       {subtitle}
                     </p>
                   </div>
@@ -135,11 +174,19 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   )}
                   {when && <span>Updated {formatRelativeTime(when)}</span>}
                 </div>
-                <div className="mt-2 flex items-center justify-end">
+                <div className="mt-2 flex items-center justify-between gap-2" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenSliceDetail?.(item)}
+                    className="control-pill h-7 px-2.5 text-micro font-semibold"
+                  >
+                    Details
+                  </button>
                   <button
                     type="button"
                     onClick={() => runPrimaryAction(item)}
                     className="control-pill h-7 px-2.5 text-micro font-semibold"
+                    data-tone={item.status === 'failed' ? 'teal' : undefined}
                   >
                     {actionLabel(item)}
                   </button>
@@ -152,4 +199,3 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     </PremiumCard>
   );
 });
-

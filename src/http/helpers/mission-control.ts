@@ -27,6 +27,15 @@ export interface MissionControlNode {
   expectedDurationHours: number;
   expectedBudgetUsd: number;
   assignedAgents: MissionControlAssignedAgent[];
+  behaviorConfigId?: string | null;
+  behaviorConfigVersion?: string | null;
+  behaviorConfigHash?: string | null;
+  behaviorPolicySource?: string | null;
+  behaviorContext?: string | null;
+  behaviorRequiresApproval?: boolean | null;
+  behaviorApprovalStatus?: string | null;
+  behaviorApprovalDecisionId?: string | null;
+  behaviorAutomationLevel?: "auto" | "supervised" | "manual" | null;
   updatedAt: string | null;
 }
 
@@ -50,6 +59,57 @@ function safeErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
   return "Unexpected error";
+}
+
+function toNullableBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (["true", "1", "yes", "y", "on", "required"].includes(normalized)) return true;
+  if (["false", "0", "no", "n", "off"].includes(normalized)) return false;
+  return null;
+}
+
+function normalizeBehaviorAutomationLevel(
+  value: unknown
+): "auto" | "supervised" | "manual" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (
+    normalized === "manual" ||
+    normalized === "manual_only" ||
+    normalized === "human" ||
+    normalized === "human_only"
+  ) {
+    return "manual";
+  }
+  if (
+    normalized === "supervised" ||
+    normalized === "constrained" ||
+    normalized === "reviewed" ||
+    normalized === "human_review"
+  ) {
+    return "supervised";
+  }
+  if (
+    normalized === "auto" ||
+    normalized === "autonomous" ||
+    normalized === "default"
+  ) {
+    return "auto";
+  }
+  return null;
 }
 
 interface BudgetEnvBounds {
@@ -453,6 +513,66 @@ function toMissionControlNode(
       : DEFAULT_BUDGET_USD[type]);
 
   const priority = normalizePriorityForEntity(record);
+  const behaviorConfigId =
+    pickString(record, ["behavior_config_id", "behaviorConfigId"]) ??
+    pickString(metadata, ["behavior_config_id", "behaviorConfigId"]);
+  const behaviorConfigVersion =
+    pickString(record, ["behavior_config_version", "behaviorConfigVersion"]) ??
+    pickString(metadata, ["behavior_config_version", "behaviorConfigVersion"]);
+  const behaviorConfigHash =
+    pickString(record, ["behavior_config_hash", "behaviorConfigHash"]) ??
+    pickString(metadata, ["behavior_config_hash", "behaviorConfigHash"]);
+  const behaviorPolicySource =
+    pickString(record, ["policy_source", "policySource"]) ??
+    pickString(metadata, ["policy_source", "policySource"]);
+  const behaviorContext =
+    pickString(record, ["behavior_context", "behaviorContext", "behavior_prompt", "behaviorPrompt"]) ??
+    pickString(metadata, ["behavior_context", "behaviorContext", "behavior_prompt", "behaviorPrompt"]);
+  const behaviorRequiresApproval =
+    toNullableBoolean(
+      record.behavior_requires_approval ??
+        record.behaviorRequiresApproval ??
+        record.config_requires_approval ??
+        record.configRequiresApproval ??
+        record.requires_approval ??
+        record.requiresApproval
+    ) ??
+    toNullableBoolean(
+      metadata.behavior_requires_approval ??
+        metadata.behaviorRequiresApproval ??
+        metadata.config_requires_approval ??
+        metadata.configRequiresApproval ??
+        metadata.requires_approval ??
+        metadata.requiresApproval
+    );
+  const behaviorApprovalStatus =
+    pickString(record, ["behavior_approval_status", "behaviorApprovalStatus", "approval_status", "approvalStatus"]) ??
+    pickString(metadata, [
+      "behavior_approval_status",
+      "behaviorApprovalStatus",
+      "approval_status",
+      "approvalStatus",
+    ]);
+  const behaviorApprovalDecisionId =
+    pickString(record, [
+      "behavior_approval_decision_id",
+      "behaviorApprovalDecisionId",
+      "approval_decision_id",
+      "approvalDecisionId",
+    ]) ??
+    pickString(metadata, [
+      "behavior_approval_decision_id",
+      "behaviorApprovalDecisionId",
+      "approval_decision_id",
+      "approvalDecisionId",
+    ]);
+  const behaviorAutomationLevel =
+    normalizeBehaviorAutomationLevel(
+      pickString(record, ["automation_level", "automationLevel"])
+    ) ??
+    normalizeBehaviorAutomationLevel(
+      pickString(metadata, ["automation_level", "automationLevel"])
+    );
 
   return {
     id: String(record.id ?? ""),
@@ -475,6 +595,15 @@ function toMissionControlNode(
     expectedBudgetUsd:
       expectedBudget >= 0 ? expectedBudget : DEFAULT_BUDGET_USD[type],
     assignedAgents: normalizeAssignedAgents(record),
+    behaviorConfigId: behaviorConfigId ?? null,
+    behaviorConfigVersion: behaviorConfigVersion ?? null,
+    behaviorConfigHash: behaviorConfigHash ?? null,
+    behaviorPolicySource: behaviorPolicySource ?? null,
+    behaviorContext: behaviorContext ?? null,
+    behaviorRequiresApproval,
+    behaviorApprovalStatus: behaviorApprovalStatus ?? null,
+    behaviorApprovalDecisionId: behaviorApprovalDecisionId ?? null,
+    behaviorAutomationLevel: behaviorAutomationLevel ?? null,
     updatedAt: toIsoString(
       pickString(record, [
         "updated_at",
@@ -1093,6 +1222,159 @@ export function deriveExecutionPolicy(
   const domain = normalizeExecutionDomain(domainCandidate) ?? "engineering";
   const requiredSkill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
   return { domain, requiredSkills: [requiredSkill] };
+}
+
+export function deriveBehaviorConfigContext(
+  taskNode: MissionControlNode,
+  workstreamNode: MissionControlNode | null
+): {
+  configId: string | null;
+  version: string | null;
+  hash: string | null;
+  policySource: string | null;
+  context: string | null;
+  requiresApproval: boolean;
+  approvalStatus: string | null;
+  approvalDecisionId: string | null;
+} {
+  const approvalStatusRaw =
+    taskNode.behaviorApprovalStatus ?? workstreamNode?.behaviorApprovalStatus ?? null;
+  const approvalStatus = approvalStatusRaw
+    ? approvalStatusRaw
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_")
+    : null;
+  const explicitlyRequiresApproval =
+    taskNode.behaviorRequiresApproval ?? workstreamNode?.behaviorRequiresApproval ?? null;
+  const pendingApprovalStatus =
+    approvalStatus === "pending" ||
+    approvalStatus === "requested" ||
+    approvalStatus === "awaiting_approval" ||
+    approvalStatus === "awaiting_review" ||
+    approvalStatus === "in_review" ||
+    approvalStatus === "review_pending" ||
+    approvalStatus === "needs_approval" ||
+    approvalStatus === "open" ||
+    approvalStatus === "queued";
+  const approvedStatus =
+    approvalStatus === "approved" ||
+    approvalStatus === "accepted" ||
+    approvalStatus === "resolved" ||
+    approvalStatus === "completed" ||
+    approvalStatus === "complete";
+  const requiresApproval =
+    explicitlyRequiresApproval === true ? !approvedStatus : pendingApprovalStatus;
+
+  return {
+    configId: taskNode.behaviorConfigId ?? workstreamNode?.behaviorConfigId ?? null,
+    version: taskNode.behaviorConfigVersion ?? workstreamNode?.behaviorConfigVersion ?? null,
+    hash: taskNode.behaviorConfigHash ?? workstreamNode?.behaviorConfigHash ?? null,
+    policySource: taskNode.behaviorPolicySource ?? workstreamNode?.behaviorPolicySource ?? null,
+    context: taskNode.behaviorContext ?? workstreamNode?.behaviorContext ?? null,
+    requiresApproval,
+    approvalStatus: approvalStatus ?? null,
+    approvalDecisionId:
+      taskNode.behaviorApprovalDecisionId ?? workstreamNode?.behaviorApprovalDecisionId ?? null,
+  };
+}
+
+export function deriveBehaviorAutomationLevel(
+  taskNode: MissionControlNode,
+  workstreamNode: MissionControlNode | null
+): "auto" | "supervised" | "manual" {
+  return taskNode.behaviorAutomationLevel ?? workstreamNode?.behaviorAutomationLevel ?? "auto";
+}
+
+export function detectBehaviorConfigDrift(input: {
+  taskNode: MissionControlNode;
+  workstreamNode: MissionControlNode | null;
+  behaviorConfig: {
+    configId: string | null;
+    version: string | null;
+    hash: string | null;
+    policySource: string | null;
+    context: string | null;
+  };
+  behaviorAutomationLevel: "auto" | "supervised" | "manual";
+}): {
+  fields: Array<"config_id" | "version" | "hash" | "policy_source" | "context" | "automation_level">;
+  declared: {
+    configId: string | null;
+    version: string | null;
+    hash: string | null;
+    policySource: string | null;
+    context: string | null;
+    automationLevel: "auto" | "supervised" | "manual" | null;
+  };
+  runtime: {
+    configId: string | null;
+    version: string | null;
+    hash: string | null;
+    policySource: string | null;
+    context: string | null;
+    automationLevel: "auto" | "supervised" | "manual";
+  };
+} | null {
+  const workstream = input.workstreamNode;
+  if (!workstream) return null;
+
+  const declared = {
+    configId: workstream.behaviorConfigId ?? null,
+    version: workstream.behaviorConfigVersion ?? null,
+    hash: workstream.behaviorConfigHash ?? null,
+    policySource: workstream.behaviorPolicySource ?? null,
+    context: workstream.behaviorContext ?? null,
+    automationLevel: workstream.behaviorAutomationLevel ?? null,
+  };
+  const runtime = {
+    configId: input.behaviorConfig.configId ?? null,
+    version: input.behaviorConfig.version ?? null,
+    hash: input.behaviorConfig.hash ?? null,
+    policySource: input.behaviorConfig.policySource ?? null,
+    context: input.behaviorConfig.context ?? null,
+    automationLevel: input.behaviorAutomationLevel,
+  };
+
+  const norm = (value: string | null | undefined): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+  const normContext = (value: string | null | undefined): string | null => {
+    const normalized = norm(value);
+    if (!normalized) return null;
+    return normalized.replace(/\s+/g, " ");
+  };
+  const normPolicySource = (value: string | null | undefined): string | null => {
+    const normalized = norm(value);
+    if (!normalized) return null;
+    return normalized.toLowerCase().replace(/[\s-]+/g, "_");
+  };
+  const hasDeclaredConfig =
+    norm(declared.configId) !== null ||
+    norm(declared.version) !== null ||
+    norm(declared.hash) !== null ||
+    norm(declared.policySource) !== null ||
+    normContext(declared.context) !== null ||
+    declared.automationLevel !== null;
+  if (!hasDeclaredConfig) return null;
+
+  const fields: Array<
+    "config_id" | "version" | "hash" | "policy_source" | "context" | "automation_level"
+  > = [];
+
+  if (norm(declared.configId) !== norm(runtime.configId)) fields.push("config_id");
+  if (norm(declared.version) !== norm(runtime.version)) fields.push("version");
+  if (norm(declared.hash) !== norm(runtime.hash)) fields.push("hash");
+  if (normPolicySource(declared.policySource) !== normPolicySource(runtime.policySource)) {
+    fields.push("policy_source");
+  }
+  if (normContext(declared.context) !== normContext(runtime.context)) fields.push("context");
+  if ((declared.automationLevel ?? null) !== runtime.automationLevel) fields.push("automation_level");
+
+  if (fields.length === 0) return null;
+  return { fields, declared, runtime };
 }
 
 export function spawnGuardIsRateLimited(result: unknown): boolean {

@@ -1,0 +1,73 @@
+{
+  "artifact_type": "initiative",
+  "title": "Reassignment Plan: AI Eval Framework v1",
+  "summary": "Defines the verified ownership split for AI Eval Framework v1 so execution aligns with domain accountability: engineering owns dataset, criteria, and pipelines; product owns hierarchy framing; operations owns online feedback loops.",
+  "initiative_id": "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+  "workstream_id": "fe7d7021-e37d-4f5a-9bef-476bc14234ae",
+  "milestone_id": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+  "task_id": "6917f66e-d636-4e2d-b4e3-1b4d9cce3c49",
+  "effective_date": "2026-02-20",
+  "assignment_changes": [
+    {
+      "scope": "Dataset Foundation",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Dataset schema and source inventory",
+        "Label quality standards",
+        "Versioned build process"
+      ]
+    },
+    {
+      "scope": "Eval Criteria & Threshold",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Executable scoring criteria",
+        "Threshold calibration notes",
+        "Failure mode taxonomy"
+      ]
+    },
+    {
+      "scope": "Hierarchical Eval",
+      "owner_domain": "product",
+      "expected_outputs": [
+        "Evaluation hierarchy definition",
+        "Metric roll-up policy",
+        "Acceptance rubric"
+      ]
+    },
+    {
+      "scope": "Offline Pipeline",
+      "owner_domain": "engineering",
+      "expected_outputs": [
+        "Repeatable batch eval runner",
+        "Artifact logging format",
+        "Regression baseline snapshots"
+      ]
+    },
+    {
+      "scope": "Online Eval & Feedback",
+      "owner_domain": "operations",
+      "expected_outputs": [
+        "Runtime feedback ingestion",
+        "Escalation and triage workflow",
+        "Weekly feedback-to-action report"
+      ]
+    }
+  ],
+  "success_metrics": [
+    {
+      "name": "Ownership clarity",
+      "target": "100% of listed scopes have one accountable domain"
+    },
+    {
+      "name": "Execution readiness",
+      "target": "5/5 scopes include explicit deliverables and verification checks"
+    }
+  ],
+  "verification_steps": [
+    "Parse this file as valid JSON.",
+    "Confirm each of the five scopes appears exactly once with the specified owner_domain.",
+    "Confirm Online Eval & Feedback is owned by operations and Hierarchical Eval is owned by product.",
+    "Confirm success_metrics includes at least two measurable targets."
+  ]
+}

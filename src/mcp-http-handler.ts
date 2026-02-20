@@ -75,6 +75,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   engineering: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -84,6 +86,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   product: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -93,6 +97,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   design: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -102,6 +108,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   marketing: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -111,6 +119,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   sales: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -120,6 +130,9 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   operations: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
+    "update_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -127,10 +140,16 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
     "orgx_spawn_check",
     // Operations is allowed to do explicit changesets for remediation/runbooks.
     "orgx_apply_changeset",
+    // Stream reassignment is a targeted operational mutation.
+    "orgx_reassign_stream",
+    "orgx_reassign_streams",
   ],
   orchestration: [
     "orgx_status",
     "orgx_sync",
+    "list_agent_configs",
+    "get_agent_config",
+    "update_agent_config",
     "orgx_emit_activity",
     "orgx_report_progress",
     "orgx_register_artifact",
@@ -138,6 +157,8 @@ const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
     "orgx_spawn_check",
     // Orchestrator is the primary mutation surface by design.
     "orgx_apply_changeset",
+    "orgx_reassign_stream",
+    "orgx_reassign_streams",
   ],
 };
 

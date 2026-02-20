@@ -29,11 +29,13 @@ function createHarness(options = {}) {
       listEntities: async () => {
         calls.listEntities += 1;
         return {
-          data: [
-            { id: "ws-1", status: "active" },
-            { id: "ws-2", status: "blocked" },
-            { id: "ws-3", status: "ready" },
-          ],
+          data:
+            options.workstreams ??
+            [
+              { id: "ws-1", status: "active" },
+              { id: "ws-2", status: "blocked" },
+              { id: "ws-3", status: "ready" },
+            ],
         };
       },
     },
@@ -138,5 +140,65 @@ test("PATCH initiative assignment reports reassignment failures without aborting
     scheduled: 1,
     skipped: 1,
     failures: ["ws-3:scheduler unavailable"],
+  });
+});
+
+test("PATCH initiative assignment also schedules in_progress workstreams", async () => {
+  const harness = createHarness({
+    payload: {
+      type: "initiative",
+      id: "init-1",
+      assignedAgentIds: ["agent-2"],
+    },
+    workstreams: [
+      { id: "ws-1", status: "in_progress" },
+      { id: "ws-2", status: "todo" },
+      { id: "ws-3", status: "running" },
+    ],
+  });
+
+  const response = await harness.invoke();
+  assert.equal(response?.status, 200);
+  assert.equal(harness.calls.listEntities, 1);
+  assert.deepEqual(
+    harness.calls.scheduled.map((item) => item.workstreamId),
+    ["ws-1", "ws-3"]
+  );
+  assert.deepEqual(response?.payload?.initiative_reassignment, {
+    triggered: true,
+    requested: 3,
+    scheduled: 2,
+    skipped: 1,
+    failures: [],
+  });
+});
+
+test("PATCH initiative assignment also schedules pending workstreams", async () => {
+  const harness = createHarness({
+    payload: {
+      type: "initiative",
+      id: "init-1",
+      assignedAgentIds: ["agent-2"],
+    },
+    workstreams: [
+      { id: "ws-1", status: "pending" },
+      { id: "ws-2", status: "blocked" },
+      { id: "ws-3", status: "ready" },
+    ],
+  });
+
+  const response = await harness.invoke();
+  assert.equal(response?.status, 200);
+  assert.equal(harness.calls.listEntities, 1);
+  assert.deepEqual(
+    harness.calls.scheduled.map((item) => item.workstreamId),
+    ["ws-1", "ws-3"]
+  );
+  assert.deepEqual(response?.payload?.initiative_reassignment, {
+    triggered: true,
+    requested: 3,
+    scheduled: 2,
+    skipped: 1,
+    failures: [],
   });
 });
