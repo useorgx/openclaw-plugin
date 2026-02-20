@@ -2,6 +2,20 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.5.0 - 2026-02-20
+
+### Mission Control + Activity UX
+- Continued the queue and lifecycle UX overhaul across Activity and Mission Control for clearer play/queue/auto flows and smoother session-to-detail navigation.
+- Improved decision/slice handling surfaces and session detail interactions to reduce operator friction across blocked/in-progress/next-up states.
+
+### Agent + Runtime Controls
+- Expanded agent behavior/runtime settings plumbing and dashboard configuration support for per-agent control flows.
+- Hardened autopilot/dispatch lifecycle and related route handling with broader test coverage around continuation and blocking states.
+
+### Dashboard Performance + Delivery
+- Reduced initial dashboard bundle pressure via targeted lazy-loading and telemetry deferral.
+- Added dashboard build-time static asset precompression (`.br`/`.gz`) and HTTP content-encoding negotiation with `Vary: Accept-Encoding` for faster live dashboard delivery.
+
 ## 0.4.9 - 2026-02-18
 
 ### Pairing + Mission Control Reliability
