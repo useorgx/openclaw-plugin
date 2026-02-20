@@ -72,6 +72,15 @@ function toOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function toOptionalUuid(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return UUID_RE.test(trimmed) ? trimmed : undefined;
+}
+
 function readOptionalBoolean(payload: JsonRecord, ...keys: string[]): boolean | undefined {
   for (const key of keys) {
     const value = payload[key];
@@ -189,9 +198,9 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
           String((req as any).url ?? "/"),
           "http://localhost"
         );
-        const projectId = requestUrl.searchParams.get("project_id");
+        const projectId = toOptionalUuid(requestUrl.searchParams.get("project_id"));
         const response = await deps.fetchAgentRuntimeSettings({
-          projectId: projectId && projectId.trim().length > 0 ? projectId.trim() : null,
+          projectId: projectId ?? null,
         });
         if (!response?.ok) {
           deps.sendJson(res, 502, {
@@ -238,7 +247,7 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
           return;
         }
 
-        const projectId = toOptionalString(payload.project_id ?? payload.projectId)?.trim();
+        const projectId = toOptionalUuid(payload.project_id ?? payload.projectId);
         const response = await deps.updateAgentRuntimeSettings({
           agent_id: agentId,
           ...(projectId ? { project_id: projectId } : {}),

@@ -67,6 +67,13 @@ export type SliceRunProjection = {
   lastEventSummary: string | null;
   correlationId: string | null;
   confidence: "low" | "medium" | "high";
+  scope?: "task" | "milestone" | "workstream";
+  scopeMilestoneIds?: string[];
+  scopeProgress?: {
+    totalTasks: number;
+    completedTasks: number;
+    milestones?: Array<{ id: string; title: string; total: number; done: number }>;
+  };
 };
 
 type BuildSliceRunProjectionsInput = {

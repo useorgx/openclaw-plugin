@@ -4,6 +4,7 @@ import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { Pill } from '@/components/shared/Pill';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import { statusColor, formatEntityStatus } from '@/lib/entityStatusColors';
@@ -674,7 +675,14 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-3"
                 >
-                  <p className="section-kicker">Slice Run</p>
+                  <div className="flex items-center gap-2">
+                    <p className="section-kicker">Slice Run</p>
+                    {sr.scope && sr.scope !== 'task' && (
+                      <Pill tone={sr.scope === 'milestone' ? 'cyan' : 'lime'}>
+                        {sr.scope}
+                      </Pill>
+                    )}
+                  </div>
 
                   {sr.statusExplainer && (
                     <p className="text-caption leading-relaxed text-secondary">{sr.statusExplainer}</p>
@@ -742,6 +750,55 @@ export function SliceDetailModal({
                       </p>
                     </div>
                   )}
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 4b. Scope hierarchy tree (milestone/workstream scopes) ───── */}
+            {sr && sr.scope && sr.scope !== 'task' && sr.scopeProgress?.milestones && sr.scopeProgress.milestones.length > 0 && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-2"
+                >
+                  <p className="section-kicker">
+                    {sr.scope === 'workstream' ? 'Workstream' : 'Milestone'} Scope{' '}
+                    <span className="text-muted tabular-nums">
+                      {sr.scopeProgress.completedTasks}/{sr.scopeProgress.totalTasks} tasks
+                    </span>
+                  </p>
+                  <div className="space-y-1">
+                    {sr.scopeProgress.milestones.map((ms, msIdx) => (
+                      <motion.div
+                        key={ms.id}
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: msIdx * 0.04, duration: 0.22 }}
+                        className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-caption font-medium text-primary">{ms.title}</span>
+                          <span className="text-micro tabular-nums text-secondary">
+                            {ms.done}/{ms.total}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                          <div
+                            className="h-full rounded-full transition-[width] duration-500"
+                            style={{
+                              width: `${ms.total > 0 ? Math.max(2, Math.round((ms.done / ms.total) * 100)) : 0}%`,
+                              background: 'linear-gradient(90deg, #22c55e88, #14b8a688)',
+                            }}
+                          />
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
                 </motion.div>
               </>
             )}

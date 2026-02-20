@@ -29,16 +29,21 @@ import {
   deriveBehaviorAutomationLevel,
   deriveBehaviorConfigContext,
   deriveExecutionPolicy,
+  evaluateScopeCompletion,
   isDispatchableWorkstreamStatus,
   isDoneStatus,
   isTodoStatus,
   readBudgetEnvNumber,
+  selectSliceTasksByScope,
+  SLICE_SCOPE_TIMEOUT_MULTIPLIER,
   spawnGuardIsRateLimited,
   summarizeSpawnGuardBlockReason,
   type MissionControlNode,
+  type SliceScope,
 } from "./mission-control.js";
 import { createAutopilotRuntime } from "./autopilot-runtime.js";
 import {
+  buildScopeDirective,
   buildSliceOutputInstructions,
   buildWorkstreamSlicePrompt,
   createCodexBinResolver,
@@ -264,6 +269,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     ignoreSpawnGuardRateLimit: boolean;
     maxParallelSlices: number;
     parallelMode: AutoContinueParallelMode;
+    scope: SliceScope;
     tokenBudget: number | null;
     tokensUsed: number;
     status: AutoContinueStatus;
@@ -413,6 +419,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     logPath: string;
     taskIds: string[];
     milestoneIds: string[];
+    scope: SliceScope;
+    scopeMilestoneIds: string[];
     lastError: string | null;
     isMockWorker: boolean;
   };
@@ -449,7 +457,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     autoContinueSliceChildren.delete(id);
     autoContinueSliceLastHeartbeatMs.delete(id);
   };
-  const AUTO_CONTINUE_SLICE_MAX_TASKS = 6;
   const AUTO_CONTINUE_SLICE_TIMEOUT_MS = readBudgetEnvNumber(
     "ORGX_AUTOPILOT_SLICE_TIMEOUT_MS",
     55 * 60_000,
@@ -1376,13 +1383,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              return;
 	            }
 
+	          const scopeTimeoutMs = AUTO_CONTINUE_SLICE_TIMEOUT_MS * SLICE_SCOPE_TIMEOUT_MULTIPLIER[slice.scope ?? "task"];
 	          const killDecision = shouldKillWorker(
 	            {
 	              nowEpochMs: nowMs,
 	              startedAtEpochMs: fallbackEpochMs,
 	              logUpdatedAtEpochMs: stallUpdatedAtEpochMs,
 	            },
-	            { timeoutMs: AUTO_CONTINUE_SLICE_TIMEOUT_MS, stallMs: AUTO_CONTINUE_SLICE_LOG_STALL_MS }
+	            { timeoutMs: scopeTimeoutMs, stallMs: AUTO_CONTINUE_SLICE_LOG_STALL_MS }
 	          );
 
 	            if (killDecision.kill) {
@@ -1397,7 +1405,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              slice.updatedAt = now;
 	              slice.lastError =
 	                killDecision.kind === "timeout"
-	                  ? `Autopilot slice timed out after ${Math.round(AUTO_CONTINUE_SLICE_TIMEOUT_MS / 60_000)} minutes.`
+	                  ? `Autopilot slice timed out after ${Math.round(scopeTimeoutMs / 60_000)} minutes.`
 	                  : `Autopilot slice stalled (no output) for ${Math.round(AUTO_CONTINUE_SLICE_LOG_STALL_MS / 60_000)} minutes.`;
 	              autoContinueSliceRuns.set(slice.runId, slice);
 
@@ -2053,6 +2061,41 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	          // best effort
 	        }
 
+	        // Evaluate scope-level completion for milestone/workstream scopes.
+	        if (slice.scope && slice.scope !== "task") {
+	          try {
+	            const scopeGraph = applyLocalInitiativeOverrideToGraph(
+	              await buildMissionControlGraph(client, run.initiativeId)
+	            );
+	            const scopeNodeById = new Map(scopeGraph.nodes.map((n) => [n.id, n]));
+	            const scopeResult = evaluateScopeCompletion({
+	              scope: slice.scope,
+	              milestoneIds: slice.scopeMilestoneIds ?? [],
+	              workstreamId: slice.workstreamId,
+	              nodeById: scopeNodeById,
+	            });
+	            if (scopeResult.scopeComplete) {
+	              await emitActivitySafe({
+	                initiativeId: run.initiativeId,
+	                runId: slice.runId,
+	                correlationId: slice.runId,
+	                phase: "completed",
+	                level: "info",
+	                message: `${slice.scope === "milestone" ? "Milestone" : "Workstream"} scope completed for ${slice.workstreamTitle ?? slice.workstreamId}.`,
+	                metadata: {
+	                  event: "scope_completed",
+	                  scope: slice.scope,
+	                  workstream_id: slice.workstreamId,
+	                  milestone_ids: slice.scopeMilestoneIds,
+	                  remaining_tasks: 0,
+	                },
+	              });
+	            }
+	          } catch {
+	            // best-effort scope completion check
+	          }
+	        }
+
 	        if (run.stopAfterSlice) {
 	          run.stopAfterSlice = false;
 	          await stopAutoContinueRun({ run, reason: "completed" });
@@ -2263,22 +2306,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const initiativeTitle =
       initiativeNode?.title ?? `Initiative ${run.initiativeId.slice(0, 8)}`;
 
-    const sliceTaskNodes = graph.recentTodos
-      .map((taskId) => nodeById.get(taskId))
-      .filter(
-        (node): node is MissionControlNode =>
-          Boolean(
-            node &&
-              node.type === "task" &&
-              node.workstreamId === selectedWorkstreamId &&
-              isTodoStatus(node.status) &&
-              taskIsReady(node) &&
-              !taskHasBlockedParent(node) &&
-              (run.includeVerification ||
-                !/^verification[ \t]+scenario/i.test(String(node.title ?? "")))
-          )
-      )
-      .slice(0, AUTO_CONTINUE_SLICE_MAX_TASKS);
+    const scopeSelection = selectSliceTasksByScope({
+      scope: run.scope,
+      workstreamId: selectedWorkstreamId,
+      recentTodos: graph.recentTodos,
+      nodeById,
+      includeVerification: run.includeVerification,
+    });
+    const sliceTaskNodes = scopeSelection.tasks;
+    const scopeMilestoneIds = scopeSelection.milestoneIds;
 
     const primaryTask = sliceTaskNodes[0] ?? null;
     if (!primaryTask) {
@@ -2873,6 +2909,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       });
     }
 
+    // Append per-scope directive for milestone/workstream scopes.
+    if (run.scope !== "task") {
+      const msNodes = scopeMilestoneIds
+        .map((id) => nodeById.get(id))
+        .filter((n): n is MissionControlNode => Boolean(n));
+      const scopeDirective = buildScopeDirective(run.scope, {
+        milestoneTitles: msNodes.map((n) => n.title),
+        workstreamTitle: workstreamTitle ?? undefined,
+        taskCount: cappedSliceTaskNodes.length,
+      });
+      if (scopeDirective) {
+        prompt = prompt + "\n\n" + scopeDirective;
+      }
+    }
+
     const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
@@ -2958,6 +3009,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       logPath,
       taskIds: cappedSliceTaskNodes.map((t) => t.id),
       milestoneIds,
+      scope: run.scope,
+      scopeMilestoneIds: scopeMilestoneIds,
       lastError: null,
       isMockWorker: workerKind === "mock",
     };
@@ -2994,6 +3047,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           task_ids: slice.taskIds,
           initiative_title: initiativeTitle ?? null,
           workstream_title: workstreamTitle ?? null,
+          scope: slice.scope,
+          scope_milestone_ids: slice.scopeMilestoneIds,
           log_path: logPath,
           output_path: outputPath,
           ...mockMeta(slice),
@@ -3034,6 +3089,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         workstream_title: workstreamTitle ?? null,
         task_ids: slice.taskIds,
         milestone_ids: milestoneIds,
+        scope: slice.scope,
+        scope_milestone_ids: slice.scopeMilestoneIds,
         log_path: logPath,
         output_path: outputPath,
         ...mockMeta(slice),
@@ -3493,6 +3550,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     parallelMode?: unknown;
     stopAfterSlice?: boolean;
     ignoreSpawnGuardRateLimit?: boolean;
+    scope?: SliceScope;
   }): Promise<AutoContinueRun> {
     const now = new Date().toISOString();
     const existing = autoContinueRuns.get(input.initiativeId) ?? null;
@@ -3511,6 +3569,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         ignoreSpawnGuardRateLimit: false,
         maxParallelSlices: AUTO_CONTINUE_MAX_PARALLEL_DEFAULT,
         parallelMode: "iwmt",
+        scope: "task" as SliceScope,
         tokenBudget: defaultAutoContinueTokenBudget(),
         tokensUsed: 0,
         status: "running",
@@ -3546,6 +3605,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run.parallelMode = normalizeParallelMode(input.parallelMode ?? run.parallelMode);
     run.stopAfterSlice = Boolean(input.stopAfterSlice);
     run.ignoreSpawnGuardRateLimit = Boolean(input.ignoreSpawnGuardRateLimit);
+    run.scope = input.scope ?? "task";
     const hasExplicitTokenBudgetInput =
       input.tokenBudget !== null &&
       input.tokenBudget !== undefined &&

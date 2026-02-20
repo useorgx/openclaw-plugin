@@ -79,6 +79,8 @@ interface DecoratedActivityItem {
   runId: string | null;
   timestampEpoch: number;
   searchText: string;
+  scopeGroupId?: string | null;
+  scope?: 'task' | 'milestone' | 'workstream';
 }
 type HeadlineSource = 'llm' | 'heuristic' | null;
 
@@ -2671,6 +2673,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         .join(' ')
         .toLowerCase();
 
+      const metaScope = metadata?.scope as string | undefined;
+      const scopeVal =
+        metaScope === 'milestone' || metaScope === 'workstream' ? metaScope : undefined;
+
       return {
         item,
         bucket,
@@ -2680,6 +2686,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         runId,
         timestampEpoch: toEpoch(item.timestamp),
         searchText,
+        scopeGroupId: scopeVal ? (runId ?? null) : null,
+        scope: scopeVal,
       } satisfies DecoratedActivityItem;
     });
   }, [activity, sessionSnapshotByRunId, sessionStatusById, sliceSnapshotByRunId]);

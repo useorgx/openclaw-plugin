@@ -707,3 +707,34 @@ export function buildWorkstreamSlicePrompt(input: {
     "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",
   ].join("\n");
 }
+
+// ---------------------------------------------------------------------------
+// Per-scope prompt directive
+// ---------------------------------------------------------------------------
+
+export type BuildScopeDirectiveScope = "task" | "milestone" | "workstream";
+
+export function buildScopeDirective(
+  scope: BuildScopeDirectiveScope,
+  meta: {
+    milestoneTitles?: string[];
+    workstreamTitle?: string;
+    taskCount: number;
+  }
+): string {
+  switch (scope) {
+    case "milestone":
+      return (
+        `You are completing milestone "${meta.milestoneTitles?.[0] ?? "Unknown"}" ` +
+        `(${meta.taskCount} tasks). Complete all tasks to close the milestone. Report per-task progress.`
+      );
+    case "workstream":
+      return (
+        `You are advancing the entire "${meta.workstreamTitle ?? "Unknown"}" workstream ` +
+        `(${meta.taskCount} tasks across ${meta.milestoneTitles?.length ?? 0} milestones). ` +
+        `Prioritize by dependency order. Report per-milestone progress.`
+      );
+    default:
+      return "";
+  }
+}

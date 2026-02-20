@@ -21,6 +21,29 @@ const DEFAULT_RUNTIME_SETTINGS: AgentRuntimeSettings = {
   customRunInstructions: '',
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | null | undefined): boolean {
+  if (typeof value !== 'string') return false;
+  return UUID_RE.test(value.trim());
+}
+
+function inferDomainFromRuntimeAgent(input: {
+  name?: string | null;
+  id?: string | null;
+}): AgentSuiteDomain | null {
+  const haystack = `${input.name ?? ''} ${input.id ?? ''}`.toLowerCase();
+  if (haystack.includes('orchestrat')) return 'orchestration';
+  if (haystack.includes('engineer') || haystack.includes('dev delivery')) return 'engineering';
+  if (haystack.includes('product')) return 'product';
+  if (haystack.includes('design')) return 'design';
+  if (haystack.includes('market')) return 'marketing';
+  if (haystack.includes('sales')) return 'sales';
+  if (haystack.includes('operations') || haystack.includes('ops ')) return 'operations';
+  return null;
+}
+
 function settingsEqual(a: AgentRuntimeSettings, b: AgentRuntimeSettings): boolean {
   return (
     a.decisionV2Enabled === b.decisionV2Enabled &&
@@ -104,6 +127,7 @@ export function AgentBehaviorPanel({
 }) {
   const suite = useAgentSuite({ authToken, embedMode, enabled });
   const suiteAgents = suite.status?.ok ? suite.status.data.agents : [];
+  const runtimeAgents = suite.runtimeSettings.agents;
 
   const runtimeSettingsByAgentId = useMemo(() => {
     const map = new Map<string, AgentRuntimeSettings>();
@@ -114,26 +138,49 @@ export function AgentBehaviorPanel({
   }, [suite.runtimeSettings.agents]);
 
   const agents = useMemo(() => {
+    const runtimeByDomain = new Map<
+      AgentSuiteDomain,
+      {
+        id: string;
+        model: string | null;
+        runtimeSettings: AgentRuntimeSettings;
+      }
+    >();
+    for (const runtime of runtimeAgents) {
+      const inferredDomain = inferDomainFromRuntimeAgent({
+        name: runtime.name,
+        id: runtime.id,
+      });
+      if (!inferredDomain || runtimeByDomain.has(inferredDomain)) continue;
+      runtimeByDomain.set(inferredDomain, {
+        id: runtime.id,
+        model: runtime.model,
+        runtimeSettings: runtime.runtimeSettings,
+      });
+    }
+
     if (suiteAgents.length > 0) {
       return suiteAgents.map((agent) => ({
-        id: agent.id,
+        id: runtimeByDomain.get(agent.domain)?.id ?? agent.id,
         name: agent.name,
         domain: agent.domain,
-        model: null as string | null,
+        model: runtimeByDomain.get(agent.domain)?.model ?? null,
         configStatus: (agent.configHealth?.status ?? null) as 'healthy' | 'needs_apply' | 'conflict' | null,
         runtimeSettings:
-          runtimeSettingsByAgentId.get(agent.id) ?? DEFAULT_RUNTIME_SETTINGS,
+          runtimeByDomain.get(agent.domain)?.runtimeSettings ??
+          runtimeSettingsByAgentId.get(agent.id) ??
+          DEFAULT_RUNTIME_SETTINGS,
       }));
     }
-    return suite.runtimeSettings.agents.map((agent) => ({
+    return runtimeAgents.map((agent) => ({
       id: agent.id,
       name: agent.name,
-      domain: null as AgentSuiteDomain | null,
+      domain: inferDomainFromRuntimeAgent({ name: agent.name, id: agent.id }),
       model: agent.model,
       configStatus: null,
       runtimeSettings: agent.runtimeSettings,
     }));
-  }, [suite.runtimeSettings.agents, suiteAgents, runtimeSettingsByAgentId]);
+  }, [runtimeAgents, suiteAgents, runtimeSettingsByAgentId]);
 
   const savedByAgent = useMemo(() => {
     const record: Record<string, AgentRuntimeSettings> = {};
@@ -250,6 +297,13 @@ export function AgentBehaviorPanel({
     setSaveError(null);
     try {
       for (const agentId of dirtyAgentIds) {
+        if (!isUuid(agentId)) {
+          const agentLabel =
+            agents.find((agent) => agent.id === agentId)?.name ?? agentId;
+          throw new Error(
+            `Cannot save "${agentLabel}" because it is not linked to a valid OrgX agent UUID yet. Re-sync Agent Suite and try again.`
+          );
+        }
         const draft = readDraft(agentId);
         await suite.saveRuntimeSettingsAsync({
           projectId: suite.runtimeSettings.projectId,

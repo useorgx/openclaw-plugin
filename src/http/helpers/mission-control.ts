@@ -45,6 +45,24 @@ export interface MissionControlEdge {
   kind: "depends_on";
 }
 
+// ---------------------------------------------------------------------------
+// Polymorphic slice scope
+// ---------------------------------------------------------------------------
+
+export type SliceScope = "task" | "milestone" | "workstream";
+
+export const SLICE_SCOPE_MAX_TASKS: Record<SliceScope, number> = {
+  task: 6,
+  milestone: 15,
+  workstream: 30,
+};
+
+export const SLICE_SCOPE_TIMEOUT_MULTIPLIER: Record<SliceScope, number> = {
+  task: 1,
+  milestone: 2.5,
+  workstream: 4,
+};
+
 export const ORGX_SKILL_BY_DOMAIN: Record<string, string> = {
   engineering: "orgx-engineering-agent",
   product: "orgx-product-agent",
@@ -1202,6 +1220,146 @@ export function inferExecutionDomainFromText(...values: Array<string | null | un
   if (/\b(ops|operations|incident|reliability|oncall|slo)\b/.test(text)) return "operations";
   if (/\b(orchestration|dispatch|handoff)\b/.test(text)) return "orchestration";
   return "engineering";
+}
+
+// ---------------------------------------------------------------------------
+// Per-scope task selection for autopilot slices
+// ---------------------------------------------------------------------------
+
+export function selectSliceTasksByScope(input: {
+  scope: SliceScope;
+  workstreamId: string;
+  milestoneId?: string | null;
+  recentTodos: string[];
+  nodeById: Map<string, MissionControlNode>;
+  includeVerification: boolean;
+}): { tasks: MissionControlNode[]; milestoneIds: string[] } {
+  const { scope, workstreamId, nodeById, includeVerification } = input;
+  const cap = SLICE_SCOPE_MAX_TASKS[scope];
+
+  const taskIsReady = (node: MissionControlNode): boolean =>
+    node.dependencyIds.every((depId) => {
+      const dep = nodeById.get(depId);
+      return dep ? isDoneStatus(dep.status) : true;
+    });
+
+  const taskHasBlockedParent = (node: MissionControlNode): boolean => {
+    const milestone = node.milestoneId ? nodeById.get(node.milestoneId) ?? null : null;
+    const workstream = node.workstreamId ? nodeById.get(node.workstreamId) ?? null : null;
+    return (
+      milestone?.status?.toLowerCase() === "blocked" ||
+      workstream?.status?.toLowerCase() === "blocked"
+    );
+  };
+
+  const isEligible = (node: MissionControlNode): boolean =>
+    Boolean(
+      node &&
+        node.type === "task" &&
+        isTodoStatus(node.status) &&
+        taskIsReady(node) &&
+        !taskHasBlockedParent(node) &&
+        (includeVerification || !/^verification[ \t]+scenario/i.test(String(node.title ?? "")))
+    );
+
+  if (scope === "milestone") {
+    // Pick tasks from a specific milestone (or the first milestone with ready tasks)
+    const targetMilestoneId = input.milestoneId ?? null;
+
+    if (targetMilestoneId) {
+      const tasks = input.recentTodos
+        .map((id) => nodeById.get(id))
+        .filter(
+          (node): node is MissionControlNode =>
+            Boolean(node) &&
+            node!.workstreamId === workstreamId &&
+            node!.milestoneId === targetMilestoneId &&
+            isEligible(node!)
+        )
+        .slice(0, cap);
+      return { tasks, milestoneIds: tasks.length > 0 ? [targetMilestoneId] : [] };
+    }
+
+    // Find first milestone with ready tasks
+    for (const todoId of input.recentTodos) {
+      const node = nodeById.get(todoId);
+      if (!node || node.workstreamId !== workstreamId || !node.milestoneId || !isEligible(node)) continue;
+      const msId = node.milestoneId;
+      const tasks = input.recentTodos
+        .map((id) => nodeById.get(id))
+        .filter(
+          (n): n is MissionControlNode =>
+            Boolean(n) && n!.workstreamId === workstreamId && n!.milestoneId === msId && isEligible(n!)
+        )
+        .slice(0, cap);
+      return { tasks, milestoneIds: [msId] };
+    }
+    return { tasks: [], milestoneIds: [] };
+  }
+
+  if (scope === "workstream") {
+    const milestoneIdSet = new Set<string>();
+    const tasks = input.recentTodos
+      .map((id) => nodeById.get(id))
+      .filter(
+        (node): node is MissionControlNode =>
+          Boolean(node) && node!.workstreamId === workstreamId && isEligible(node!)
+      )
+      .slice(0, cap);
+    for (const t of tasks) {
+      if (t.milestoneId) milestoneIdSet.add(t.milestoneId);
+    }
+    return { tasks, milestoneIds: Array.from(milestoneIdSet) };
+  }
+
+  // Default: task scope — current behavior
+  const tasks = input.recentTodos
+    .map((id) => nodeById.get(id))
+    .filter(
+      (node): node is MissionControlNode =>
+        Boolean(node) && node!.workstreamId === workstreamId && isEligible(node!)
+    )
+    .slice(0, cap);
+  const milestoneIdSet = new Set<string>();
+  for (const t of tasks) {
+    if (t.milestoneId) milestoneIdSet.add(t.milestoneId);
+  }
+  return { tasks, milestoneIds: Array.from(milestoneIdSet) };
+}
+
+// ---------------------------------------------------------------------------
+// Scope completion evaluation
+// ---------------------------------------------------------------------------
+
+export function evaluateScopeCompletion(input: {
+  scope: SliceScope;
+  milestoneIds: string[];
+  workstreamId: string;
+  nodeById: Map<string, MissionControlNode>;
+}): { scopeComplete: boolean; remainingTasks: number } {
+  const { scope, milestoneIds, workstreamId, nodeById } = input;
+
+  if (scope === "task") {
+    return { scopeComplete: true, remainingTasks: 0 };
+  }
+
+  let remaining = 0;
+  for (const [, node] of nodeById) {
+    if (node.type !== "task") continue;
+    if (isDoneStatus(node.status)) continue;
+
+    if (scope === "milestone") {
+      if (node.milestoneId && milestoneIds.includes(node.milestoneId)) {
+        remaining += 1;
+      }
+    } else if (scope === "workstream") {
+      if (node.workstreamId === workstreamId) {
+        remaining += 1;
+      }
+    }
+  }
+
+  return { scopeComplete: remaining === 0, remainingTasks: remaining };
 }
 
 export function deriveExecutionPolicy(
