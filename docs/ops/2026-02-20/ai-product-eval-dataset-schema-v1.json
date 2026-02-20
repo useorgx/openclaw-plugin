@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_type_enum": [
+    "pr",
+    "document",
+    "config",
+    "report",
+    "design",
+    "retro",
+    "other"
+  ],
+  "label_status_enum": [
+    "draft",
+    "reviewed",
+    "adjudicated"
+  ],
+  "failure_tag_enum": [
+    "hallucination",
+    "missing_evidence",
+    "incorrect_scope",
+    "unsafe_instruction",
+    "format_violation",
+    "non_actionable_output",
+    "incomplete_delivery"
+  ],
+  "score_dimensions": [
+    "clarity",
+    "correctness",
+    "completeness",
+    "actionability",
+    "policy_compliance"
+  ],
+  "row_contract": {
+    "required": [
+      "dataset_id",
+      "record_id",
+      "artifact_type",
+      "source_mode",
+      "generator_model",
+      "prompt_version",
+      "scores",
+      "failure_tags",
+      "label_status",
+      "created_at"
+    ],
+    "fields": {
+      "dataset_id": "string",
+      "record_id": "string",
+      "artifact_type": "artifact_type_enum",
+      "source_mode": "synthetic|production|benchmark",
+      "generator_model": "string",
+      "prompt_version": "string",
+      "scores": {
+        "clarity": "1|2|3|4|5",
+        "correctness": "1|2|3|4|5",
+        "completeness": "1|2|3|4|5",
+        "actionability": "1|2|3|4|5",
+        "policy_compliance": "1|2|3|4|5",
+        "overall": "1|2|3|4|5 (optional)"
+      },
+      "failure_tags": "array<failure_tag_enum>",
+      "label_status": "label_status_enum",
+      "labeler_id": "string (optional)",
+      "reviewer_id": "string (optional)",
+      "adjudication_notes": "string (optional)",
+      "source_reference": "string (optional)",
+      "created_at": "ISO-8601 datetime"
+    }
+  },
+  "quality_gates": {
+    "required_artifact_type_coverage": true,
+    "required_score_dimensions": true,
+    "adjudication_required_for_release": true
+  }
+}
