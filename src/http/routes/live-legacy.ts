@@ -1,5 +1,6 @@
 import type { LiveActivityItem, SessionTreeResponse } from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
+import { normalizeReportingBlockedSessions } from "../helpers/session-classification.js";
 import type {
   AgentLaunchContext,
   RunLaunchContext,
@@ -166,6 +167,22 @@ export function registerLiveLegacyRoutes<
           : deps.listRuntimeInstances({ limit: 320 });
       data = deps.injectRuntimeInstancesAsSessions(data, runtimeInstances);
       data = deps.enrichSessionsWithRuntime(data, runtimeInstances);
+      const contextBundle = toContextBundle(deps.readAgentContexts());
+      const activityForClassification = deps.applyAgentContextsToActivity(
+        deps.listActivityPage({
+          limit: 1200,
+          runId: null,
+          since: null,
+          until: null,
+          cursor: null,
+        }).activities,
+        contextBundle
+      );
+      data = normalizeReportingBlockedSessions({
+        sessions: data,
+        activity: activityForClassification,
+        runtimeInstances,
+      });
       deps.sendJson(res, 200, data);
     } catch (err: unknown) {
       try {
@@ -177,7 +194,8 @@ export function registerLiveLegacyRoutes<
           await deps.loadLocalOpenClawSnapshot(Math.max(limit, 200)),
           limit
         );
-        local = deps.applyAgentContextsToSessionTree(local, toContextBundle(deps.readAgentContexts()));
+        const contextBundle = toContextBundle(deps.readAgentContexts());
+        local = deps.applyAgentContextsToSessionTree(local, contextBundle);
 
         if (initiative && initiative.trim().length > 0) {
           const filteredNodes = local.nodes.filter(
@@ -194,6 +212,27 @@ export function registerLiveLegacyRoutes<
             groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
           };
         }
+
+        const runtimeInstances =
+          initiative && initiative.trim().length > 0
+            ? deps
+                .listRuntimeInstances({ limit: 320 })
+                .filter((instance) => instance.initiativeId === initiative)
+            : deps.listRuntimeInstances({ limit: 320 });
+        local = normalizeReportingBlockedSessions({
+          sessions: local,
+          activity: deps.applyAgentContextsToActivity(
+            deps.listActivityPage({
+              limit: 1200,
+              runId: null,
+              since: null,
+              until: null,
+              cursor: null,
+            }).activities,
+            contextBundle
+          ),
+          runtimeInstances,
+        });
 
         deps.sendJson(res, 200, local);
       } catch (localErr: unknown) {

@@ -1288,42 +1288,17 @@ function NextUpReorderRow({
     >
       <motion.article
         layout
-        initial={{ opacity: 0, y: 6, scale: 0.99 }}
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -4, scale: 0.99 }}
+        exit={{ opacity: 0, y: -8, scale: 0.98 }}
         transition={{
-          duration: 0.22,
-          delay: Math.min(index, 7) * 0.018,
-          ease: [0.22, 1, 0.36, 1],
+          duration: 0.4,
+          ease: [0.25, 0.1, 0.25, 1],
+          delay: Math.min(index, 7) * 0.05,
+          opacity: { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] },
         }}
-        className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 pb-10"
+        className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
       >
-        <div
-          className={`absolute bottom-2 left-1/2 z-20 -translate-x-1/2 transition-opacity ${
-            isDragging
-              ? 'pointer-events-auto opacity-100'
-              : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100'
-          }`}
-        >
-          <button
-            type="button"
-            onPointerDown={(event) => controls.start(event)}
-            aria-label="Drag to reorder"
-            title={isDragging ? 'Reordering' : 'Drag to reorder'}
-            className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-micro font-semibold transition-colors ${
-              isDragging
-                ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2] cursor-grabbing'
-                : 'border-strong bg-white/[0.04] text-secondary cursor-grab hover:bg-white/[0.08] hover:text-bright'
-            }`}
-          >
-            {isDragging ? (
-              <HandGrabGlyph className="h-4 w-4 opacity-90" />
-            ) : (
-              <HandOpenGlyph className="h-4 w-4 opacity-90" />
-            )}
-            <span>{isDragging ? 'Reordering' : 'Drag'}</span>
-          </button>
-        </div>
 
         <div
           className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
@@ -1332,33 +1307,36 @@ function NextUpReorderRow({
 
         <div className="flex items-start justify-between gap-2.5">
           <div className="min-w-0 flex flex-1 items-start gap-2.5">
-            {selectionEnabled ? (
-              <motion.label
-                initial={false}
-                animate={{
-                  opacity: selected ? 1 : 0,
-                  scale: selected ? 1 : 0.96,
-                }}
-                className={`mt-[2px] inline-flex h-5 w-5 flex-shrink-0 items-center justify-center transition-opacity duration-200 ${
-                  selected
-                    ? 'pointer-events-auto'
-                    : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'
-                } group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected}
-                  onChange={() => onToggleSelection(key)}
-                  className="h-4 w-4 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
-                  aria-label="Select queue row"
-                />
-              </motion.label>
-            ) : null}
-            <AgentAvatar
-              name={item.runnerAgentName}
-              hint={`${item.runnerAgentId} ${item.runnerSource}`}
-              size="sm"
-            />
+            <div className="relative flex-shrink-0">
+              <AgentAvatar
+                name={item.runnerAgentName}
+                hint={`${item.runnerAgentId} ${item.runnerSource}`}
+                size="sm"
+              />
+              {selectionEnabled ? (
+                <motion.label
+                  initial={false}
+                  animate={{
+                    opacity: selected ? 1 : 0,
+                    scale: selected ? 1 : 0.8,
+                  }}
+                  transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+                  className={`absolute -left-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 backdrop-blur-sm ${
+                    selected
+                      ? 'pointer-events-auto'
+                      : 'pointer-events-none group-hover:pointer-events-auto group-hover:!opacity-100 group-hover:!scale-100 group-focus-within:pointer-events-auto group-focus-within:!opacity-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => onToggleSelection(key)}
+                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/50 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                    aria-label="Select queue row"
+                  />
+                </motion.label>
+              ) : null}
+            </div>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-1.5">
                 <EntityIcon type="initiative" size={11} className="flex-shrink-0 opacity-85" />
@@ -1416,7 +1394,7 @@ function NextUpReorderRow({
           </div>
         )}
 
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex items-center gap-1.5">
           <button
             type="button"
             disabled={isRowBusy || isRunningRow}
@@ -1439,6 +1417,24 @@ function NextUpReorderRow({
               <PlayGlyph className="h-3 w-3 opacity-85" />
               <span>{isRunningRow ? 'Running' : 'Start'}</span>
             </span>
+          </button>
+          <button
+            type="button"
+            onPointerDown={(event) => controls.start(event)}
+            aria-label="Drag to reorder"
+            title={isDragging ? 'Reordering' : 'Drag to reorder'}
+            className={`control-pill flex h-7 items-center justify-center gap-1 px-2 text-micro font-semibold transition-colors ${
+              isDragging
+                ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2] cursor-grabbing'
+                : 'cursor-grab hover:bg-white/[0.08] hover:text-bright'
+            }`}
+          >
+            {isDragging ? (
+              <HandGrabGlyph className="h-3.5 w-3.5 opacity-90" />
+            ) : (
+              <HandOpenGlyph className="h-3.5 w-3.5 opacity-90" />
+            )}
+            <span>{isDragging ? 'Reordering' : 'Drag'}</span>
           </button>
           <div className="relative ml-auto">
             <button
