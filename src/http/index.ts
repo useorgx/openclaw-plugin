@@ -1467,10 +1467,27 @@ function resolveSafeDistPath(subPath: string): string | null {
 // Helpers
 // =============================================================================
 
-const IMMUTABLE_FILE_CACHE = new Map<
-  string,
-  { content: Buffer; contentType: string }
->();
+type StaticCompressionEncoding = "br" | "gzip";
+
+type ImmutableFileCacheEntry = {
+  content: Buffer;
+  contentType: string;
+  contentEncoding: StaticCompressionEncoding | null;
+  varyAcceptEncoding: boolean;
+};
+
+const PRECOMPRESSED_FILE_EXTENSIONS = new Set([
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".map",
+  ".svg",
+  ".txt",
+  ".xml",
+]);
+
+const IMMUTABLE_FILE_CACHE = new Map<string, ImmutableFileCacheEntry>();
 const IMMUTABLE_FILE_CACHE_MAX = 128;
 const FILE_PREVIEW_MAX_BYTES = 1_000_000;
 const FILE_PREVIEW_MAX_DIR_ENTRIES = 300;
@@ -1564,42 +1581,152 @@ function readFilePreview(pathname: string, totalBytes: number): {
   }
 }
 
+function parseAcceptedEncodings(
+  rawHeader: string | null | undefined
+): Map<string, number> {
+  const parsed = new Map<string, number>();
+  if (!rawHeader || rawHeader.trim().length === 0) return parsed;
+
+  const parts = rawHeader.split(",");
+  for (const part of parts) {
+    const [nameRaw, ...params] = part.split(";");
+    const name = nameRaw?.trim().toLowerCase();
+    if (!name) continue;
+    let q = 1;
+    for (const param of params) {
+      const [keyRaw, valueRaw] = param.split("=");
+      const key = keyRaw?.trim().toLowerCase();
+      if (key !== "q") continue;
+      const candidate = Number.parseFloat((valueRaw ?? "").trim());
+      if (Number.isFinite(candidate)) {
+        q = candidate;
+      }
+    }
+    if (q <= 0) continue;
+    const existing = parsed.get(name);
+    if (existing == null || q > existing) {
+      parsed.set(name, q);
+    }
+  }
+  return parsed;
+}
+
+function resolveEncodingQuality(
+  accepted: Map<string, number>,
+  encoding: StaticCompressionEncoding
+): number {
+  if (accepted.has(encoding)) return accepted.get(encoding) ?? 0;
+  if (accepted.has("*")) return accepted.get("*") ?? 0;
+  return 0;
+}
+
+function resolvePrecompressedVariant(
+  req: PluginRequest,
+  filePath: string
+): { path: string; encoding: StaticCompressionEncoding } | null {
+  const ext = extname(filePath).toLowerCase();
+  if (!PRECOMPRESSED_FILE_EXTENSIONS.has(ext)) return null;
+
+  const accepted = parseAcceptedEncodings(
+    pickHeaderString(req.headers, ["accept-encoding"])
+  );
+  if (accepted.size === 0) return null;
+
+  const candidates: Array<{
+    encoding: StaticCompressionEncoding;
+    path: string;
+    quality: number;
+    priority: number;
+  }> = [
+    {
+      encoding: "br",
+      path: `${filePath}.br`,
+      quality: resolveEncodingQuality(accepted, "br"),
+      priority: 2,
+    },
+    {
+      encoding: "gzip",
+      path: `${filePath}.gz`,
+      quality: resolveEncodingQuality(accepted, "gzip"),
+      priority: 1,
+    },
+  ];
+
+  candidates.sort((left, right) => {
+    if (right.quality !== left.quality) return right.quality - left.quality;
+    return right.priority - left.priority;
+  });
+
+  for (const candidate of candidates) {
+    if (candidate.quality <= 0) continue;
+    if (existsSync(candidate.path)) {
+      return { path: candidate.path, encoding: candidate.encoding };
+    }
+  }
+  return null;
+}
+
 function sendFile(
+  req: PluginRequest,
   res: PluginResponse,
   filePath: string,
   cacheControl: string
 ): void {
   try {
     const shouldCacheImmutable = cacheControl.includes("immutable");
+    const shouldVaryByEncoding = PRECOMPRESSED_FILE_EXTENSIONS.has(
+      extname(filePath).toLowerCase()
+    );
+    const precompressed = resolvePrecompressedVariant(req, filePath);
+    const responsePath = precompressed?.path ?? filePath;
+    const responseEncoding = precompressed?.encoding ?? null;
+    const cacheKey = `${responsePath}|${cacheControl}`;
     if (shouldCacheImmutable) {
-      const cached = IMMUTABLE_FILE_CACHE.get(filePath);
+      const cached = IMMUTABLE_FILE_CACHE.get(cacheKey);
       if (cached) {
-        res.writeHead(200, {
+        const headers: Record<string, string> = {
           "Content-Type": cached.contentType,
           "Cache-Control": cacheControl,
           ...SECURITY_HEADERS,
           ...CORS_HEADERS,
+        };
+        if (cached.contentEncoding === "br") headers["Content-Encoding"] = "br";
+        if (cached.contentEncoding === "gzip") headers["Content-Encoding"] = "gzip";
+        if (cached.varyAcceptEncoding) headers["Vary"] = "Accept-Encoding";
+        res.writeHead(200, {
+          ...headers,
         });
         res.end(cached.content);
         return;
       }
     }
 
-    const content = readFileSync(filePath);
+    const content = readFileSync(responsePath);
     const type = contentType(filePath);
     if (shouldCacheImmutable) {
       if (IMMUTABLE_FILE_CACHE.size >= IMMUTABLE_FILE_CACHE_MAX) {
         const firstKey = IMMUTABLE_FILE_CACHE.keys().next().value as string | undefined;
         if (firstKey) IMMUTABLE_FILE_CACHE.delete(firstKey);
       }
-      IMMUTABLE_FILE_CACHE.set(filePath, { content, contentType: type });
+      IMMUTABLE_FILE_CACHE.set(cacheKey, {
+        content,
+        contentType: type,
+        contentEncoding: responseEncoding,
+        varyAcceptEncoding: shouldVaryByEncoding,
+      });
     }
-    res.writeHead(200, {
+
+    const headers: Record<string, string> = {
       "Content-Type": type,
       "Cache-Control": cacheControl,
       ...SECURITY_HEADERS,
       ...CORS_HEADERS,
-    });
+    };
+    if (responseEncoding === "br") headers["Content-Encoding"] = "br";
+    if (responseEncoding === "gzip") headers["Content-Encoding"] = "gzip";
+    if (shouldVaryByEncoding) headers["Vary"] = "Accept-Encoding";
+
+    res.writeHead(200, headers);
     res.end(content);
   } catch {
     send404(res);
@@ -1615,10 +1742,10 @@ function send404(res: PluginResponse): void {
   res.end("Not Found");
 }
 
-function sendIndexHtml(res: PluginResponse): void {
+function sendIndexHtml(req: PluginRequest, res: PluginResponse): void {
   const indexPath = join(DIST_DIR, "index.html");
   if (existsSync(indexPath)) {
-    sendFile(res, indexPath, "no-cache, no-store, must-revalidate");
+    sendFile(req, res, indexPath, "no-cache, no-store, must-revalidate");
   } else {
     res.writeHead(503, {
       "Content-Type": "text/html; charset=utf-8",
@@ -1944,6 +2071,8 @@ export function createHttpHandler(
     clearSnapshotResponseCache,
     resolveByokEnvOverrides,
     randomUUID,
+    fetchKickoffContextSafe,
+    renderKickoffMessage,
   });
 
   const nextUpQueueCache = new Map<
@@ -3372,6 +3501,7 @@ export function createHttpHandler(
               ? "no-cache"
               : "public, max-age=31536000, immutable";
           sendFile(
+            req,
             res,
             assetPath,
             cacheControl
@@ -3386,13 +3516,13 @@ export function createHttpHandler(
       if (subPath) {
         const filePath = resolveSafeDistPath(subPath);
         if (filePath && existsSync(filePath)) {
-          sendFile(res, filePath, "no-cache");
+          sendFile(req, res, filePath, "no-cache");
           return true;
         }
       }
 
       // SPA fallback: serve index.html for all other routes under /orgx/live
-      sendIndexHtml(res);
+      sendIndexHtml(req, res);
       return true;
     }
 

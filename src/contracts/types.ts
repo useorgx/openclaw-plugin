@@ -132,6 +132,23 @@ export interface KickoffContext {
     decision_auto_resolve_guarded_enabled?: boolean;
     custom_run_instructions?: string | null;
   } | null;
+
+  /** Recent team activity for cross-agent awareness. */
+  team_context?: {
+    recent_completions?: Array<{
+      domain: string;
+      task_title: string;
+      summary: string;
+      key_outputs?: string[];
+      completed_at: string;
+    }>;
+    recent_decisions?: Array<{
+      title: string;
+      resolution: string;
+      affected_domains?: string[];
+      resolved_at: string;
+    }>;
+  } | null;
 }
 
 export type KickoffContextRequest = KickoffContextScope & {

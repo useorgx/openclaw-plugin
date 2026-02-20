@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import type { OrgXClient } from "../../api.js";
 import type { Entity } from "../../types.js";
 import { upsertAgentContext, upsertRunContext } from "../../agent-context-store.js";
+import { appendTeamCompletion } from "../../team-context-store.js";
 import {
   readOpenClawGatewayPort,
   readOpenClawSettingsSnapshot,
@@ -38,6 +39,7 @@ import {
 } from "./mission-control.js";
 import { createAutopilotRuntime } from "./autopilot-runtime.js";
 import {
+  buildSliceOutputInstructions,
   buildWorkstreamSlicePrompt,
   createCodexBinResolver,
   ensureAutopilotSliceSchemaPath,
@@ -48,6 +50,7 @@ import {
   type CodexBinInfo,
 } from "./autopilot-slice-utils.js";
 import { pickString } from "./value-utils.js";
+import type { KickoffContext, KickoffContextRequest } from "../../types.js";
 
 export interface CreateAutoContinueEngineDeps {
   client: OrgXClient;
@@ -145,6 +148,16 @@ export interface CreateAutoContinueEngineDeps {
   clearSnapshotResponseCache: () => void;
   resolveByokEnvOverrides: () => Record<string, string | undefined>;
   randomUUID?: () => string;
+  fetchKickoffContextSafe?: (
+    client: OrgXClient,
+    payload: KickoffContextRequest,
+  ) => Promise<KickoffContext | null>;
+  renderKickoffMessage?: (input: {
+    baseMessage: string;
+    kickoff: KickoffContext | null;
+    domain: string | null;
+    requiredSkills: string[];
+  }) => { message: string; contextHash: string | null };
 }
 
 function resolveAutopilotDefaultCwd(filename: string): string {
@@ -177,6 +190,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     resolveByokEnvOverrides,
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
+  const fetchKickoffContextSafeFn = deps.fetchKickoffContextSafe ?? null;
+  const renderKickoffMessageFn = deps.renderKickoffMessage ?? null;
   const decisionAutoResolveGuardedEnabled =
     String(process.env.DECISION_AUTO_RESOLVE_GUARDED_ENABLED ?? "true")
       .trim()
@@ -1795,6 +1810,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           },
         });
 
+        // Append to local team context for cross-agent awareness on subsequent slices.
+        if (slice.status === "completed") {
+          try {
+            appendTeamCompletion(run.initiativeId, {
+              domain: slice.domain ?? "unknown",
+              task_title: slice.workstreamTitle ?? slice.workstreamId,
+              summary: parsed?.summary ?? "Completed.",
+              key_outputs: artifacts.map((a: { name?: string }) => a.name).filter(Boolean).slice(0, 5) as string[],
+              completed_at: new Date().toISOString(),
+            });
+          } catch {
+            // best effort: do not block the engine on store failure
+          }
+        }
+
 	        if (slice.status !== "completed") {
           let fallbackDecisionResult: DecisionRequestOutcome = {
             queued: false,
@@ -2779,18 +2809,69 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }));
 
     const schemaPath = ensureAutopilotSliceSchemaPath(AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
-    const prompt = buildWorkstreamSlicePrompt({
-      initiativeTitle,
-      initiativeId: run.initiativeId,
-      workstreamId: selectedWorkstreamId,
-      workstreamTitle: workstreamTitle ?? `Workstream ${selectedWorkstreamId.slice(0, 8)}`,
-      milestoneSummaries,
-      taskSummaries,
-      executionPolicy,
-      behaviorConfig,
-      runId: sliceRunId,
-      schemaPath,
-    });
+
+    // Try server KickoffContext (includes team context, acceptance criteria, etc.)
+    let prompt: string;
+    let kickoffContextHash: string | null = null;
+    if (fetchKickoffContextSafeFn && renderKickoffMessageFn) {
+      let kickoff: KickoffContext | null = null;
+      try {
+        kickoff = await fetchKickoffContextSafeFn(client, {
+          initiative_id: run.initiativeId,
+          workstream_id: selectedWorkstreamId,
+          task_id: primaryTask.id,
+          domain: executionPolicy.domain,
+          required_skills: executionPolicy.requiredSkills,
+          agent_id: resolveOrgxAgentForDomain(executionPolicy.domain).id,
+        });
+      } catch {
+        // best effort: fall back to local prompt
+      }
+
+      if (kickoff) {
+        const rendered = renderKickoffMessageFn({
+          baseMessage: `Execute workstream slice for ${workstreamTitle ?? selectedWorkstreamId}`,
+          kickoff,
+          domain: executionPolicy.domain,
+          requiredSkills: executionPolicy.requiredSkills,
+        });
+        const sliceInstructions = buildSliceOutputInstructions({
+          runId: sliceRunId,
+          schemaPath,
+          requiredSkills: executionPolicy.requiredSkills,
+        });
+        prompt = rendered.message + "\n\n" + sliceInstructions;
+        kickoffContextHash = rendered.contextHash;
+      } else {
+        // Fallback: existing local prompt (offline/degraded mode)
+        prompt = buildWorkstreamSlicePrompt({
+          initiativeTitle,
+          initiativeId: run.initiativeId,
+          workstreamId: selectedWorkstreamId,
+          workstreamTitle: workstreamTitle ?? `Workstream ${selectedWorkstreamId.slice(0, 8)}`,
+          milestoneSummaries,
+          taskSummaries,
+          executionPolicy,
+          behaviorConfig,
+          runId: sliceRunId,
+          schemaPath,
+        });
+      }
+    } else {
+      // No KickoffContext functions available: use local prompt
+      prompt = buildWorkstreamSlicePrompt({
+        initiativeTitle,
+        initiativeId: run.initiativeId,
+        workstreamId: selectedWorkstreamId,
+        workstreamTitle: workstreamTitle ?? `Workstream ${selectedWorkstreamId.slice(0, 8)}`,
+        milestoneSummaries,
+        taskSummaries,
+        executionPolicy,
+        behaviorConfig,
+        runId: sliceRunId,
+        schemaPath,
+      });
+    }
 
     const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
     const logPath = join(logsDir, `${sliceRunId}.log`);
@@ -2844,6 +2925,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               ORGX_BEHAVIOR_CONTEXT: behaviorConfig.context ?? undefined,
 	            ORGX_AGENT_ID: sliceAgent.id,
 	            ORGX_AGENT_NAME: sliceAgent.name,
+              ORGX_KICKOFF_CONTEXT_HASH: kickoffContextHash ?? undefined,
 	            ORGX_OUTPUT_PATH: outputPath,
 	            ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
 	            ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,

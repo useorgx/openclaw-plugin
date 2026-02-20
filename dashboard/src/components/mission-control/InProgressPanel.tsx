@@ -24,7 +24,7 @@ function isFreshHeartbeat(value: string | null | undefined): boolean {
   return Date.now() - parsed <= LIVE_HEARTBEAT_WINDOW_MS;
 }
 
-function isInProgress(session: SessionTreeNode): boolean {
+export function isInProgressSession(session: SessionTreeNode): boolean {
   const status = normalizeStatus(session.status ?? '');
   const runtimeState = normalizeStatus(session.state ?? '');
   if (runtimeState === 'stale' || status === 'stale') return false;
@@ -90,6 +90,153 @@ export type InProgressRow = {
   updatedAt: string | null;
 };
 
+interface SelectInProgressRowsInput {
+  sessions: SessionTreeNode[];
+  sliceRuns?: SliceRunProjection[];
+  initiatives?: Initiative[];
+}
+
+export function selectInProgressRows({
+  sessions,
+  sliceRuns = [],
+  initiatives = [],
+}: SelectInProgressRowsInput): InProgressRow[] {
+  const initiativeNameById = new Map<string, string>();
+  for (const item of initiatives) {
+    if (!item.id) continue;
+    initiativeNameById.set(item.id, item.name ?? item.id);
+  }
+
+  const sessionByRunId = new Map<string, SessionTreeNode>();
+  for (const session of sessions) {
+    const runId = session.runId?.trim();
+    if (!runId || sessionByRunId.has(runId)) continue;
+    sessionByRunId.set(runId, session);
+  }
+
+  const sessionByScope = new Map<string, SessionTreeNode>();
+  for (const session of sessions) {
+    const initiativeId = session.initiativeId?.trim() ?? '';
+    const workstreamId = session.workstreamId?.trim() ?? '';
+    if (!initiativeId || !workstreamId) continue;
+    const key = `${initiativeId}:${workstreamId}`;
+    if (!sessionByScope.has(key)) {
+      sessionByScope.set(key, session);
+    }
+  }
+
+  const sessionRunIdsInScope = new Set<string>();
+  for (const session of sessions) {
+    const runId = session.runId?.trim();
+    if (runId) sessionRunIdsInScope.add(runId);
+  }
+
+  const runningSliceRows: InProgressRow[] = [];
+  for (const slice of sliceRuns) {
+    if (!SLICE_RUNNING_STATUSES.has(slice.status)) continue;
+    const runId = (slice.runId ?? slice.sliceRunId ?? '').trim();
+    if (!runId) continue;
+    const initiativeIds = normalizeLineageIds(slice.initiativeIds, slice.initiativeId);
+    const workstreamIds = normalizeLineageIds(slice.workstreamIds, slice.workstreamId);
+    const primaryInitiativeId = initiativeIds[0] ?? null;
+    const primaryWorkstreamId = workstreamIds[0] ?? null;
+    const scopeKeys: string[] = [];
+    for (const iId of initiativeIds) {
+      for (const wId of workstreamIds) {
+        if (!iId || !wId) continue;
+        scopeKeys.push(`${iId}:${wId}`);
+      }
+    }
+
+    const inScopedSessions =
+      sessionRunIdsInScope.has(runId) || scopeKeys.some((key) => sessionByScope.has(key));
+    if (!inScopedSessions) continue;
+
+    const linkedSession =
+      sessionByRunId.get(runId) ??
+      (scopeKeys.length > 0
+        ? scopeKeys
+            .map((key) => sessionByScope.get(key) ?? null)
+            .find((session): session is SessionTreeNode => Boolean(session)) ?? null
+        : null);
+    const initiativeTitle = primaryInitiativeId
+      ? initiativeNameById.get(primaryInitiativeId) ?? primaryInitiativeId
+      : null;
+
+    runningSliceRows.push({
+      key: `slice:${slice.sliceRunId}`,
+      source: 'slice',
+      session: linkedSession ?? null,
+      runId,
+      status: normalizeStatus(slice.status),
+      title: slice.workstreamTitle ?? linkedSession?.title ?? `Work slice ${slice.sliceRunId.slice(0, 8)}`,
+      subtitle: slice.statusExplainer ?? slice.lastEventSummary ?? linkedSession?.lastEventSummary ?? null,
+      progress: linkedSession?.progress ?? null,
+      initiativeId: primaryInitiativeId,
+      initiativeIds,
+      initiativeTitle,
+      workstreamId: primaryWorkstreamId,
+      workstreamIds,
+      iwmtId: slice.iwmtId ?? null,
+      iwmtIds: normalizeLineageIds(slice.iwmtIds, slice.iwmtId),
+      workstreamTitle: slice.workstreamTitle ?? linkedSession?.title ?? null,
+      taskIds: Array.isArray(slice.taskIds) ? slice.taskIds : [],
+      milestoneIds: Array.isArray(slice.milestoneIds) ? slice.milestoneIds : [],
+      artifactCount: slice.artifactCount ?? 0,
+      decisionCount: slice.blockingDecisionCount ?? slice.decisionCount ?? 0,
+      updatedAt: slice.updatedAt ?? slice.lastEventAt ?? linkedSession?.updatedAt ?? null,
+    });
+  }
+
+  runningSliceRows.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
+  if (runningSliceRows.length > 0) return runningSliceRows;
+
+  const fallbackSessions = sessions.filter(isInProgressSession);
+  fallbackSessions.sort((a, b) => {
+    const safeA = toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt);
+    const safeB = toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt);
+    return safeB - safeA;
+  });
+
+  const deduped: SessionTreeNode[] = [];
+  const seen = new Set<string>();
+  for (const session of fallbackSessions) {
+    const dedupeKey =
+      session.workstreamId && session.workstreamId.trim().length > 0
+        ? `${session.initiativeId ?? 'none'}:${session.workstreamId}`
+        : session.runId;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    deduped.push(session);
+  }
+
+  return deduped.map((session) => ({
+    key: `session:${session.id}`,
+    source: 'session',
+    session,
+    runId: session.runId,
+    status: normalizeStatus(session.status ?? ''),
+    title: session.title,
+    subtitle: session.lastEventSummary?.trim() ? session.lastEventSummary.trim() : null,
+    progress: session.progress,
+    initiativeId: session.initiativeId,
+    initiativeIds: normalizeLineageIds(undefined, session.initiativeId),
+    initiativeTitle: session.initiativeId
+      ? initiativeNameById.get(session.initiativeId) ?? session.groupLabel ?? null
+      : session.groupLabel ?? null,
+    workstreamId: session.workstreamId,
+    workstreamIds: normalizeLineageIds(undefined, session.workstreamId),
+    iwmtId: null,
+    iwmtIds: [],
+    workstreamTitle: session.title,
+    taskIds: [],
+    milestoneIds: [],
+    artifactCount: 0,
+    decisionCount: 0,
+    updatedAt: session.updatedAt ?? session.lastEventAt ?? session.startedAt ?? null,
+  }));
+}
+
 interface InProgressPanelProps {
   sessions: SessionTreeNode[];
   sliceRuns?: SliceRunProjection[];
@@ -130,48 +277,6 @@ export const InProgressPanel = memo(function InProgressPanel({
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const initiativeNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of initiatives) {
-      if (!item.id) continue;
-      map.set(item.id, item.name ?? item.id);
-    }
-    return map;
-  }, [initiatives]);
-
-  const sessionByRunId = useMemo(() => {
-    const map = new Map<string, SessionTreeNode>();
-    for (const session of sessions) {
-      const runId = session.runId?.trim();
-      if (!runId || map.has(runId)) continue;
-      map.set(runId, session);
-    }
-    return map;
-  }, [sessions]);
-
-  const sessionByScope = useMemo(() => {
-    const map = new Map<string, SessionTreeNode>();
-    for (const session of sessions) {
-      const initiativeId = session.initiativeId?.trim() ?? '';
-      const workstreamId = session.workstreamId?.trim() ?? '';
-      if (!initiativeId || !workstreamId) continue;
-      const key = `${initiativeId}:${workstreamId}`;
-      if (!map.has(key)) {
-        map.set(key, session);
-      }
-    }
-    return map;
-  }, [sessions]);
-
-  const sessionRunIdsInScope = useMemo(() => {
-    const set = new Set<string>();
-    for (const session of sessions) {
-      const runId = session.runId?.trim();
-      if (runId) set.add(runId);
-    }
-    return set;
-  }, [sessions]);
-
   const sliceRunByScope = useMemo(() => {
     const map = new Map<string, SliceRunProjection>();
     if (!Array.isArray(sliceRuns)) return map;
@@ -191,125 +296,15 @@ export const InProgressPanel = memo(function InProgressPanel({
     return map;
   }, [sliceRuns]);
 
-  const runningSliceRows = useMemo<InProgressRow[]>(() => {
-    if (!Array.isArray(sliceRuns) || sliceRuns.length === 0) return [];
-
-    const rows: InProgressRow[] = [];
-    for (const slice of sliceRuns) {
-      if (!SLICE_RUNNING_STATUSES.has(slice.status)) continue;
-      const runId = (slice.runId ?? slice.sliceRunId ?? '').trim();
-      if (!runId) continue;
-      const initiativeIds = normalizeLineageIds(slice.initiativeIds, slice.initiativeId);
-      const workstreamIds = normalizeLineageIds(slice.workstreamIds, slice.workstreamId);
-      const primaryInitiativeId = initiativeIds[0] ?? null;
-      const primaryWorkstreamId = workstreamIds[0] ?? null;
-      const scopeKeys: string[] = [];
-      for (const iId of initiativeIds) {
-        for (const wId of workstreamIds) {
-          if (!iId || !wId) continue;
-          scopeKeys.push(`${iId}:${wId}`);
-        }
-      }
-
-      const inScopedSessions =
-        sessionRunIdsInScope.has(runId) ||
-        scopeKeys.some((key) => sessionByScope.has(key));
-      if (!inScopedSessions) continue;
-
-      const linkedSession =
-        sessionByRunId.get(runId) ??
-        (scopeKeys.length > 0
-          ? scopeKeys
-              .map((key) => sessionByScope.get(key) ?? null)
-              .find((session): session is SessionTreeNode => Boolean(session)) ?? null
-          : null);
-      const initiativeTitle =
-        primaryInitiativeId
-          ? initiativeNameById.get(primaryInitiativeId) ?? primaryInitiativeId
-          : null;
-
-      rows.push({
-        key: `slice:${slice.sliceRunId}`,
-        source: 'slice',
-        session: linkedSession ?? null,
-        runId,
-        status: normalizeStatus(slice.status),
-        title:
-          slice.workstreamTitle ??
-          linkedSession?.title ??
-          `Work slice ${slice.sliceRunId.slice(0, 8)}`,
-        subtitle: slice.statusExplainer ?? slice.lastEventSummary ?? linkedSession?.lastEventSummary ?? null,
-        progress: linkedSession?.progress ?? null,
-        initiativeId: primaryInitiativeId,
-        initiativeIds,
-        initiativeTitle,
-        workstreamId: primaryWorkstreamId,
-        workstreamIds,
-        iwmtId: slice.iwmtId ?? null,
-        iwmtIds: normalizeLineageIds(slice.iwmtIds, slice.iwmtId),
-        workstreamTitle: slice.workstreamTitle ?? linkedSession?.title ?? null,
-        taskIds: Array.isArray(slice.taskIds) ? slice.taskIds : [],
-        milestoneIds: Array.isArray(slice.milestoneIds) ? slice.milestoneIds : [],
-        artifactCount: slice.artifactCount ?? 0,
-        decisionCount: slice.blockingDecisionCount ?? slice.decisionCount ?? 0,
-        updatedAt: slice.updatedAt ?? slice.lastEventAt ?? linkedSession?.updatedAt ?? null,
-      });
-    }
-
-    rows.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
-    return rows;
-  }, [initiativeNameById, sessionByRunId, sessionByScope, sessionRunIdsInScope, sliceRuns]);
-
-  const fallbackSessionRows = useMemo<InProgressRow[]>(() => {
-    const rows = sessions.filter(isInProgress);
-    rows.sort((a, b) => {
-      const safeA = toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt);
-      const safeB = toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt);
-      return safeB - safeA;
-    });
-    const deduped: SessionTreeNode[] = [];
-    const seen = new Set<string>();
-    for (const session of rows) {
-      const dedupeKey =
-        session.workstreamId && session.workstreamId.trim().length > 0
-          ? `${session.initiativeId ?? 'none'}:${session.workstreamId}`
-          : session.runId;
-      if (seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-      deduped.push(session);
-    }
-    return deduped.map((session) => ({
-      key: `session:${session.id}`,
-      source: 'session',
-      session,
-      runId: session.runId,
-      status: normalizeStatus(session.status ?? ''),
-      title: session.title,
-      subtitle: session.lastEventSummary?.trim()
-        ? session.lastEventSummary.trim()
-        : session.lastEventAt
-          ? `Updated ${formatRelativeTime(session.lastEventAt)}`
-          : null,
-      progress: session.progress,
-      initiativeId: session.initiativeId,
-      initiativeIds: normalizeLineageIds(undefined, session.initiativeId),
-      initiativeTitle: session.initiativeId
-        ? initiativeNameById.get(session.initiativeId) ?? session.groupLabel ?? null
-        : session.groupLabel ?? null,
-      workstreamId: session.workstreamId,
-      workstreamIds: normalizeLineageIds(undefined, session.workstreamId),
-      iwmtId: null,
-      iwmtIds: [],
-      workstreamTitle: session.title,
-      taskIds: [],
-      milestoneIds: [],
-      artifactCount: 0,
-      decisionCount: 0,
-      updatedAt: session.updatedAt ?? session.lastEventAt ?? session.startedAt ?? null,
-    }));
-  }, [initiativeNameById, sessions]);
-
-  const rows = runningSliceRows.length > 0 ? runningSliceRows : fallbackSessionRows;
+  const rows = useMemo(
+    () =>
+      selectInProgressRows({
+        sessions,
+        sliceRuns,
+        initiatives,
+      }),
+    [initiatives, sessions, sliceRuns]
+  );
 
   const statusOptions = useMemo(() => {
     const counts = new Map<string, number>();

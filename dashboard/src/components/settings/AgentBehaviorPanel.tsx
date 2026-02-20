@@ -271,7 +271,14 @@ export function AgentBehaviorPanel({
     }
   };
 
-  const runtimeSettingsUnavailable = Boolean(suite.runtimeSettingsError);
+  const runtimeSettingsError = suite.runtimeSettingsError?.trim() ?? null;
+  const runtimeSettingsHasError = Boolean(runtimeSettingsError);
+  const runtimeSettingsEndpointUnavailable = Boolean(
+    runtimeSettingsError &&
+      (runtimeSettingsError.toLowerCase().includes('endpoint is not available') ||
+        runtimeSettingsError.includes('(404)'))
+  );
+  const runtimeSettingsUnavailable = runtimeSettingsHasError;
 
   if (suite.isLoading) {
     return (
@@ -317,7 +324,9 @@ export function AgentBehaviorPanel({
             <h3 className="text-heading font-semibold text-white">Agent runtime settings</h3>
             <p className="mt-1 text-body leading-relaxed text-secondary">
               {runtimeSettingsUnavailable
-                ? 'Viewing agent suite roster. Runtime configuration requires a plugin rebuild.'
+                ? runtimeSettingsEndpointUnavailable
+                  ? 'Viewing agent suite roster. Runtime configuration requires a plugin rebuild.'
+                  : 'Viewing agent suite roster. Runtime configuration is temporarily unavailable.'
                 : 'Configure decision guardrails and persistent run instructions per agent.'}
             </p>
           </div>
@@ -343,12 +352,25 @@ export function AgentBehaviorPanel({
 
       {runtimeSettingsUnavailable && (
         <div className="rounded-xl border border-amber-300/20 bg-[#12100A]/95 px-4 py-3">
-          <p className="text-caption font-medium text-amber-100">
-            Runtime settings endpoint is not available in the running plugin build.
-          </p>
-          <p className="mt-1 text-caption text-amber-100/70">
-            Rebuild the plugin server to enable per-agent configuration. Agent roster is shown below.
-          </p>
+          {runtimeSettingsEndpointUnavailable ? (
+            <>
+              <p className="text-caption font-medium text-amber-100">
+                Runtime settings endpoint is not available in the running plugin build.
+              </p>
+              <p className="mt-1 text-caption text-amber-100/70">
+                Rebuild the plugin server to enable per-agent configuration. Agent roster is shown below.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-caption font-medium text-amber-100">
+                Runtime settings could not be loaded from the OrgX API.
+              </p>
+              <p className="mt-1 text-caption text-amber-100/70">
+                {runtimeSettingsError}
+              </p>
+            </>
+          )}
         </div>
       )}
 

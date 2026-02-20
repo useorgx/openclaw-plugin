@@ -5,11 +5,13 @@ import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/lib/humanize';
+import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   Initiative,
   LiveActivityItem,
   LiveActivityType,
   SessionTreeNode,
+  SliceRunProjection,
   SliceTimelineNarrativeProjectionV2,
 } from '@/types';
 import { MarkdownText } from '@/components/shared/MarkdownText';
@@ -29,6 +31,7 @@ import { ActivityDetailModal } from './ActivityDetailModal';
 interface ActivityTimelineProps {
   activity: LiveActivityItem[];
   sessions: SessionTreeNode[];
+  sliceRuns?: SliceRunProjection[];
   initiatives?: Initiative[];
   timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
   selectedRunIds: string[];
@@ -72,6 +75,7 @@ interface DecoratedActivityItem {
   bucket: ActivityBucket;
   userState: ActivityUserState;
   userStateWhy: string;
+  canonicalProjection: CanonicalRunProjection;
   runId: string | null;
   timestampEpoch: number;
   searchText: string;
@@ -670,25 +674,6 @@ function dayLabel(dayKey: string): string {
   });
 }
 
-function isInProgressStatus(status: string): boolean {
-  return [
-    'running',
-    'dispatching',
-    'queued',
-    'in_progress',
-    'pending',
-    'resumed',
-  ].includes(status);
-}
-
-function isIssueStatus(status: string): boolean {
-  return ['failed', 'error', 'blocked', 'timeout'].includes(status);
-}
-
-function isCompletedStatus(status: string): boolean {
-  return ['completed', 'done', 'resolved', 'success', 'succeeded'].includes(status);
-}
-
 function userStateLabel(state: ActivityUserState): string {
   if (state === 'completed') return 'Completed';
   if (state === 'needs_input') return 'Needs attention';
@@ -706,79 +691,32 @@ function userStateColor(state: ActivityUserState): string {
 }
 
 function resolveActivityUserState(
-  item: LiveActivityItem,
   bucket: ActivityBucket,
-  sessionStatus: string | null
+  projection: CanonicalRunProjection
 ): { state: ActivityUserState; why: string } {
-  const metadata = metadataForItem(item);
-  const statusHint = normalizeStatusKey(
-    metadataString(metadata, [
-      'status',
-      'state',
-      'phase',
-      'lifecycle_state',
-      'lifecycleState',
-      'parsed_status',
-      'parsedStatus',
-      'run_status',
-      'runStatus',
-      'stop_reason',
-      'stopReason',
-    ]) ?? sessionStatus ?? ''
-  );
-  const blockingDecisions =
-    metadataCount(metadata, [
-      'blocking_decisions',
-      'blockingDecisions',
-      'blocking_decision_count',
-      'blockingDecisionCount',
-    ]) ?? 0;
-  const nonBlockingDecisions =
-    metadataCount(metadata, [
-      'non_blocking_decisions',
-      'nonBlockingDecisions',
-      'decision_count',
-      'decisionCount',
-      'decisions',
-    ]) ?? 0;
-
-  if (
-    item.type === 'run_failed' ||
-    item.type === 'blocker_created' ||
-    isIssueStatus(statusHint)
-  ) {
-    return { state: 'issue', why: 'Execution encountered an error or blocker.' };
+  if (projection.status === 'failed') {
+    return { state: 'issue', why: projection.sentence };
   }
-
-  if (
-    item.decisionRequired === true ||
-    blockingDecisions > 0 ||
-    item.type === 'decision_requested'
-  ) {
-    return { state: 'needs_input', why: 'Waiting on a decision to continue.' };
+  if (projection.status === 'needs_attention') {
+    const nextAction = projection.nextAction?.toLowerCase() ?? '';
+    const needsDecision = nextAction.includes('decision');
+    return {
+      state: needsDecision ? 'needs_input' : 'issue',
+      why: projection.sentence,
+    };
   }
-
-  if (isInProgressStatus(statusHint) || item.type === 'run_started') {
-    return { state: 'in_progress', why: 'Execution is currently active.' };
+  if (projection.status === 'in_progress') {
+    return { state: 'in_progress', why: projection.sentence };
   }
-
-  if (
-    item.type === 'run_completed' ||
-    item.type === 'milestone_completed' ||
-    item.type === 'decision_resolved' ||
-    isCompletedStatus(statusHint)
-  ) {
-    if (nonBlockingDecisions > 0) {
-      return { state: 'completed', why: 'Completed with optional follow-up decisions.' };
-    }
-    return { state: 'completed', why: 'Execution completed successfully.' };
+  if (projection.status === 'completed') {
+    return { state: 'completed', why: projection.sentence };
   }
 
   if (bucket === 'artifact') {
     return { state: 'completed', why: 'Produced an artifact output.' };
   }
 
-  return { state: 'update', why: 'Informational activity update.' };
+  return { state: 'update', why: projection.sentence };
 }
 
 function metadataToJson(metadata: Record<string, unknown> | undefined): string | null {
@@ -1821,6 +1759,7 @@ type AutopilotProgressDetail = {
   source: 'metadata' | 'session' | 'lifecycle';
   label: string;
   tone: AutopilotProgressTone;
+  terminalStop: boolean;
 };
 
 function normalizeStatusKey(value: string | null | undefined): string {
@@ -1882,30 +1821,41 @@ function resolveAutopilotProgress(
   sessionProgress: number | null
 ): AutopilotProgressDetail | null {
   if (!detail && sessionProgress === null) return null;
+  const tone = detail ? progressToneForAutopilot(detail) : 'neutral';
+  const isTerminalStopFor = (pct: number) =>
+    pct >= 100 && (tone === 'warning' || tone === 'critical');
+  const stoppedLabel = 'Reached a terminal blocked state. Resolve blockers to continue.';
   if (detail?.progressPct !== null && detail?.progressPct !== undefined) {
+    const pct = coerceProgressPercent(detail.progressPct) ?? 0;
+    const terminalStop = isTerminalStopFor(pct);
     return {
-      pct: coerceProgressPercent(detail.progressPct) ?? 0,
+      pct,
       source: 'metadata',
-      label: 'Reported by slice metadata',
-      tone: detail ? progressToneForAutopilot(detail) : 'neutral',
+      label: terminalStop ? stoppedLabel : 'Reported by slice metadata',
+      tone,
+      terminalStop,
     };
   }
   if (sessionProgress !== null) {
+    const terminalStop = isTerminalStopFor(sessionProgress);
     return {
       pct: sessionProgress,
       source: 'session',
-      label: 'Derived from runtime session',
-      tone: detail ? progressToneForAutopilot(detail) : 'neutral',
+      label: terminalStop ? stoppedLabel : 'Derived from runtime session',
+      tone,
+      terminalStop,
     };
   }
   if (!detail) return null;
   const lifecycle = inferLifecycleProgress(detail);
   if (lifecycle === null) return null;
+  const terminalStop = isTerminalStopFor(lifecycle);
   return {
     pct: lifecycle,
     source: 'lifecycle',
-    label: 'Estimated from dispatch lifecycle',
-    tone: progressToneForAutopilot(detail),
+    label: terminalStop ? stoppedLabel : 'Estimated from dispatch lifecycle',
+    tone,
+    terminalStop,
   };
 }
 
@@ -1927,7 +1877,8 @@ function describeDetailOutcome(
     nonBlockingDecisions: number | null;
     stopReason: string | null;
     parsedStatus: string | null;
-  } | null
+  } | null,
+  canonicalProjection: CanonicalRunProjection | null = null
 ): DetailOutcome | null {
   const metadata = metadataForItem(item);
   const eventName = normalizeStatusKey(
@@ -2045,6 +1996,53 @@ function describeDetailOutcome(
       hint: 'Review guard checks, then retry or approve an override.',
       tone: 'critical',
     };
+  }
+
+  if (canonicalProjection) {
+    if (canonicalProjection.status === 'completed') {
+      return {
+        label: inferredNonBlockingDecisions > 0 ? 'Completed + follow-up' : 'Completed',
+        summary:
+          inferredNonBlockingDecisions > 0
+            ? `Execution completed. ${inferredNonBlockingDecisions} non-blocking decision${inferredNonBlockingDecisions === 1 ? '' : 's'} were logged for optional follow-up.`
+            : canonicalProjection.sentence,
+        hint: canonicalProjection.nextAction,
+        tone: 'positive',
+      };
+    }
+    if (canonicalProjection.status === 'failed') {
+      return {
+        label: 'Failed',
+        summary: blockedReason
+          ? humanizeActivityBody(blockedReason) ?? canonicalProjection.sentence
+          : canonicalProjection.sentence,
+        hint: canonicalProjection.nextAction,
+        tone: 'critical',
+      };
+    }
+    if (canonicalProjection.status === 'needs_attention') {
+      const decisionLike =
+        decisionsNeeded ||
+        (canonicalProjection.nextAction?.toLowerCase().includes('decision') ?? false);
+      return {
+        label: decisionLike ? 'Needs decision' : 'Needs attention',
+        summary: canonicalProjection.sentence,
+        hint:
+          canonicalProjection.nextAction ??
+          (decisionLike
+            ? 'Review the Decisions panel and resolve the pending item.'
+            : 'Review blocker details and resume when resolved.'),
+        tone: decisionLike ? 'warning' : 'critical',
+      };
+    }
+    if (canonicalProjection.status === 'in_progress') {
+      return {
+        label: 'In progress',
+        summary: canonicalProjection.sentence,
+        hint: null,
+        tone: 'neutral',
+      };
+    }
   }
 
   if (
@@ -2394,6 +2392,7 @@ function summarizeDetailHeadline(
 export const ActivityTimeline = memo(function ActivityTimeline({
   activity,
   sessions,
+  sliceRuns = [],
   initiatives = [],
   timelineNarrative = [],
   selectedRunIds,
@@ -2505,6 +2504,62 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return map;
   }, [sessions]);
+  const sessionSnapshotByRunId = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        status: string | null;
+        phase: string | null;
+        state: string | null;
+        blockerCount: number;
+        blockerReason: string | null;
+      }
+    >();
+    for (const session of sessions) {
+      const snapshot = {
+        status: session.status ?? null,
+        phase: session.phase ?? null,
+        state: session.state ?? null,
+        blockerCount: Array.isArray(session.blockers) ? session.blockers.length : 0,
+        blockerReason: session.blockerReason ?? session.blockerDiagnostics?.reason ?? null,
+      };
+      map.set(session.runId, snapshot);
+      map.set(session.id, snapshot);
+    }
+    return map;
+  }, [sessions]);
+  const sliceSnapshotByRunId = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        status: string | null;
+        blockingDecisions: number;
+        nonBlockingDecisions: number;
+        updatedEpoch: number;
+      }
+    >();
+    for (const slice of sliceRuns) {
+      const snapshot = {
+        status: slice.status ?? null,
+        blockingDecisions: Math.max(0, slice.blockingDecisionCount ?? 0),
+        nonBlockingDecisions: Math.max(
+          0,
+          (slice.decisionCount ?? 0) - (slice.blockingDecisionCount ?? 0)
+        ),
+        updatedEpoch: toEpoch(slice.updatedAt ?? slice.lastEventAt ?? slice.startedAt ?? null),
+      };
+      const keys = [slice.runId, slice.sliceRunId]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+      for (const key of keys) {
+        const existing = map.get(key);
+        if (!existing || snapshot.updatedEpoch >= existing.updatedEpoch) {
+          map.set(key, snapshot);
+        }
+      }
+    }
+    return map;
+  }, [sliceRuns]);
   const sessionProgressById = useMemo(() => {
     const map = new Map<string, number>();
     for (const session of sessions) {
@@ -2564,14 +2619,53 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return activity.map((item) => {
       const runId = resolveRunId(item);
       const bucket = classifyActivity(item);
-      const sessionStatus = runId ? sessionStatusById.get(runId) ?? null : null;
-      const userState = resolveActivityUserState(item, bucket, sessionStatus);
+      const metadata = metadataForItem(item);
+      const sessionSnapshot = runId ? sessionSnapshotByRunId.get(runId) ?? null : null;
+      const sliceSnapshot = runId ? sliceSnapshotByRunId.get(runId) ?? null : null;
+      const projection = projectRunStatus({
+        sessionStatus: sessionSnapshot?.status ?? (runId ? sessionStatusById.get(runId) ?? null : null),
+        sessionPhase: sessionSnapshot?.phase ?? null,
+        sessionState: sessionSnapshot?.state ?? null,
+        sliceStatus: sliceSnapshot?.status ?? null,
+        activityType: item.type,
+        activityStatus: metadataString(metadata, [
+          'status',
+          'state',
+          'phase',
+          'lifecycle_state',
+          'lifecycleState',
+          'parsed_status',
+          'parsedStatus',
+          'run_status',
+          'runStatus',
+        ]),
+        stopReason: metadataString(metadata, ['stop_reason', 'stopReason']),
+        decisionRequired: item.decisionRequired ?? false,
+        blockingDecisionCount:
+          metadataCount(metadata, [
+            'blocking_decisions',
+            'blockingDecisions',
+            'blocking_decision_count',
+            'blockingDecisionCount',
+          ]) ?? sliceSnapshot?.blockingDecisions ?? 0,
+        nonBlockingDecisionCount:
+          metadataCount(metadata, [
+            'non_blocking_decisions',
+            'nonBlockingDecisions',
+            'decision_count',
+            'decisionCount',
+            'decisions',
+          ]) ?? sliceSnapshot?.nonBlockingDecisions ?? 0,
+        blockerCount: sessionSnapshot?.blockerCount ?? 0,
+        blockerReason: sessionSnapshot?.blockerReason ?? null,
+      });
+      const userState = resolveActivityUserState(bucket, projection);
       const searchText = [
         item.title,
         item.description,
         item.summary,
         item.agentName,
-        textFromMetadata(metadataForItem(item)),
+        textFromMetadata(metadata),
       ]
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
         .join(' ')
@@ -2582,12 +2676,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         bucket,
         userState: userState.state,
         userStateWhy: userState.why,
+        canonicalProjection: projection,
         runId,
         timestampEpoch: toEpoch(item.timestamp),
         searchText,
       } satisfies DecoratedActivityItem;
     });
-  }, [activity, sessionStatusById]);
+  }, [activity, sessionSnapshotByRunId, sessionStatusById, sliceSnapshotByRunId]);
 
   const isLive = useMemo(() => {
     let newest = 0;
@@ -3044,19 +3139,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     () =>
       activeDecorated
         ? describeDetailOutcome(
-            activeDecorated.item,
-            activeAutopilotContext,
-            activeExecutionBreakdown
-              ? {
-                  decisions: activeExecutionBreakdown.decisions,
-                  blockingDecisions: activeExecutionBreakdown.blockingDecisions,
-                  nonBlockingDecisions: activeExecutionBreakdown.nonBlockingDecisions,
-                  stopReason: activeExecutionBreakdown.stopReason,
-                  parsedStatus: activeExecutionBreakdown.parsedStatus,
-                }
-              : null
-          )
-        : null,
+          activeDecorated.item,
+          activeAutopilotContext,
+          activeExecutionBreakdown
+            ? {
+                decisions: activeExecutionBreakdown.decisions,
+                blockingDecisions: activeExecutionBreakdown.blockingDecisions,
+                nonBlockingDecisions: activeExecutionBreakdown.nonBlockingDecisions,
+                stopReason: activeExecutionBreakdown.stopReason,
+                parsedStatus: activeExecutionBreakdown.parsedStatus,
+              }
+            : null,
+          activeDecorated.canonicalProjection ?? null
+        )
+      : null,
     [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]
   );
   const activeResultItems = useMemo(() => {
@@ -3127,6 +3223,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     if (activeAutopilotProgress.tone === 'critical') return colors.red;
     return colors.teal;
   }, [activeAutopilotProgress]);
+  const activeAutopilotProgressIsTerminalStop = activeAutopilotProgress?.terminalStop === true;
   const activeProvenance = useMemo(
     () => extractProvenance(metadataForItem(activeDecorated?.item ?? null)),
     [activeDecorated]
@@ -3877,7 +3974,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       {hasSessionFilter && (
                         <button
                           onClick={onClearSelection}
-                          className="chip inline-flex min-w-0 items-center gap-2"
+                          className="chip chip-avatar inline-flex min-w-0 items-center"
                           aria-label="Clear session filter"
                         >
                           {shouldUseProviderLogo(filteredSessionProvider.id) ? (
@@ -3918,7 +4015,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       {agentFilter && (
                         <button
                           onClick={onClearAgentFilter}
-                          className="chip inline-flex min-w-0 items-center gap-2"
+                          className="chip chip-avatar inline-flex min-w-0 items-center"
                           style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
                           aria-label="Clear agent filter"
                         >
@@ -4656,16 +4753,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                          </p>
 	                        )}
 
-	                        {activeAutopilotProgress && (
-	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-	                            <div className="flex items-center justify-between gap-2">
-	                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
-	                                Progress
-	                              </p>
-	                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
-	                                {activeAutopilotProgress.pct}%
-	                              </p>
-	                            </div>
+		                        {activeAutopilotProgress && (
+		                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
+		                            <div className="flex items-center justify-between gap-2">
+		                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
+		                                {activeAutopilotProgressIsTerminalStop ? 'Terminal state' : 'Progress'}
+		                              </p>
+		                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
+		                                {activeAutopilotProgressIsTerminalStop
+		                                  ? activeOutcome?.label ?? 'Stopped'
+		                                  : `${activeAutopilotProgress.pct}%`}
+		                              </p>
+		                            </div>
 	                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
 	                              <div
 	                                className="h-full rounded-full transition-[width] duration-300"

@@ -497,6 +497,97 @@ export function createCodexBinResolver() {
   };
 }
 
+function normalizeSkillName(skill: string): string {
+  return skill.replace(/^\$/, "").trim();
+}
+
+function skillAliasesFor(skill: string): string[] {
+  const normalized = normalizeSkillName(skill);
+  if (!normalized) return [];
+  const aliases = [normalized];
+  if (normalized.startsWith("orgx-")) aliases.push(normalized.slice("orgx-".length));
+  if (normalized.endsWith("-agent")) aliases.push(normalized.slice(0, -"-agent".length));
+  return Array.from(new Set(aliases.filter(Boolean)));
+}
+
+function buildSkillHints(requiredSkills: string[]): Array<{ skill: string; hintPaths: string[] }> {
+  return requiredSkills
+    .map((skill) => {
+      const normalized = normalizeSkillName(skill);
+      const aliases = skillAliasesFor(normalized);
+      const hintPaths = aliases
+        .flatMap((alias) => [
+          join(homedir(), ".codex", "skills", alias, "SKILL.md"),
+          join(homedir(), ".agents", "skills", alias, "SKILL.md"),
+        ])
+        .filter(Boolean);
+      return {
+        skill: normalized,
+        hintPaths: Array.from(new Set(hintPaths)),
+      };
+    })
+    .filter((entry) => entry.skill.length > 0);
+}
+
+export function buildSliceOutputInstructions(input: {
+  runId: string;
+  schemaPath: string;
+  requiredSkills: string[];
+}): string {
+  const skillHints = buildSkillHints(input.requiredSkills);
+  return [
+    "# Slice Execution",
+    "",
+    `Slice run: ${input.runId}`,
+    "",
+    "Reporting:",
+    "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
+    "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
+    "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
+    "- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.",
+    "",
+    "What to do:",
+    "- Choose a coherent slice of work you can complete end-to-end in this run.",
+    "- Execute the work (code/docs/config) and produce verifiable outcomes.",
+    "- Self-assess confidence when saving artifacts and include `confidence_score` in [0,1].",
+    "- If blocked, be explicit about what decision/info is required.",
+    "- Keep this run focused: stay inside the current repository/workdir and avoid unrelated exploration.",
+    "- Execution budget: prefer <=12 shell commands and <=6 minutes wall time.",
+    "- Verification budget: run only targeted checks for changed files. Avoid full-suite commands (for example `npm run test:hooks`, `npm test`, `npm run build`) unless the task explicitly requires them.",
+    "- If you hit sandbox/env blockers after one retry, stop and return `status=needs_decision` with the blocker and the smallest unblocking action.",
+    "- For each required skill, read the skill document and collect proof (path + sha256 + heading).",
+    "",
+    "Output requirements:",
+    "- Print ONLY a single JSON object as the final output (no interim JSON status messages).",
+    `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
+    "- Artifacts must be verifiable: include URLs or local paths, plus verification steps.",
+    "- Include `confidence_score` for each artifact (`0` to `1`; use `null` when unknown).",
+    "- If you need a human decision, include it in decisions_needed.",
+    "- For every decisions_needed entry, ALWAYS set blocking explicitly (true or false).",
+    "- If status is blocked, needs_decision, or error: include at least one decisions_needed entry with blocking=true.",
+    "- Status/decision consistency is strict:",
+    "  - If any decision is blocking=true, status MUST be needs_decision or blocked (never completed).",
+    "  - Only use status=completed when all listed decisions are non-blocking follow-ups.",
+    "- Never return status=completed with zero artifacts and zero task/milestone updates.",
+    "- skill_evidence is mandatory. Include one object per required skill with:",
+    "  - skill (exact required skill id without leading $)",
+    "  - skill_file (absolute SKILL.md path used)",
+    "  - skill_sha256 (lowercase SHA-256 hex of that file)",
+    "  - skill_heading (first markdown heading or first non-empty line)",
+    "- If you cannot locate/verify a required skill file, return status=needs_decision and a blocking decisions_needed entry.",
+    "Skill file hints:",
+    ...(skillHints.length > 0
+      ? skillHints.flatMap((entry) => [
+          `- ${entry.skill}:`,
+          ...entry.hintPaths.map((path) => `  - ${path}`),
+        ])
+      : ["- (none)"]),
+    "- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).",
+    "  - task_updates.status must be one of: todo, in_progress, done, blocked",
+    "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",
+  ].join("\n");
+}
+
 export function buildWorkstreamSlicePrompt(input: {
   initiativeTitle: string;
   initiativeId: string;
@@ -515,31 +606,7 @@ export function buildWorkstreamSlicePrompt(input: {
   runId: string;
   schemaPath: string;
 }): string {
-  const normalizeSkillName = (skill: string): string => skill.replace(/^\$/, "").trim();
-  const skillAliasesFor = (skill: string): string[] => {
-    const normalized = normalizeSkillName(skill);
-    if (!normalized) return [];
-    const aliases = [normalized];
-    if (normalized.startsWith("orgx-")) aliases.push(normalized.slice("orgx-".length));
-    if (normalized.endsWith("-agent")) aliases.push(normalized.slice(0, -"-agent".length));
-    return Array.from(new Set(aliases.filter(Boolean)));
-  };
-  const skillHints = input.executionPolicy.requiredSkills
-    .map((skill) => {
-      const normalized = normalizeSkillName(skill);
-      const aliases = skillAliasesFor(normalized);
-      const hintPaths = aliases
-        .flatMap((alias) => [
-          join(homedir(), ".codex", "skills", alias, "SKILL.md"),
-          join(homedir(), ".agents", "skills", alias, "SKILL.md"),
-        ])
-        .filter(Boolean);
-      return {
-        skill: normalized,
-        hintPaths: Array.from(new Set(hintPaths)),
-      };
-    })
-    .filter((entry) => entry.skill.length > 0);
+  const skillHints = buildSkillHints(input.executionPolicy.requiredSkills);
 
   const milestones = input.milestoneSummaries
     .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)

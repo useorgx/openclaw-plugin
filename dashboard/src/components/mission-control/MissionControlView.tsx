@@ -15,9 +15,9 @@ import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
+import { captureTelemetry } from '@/lib/telemetry';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
-import posthog from 'posthog-js';
 import { MissionControlProvider, useMissionControl } from './MissionControlContext';
 import type { GroupByOption } from './MissionControlContext';
 import { InitiativeOrbit } from './InitiativeOrbit';
@@ -1501,7 +1501,7 @@ function MissionControlInner({
                       rel="noreferrer noopener"
                       onClick={() => {
                         try {
-                          posthog.capture('live_install_cta_click', {
+                          captureTelemetry('live_install_cta_click', {
                             surface: 'mission_control',
                             embedMode: true,
                             initiativeId: nextActionInitiative?.id ?? null,

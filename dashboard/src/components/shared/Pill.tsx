@@ -28,7 +28,7 @@ export function Pill({ children, tone = 'muted', className, ...rest }: PillProps
       className={cn(
         'inline-flex h-7 items-center rounded-full border text-caption font-medium leading-none whitespace-nowrap',
         hasAgentAvatar
-          ? 'gap-1.5 pl-px pr-2.5'
+          ? 'gap-1.5 pl-[3px] pr-2.5 [&>[data-agent-avatar]]:h-5 [&>[data-agent-avatar]]:w-5'
           : 'gap-1.5 px-2.5',
         toneClasses[tone],
         className

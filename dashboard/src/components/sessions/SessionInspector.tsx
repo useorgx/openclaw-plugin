@@ -4,6 +4,7 @@ import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
+import { projectRunStatus, type CanonicalRunStatus } from '@/lib/runStatusModel';
 import type { Initiative, LiveActivityItem, SessionTreeNode, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
@@ -170,6 +171,14 @@ function resolveStatusReason(
     return 'Run failed without explicit error details.';
   }
   return null;
+}
+
+function statusToneClassFromCanonical(status: CanonicalRunStatus): string {
+  if (status === 'completed') return 'border-lime/25 bg-lime/[0.08] text-lime';
+  if (status === 'needs_attention') return 'border-amber-400/30 bg-amber-400/10 text-amber-200';
+  if (status === 'failed') return 'border-red-400/30 bg-red-500/10 text-red-200';
+  if (status === 'in_progress') return 'border-teal-400/30 bg-teal-400/10 text-teal-200';
+  return 'border-strong bg-white/[0.04] text-secondary';
 }
 
 export const SessionInspector = memo(function SessionInspector({
@@ -395,6 +404,37 @@ export const SessionInspector = memo(function SessionInspector({
 
   const progressValue = session.progress === null ? null : Math.round(session.progress);
   const sessionStatus = effectiveSessionStatus(session);
+  const latestEvent = recentEvents[0] ?? null;
+  const relatedBlockingDecisions = relatedSlice?.blockingDecisionCount ?? 0;
+  const relatedNonBlockingDecisions = Math.max(
+    0,
+    (relatedSlice?.decisionCount ?? 0) - relatedBlockingDecisions
+  );
+  const canonicalProjection = projectRunStatus({
+    sessionStatus: session.status,
+    sessionPhase: session.phase ?? null,
+    sessionState: session.state ?? null,
+    sliceStatus: relatedSlice?.status ?? null,
+    activityType: latestEvent?.type ?? null,
+    activityStatus:
+      (typeof latestEvent?.state === 'string' && latestEvent.state.trim().length > 0
+        ? latestEvent.state
+        : null) ??
+      (typeof latestEvent?.phase === 'string' && latestEvent.phase.trim().length > 0
+        ? latestEvent.phase
+        : null) ??
+      relatedSlice?.runtimeState ??
+      null,
+    stopReason:
+      session.blockerReason ??
+      session.blockerDiagnostics?.reason ??
+      (relatedSlice?.status === 'failed' ? 'error' : null),
+    decisionRequired: (latestEvent?.decisionRequired ?? false) || relatedBlockingDecisions > 0,
+    blockingDecisionCount: relatedBlockingDecisions,
+    nonBlockingDecisionCount: relatedNonBlockingDecisions,
+    blockerCount: session.blockers.length,
+    blockerReason: session.blockerReason ?? session.blockerDiagnostics?.reason ?? null,
+  });
   const statusReason = resolveStatusReason(session, sessionStatus, sessionSummary);
   const statusReasonLabel =
     sessionStatus === 'handoff'
@@ -404,27 +444,40 @@ export const SessionInspector = memo(function SessionInspector({
         : sessionStatus === 'failed'
           ? 'Failure reason'
           : 'Status note';
-  const canPause = ['running', 'active', 'queued', 'pending'].includes(sessionStatus);
-  const canResume = ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
+  const canPause =
+    canonicalProjection.status === 'in_progress' &&
+    ['running', 'active', 'queued', 'pending', 'working', 'in_progress', 'planning', 'review'].includes(
+      sessionStatus
+    );
+  const canResume =
+    canonicalProjection.status === 'needs_attention' &&
+    ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
+  const canStart = canonicalProjection.status !== 'in_progress';
   const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
   const canRollback = !['archived', 'cancelled'].includes(sessionStatus);
-  const statusLabel = sessionStatus.replace(/_/g, ' ');
-  const statusTone =
-    sessionStatus === 'running' ||
-    sessionStatus === 'active' ||
-    sessionStatus === 'working' ||
-    sessionStatus === 'in_progress' ||
-    sessionStatus === 'planning' ||
-    sessionStatus === 'review'
-      ? 'border-lime/25 bg-lime/[0.08] text-lime'
-      : sessionStatus === 'blocked' || sessionStatus === 'failed'
-        ? 'border-red-400/30 bg-red-500/10 text-red-200'
-        : sessionStatus === 'paused'
-          ? 'border-amber-400/30 bg-amber-400/10 text-amber-200'
-          : sessionStatus === 'handoff'
-            ? 'border-teal-400/30 bg-teal-400/10 text-teal-200'
-            : 'border-strong bg-white/[0.04] text-secondary';
+  const statusLabel = canonicalProjection.label;
+  const statusTone = statusToneClassFromCanonical(canonicalProjection.status);
   const isRunning = ['running', 'active', 'working', 'in_progress', 'planning', 'review'].includes(sessionStatus);
+  const progressBarColor =
+    canonicalProjection.tone === 'critical'
+      ? colors.red
+      : canonicalProjection.tone === 'warning'
+        ? colors.amber
+        : canonicalProjection.tone === 'positive'
+          ? colors.lime
+          : colors.teal;
+  const progressLabel =
+    progressValue !== null && progressValue >= 100 && canonicalProjection.status !== 'completed'
+      ? 'Terminal state'
+      : 'Progress';
+  const narrativeToneClass =
+    canonicalProjection.tone === 'critical'
+      ? 'border-red-400/25 bg-red-500/10'
+      : canonicalProjection.tone === 'warning'
+        ? 'border-amber-400/25 bg-amber-500/10'
+        : canonicalProjection.tone === 'positive'
+          ? 'border-lime/22 bg-lime/[0.08]'
+          : 'border-subtle bg-white/[0.02]';
   const blockerDiagnostics = session.blockerDiagnostics ?? null;
   const blockerContext = blockerDiagnostics?.context ?? null;
   const blockerMetaChips = [
@@ -633,6 +686,14 @@ export const SessionInspector = memo(function SessionInspector({
               </div>
             )}
 
+            <div className={cn('mt-3 rounded-lg border px-3 py-2', narrativeToneClass)}>
+              <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{canonicalProjection.label}</p>
+              <p className="text-body text-secondary">{canonicalProjection.sentence}</p>
+              {canonicalProjection.nextAction && (
+                <p className="mt-1 text-caption text-secondary">Next: {canonicalProjection.nextAction}</p>
+              )}
+            </div>
+
             {/* Phase/Runtime badges removed — status chip in header is sufficient */}
 
             {showStatusReason && (
@@ -779,7 +840,7 @@ export const SessionInspector = memo(function SessionInspector({
             {progressValue !== null && (
               <div>
                 <div className="mb-1 flex items-center justify-between text-caption text-secondary">
-                  <span>Progress</span>
+                  <span>{progressLabel}</span>
                   <span className="text-primary">{progressValue}%</span>
                 </div>
                 <div className="h-2 rounded-full bg-white/[0.08]">
@@ -787,7 +848,7 @@ export const SessionInspector = memo(function SessionInspector({
                     className={cn('h-2 rounded-full transition-all duration-500', isRunning && 'live-pulse')}
                     style={{
                       width: `${progressValue}%`,
-                      background: colors.lime,
+                      background: progressBarColor,
                     }}
                   />
                 </div>
@@ -813,19 +874,14 @@ export const SessionInspector = memo(function SessionInspector({
                 onClick={() =>
                   runAction('dispatch-session', 'Session started', () => onDispatchSession?.(session))
                 }
-                disabled={!onDispatchSession || !!busyAction}
+                disabled={!onDispatchSession || !!busyAction || !canStart}
                 className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
               >
-                {busyAction === 'dispatch-session' ? 'Starting…' : 'Start'}
-              </button>
-              <button
-                onClick={() =>
-                  runAction('continue-priority', 'Resumed highest priority', onContinueHighestPriority)
-                }
-                disabled={!onContinueHighestPriority || !!busyAction}
-                className="rounded-md border border-strong bg-white/[0.03] px-3 py-2 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-              >
-                {busyAction === 'continue-priority' ? 'Resuming…' : 'Resume'}
+                {busyAction === 'dispatch-session'
+                  ? 'Starting…'
+                  : canonicalProjection.status === 'completed'
+                    ? 'Restart'
+                    : 'Start'}
               </button>
               {canPause && (
                 <button
