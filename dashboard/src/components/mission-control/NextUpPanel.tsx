@@ -176,21 +176,21 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
 
 function queueTone(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
-  if (queueState === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
+  if (queueState === 'blocked') return 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100';
   if (queueState === 'idle') return 'border-strong bg-white/[0.05] text-secondary';
   return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
 }
 
 function queueLabel(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'Running';
-  if (queueState === 'blocked') return 'Blocked';
+  if (queueState === 'blocked') return 'Needs input';
   if (queueState === 'idle') return 'Idle';
   return 'Queued';
 }
 
 function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'from-teal-300/0 via-teal-300/60 to-teal-300/0';
-  if (queueState === 'blocked') return 'from-red-300/0 via-red-300/55 to-red-300/0';
+  if (queueState === 'blocked') return 'from-amber-300/0 via-amber-300/55 to-amber-300/0';
   if (queueState === 'idle') return 'from-white/0 via-white/35 to-white/0';
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
@@ -345,11 +345,21 @@ export function NextUpPanel({
   const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const dismissedKeySet = useMemo(() => new Set(dismissedKeys), [dismissedKeys]);
+  const activeElsewhereCount = useMemo(
+    () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+    [items]
+  );
   const queueItems = useMemo(
-    () => items.filter((item) => !dismissedKeySet.has(itemKey(item))),
+    () =>
+      items.filter(
+        (item) =>
+          !dismissedKeySet.has(itemKey(item)) &&
+          item.queueState !== 'running' &&
+          item.queueState !== 'blocked'
+      ),
     [dismissedKeySet, items]
   );
-  const hiddenCount = Math.max(0, items.length - queueItems.length);
+  const hiddenCount = Math.max(0, items.length - queueItems.length - activeElsewhereCount);
 
   const visibleItems = useMemo(
     () => (isCompact ? queueItems.slice(0, 5) : queueItems),
@@ -616,6 +626,9 @@ export function NextUpPanel({
             )}
             {!isLoading && hiddenCount > 0 && (
               <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
+            )}
+            {!isLoading && activeElsewhereCount > 0 && (
+              <span className="chip text-micro text-secondary">{activeElsewhereCount} active elsewhere</span>
             )}
             {isFetching && !isLoading && (
               <span className="text-micro text-muted">refreshing…</span>

@@ -76,10 +76,20 @@ function compactList(values: string[], max = 3): string {
 }
 
 function resolveRunId(item: LiveActivityItem): string | null {
-  if (item.runId) return item.runId;
+  if (item.runId && item.runId.trim().length > 0) return item.runId.trim();
   const metadata = item.metadata as Record<string, unknown> | undefined;
   if (!metadata) return null;
-  const keys = ['runId', 'run_id', 'sessionId', 'session_id', 'agentRunId'];
+  const keys = [
+    'slice_run_id',
+    'sliceRunId',
+    'runId',
+    'run_id',
+    'correlation_id',
+    'correlationId',
+    'sessionId',
+    'session_id',
+    'agentRunId',
+  ];
   for (const key of keys) {
     const value = metadata[key];
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -182,11 +192,21 @@ export const SessionInspector = memo(function SessionInspector({
 
   const recentEvents = useMemo(() => {
     if (!session) return [] as LiveActivityItem[];
+    const runKeys = new Set<string>();
+    if (session.runId?.trim()) runKeys.add(session.runId.trim());
+    if (session.id?.trim()) runKeys.add(session.id.trim());
+    if (session.blockerDiagnostics?.context?.sliceRunId?.trim()) {
+      runKeys.add(session.blockerDiagnostics.context.sliceRunId.trim());
+    }
+    if (runKeys.size === 0) return [] as LiveActivityItem[];
 
     return activity
-      .filter((item) => resolveRunId(item) === session.runId)
+      .filter((item) => {
+        const runId = resolveRunId(item);
+        return Boolean(runId && runKeys.has(runId));
+      })
       .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-      .slice(0, 8);
+      .slice(0, 12);
   }, [activity, session]);
 
   const breadcrumbs = useMemo(() => {

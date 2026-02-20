@@ -308,7 +308,11 @@ function hasActionableBlockerData(
     node.blockerReason ?? "",
   ]);
   const hasSpecificNodeReason = blockerEntries.some((entry) => !isGenericFailureReason(entry));
-  if (hasSpecificNodeReason) return true;
+  if (hasSpecificNodeReason) {
+    const consoleRecoveryOnly =
+      Boolean(signal?.latestBlocker?.isConsoleRecovery) && (signal?.hardBlockerCount ?? 0) === 0;
+    if (!consoleRecoveryOnly) return true;
+  }
   if (signal && signal.hardBlockerCount > 0) return true;
   return false;
 }
@@ -536,7 +540,17 @@ function reportingSessionShouldBeCompleted(input: {
 
   const touchedAt = sessionLastTouchedEpoch(node);
   const stale = touchedAt > 0 && nowMs - touchedAt >= staleMs;
-  if (stale && !hasRuntimeSignal && !hasHardBlocker && !hasActionableBlocker) {
+  const latestReason = normalizeReason(signal?.latestBlocker?.reason ?? null);
+  const consoleRecoveryLike =
+    Boolean(signal?.latestBlocker?.isConsoleRecovery) ||
+    latestReason.includes("automatically recovered") ||
+    latestReason.includes("auto-recovered");
+  if (
+    stale &&
+    !hasRuntimeSignal &&
+    !hasHardBlocker &&
+    (consoleRecoveryLike || !hasActionableBlocker)
+  ) {
     return true;
   }
 
@@ -614,4 +628,3 @@ export function normalizeReportingBlockedSessions(input: {
 
   return changed ? { ...sessions, nodes } : sessions;
 }
-

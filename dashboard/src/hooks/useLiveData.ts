@@ -9,6 +9,7 @@ import type {
   SessionTreeResponse,
   HandoffSummary,
   OutboxStatus,
+  SliceRunProjection,
 } from '@/types';
 import { createMockData } from '@/data/mockData';
 import { formatRelativeTime } from '@/lib/time';
@@ -912,6 +913,7 @@ function buildLiveData(
   activity: LiveActivityItem[],
   handoffs: HandoffSummary[],
   decisions: LiveDecision[],
+  sliceRuns: SliceRunProjection[] = [],
   outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
   generatedAt: string | null = null,
   runtimeInstances: RuntimeInstance[] = []
@@ -931,6 +933,7 @@ function buildLiveData(
     activity,
     handoffs,
     decisions,
+    sliceRuns,
     outbox: normalizeOutboxStatus(outbox),
     runtimeInstances,
   };
@@ -971,6 +974,54 @@ function sameRuntimeInstancesShape(
   return true;
 }
 
+function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): SliceRunProjection[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  const byId = new Map<string, SliceRunProjection>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const sliceRunId =
+      (typeof item.sliceRunId === 'string' && item.sliceRunId.trim().length > 0
+        ? item.sliceRunId.trim()
+        : typeof item.id === 'string' && item.id.trim().length > 0
+          ? item.id.trim()
+          : null);
+    if (!sliceRunId) continue;
+    byId.set(sliceRunId, {
+      ...item,
+      id: sliceRunId,
+      sliceRunId,
+      artifacts: Array.isArray(item.artifacts) ? item.artifacts : [],
+      decisionOptions: Array.isArray(item.decisionOptions) ? item.decisionOptions : [],
+      taskIds: Array.isArray(item.taskIds) ? item.taskIds : [],
+      milestoneIds: Array.isArray(item.milestoneIds) ? item.milestoneIds : [],
+    });
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => toEpoch(b.updatedAt ?? b.lastEventAt) - toEpoch(a.updatedAt ?? a.lastEventAt)
+  );
+}
+
+function sameSliceRunsShape(left: SliceRunProjection[], right: SliceRunProjection[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.sliceRunId !== b.sliceRunId ||
+      a.status !== b.status ||
+      a.updatedAt !== b.updatedAt ||
+      a.lastEventAt !== b.lastEventAt ||
+      a.artifactCount !== b.artifactCount ||
+      a.decisionCount !== b.decisionCount ||
+      a.blockingDecisionCount !== b.blockingDecisionCount ||
+      a.runtimeState !== b.runtimeState
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function useLiveData(options: UseLiveDataOptions = {}) {
   const {
     enabled = true,
@@ -999,6 +1050,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       activityInput: LiveActivityItem[],
       handoffInput: HandoffSummary[],
       decisionInput: LiveDecision[] | null = null,
+      sliceRunsInput: SliceRunProjection[] | null = null,
       outboxInput: OutboxStatus | null = null,
       generatedAtInput: string | null = null,
       runtimeInstancesInput: RuntimeInstance[] | null = null
@@ -1017,6 +1069,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisionInput === null
             ? prev.decisions
             : normalizeDecisions(decisionInput, maxDecisions);
+        const sliceRuns =
+          sliceRunsInput === null
+            ? prev.sliceRuns
+            : normalizeSliceRuns(sliceRunsInput);
         const outbox =
           outboxInput === null ? prev.outbox : normalizeOutboxStatus(outboxInput);
         const runtimeInstances =
@@ -1029,6 +1085,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameActivityShape(prev.activity, activity) &&
           sameHandoffShape(prev.handoffs, handoffs) &&
           sameDecisionShape(prev.decisions, decisions) &&
+          sameSliceRunsShape(prev.sliceRuns, sliceRuns) &&
           sameOutboxShape(prev.outbox, outbox) &&
           sameRuntimeInstancesShape(prev.runtimeInstances, runtimeInstances) &&
           prev.lastSnapshotAt === generatedAtInput &&
@@ -1042,6 +1099,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity,
           handoffs,
           decisions,
+          sliceRuns,
           outbox,
           generatedAtInput,
           runtimeInstances
@@ -1116,6 +1174,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         const decisions = enableDecisions && Array.isArray(snapshot.decisions)
           ? snapshot.decisions
           : [];
+        const sliceRuns = normalizeSliceRuns(
+          Array.isArray(snapshot.sliceRuns) ? snapshot.sliceRuns : []
+        );
         const sessions =
           snapshot.sessions &&
           Array.isArray(snapshot.sessions.nodes) &&
@@ -1129,6 +1190,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity,
           handoffs,
           decisions,
+          sliceRuns,
           snapshot.outbox ?? null,
           snapshot.generatedAt ?? null,
           snapshot.runtimeInstances ?? null
@@ -1438,6 +1500,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity: LiveActivityItem[];
           handoffs: HandoffSummary[];
           decisions: LiveDecision[] | null;
+          sliceRuns: SliceRunProjection[] | null;
           outbox: OutboxStatus | null;
           generatedAt: string;
           runtimeInstances: RuntimeInstance[] | null;
@@ -1468,6 +1531,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           snapshot.activity,
           snapshot.handoffs,
           snapshot.decisions,
+          snapshot.sliceRuns,
           snapshot.outbox,
           snapshot.generatedAt,
           snapshot.runtimeInstances
@@ -1603,6 +1667,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity?: LiveActivityItem[];
           handoffs?: HandoffSummary[];
           decisions?: LiveDecision[];
+          sliceRuns?: SliceRunProjection[];
           outbox?: OutboxStatus;
           generatedAt?: string;
           runtimeInstances?: RuntimeInstance[];
@@ -1618,6 +1683,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           activity: payload.activity ?? [],
           handoffs: payload.handoffs ?? [],
           decisions: enableDecisions ? payload.decisions ?? null : [],
+          sliceRuns: Array.isArray(payload.sliceRuns) ? normalizeSliceRuns(payload.sliceRuns) : null,
           outbox: payload.outbox ?? null,
           generatedAt,
           runtimeInstances: Array.isArray(payload.runtimeInstances)

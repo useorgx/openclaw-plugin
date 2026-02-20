@@ -103,6 +103,7 @@ export interface CreateAutoContinueEngineDeps {
       milestone_id?: string | null;
       task_ids?: string[] | null;
     };
+    isMockWorker?: boolean;
   }) => Promise<{ ok: boolean; id: string | null }>;
   applyAgentStatusUpdatesSafe: (input: {
     initiativeId: string;
@@ -110,6 +111,7 @@ export interface CreateAutoContinueEngineDeps {
     correlationId: string;
     taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
     milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
+    isMockWorker?: boolean;
   }) => Promise<{
     applied: number;
     buffered: boolean;
@@ -158,6 +160,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     resolveByokEnvOverrides,
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
+  /** Spread into any metadata object to flag mock-worker activity. */
+  function mockMeta(slice: { isMockWorker: boolean }): Record<string, unknown> {
+    return slice.isMockWorker ? { mock: true } : {};
+  }
   type DecisionRequestOutcome = { queued: boolean; decisionIds: string[] };
   const requestDecisionQueued = async (
     input: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0]
@@ -367,6 +373,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     taskIds: string[];
     milestoneIds: string[];
     lastError: string | null;
+    isMockWorker: boolean;
   };
   type AutoFixSkipReason =
     | "paused_by_user"
@@ -1197,6 +1204,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                    milestone_ids: slice.milestoneIds,
 	                    log_path: slice.logPath,
 	                    output_path: slice.outputPath,
+	                    ...mockMeta(slice),
 	                  },
 	                });
 	              } catch {
@@ -1251,6 +1259,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  milestone_ids: slice.milestoneIds,
 	                  log_path: slice.logPath,
 	                  output_path: slice.outputPath,
+	                  ...mockMeta(slice),
 	                },
 	              });
 
@@ -1345,6 +1354,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                  reason: killDecision.reason,
 	                  elapsed_ms: killDecision.elapsedMs,
 	                  idle_ms: killDecision.idleMs,
+	                  ...mockMeta(slice),
 	                },
 	              });
 
@@ -1521,6 +1531,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             agentName: slice.agentName,
             workstreamId: slice.workstreamId,
             artifact,
+            isMockWorker: slice.isMockWorker,
           });
         }
 
@@ -1530,6 +1541,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           correlationId: slice.runId,
           taskUpdates,
           milestoneUpdates,
+          isMockWorker: slice.isMockWorker,
         });
         if (
           statusUpdateResult.taskUpdates.length > 0 ||
@@ -1574,6 +1586,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               reported_skill_evidence_count: skillEvidence.length,
               reported_skill_sha256_count: reportedSkillSha256Count,
               reported_skill_names: reportedSkillNames,
+              ...mockMeta(slice),
             },
           });
         } catch {
@@ -1627,6 +1640,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             output_path: slice.outputPath,
             log_path: slice.logPath,
             error: slice.lastError,
+            ...mockMeta(slice),
           },
         });
 
@@ -2354,6 +2368,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       taskIds: cappedSliceTaskNodes.map((t) => t.id),
       milestoneIds,
       lastError: null,
+      isMockWorker: workerKind === "mock",
     };
     autoContinueSliceRuns.set(sliceRunId, slice);
 
@@ -2385,6 +2400,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           workstream_title: workstreamTitle ?? null,
           log_path: logPath,
           output_path: outputPath,
+          ...mockMeta(slice),
         },
       });
     } catch {
@@ -2419,6 +2435,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         milestone_ids: milestoneIds,
         log_path: logPath,
         output_path: outputPath,
+        ...mockMeta(slice),
       },
     });
 

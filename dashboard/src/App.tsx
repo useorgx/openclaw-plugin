@@ -10,7 +10,7 @@ import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
-import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode } from '@/types';
+import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode, SliceRunProjection } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { Badge } from '@/components/shared/Badge';
 import { Modal } from '@/components/shared/Modal';
@@ -20,6 +20,7 @@ import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
 import { InProgressPanel } from '@/components/mission-control/InProgressPanel';
+import { NeedsInputPanel } from '@/components/mission-control/NeedsInputPanel';
 import { NextUpPanel } from '@/components/mission-control/NextUpPanel';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
@@ -162,6 +163,12 @@ function isSyntheticActivityItem(item: LiveActivityItem): boolean {
   if (/^run-\d+$/.test(runId)) return true;
   if (runId.startsWith('mock-')) return true;
   return false;
+}
+
+/** Items emitted by mock autopilot workers during test harness runs. */
+function isMockActivityItem(item: LiveActivityItem): boolean {
+  const meta = (item as any).metadata;
+  return meta != null && typeof meta === 'object' && meta.mock === true;
 }
 
 export function App() {
@@ -335,10 +342,12 @@ function DashboardShell({
   );
   const activityInScope = useMemo(
     () =>
-      includeSyntheticEntities
-        ? data.activity
-        : data.activity.filter((item) => !isSyntheticActivityItem(item)),
-    [data.activity, includeSyntheticEntities]
+      data.activity.filter((item) => {
+        if (!includeSyntheticEntities && isSyntheticActivityItem(item)) return false;
+        if (!devMode && isMockActivityItem(item)) return false;
+        return true;
+      }),
+    [data.activity, includeSyntheticEntities, devMode]
   );
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -370,11 +379,17 @@ function DashboardShell({
   >(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('initiatives');
-  const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
+  const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up' | 'needs_input'>(
     'next_up'
   );
 
   const inProgressCount = useMemo(() => {
+    if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
+      return data.sliceRuns.filter(
+        (slice) => slice.status === 'running' || slice.status === 'dispatching'
+      ).length;
+    }
+
     const inProgressStatuses = new Set([
       'running',
       'active',
@@ -382,17 +397,30 @@ function DashboardShell({
       'working',
       'planning',
       'dispatching',
-      'blocked',
     ]);
 
     let count = 0;
     for (const session of sessionNodesInScope) {
       const status = normalizeStatus(session.status ?? '');
-      if (status === 'queued' || status === 'pending') continue;
+      if (status === 'queued' || status === 'pending' || status === 'blocked') continue;
       if (inProgressStatuses.has(status) || Boolean(session.lastHeartbeatAt)) count += 1;
     }
     return count;
-  }, [sessionNodesInScope]);
+  }, [data.sliceRuns, sessionNodesInScope]);
+
+  const needsInputCount = useMemo(() => {
+    if (!Array.isArray(data.sliceRuns) || data.sliceRuns.length === 0) {
+      return sessionNodesInScope.filter((session) => normalizeStatus(session.status) === 'blocked').length;
+    }
+    return data.sliceRuns.filter((slice) =>
+      slice.status === 'awaiting_input' || slice.status === 'needs_review' || slice.status === 'failed'
+    ).length;
+  }, [data.sliceRuns, sessionNodesInScope]);
+
+  const actionableSliceRuns = useMemo<SliceRunProjection[]>(
+    () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
+    [data.sliceRuns]
+  );
 
   const activityNextUpQueue = useNextUpQueue({
     initiativeId: null,
@@ -643,8 +671,16 @@ function DashboardShell({
   );
 
   const blockedCount = useMemo(
-    () =>
-      sessionNodesInScope.filter((node) => {
+    () => {
+      if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
+        return data.sliceRuns.filter(
+          (slice) =>
+            slice.status === 'awaiting_input' ||
+            slice.status === 'needs_review' ||
+            slice.status === 'failed'
+        ).length;
+      }
+      return sessionNodesInScope.filter((node) => {
         const status = normalizeStatus(node.status);
         const phase = normalizeStatus(node.phase ?? '');
         const state = normalizeStatus(node.state ?? '');
@@ -659,8 +695,9 @@ function DashboardShell({
           return false;
         }
         return node.blockers.length > 0;
-      }).length,
-    [sessionNodesInScope]
+      }).length;
+    },
+    [data.sliceRuns, sessionNodesInScope]
   );
 
   const failedCount = useMemo(
@@ -2151,6 +2188,24 @@ function DashboardShell({
                         </span>
                       )}
                     </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={initiativesSidebarTab === 'needs_input'}
+                      onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('needs_input'); }}
+                      className={
+                        initiativesSidebarTab === 'needs_input'
+                          ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#B38A00]/40 bg-[#B38A00]/20 text-[#FFE7A8] shadow-[inset_0_1px_0_rgba(255,224,120,0.12)]'
+                          : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                      }
+                    >
+                      <span>Needs Input</span>
+                      {needsInputCount > 0 && (
+                        <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
+                          {needsInputCount}
+                        </span>
+                      )}
+                    </button>
                   </div>
                   <button
                     type="button"
@@ -2192,6 +2247,15 @@ function DashboardShell({
                       onResumeWorkstream={playSessionWorkstream}
                       onRestartSession={restartSessionWorkstream}
                       onIntervene={openInterventionComposer}
+                    />
+                  ) : initiativesSidebarTab === 'needs_input' ? (
+                    <NeedsInputPanel
+                      className="h-full min-h-0"
+                      showHeader={false}
+                      panelStyle="flat"
+                      sliceRuns={actionableSliceRuns}
+                      onOpenDecisions={() => openDecisionsFromActivity()}
+                      onFocusRunId={focusActivityRunId}
                     />
                   ) : (
                     <NextUpPanel

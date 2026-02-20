@@ -13,7 +13,6 @@ const IN_PROGRESS_STATUSES = new Set([
   'working',
   'planning',
   'dispatching',
-  'blocked',
 ]);
 
 const LIVE_HEARTBEAT_WINDOW_MS = 3 * 60_000;

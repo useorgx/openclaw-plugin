@@ -2,6 +2,7 @@ import type { HandoffSummary, LiveActivityItem, SessionTreeResponse } from "../.
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { OutboxSummary } from "../../outbox.js";
 import { normalizeReportingBlockedSessions } from "../helpers/session-classification.js";
+import { buildSliceRunProjections } from "../helpers/slice-run-projections.js";
 import type {
   AgentLaunchContext,
   RunLaunchContext,
@@ -475,6 +476,12 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       activity,
       runtimeInstances,
     });
+    const sliceRuns = buildSliceRunProjections({
+      activity,
+      sessions: sessions.nodes,
+      decisions,
+      runtimeInstances,
+    });
 
     try {
       const fingerprint = deps.snapshotActivityFingerprint(activity);
@@ -499,6 +506,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       activity,
       handoffs,
       decisions,
+      sliceRuns,
       agents,
       runtimeInstances,
       outbox: outboxStatus,

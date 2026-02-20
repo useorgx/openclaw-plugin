@@ -48,6 +48,7 @@ export interface LiveData {
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
+  sliceRuns: SliceRunProjection[];
   outbox: OutboxStatus;
   runtimeInstances?: RuntimeInstance[];
   agentSuite?: AgentSuitePlan;
@@ -63,6 +64,70 @@ export interface OutboxStatus {
   lastReplaySuccessAt: string | null;
   lastReplayFailureAt: string | null;
   lastReplayError: string | null;
+}
+
+export type SliceRunLifecycleState =
+  | 'queued'
+  | 'dispatching'
+  | 'running'
+  | 'awaiting_input'
+  | 'completed'
+  | 'needs_review'
+  | 'failed'
+  | 'archived';
+
+export type SliceRunPrimaryAction =
+  | 'none'
+  | 'open_artifact'
+  | 'resolve_decision'
+  | 'retry_slice'
+  | 'review_output';
+
+export interface SliceRunArtifactSummary {
+  id: string | null;
+  type: string | null;
+  title: string;
+  url: string | null;
+  createdAt: string | null;
+}
+
+export interface SliceRunDecisionOption {
+  id: string;
+  label: string;
+  description: string | null;
+  impliedStatus: string | null;
+  requiresNote: boolean;
+}
+
+export interface SliceRunProjection {
+  id: string;
+  sliceRunId: string;
+  runId: string | null;
+  initiativeId: string | null;
+  workstreamId: string | null;
+  workstreamTitle: string | null;
+  taskIds: string[];
+  milestoneIds: string[];
+  status: SliceRunLifecycleState;
+  statusExplainer: string;
+  primaryAction: SliceRunPrimaryAction;
+  hasArtifact: boolean;
+  artifactCount: number;
+  artifacts: SliceRunArtifactSummary[];
+  decisionCount: number;
+  blockingDecisionCount: number;
+  decisionOptions: SliceRunDecisionOption[];
+  sourceClient: string | null;
+  runtimeState: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  archivedAt: string | null;
+  lastEventAt: string | null;
+  lastEventSummary: string | null;
+  correlationId: string | null;
+  confidence: 'low' | 'medium' | 'high';
 }
 
 export interface LiveSnapshotAgent {
@@ -81,6 +146,7 @@ export interface LiveSnapshotResponse {
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
+  sliceRuns?: SliceRunProjection[];
   agents: LiveSnapshotAgent[];
   runtimeInstances?: RuntimeInstance[];
   outbox?: OutboxStatus;
