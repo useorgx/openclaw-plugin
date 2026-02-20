@@ -75,6 +75,8 @@ import {
 import { registerCoreTools } from "./tools/core-tools.js";
 import { stableHash } from "./hash-utils.js";
 import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
+import { buildRetroTemplateForAgent } from "./retro/domain-templates.js";
+import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -961,6 +963,24 @@ export default function register(api: PluginAPI): void {
         const completedAt = stopped.stoppedAt ?? new Date().toISOString();
         const success = !summary.hadError;
         const correlationId = stopped.runId;
+        const retroTemplate = buildRetroTemplateForAgent({
+          agentId: stopped.agentId,
+          success,
+          taskId: stopped.taskId,
+          runId: stopped.runId,
+          errorMessage: summary.errorMessage,
+        });
+        const retroSummary = retroTemplate.summary;
+        const retroQuality = computeRetroQualityRubricScore({
+          success,
+          hadError: summary.hadError,
+          errorMessage: summary.errorMessage,
+          tokens: summary.tokens,
+          costUsd: summary.costUsd,
+          decisionsCount: retroTemplate.decisions.length,
+          followUpsCount: retroTemplate.followUps.length,
+          whatWentWrongCount: retroTemplate.whatWentWrong.length,
+        });
 
         const outcomePayload = {
           initiative_id: initiativeId,
@@ -983,6 +1003,7 @@ export default function register(api: PluginAPI): void {
           },
           steps: [],
           success,
+          quality_score: retroQuality.score,
           human_interventions: 0,
           errors: summary.errorMessage ? [summary.errorMessage] : [],
           metadata: {
@@ -998,9 +1019,6 @@ export default function register(api: PluginAPI): void {
           ? ("task" as const)
           : ("initiative" as const);
         const retroEntityId = stopped.taskId ?? initiativeId;
-        const retroSummary = stopped.taskId
-          ? `OpenClaw ${success ? "completed" : "blocked"} task ${stopped.taskId}.`
-          : `OpenClaw run ${success ? "completed" : "blocked"} (session ${stopped.runId}).`;
 
         const retroPayload = {
           initiative_id: initiativeId,
@@ -1013,20 +1031,10 @@ export default function register(api: PluginAPI): void {
           retro: {
             schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
             summary: retroSummary,
-            what_went_well: success ? ["Completed without runtime error."] : [],
-            what_went_wrong: success
-              ? []
-              : [summary.errorMessage ?? "Session ended with error."],
-            decisions: [],
-            follow_ups: success
-              ? []
-              : [
-                  {
-                    title: "Investigate OpenClaw session failure and unblock task",
-                    priority: "p0" as const,
-                    reason: summary.errorMessage ?? "Session ended with error.",
-                  },
-                ],
+            what_went_well: retroTemplate.whatWentWell,
+            what_went_wrong: retroTemplate.whatWentWrong,
+            decisions: retroTemplate.decisions,
+            follow_ups: retroTemplate.followUps,
             signals: {
               tokens: summary.tokens,
               cost_usd: summary.costUsd,
@@ -1035,8 +1043,11 @@ export default function register(api: PluginAPI): void {
               session_id: stopped.runId,
               task_id: stopped.taskId,
               workstream_id: stopped.workstreamId,
+              domain: retroTemplate.domain,
               provider: stopped.provider,
               model: stopped.model,
+              quality_score: retroQuality.score,
+              quality_rubric_reasons: retroQuality.reasons,
               source: "openclaw_agent_run_reconcile",
             },
           },

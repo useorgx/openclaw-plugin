@@ -837,14 +837,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     return null;
   }
 
-  function shouldEnforceTokenBudgetByDefault(): boolean {
-    const raw = (process.env.ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET ?? "")
-      .trim()
-      .toLowerCase();
-    if (!raw) return false;
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  }
-
   function normalizeTokenBudget(
     value: unknown,
     fallback: number | null
@@ -859,18 +851,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET
     );
     if (explicitBudget !== null) return explicitBudget;
-    // Codex/Claude workers do not reliably expose authoritative token usage for slices yet.
-    // Keep the local token guardrail opt-in unless explicitly configured.
-    if (!shouldEnforceTokenBudgetByDefault()) return null;
-    const hours = readBudgetEnvNumber("ORGX_AUTO_CONTINUE_BUDGET_HOURS", 4, {
-      min: 0.05,
-      max: 24,
-    });
-    const fallback =
-      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.tokensPerHour *
-      hours *
-      DEFAULT_TOKEN_BUDGET_ASSUMPTIONS.contingencyMultiplier;
-    return normalizeTokenBudget(process.env.ORGX_AUTO_CONTINUE_TOKEN_BUDGET, fallback);
+    // Token budget guardrails are now explicit-only: either pass a budget when starting
+    // auto-continue or set ORGX_AUTO_CONTINUE_TOKEN_BUDGET directly.
+    // Legacy fallback toggles (for example ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET)
+    // are intentionally ignored to prevent hidden auto-stop behavior.
+    return null;
   }
 
   function defaultAutoContinueMaxParallelSlices(): number {

@@ -149,7 +149,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         properties: {
           domain: {
             type: "string",
-            description: "Optional domain filter (engineering, sales).",
+            description: "Optional domain filter (engineering, sales, operations, product).",
           },
         },
         additionalProperties: false,

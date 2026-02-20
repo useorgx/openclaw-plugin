@@ -10,6 +10,7 @@ import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import type { NextUpQueueBulkAction } from '@/types';
 
 interface NextUpPanelProps {
   initiativeId?: string | null;
@@ -26,6 +27,7 @@ interface NextUpPanelProps {
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
   onOpenSettings?: () => void;
   onUpgradeGate?: (gate: UpgradeRequiredError | null) => void;
+  selectionEnabled?: boolean;
 }
 
 interface ActionGlyphProps {
@@ -63,20 +65,6 @@ function writeDismissedQueueKeys(keys: string[]): void {
   } catch {
     // ignore persistence issues
   }
-}
-
-function FollowGlyph({ className = '' }: ActionGlyphProps) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden
-      className={className}
-    >
-      <path d="M2.5 10s2.6-4.2 7.5-4.2S17.5 10 17.5 10s-2.6 4.2-7.5 4.2S2.5 10 2.5 10Z" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="10" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
 }
 
 function PlayGlyph({ className = '' }: ActionGlyphProps) {
@@ -265,6 +253,16 @@ function nextUpClearNotice(payload: unknown, defaultCount: number): string {
   return `Cleared ${queueItemsCleared} queue item${queueItemsCleared === 1 ? '' : 's'}.`;
 }
 
+function MoreGlyph({ className = '' }: ActionGlyphProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden className={className}>
+      <circle cx="4.5" cy="10" r="1.4" fill="currentColor" />
+      <circle cx="10" cy="10" r="1.4" fill="currentColor" />
+      <circle cx="15.5" cy="10" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}
+
 function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   const cards = compact ? 3 : 6;
   return (
@@ -321,6 +319,7 @@ export function NextUpPanel({
   onOpenInitiative,
   onOpenSettings,
   onUpgradeGate,
+  selectionEnabled = true,
 }: NextUpPanelProps) {
   const [localCompact, setLocalCompact] = useState(compact);
   useEffect(() => setLocalCompact(compact), [compact]);
@@ -335,6 +334,8 @@ export function NextUpPanel({
     null
   );
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [menuKey, setMenuKey] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [dismissedKeys, setDismissedKeys] = useState<string[]>(() => readDismissedQueueKeys());
   const {
     items,
@@ -364,6 +365,10 @@ export function NextUpPanel({
   const visibleItems = useMemo(
     () => (isCompact ? queueItems.slice(0, 5) : queueItems),
     [isCompact, queueItems]
+  );
+  const visibleSelection = useMemo(
+    () => visibleItems.filter((item) => selectedKeys.has(itemKey(item))),
+    [selectedKeys, visibleItems]
   );
   const nowPlaying = useMemo(
     () =>
@@ -437,6 +442,24 @@ export function NextUpPanel({
     }
   }, [dismissedKeys, items]);
 
+  useEffect(() => {
+    setSelectedKeys((previous) => {
+      if (previous.size === 0) return previous;
+      const visibleSet = new Set(visibleItems.map(itemKey));
+      const next = new Set<string>();
+      for (const key of previous) {
+        if (visibleSet.has(key)) next.add(key);
+      }
+      return next.size === previous.size ? previous : next;
+    });
+  }, [visibleItems]);
+
+  useEffect(() => {
+    if (!menuKey) return;
+    const exists = visibleItems.some((item) => itemKey(item) === menuKey);
+    if (!exists) setMenuKey(null);
+  }, [menuKey, visibleItems]);
+
   const removeQueueItem = async (item: NextUpQueueItem) => {
     const key = itemKey(item);
     const label = sanitizeDisplayText(item.workstreamTitle);
@@ -455,6 +478,86 @@ export function NextUpPanel({
       // Revert optimistic dismiss on failure
       setDismissedKeys((previous) => previous.filter((k) => k !== key));
       setNotice(err instanceof Error ? err.message : 'Failed to remove from queue');
+    }
+  };
+
+  const toggleSelection = (key: string) => {
+    setSelectedKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelectedKeys(new Set(visibleItems.map(itemKey)));
+  };
+
+  const clearSelection = () => {
+    setSelectedKeys(new Set());
+  };
+
+  const runBulkQueueAction = async (action: NextUpQueueBulkAction) => {
+    if (selectedKeys.size === 0) {
+      setNotice('Select one or more queue items first.');
+      return;
+    }
+    const selectedItems = visibleItems
+      .map((item) => ({ key: itemKey(item), item }))
+      .filter((entry) => selectedKeys.has(entry.key));
+
+    if (selectedItems.length === 0) {
+      setNotice('Selected queue items are no longer visible.');
+      return;
+    }
+
+    setActionKey(`bulk:${action}`);
+    setNotice(null);
+    try {
+      const payloadItems = selectedItems.map(({ item }) => ({
+        initiativeId: item.initiativeId,
+        workstreamId: item.workstreamId,
+      }));
+      const result = await nextUpActions.bulk({
+        action,
+        items: payloadItems,
+      });
+
+      if (action === 'remove') {
+        const removedKeys = new Set(selectedItems.map((entry) => entry.key));
+        setDismissedKeys((previous) => {
+          const next = new Set(previous);
+          for (const key of removedKeys) next.add(key);
+          return Array.from(next).slice(0, 400);
+        });
+      }
+
+      const updated =
+        typeof (result as { updated?: unknown })?.updated === 'number'
+          ? ((result as { updated: number }).updated ?? 0)
+          : 0;
+      const failed =
+        typeof (result as { failed?: unknown })?.failed === 'number'
+          ? ((result as { failed: number }).failed ?? 0)
+          : 0;
+
+      const label =
+        action === 'remove'
+          ? 'removed'
+          : action === 'move_top'
+            ? 'moved to top'
+            : 'moved to bottom';
+      setNotice(
+        failed > 0
+          ? `${updated} item${updated === 1 ? '' : 's'} ${label}; ${failed} failed.`
+          : `${updated} item${updated === 1 ? '' : 's'} ${label}.`
+      );
+      setSelectedKeys(new Set());
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Bulk queue action failed');
+    } finally {
+      setActionKey(null);
     }
   };
 
@@ -712,23 +815,14 @@ export function NextUpPanel({
       <div className="flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 pt-1">
         {!isLoading && queueItems.length > 0 ? (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
               <div className="min-w-0">
-                <p className="text-micro uppercase tracking-[0.08em] text-muted">Now working</p>
-                <p
-                  className="truncate text-caption font-semibold text-white"
-                  title={nowPlaying ? sanitizeDisplayText(nowPlaying.workstreamTitle) : ''}
-                >
-                  {nowPlaying ? sanitizeDisplayText(nowPlaying.workstreamTitle) : 'No active workstream'}
+                <p className="text-micro uppercase tracking-[0.08em] text-muted">
+                  Queue mode
                 </p>
-                {!nowPlaying && playableItem && (
-                  <p
-                    className="truncate text-micro text-secondary"
-                    title={`Next: ${sanitizeDisplayText(playableItem.workstreamTitle)}`}
-                  >
-                    Next: {sanitizeDisplayText(playableItem.workstreamTitle)}
-                  </p>
-                )}
+                <p className="truncate text-caption font-semibold text-white">
+                  {triagePlacement === 'top' ? 'Play next by default' : 'Add to end by default'}
+                </p>
               </div>
               <div className="inline-flex items-center gap-1 rounded-md border border-strong bg-white/[0.03] p-0.5">
                 <button
@@ -757,111 +851,52 @@ export function NextUpPanel({
                 </button>
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                disabled={!nowPlaying || actionKey === 'triage-stop'}
-                onClick={() =>
-                  void runAction(
-                    'triage-stop',
-                    () =>
-                      nextUpActions.stopTriage({
-                        initiativeId: nowPlaying!.initiativeId,
-                        workstreamId: nowPlaying!.workstreamId,
-                        placement: triagePlacement,
-                        resetToTodo: false,
-                      }),
-                    `Paused ${sanitizeDisplayText(nowPlaying!.workstreamTitle)}.`
-                  )
-                }
-                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
-              >
-                Pause
-              </button>
-              <button
-                type="button"
-                disabled={!playableItem || actionKey === 'play-next'}
-                onClick={() =>
-                  void runAction(
-                    'play-next',
-                    () =>
-                      playWorkstream({
-                        initiativeId: playableItem!.initiativeId,
-                        workstreamId: playableItem!.workstreamId,
-                        agentId: playableItem!.runnerAgentId,
-                      }),
-                    (result) => playDispatchNotice(playableItem!, result)
-                  )
-                }
-                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
-              >
-                Start next
-              </button>
-              <button
-                type="button"
-                disabled={blockedCount === 0 || actionKey === 'triage-clear'}
-                onClick={() =>
-                  void runAction(
-                    'triage-clear',
-                    () =>
-                      nextUpActions.clear({
-                        initiativeId: initiativeId ?? undefined,
-                        states: ['blocked'],
-                        placement: triagePlacement,
-                      }),
-                    (result) => nextUpClearNotice(result, blockedCount)
-                  )
-                }
-                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
-              >
-                Clear blocked
-              </button>
-              <button
-                type="button"
-                disabled={!autoInfinityContext || actionKey === 'triage-auto'}
-                onClick={() =>
-                  void runAction(
-                    'triage-auto',
-                    () =>
-                      autoInfinityActive
-                        ? (async () => {
-                            for (const id of autoEnabledInitiativeIds) {
-                              await stopInitiativeAutoContinue({ initiativeId: id });
-                            }
-                          })()
-                        : (async () => {
-                            await nextUpActions.move({
-                              initiativeId: autoInfinityContext!.initiativeId,
-                              workstreamId: autoInfinityContext!.workstreamId,
-                              placement: 'top',
-                            });
-                            return startWorkstreamAutoContinue({
-                              initiativeId: autoInfinityContext!.initiativeId,
-                              workstreamId: autoInfinityContext!.workstreamId,
-                              agentId: autoInfinityContext!.runnerAgentId,
-                              scope: 'initiative',
-                            });
-                          })(),
-                    autoInfinityActive
-                      ? 'Continuous work disabled.'
-                      : `Continuous work enabled for ${sanitizeDisplayText(autoInfinityContext!.initiativeTitle)}.`
-                  )
-                }
-                className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
-                data-state={autoInfinityActive ? 'active' : 'idle'}
-                data-tone="teal"
-                title={
-                  autoInfinityActive
-                    ? 'Disable continuous work'
-                    : 'Enable continuous work (auto dispatch)'
-                }
-              >
-                <span className="inline-flex items-center gap-1">
-                  <AutoGlyph className="h-3 w-3 opacity-85" />
-                  <span>{autoInfinityActive ? 'Auto ∞ On' : 'Auto ∞'}</span>
+            {selectionEnabled && !isCompact && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={selectAllVisible}
+                  className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={selectedKeys.size === 0}
+                  className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+                >
+                  Clear
+                </button>
+                <span className="text-micro text-secondary">
+                  {visibleSelection.length} selected
                 </span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  disabled={visibleSelection.length === 0 || actionKey === 'bulk:move_top'}
+                  onClick={() => void runBulkQueueAction('move_top')}
+                  className="control-pill ml-auto flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+                >
+                  Move top
+                </button>
+                <button
+                  type="button"
+                  disabled={visibleSelection.length === 0 || actionKey === 'bulk:move_bottom'}
+                  onClick={() => void runBulkQueueAction('move_bottom')}
+                  className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+                >
+                  Move bottom
+                </button>
+                <button
+                  type="button"
+                  disabled={visibleSelection.length === 0 || actionKey === 'bulk:remove'}
+                  onClick={() => void runBulkQueueAction('remove')}
+                  className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-45"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -902,7 +937,7 @@ export function NextUpPanel({
                     delay: Math.min(index, 7) * 0.018,
                     ease: [0.22, 1, 0.36, 1],
                   }}
-                  className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2"
+                  className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2"
                 >
                   <div
                     className={`pointer-events-none absolute inset-x-2.5 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
@@ -951,86 +986,87 @@ export function NextUpPanel({
                   <div className="mt-1.5 flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => onFollowWorkstream?.(item)}
-                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold"
-                      title="Follow in Activity"
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        <FollowGlyph className="h-3 w-3 opacity-85" />
-                        <span>Follow</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRowBusy}
+                      disabled={isRowBusy || isRunningRow}
                       onClick={() =>
                         void runAction(
                           key,
-                          () => {
-                            if (isRunningRow) {
-                              return nextUpActions.stopTriage({
-                                initiativeId: item.initiativeId,
-                                workstreamId: item.workstreamId,
-                                placement: triagePlacement,
-                                resetToTodo: false,
-                              });
-                            }
-                            return playWorkstream({
+                          () =>
+                            playWorkstream({
                               initiativeId: item.initiativeId,
                               workstreamId: item.workstreamId,
                               agentId: item.runnerAgentId,
-                            });
-                          },
-                          (result) =>
-                            isRunningRow
-                              ? `Paused ${workstreamTitle}.`
-                              : playDispatchNotice(item, result)
-                        )
-                      }
-                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={isRunningRow ? 'Pause this running workstream' : 'Start now'}
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        {isRunningRow ? (
-                          <PauseGlyph className="h-3 w-3 opacity-85" />
-                        ) : (
-                          <PlayGlyph className="h-3 w-3 opacity-85" />
-                        )}
-                        <span>{isRunningRow ? 'Pause' : 'Start'}</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRowBusy}
-                      onClick={() =>
-                        void runAction(
-                          key,
-                          () =>
-                            nextUpActions.move({
-                              initiativeId: item.initiativeId,
-                              workstreamId: item.workstreamId,
-                              placement: triagePlacement,
                             }),
-                          `Queued ${workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
+                          (result) => playDispatchNotice(item, result)
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={`Queue ${triagePlacement === 'top' ? 'as priority' : 'normally'}`}
+                      title={isRunningRow ? 'Already running' : 'Start now'}
                     >
                       <span className="inline-flex items-center gap-1">
-                        <span>{triagePlacement === 'top' ? 'Priority' : 'Queue'}</span>
+                        <PlayGlyph className="h-3 w-3 opacity-85" />
+                        <span>{isRunningRow ? 'Running' : 'Start'}</span>
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      disabled={isRowBusy}
-                      onClick={() =>
-                        void runAction(
-                          key,
-                          () =>
-                            isAutoRunning
-                              ? stopInitiativeAutoContinue({ initiativeId: item.initiativeId })
-                              : (async () => {
+                    <div className="relative ml-auto">
+                      <button
+                        type="button"
+                        disabled={isRowBusy}
+                        onClick={() => setMenuKey((previous) => (previous === key ? null : key))}
+                        className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+                        title="Queue actions"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <MoreGlyph className="h-3 w-3 opacity-85" />
+                          <span>More</span>
+                        </span>
+                      </button>
+                      {menuKey === key && (
+                        <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[178px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuKey(null);
+                              void runAction(
+                                `${key}:top`,
+                                () =>
+                                  nextUpActions.move({
+                                    initiativeId: item.initiativeId,
+                                    workstreamId: item.workstreamId,
+                                    placement: 'top',
+                                  }),
+                                `Moved ${workstreamTitle} to top of queue.`
+                              );
+                            }}
+                            className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                          >
+                            Move to top
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuKey(null);
+                              void runAction(
+                                `${key}:bottom`,
+                                () =>
+                                  nextUpActions.move({
+                                    initiativeId: item.initiativeId,
+                                    workstreamId: item.workstreamId,
+                                    placement: 'bottom',
+                                  }),
+                                `Moved ${workstreamTitle} to bottom of queue.`
+                              );
+                            }}
+                            className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                          >
+                            Move to bottom
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuKey(null);
+                              void runAction(
+                                `${key}:auto`,
+                                async () => {
                                   await nextUpActions.move({
                                     initiativeId: item.initiativeId,
                                     workstreamId: item.workstreamId,
@@ -1042,31 +1078,28 @@ export function NextUpPanel({
                                     agentId: item.runnerAgentId,
                                     scope: 'initiative',
                                   });
-                                })(),
-                          isAutoRunning
-                            ? `Stopped auto-continue for ${initiativeTitle}.`
-                            : `Automatic continuation enabled for ${initiativeTitle}; starting with ${workstreamTitle}.`
-                        )
-                      }
-                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      data-state={isAutoRunning ? 'active' : 'idle'}
-                      data-tone="teal"
-                      title={isAutoRunning ? 'Stop automatic continuation' : 'Continue automatically'}
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        <AutoGlyph className="h-3 w-3 opacity-85" />
-                        <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRowBusy || isRunningRow || nextUpActions.isRemoving}
-                      onClick={() => void removeQueueItem(item)}
-                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={isRunningRow ? 'Pause before removing' : 'Remove from queue'}
-                    >
-                      Remove
-                    </button>
+                                },
+                                `Start+Auto enabled for ${initiativeTitle}.`
+                              );
+                            }}
+                            className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                          >
+                            Start with auto
+                          </button>
+                          <button
+                            type="button"
+                            disabled={nextUpActions.isRemoving}
+                            onClick={() => {
+                              setMenuKey(null);
+                              void removeQueueItem(item);
+                            }}
+                            className="mt-1 flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-red-100 transition-colors hover:bg-red-500/[0.12] disabled:opacity-45"
+                          >
+                            Remove from queue
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </motion.article>
               );
@@ -1095,7 +1128,11 @@ export function NextUpPanel({
                   setUpgradeGate={setUpgradeGate}
                   onUpgradeGate={onUpgradeGate}
                   onOpenInitiative={onOpenInitiative}
-                  onFollowWorkstream={onFollowWorkstream}
+                  selected={selectedKeys.has(itemKey(item!))}
+                  selectionEnabled={selectionEnabled}
+                  onToggleSelection={toggleSelection}
+                  menuKey={menuKey}
+                  setMenuKey={setMenuKey}
                   playWorkstream={playWorkstream}
                   startWorkstreamAutoContinue={startWorkstreamAutoContinue}
                   stopInitiativeAutoContinue={stopInitiativeAutoContinue}
@@ -1157,8 +1194,12 @@ function NextUpReorderRow({
   setNotice,
   setUpgradeGate,
   onUpgradeGate,
-  onFollowWorkstream,
   onOpenInitiative,
+  selected,
+  selectionEnabled,
+  onToggleSelection,
+  menuKey,
+  setMenuKey,
   playWorkstream,
   startWorkstreamAutoContinue,
   stopInitiativeAutoContinue,
@@ -1176,8 +1217,12 @@ function NextUpReorderRow({
   setNotice: (value: string | null) => void;
   setUpgradeGate: (value: UpgradeRequiredError | null) => void;
   onUpgradeGate?: (gate: UpgradeRequiredError | null) => void;
-  onFollowWorkstream?: (item: NextUpQueueItem) => void;
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
+  selected: boolean;
+  selectionEnabled: boolean;
+  onToggleSelection: (key: string) => void;
+  menuKey: string | null;
+  setMenuKey: (value: string | null | ((previous: string | null) => string | null)) => void;
   playWorkstream: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
   startWorkstreamAutoContinue: (input: {
     initiativeId: string;
@@ -1240,10 +1285,10 @@ function NextUpReorderRow({
           delay: Math.min(index, 7) * 0.018,
           ease: [0.22, 1, 0.36, 1],
         }}
-        className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
+        className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
       >
         <div
-          className={`absolute left-1/2 top-1 z-20 -translate-x-1/2 transition-opacity ${
+          className={`absolute bottom-2.5 right-2.5 z-20 transition-opacity ${
             isDragging
               ? 'pointer-events-auto opacity-100'
               : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
@@ -1265,7 +1310,7 @@ function NextUpReorderRow({
             ) : (
               <HandOpenGlyph className="h-4 w-4 opacity-90" />
             )}
-            <span>{isDragging ? 'Grabbed' : 'Grab'}</span>
+            <span>{isDragging ? 'Reordering' : 'Drag'}</span>
           </button>
         </div>
 
@@ -1276,6 +1321,17 @@ function NextUpReorderRow({
 
         <div className="flex items-start justify-between gap-2.5">
           <div className="min-w-0 flex flex-1 items-start gap-2.5">
+            {selectionEnabled ? (
+              <label className="mt-[2px] inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => onToggleSelection(key)}
+                  className="h-4 w-4 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                  aria-label="Select queue row"
+                />
+              </label>
+            ) : null}
             <AgentAvatar
               name={item.runnerAgentName}
               hint={`${item.runnerAgentId} ${item.runnerSource}`}
@@ -1364,72 +1420,77 @@ function NextUpReorderRow({
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => onFollowWorkstream?.(item)}
-            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold"
-            title="Follow this workstream in Activity"
-          >
-            <span className="inline-flex items-center gap-1">
-              <FollowGlyph className="h-3 w-3 opacity-85" />
-              <span>Follow</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            disabled={isRowBusy}
-            onClick={() =>
-              void runAction(
-                key,
-                () => {
-                  if (isRunningRow) return onPauseWorkstream(item, triagePlacement);
-                  return playWorkstream({
-                    initiativeId: item.initiativeId,
-                    workstreamId: item.workstreamId,
-                    agentId: item.runnerAgentId,
-                  });
-                },
-                (result) =>
-                  isRunningRow
-                    ? `Paused ${workstreamTitle}.`
-                    : playDispatchNotice(item, result)
-              )
-            }
-            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={isRunningRow ? 'Pause this running workstream' : 'Start this workstream now (single run)'}
-          >
-            <span className="inline-flex items-center gap-1">
-              {isRunningRow ? (
-                <PauseGlyph className="h-3 w-3 opacity-85" />
-              ) : (
-                <PlayGlyph className="h-3 w-3 opacity-85" />
-              )}
-              <span>{isRunningRow ? 'Pause' : 'Start'}</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            disabled={isRowBusy}
-            onClick={() =>
-              void runAction(
-                key,
-                () => onMoveWorkstream(item, triagePlacement),
-                `Queued ${workstreamTitle}${triagePlacement === 'top' ? ' as priority' : ''}.`
-              )
-            }
-            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={`Queue ${triagePlacement === 'top' ? 'as priority' : 'normally'}`}
-          >
-            <span>{triagePlacement === 'top' ? 'Priority' : 'Queue'}</span>
-          </button>
-          <button
-            type="button"
-            disabled={isRowBusy}
+            disabled={isRowBusy || isRunningRow}
             onClick={() =>
               void runAction(
                 key,
                 () =>
-                  isAutoRunning
-                    ? stopInitiativeAutoContinue({ initiativeId: item.initiativeId })
-                    : (async () => {
+                  playWorkstream({
+                    initiativeId: item.initiativeId,
+                    workstreamId: item.workstreamId,
+                    agentId: item.runnerAgentId,
+                  }),
+                (result) => playDispatchNotice(item, result)
+              )
+            }
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+            title={isRunningRow ? 'Already running' : 'Start this workstream now'}
+          >
+            <span className="inline-flex items-center gap-1">
+              <PlayGlyph className="h-3 w-3 opacity-85" />
+              <span>{isRunningRow ? 'Running' : 'Start'}</span>
+            </span>
+          </button>
+          <div className="relative ml-auto">
+            <button
+              type="button"
+              disabled={isRowBusy}
+              onClick={() => setMenuKey((previous) => (previous === key ? null : key))}
+              className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+              title="Queue actions"
+            >
+              <span className="inline-flex items-center gap-1">
+                <MoreGlyph className="h-3 w-3 opacity-85" />
+                <span>More</span>
+              </span>
+            </button>
+            {menuKey === key && (
+              <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[198px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuKey(null);
+                    void runAction(
+                      `${key}:top`,
+                      () => onMoveWorkstream(item, 'top'),
+                      `Moved ${workstreamTitle} to top of queue.`
+                    );
+                  }}
+                  className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                >
+                  Move to top
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuKey(null);
+                    void runAction(
+                      `${key}:bottom`,
+                      () => onMoveWorkstream(item, 'bottom'),
+                      `Moved ${workstreamTitle} to bottom of queue.`
+                    );
+                  }}
+                  className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                >
+                  Move to bottom
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuKey(null);
+                    void runAction(
+                      `${key}:auto`,
+                      async () => {
                         await onMoveWorkstream(item, 'top');
                         return startWorkstreamAutoContinue({
                           initiativeId: item.initiativeId,
@@ -1437,35 +1498,44 @@ function NextUpReorderRow({
                           agentId: item.runnerAgentId,
                           scope: 'initiative',
                         });
-                      })(),
-                isAutoRunning
-                  ? `Stopped auto-continue for ${initiativeTitle}.`
-                  : `Automatic continuation enabled for ${initiativeTitle}; starting with ${workstreamTitle}.`
-              )
-            }
-            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            data-state={isAutoRunning ? 'active' : 'idle'}
-            data-tone="teal"
-            title={
-              isAutoRunning
-                ? 'Stop auto-continue for this initiative'
-                : 'Continue automatically for this workstream'
-            }
-          >
-            <span className="inline-flex items-center gap-1">
-              <AutoGlyph className="h-3 w-3 opacity-85" />
-              <span>{isAutoRunning ? 'Auto on' : 'Auto'}</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            disabled={isRowBusy || isRunningRow}
-            onClick={() => void onDismiss(item)}
-            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={isRunningRow ? 'Pause before removing' : 'Remove from queue'}
-          >
-            Remove
-          </button>
+                      },
+                      `Start+Auto enabled for ${initiativeTitle}.`
+                    );
+                  }}
+                  className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                >
+                  Start with auto
+                </button>
+                {isRunningRow ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuKey(null);
+                      void runAction(
+                        `${key}:pause`,
+                        () => onPauseWorkstream(item, triagePlacement),
+                        `Paused ${workstreamTitle}.`
+                      );
+                    }}
+                    className="mt-1 flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
+                  >
+                    Pause run
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={isRowBusy || isRunningRow}
+                  onClick={() => {
+                    setMenuKey(null);
+                    void onDismiss(item);
+                  }}
+                  className="mt-1 flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-red-100 transition-colors hover:bg-red-500/[0.12] disabled:opacity-45"
+                >
+                  Remove from queue
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </motion.article>
     </Reorder.Item>

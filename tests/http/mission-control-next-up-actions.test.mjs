@@ -345,6 +345,85 @@ test("mission-control sentinels catalog filters by signal", async () => {
   );
 });
 
+test("mission-control sentinels catalog exposes built-in sales sentinels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-sentinels-sales-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/sentinels?domain=sales",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.total, 2);
+      assert.deepEqual(
+        body.items.map((item) => item.id).sort(),
+        ["sales.deal-stagnation", "sales.lead-response-lag"]
+      );
+    }
+  );
+});
+
+test("mission-control sentinels catalog exposes built-in marketing sentinels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-sentinels-marketing-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/sentinels?domain=marketing",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.total, 2);
+      assert.deepEqual(
+        body.items.map((item) => item.id).sort(),
+        ["marketing.budget-monitor", "marketing.content-performance-drop"]
+      );
+    }
+  );
+});
+
+test("mission-control sentinels catalog exposes built-in product sentinels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-sentinels-product-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/sentinels?domain=product",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.total, 1);
+      assert.deepEqual(body.items.map((item) => item.id), ["product.accessibility-audit"]);
+      assert.equal(body.items[0]?.signal, "accessibility_audit");
+    }
+  );
+});
+
 test("mission-control next-up move reorders queue to top/bottom", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-move-"));
   await withEnv(
@@ -392,6 +471,78 @@ test("mission-control next-up move reorders queue to top/bottom", async () => {
       queue = await readNextUp(handler);
       const afterTop = queue.items.map((item) => item.workstreamId);
       assert.equal(afterTop[0], "ws-1");
+    }
+  );
+});
+
+test("mission-control next-up bulk reorders and removes queue entries", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-bulk-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+
+      let queue = await readNextUp(handler);
+      assert.ok(queue.items.length >= 2);
+
+      const resMoveTop = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/bulk",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "move_top",
+          items: [{ initiativeId: "init-1", workstreamId: "ws-2" }],
+        }),
+      });
+      assert.equal(resMoveTop.status, 200);
+      const moveBody = JSON.parse(resMoveTop.body);
+      assert.equal(moveBody.ok, true);
+      assert.equal(moveBody.updated, 1);
+      assert.equal(moveBody.failed, 0);
+
+      queue = await readNextUp(handler);
+      assert.equal(queue.items[0]?.workstreamId, "ws-2");
+
+      const resRemove = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/bulk",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "remove",
+          items: [
+            { initiativeId: "init-1", workstreamId: "ws-2" },
+            { initiativeId: "init-1", workstreamId: "ws-missing" },
+          ],
+        }),
+      });
+      assert.equal(resRemove.status, 200);
+      const removeBody = JSON.parse(resRemove.body);
+      assert.equal(removeBody.ok, true);
+      assert.equal(removeBody.requested, 2);
+      assert.equal(removeBody.updated, 1);
+      assert.equal(removeBody.failed, 1);
+
+      queue = await readNextUp(handler);
+      assert.ok(!queue.items.some((item) => item.workstreamId === "ws-2"));
+
+      const resRequeue = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/move",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          initiativeId: "init-1",
+          workstreamId: "ws-2",
+          placement: "top",
+        }),
+      });
+      assert.equal(resRequeue.status, 200);
+
+      queue = await readNextUp(handler);
+      assert.equal(queue.items[0]?.workstreamId, "ws-2");
     }
   );
 });

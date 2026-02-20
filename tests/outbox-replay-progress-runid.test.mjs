@@ -84,6 +84,10 @@ test("progress replay keeps run_id first and falls back to correlation_id on 404
 
 test("retro replay normalizes structured retro payload before submit", async () => {
   const { createOutboxReplayer } = await importFreshModule();
+  const longSummary = `  ${"s".repeat(4505)}  `;
+  const longListItem = ` ${"w".repeat(1200)} `;
+  const longTitle = ` ${"t".repeat(700)} `;
+  const longReason = ` ${"r".repeat(2300)} `;
 
   const retroCalls = [];
   const replayer = createOutboxReplayer({
@@ -142,12 +146,13 @@ test("retro replay normalizes structured retro payload before submit", async () 
       entity_type: "task",
       entity_id: "22222222-2222-2222-2222-222222222222",
       retro: {
-        summary: "  replayed retro summary  ",
-        what_went_well: [" shipped ", "", 42],
-        what_went_wrong: [" flaky test ", null],
-        decisions: [" merge fix ", " "],
+        summary: longSummary,
+        whatWentWell: [" shipped ", "", 42, longListItem],
+        whatWentWrong: [" flaky test ", null],
+        keyDecisions: [" merge fix ", " "],
         followUps: [
           { title: " tighten schema ", priority: "P0", reason: "  prevents drift " },
+          { title: longTitle, reason: longReason },
           { title: "  " },
           "invalid",
         ],
@@ -161,13 +166,20 @@ test("retro replay normalizes structured retro payload before submit", async () 
   const sent = retroCalls[0];
   assert.equal(sent.entity_type, "task");
   assert.equal(sent.entity_id, "22222222-2222-2222-2222-222222222222");
+  assert.equal(sent.retro.summary.length, 4000);
+  assert.equal(sent.retro.follow_ups[1].title.length, 500);
+  assert.equal(sent.retro.follow_ups[1].reason.length, 2000);
+  assert.equal(sent.retro.what_went_well[1].length, 1000);
   assert.deepEqual(sent.retro, {
     schema_version: "retro.v1",
-    summary: "replayed retro summary",
-    what_went_well: ["shipped"],
+    summary: "s".repeat(4000),
+    what_went_well: ["shipped", "w".repeat(1000)],
     what_went_wrong: ["flaky test"],
     decisions: ["merge fix"],
-    follow_ups: [{ title: "tighten schema", priority: "p0", reason: "prevents drift" }],
+    follow_ups: [
+      { title: "tighten schema", priority: "p0", reason: "prevents drift" },
+      { title: "t".repeat(500), reason: "r".repeat(2000) },
+    ],
     signals: { retries: 2 },
   });
 });

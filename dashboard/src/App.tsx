@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
+import { useNextUpQueue } from '@/hooks/useNextUpQueue';
 import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
@@ -345,6 +346,10 @@ function DashboardShell({
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
+  const [interventionDraft, setInterventionDraft] = useState<{
+    workstreamId: string | null;
+    text: string;
+  } | null>(null);
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
@@ -354,6 +359,7 @@ function DashboardShell({
   const [requestedDecisionId, setRequestedDecisionId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
+  const [sidebarAutopilotBusy, setSidebarAutopilotBusy] = useState(false);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -395,6 +401,23 @@ function DashboardShell({
     }
     return count;
   }, [sessionNodesInScope]);
+
+  const activityNextUpQueue = useNextUpQueue({
+    initiativeId: null,
+    authToken: null,
+    embedMode: false,
+    enabled: true,
+  });
+  const activityAutopilotRun = useMemo(
+    () =>
+      activityNextUpQueue.items.find(
+        (item) =>
+          item.autoIntentEnabled === true &&
+          (item.autoRuntimeState === 'running' || item.autoRuntimeState === 'stopping')
+      ) ?? null,
+    [activityNextUpQueue.items]
+  );
+  const activityAutopilotActive = Boolean(activityAutopilotRun);
 
   // Allow "In Progress" tab even when count is 0 — show empty state instead of force-redirect
 
@@ -570,9 +593,24 @@ function DashboardShell({
     void import('@/components/sessions/SessionInspector');
     setSelectedSessionId(sessionId);
     setSessionDrawerOpen(true);
+    setInterventionDraft(null);
     setActivityFilterSessionId(sessionId);
     setActivityFilterWorkstreamId(null);
     setActivityFilterWorkstreamLabel(null);
+  }, []);
+
+  const openInterventionComposer = useCallback((session: SessionTreeNode) => {
+    void import('@/components/sessions/SessionInspector');
+    setSelectedSessionId(session.id);
+    setSessionDrawerOpen(true);
+    setActivityFilterSessionId(session.id);
+    setActivityFilterWorkstreamId(session.workstreamId ?? null);
+    setActivityFilterWorkstreamLabel(session.title);
+    setInterventionDraft({
+      workstreamId: session.workstreamId ?? null,
+      text: `Intervention requested for "${session.title}". `,
+    });
+    setOpsNotice(`Opened intervention composer for ${session.title}.`);
   }, []);
 
   const focusActivityRunId = useCallback(
@@ -1242,6 +1280,35 @@ function DashboardShell({
     await refetch();
   }, [fetchNextUpCandidate, refetch, switchDashboardView]);
 
+  const toggleSidebarAutopilot = useCallback(async () => {
+    setSidebarAutopilotBusy(true);
+    try {
+      if (!activityAutopilotRun) {
+        await startAutopilotFromActivity();
+        return;
+      }
+
+      const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initiativeId: activityAutopilotRun.initiativeId }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiErrorMessage(response, 'Failed to stop Autopilot'));
+      }
+
+      setOpsNotice(`Autopilot stopped for ${activityAutopilotRun.initiativeTitle}.`);
+      await refetch();
+    } finally {
+      setSidebarAutopilotBusy(false);
+    }
+  }, [
+    activityAutopilotRun,
+    readApiErrorMessage,
+    refetch,
+    startAutopilotFromActivity,
+  ]);
+
   const playSessionWorkstream = useCallback(
     async (session: SessionTreeNode) => {
       const initiativeId = (session.initiativeId ?? '').trim();
@@ -1320,6 +1387,34 @@ function DashboardShell({
       }
 
       setOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
+      await refetch();
+    },
+    [readApiErrorMessage, refetch]
+  );
+
+  const submitSessionIntervention = useCallback(
+    async (input: { session: SessionTreeNode; workstreamId: string | null; text: string }) => {
+      const workstreamId = (input.workstreamId ?? '').trim();
+      if (!workstreamId) {
+        throw new Error('This session is missing a workstream id for intervention notes.');
+      }
+      const response = await fetch(
+        `/orgx/api/entities/workstream/${encodeURIComponent(workstreamId)}/comments`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            body: input.text.trim(),
+            commentType: 'intervention',
+            severity: 'info',
+            tags: ['intervention', 'in_progress'],
+          }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await readApiErrorMessage(response, 'Failed to submit intervention'));
+      }
+      setOpsNotice(`Intervention sent for ${input.session.title}.`);
       await refetch();
     },
     [readApiErrorMessage, refetch]
@@ -1423,6 +1518,16 @@ function DashboardShell({
       await refetch();
     },
     [refetch, runControlAction]
+  );
+
+  const restartSessionWorkstream = useCallback(
+    async (session: SessionTreeNode) => {
+      await runControlAction(session, 'cancel', { reason: 'restart_from_in_progress' });
+      await playSessionWorkstream(session);
+      setOpsNotice(`Restarted ${session.title}.`);
+      await refetch();
+    },
+    [playSessionWorkstream, refetch, runControlAction]
   );
 
   const cancelSession = useCallback(
@@ -1715,6 +1820,7 @@ function DashboardShell({
             </Badge>
             {(activeSessionCount > 0 || blockedCount > 0) && (
               <ContextualStatus
+                className="hidden md:flex"
                 running={activeSessionCount}
                 blocked={blockedCount}
                 decisionsCount={decisionsVisible ? data.decisions.length : 0}
@@ -1883,6 +1989,7 @@ function DashboardShell({
 
                 <div className="mb-1.5 px-1.5">
                   <ContextualStatus
+                    className="max-w-full overflow-hidden"
                     running={activeSessionCount}
                     blocked={blockedCount}
                     decisionsCount={decisionsVisible ? data.decisions.length : 0}
@@ -2045,46 +2152,6 @@ function DashboardShell({
 	        </div>
 	      ) : (
       <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
-        {/* Decision Urgency Banner */}
-        {decisionsVisible && data.decisions.length > 0 && expandedRightPanel !== 'decisions' && (
-          <button
-            type="button"
-            onClick={() => setExpandedRightPanel('decisions')}
-            className={cn(
-              'col-span-full flex items-center gap-2 rounded-xl border px-4 py-2.5 text-left transition-colors hover:bg-white/[0.03]',
-              data.decisions.length >= 20
-                ? 'border-red-400/30 bg-red-500/[0.08]'
-                : 'border-amber-300/30 bg-amber-400/[0.08]'
-            )}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={data.decisions.length >= 20 ? 'text-red-300' : 'text-amber-300'}>
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <span className={`text-body font-medium ${data.decisions.length >= 20 ? 'text-red-200' : 'text-amber-200'}`}>
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={data.decisions.length}
-                  initial={{ scale: 1.15, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.9, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                  className="inline-block"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {data.decisions.length}
-                </motion.span>
-              </AnimatePresence>
-              {' '}decision{data.decisions.length === 1 ? '' : 's'} need{data.decisions.length === 1 ? 's' : ''} your input
-              {longestWaitMinutes > 0 ? ` · oldest from ${formatWaitingDuration(longestWaitMinutes)} ago` : ''}
-            </span>
-            <span className={`ml-auto text-caption ${data.decisions.length >= 20 ? 'text-red-300/70' : 'text-amber-300/70'}`}>
-              Review →
-            </span>
-          </button>
-        )}
-
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
 	          <AgentsChatsPanel
 	            sessions={data.sessions}
@@ -2137,40 +2204,71 @@ function DashboardShell({
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
-              <div className="flex h-full min-h-0 flex-col gap-2">
-                <div
-                  className="inline-flex items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
-                  role="tablist"
-                  aria-label="Initiatives sidebar"
-                >
+              <div className="flex h-full min-h-0 flex-col gap-0">
+                <div className="flex items-center gap-2 rounded-t-2xl border border-strong bg-black/20 px-2 py-1.5">
+                  <div
+                    className="inline-flex flex-1 items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
+                    role="tablist"
+                    aria-label="Initiatives sidebar"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={initiativesSidebarTab === 'in_progress'}
+                      onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('in_progress'); }}
+                      className={
+                        initiativesSidebarTab === 'in_progress'
+                          ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
+                          : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                      }
+                    >
+                      <span>In Progress</span>
+                      <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
+                        {inProgressCount}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={initiativesSidebarTab === 'next_up'}
+                      onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('next_up'); }}
+                      className={
+                        initiativesSidebarTab === 'next_up'
+                          ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
+                          : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
+                      }
+                    >
+                      <span>Next Up</span>
+                      {activityNextUpQueue.total > 0 && (
+                        <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
+                          {activityNextUpQueue.total}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={initiativesSidebarTab === 'in_progress'}
-                    onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('in_progress'); }}
-                    className={
-                      initiativesSidebarTab === 'in_progress'
-                        ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
-                        : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                    }
+                    onClick={() => {
+                      void toggleSidebarAutopilot().catch((error) => {
+                        setOpsNotice(error instanceof Error ? error.message : 'Autopilot action failed.');
+                      });
+                    }}
+                    disabled={sidebarAutopilotBusy}
+                    className="control-pill flex h-8 flex-shrink-0 items-center gap-1.5 px-2.5 text-caption font-semibold disabled:opacity-45"
+                    data-tone="teal"
+                    data-state={activityAutopilotActive ? 'active' : 'idle'}
+                    title={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
                   >
-                    <span>In Progress</span>
-                    <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
-                      {inProgressCount}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={initiativesSidebarTab === 'next_up'}
-                    onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('next_up'); }}
-                    className={
-                      initiativesSidebarTab === 'next_up'
-                        ? 'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
-                        : 'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                    }
-                  >
-                    Next Up
+                    <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
+                      <path
+                        d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span>{activityAutopilotActive ? 'Auto on' : 'Auto'}</span>
                   </button>
                 </div>
 
@@ -2183,6 +2281,9 @@ function DashboardShell({
                       onFocusRunId={focusActivityRunId}
                       onPlayWorkstream={playSessionWorkstream}
                       onPauseWorkstream={pauseSessionWorkstream}
+                      onResumeWorkstream={playSessionWorkstream}
+                      onRestartSession={restartSessionWorkstream}
+                      onIntervene={openInterventionComposer}
                     />
                   ) : (
                     <NextUpPanel
@@ -2190,7 +2291,7 @@ function DashboardShell({
                       showHeader={false}
                       className="h-full"
                       compact={false}
-                      onFollowWorkstream={followQueuedWorkstream}
+                      selectionEnabled
                       onOpenInitiative={openInitiativeFromNextUp}
                     />
                   )}
@@ -2318,6 +2419,8 @@ function DashboardShell({
 	                    session={selectedSession}
 	                    activity={activityInScope}
 	                    initiatives={initiatives}
+                      initialInterventionDraft={interventionDraft}
+                      onSubmitIntervention={submitSessionIntervention}
                       onOpenActivityItem={openActivityItemFromSessionDetail}
 	                    onContinueHighestPriority={continueHighestPriority}
 	                    onDispatchSession={dispatchSession}

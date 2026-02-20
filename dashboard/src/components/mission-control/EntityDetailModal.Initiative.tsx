@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import type { Initiative } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import {
   initiativeStatusClass,
   formatEntityStatus,
@@ -15,10 +16,13 @@ import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
+import { QueuePlacementControl } from './QueuePlacementControl';
 
 interface InitiativeDetailProps {
   initiative: Initiative;
 }
+
+type QueuePlacement = 'top' | 'bottom';
 
 export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   const {
@@ -51,6 +55,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     authToken,
     embedMode,
   });
+  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
 
   const activeTasks = details.tasks.filter((t) =>
     ['active', 'in_progress'].includes(t.status.toLowerCase())
@@ -72,6 +77,19 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     mutations.createEntity.isPending ||
     mutations.updateEntity.isPending ||
     mutations.deleteEntity.isPending;
+  const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
+  const queueTargets = useMemo(() => {
+    if (details.workstreams.length > 0) {
+      return details.workstreams.map((workstream) => ({
+        id: workstream.id,
+        name: workstream.name,
+      }));
+    }
+    return (initiative.workstreams ?? []).map((workstream) => ({
+      id: workstream.id,
+      name: workstream.name,
+    }));
+  }, [details.workstreams, initiative.workstreams]);
 
   useEffect(() => {
     if (editMode) return;
@@ -135,6 +153,55 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           setNotice(error instanceof Error ? error.message : 'Failed to update initiative.');
         },
       }
+    );
+  };
+
+  const queueInitiative = async (placement: QueuePlacement) => {
+    if (queueTargets.length === 0) {
+      setNotice('No workstreams available to queue.');
+      return;
+    }
+
+    const orderedTargets =
+      placement === 'top' ? [...queueTargets].reverse() : queueTargets;
+    let queuedCount = 0;
+    let failedCount = 0;
+    let firstError: string | null = null;
+
+    for (const target of orderedTargets) {
+      try {
+        await nextUpActions.pin({
+          initiativeId: initiative.id,
+          workstreamId: target.id,
+        });
+        await nextUpActions.move({
+          initiativeId: initiative.id,
+          workstreamId: target.id,
+          placement,
+        });
+        queuedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        if (!firstError) {
+          firstError =
+            error instanceof Error ? error.message : 'Failed to queue initiative workstream.';
+        }
+      }
+    }
+
+    if (failedCount > 0) {
+      setNotice(
+        queuedCount > 0
+          ? `Queued ${queuedCount}/${queueTargets.length} workstreams (${failedCount} failed).`
+          : firstError ?? 'Failed to queue initiative workstreams.'
+      );
+      return;
+    }
+
+    setNotice(
+      `Queued ${queuedCount} workstream${queuedCount === 1 ? '' : 's'} to ${
+        placement === 'top' ? 'top' : 'end'
+      }.`
     );
   };
 
@@ -397,6 +464,14 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               disabled={isMutating}
             />
           )}
+          <QueuePlacementControl
+            label="Queue"
+            size="md"
+            busy={queueActionBusy}
+            disabled={isMutating || queueTargets.length === 0}
+            title={`Queue initiative: ${initiative.name}`}
+            onSelectPlacement={queueInitiative}
+          />
           {editMode ? (
             <>
               <EntityActionButton

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import type { Initiative, InitiativeWorkstream } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import {
   getWorkstreamStatusClass,
   getTaskStatusClass,
@@ -17,11 +18,14 @@ import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
+import { QueuePlacementControl } from './QueuePlacementControl';
 
 interface WorkstreamDetailProps {
   workstream: InitiativeWorkstream;
   initiative: Initiative;
 }
+
+type QueuePlacement = 'top' | 'bottom';
 
 export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailProps) {
   const { agentEntityMap, openModal, closeModal, authToken, embedMode, mutations } = useMissionControl();
@@ -41,6 +45,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
     authToken,
     embedMode,
   });
+  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
 
   const milestones = useMemo(() => {
     return details.milestones.filter((m) => m.workstreamId === workstream.id);
@@ -82,6 +87,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
     mutations.createEntity.isPending ||
     mutations.updateEntity.isPending ||
     mutations.deleteEntity.isPending;
+  const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
 
   const handleSaveEdits = () => {
     const name = draftName.trim();
@@ -109,6 +115,24 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         },
       }
     );
+  };
+
+  const queueWorkstream = async (placement: QueuePlacement) => {
+    setNotice(null);
+    try {
+      await nextUpActions.pin({
+        initiativeId: initiative.id,
+        workstreamId: workstream.id,
+      });
+      await nextUpActions.move({
+        initiativeId: initiative.id,
+        workstreamId: workstream.id,
+        placement,
+      });
+      setNotice(`Queued workstream to ${placement === 'top' ? 'top' : 'end'}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Failed to queue workstream.');
+    }
   };
 
   return (
@@ -349,6 +373,14 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           {['paused', 'blocked'].includes(normalizedStatus) && (
             <EntityActionButton label="Resume" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'resume' })} disabled={isMutating} />
           )}
+          <QueuePlacementControl
+            label="Queue"
+            size="md"
+            busy={queueActionBusy}
+            disabled={isMutating}
+            title={`Queue workstream: ${workstream.name}`}
+            onSelectPlacement={queueWorkstream}
+          />
           {editMode ? (
             <>
               <EntityActionButton

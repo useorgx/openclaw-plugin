@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
@@ -24,6 +24,15 @@ interface SessionInspectorProps {
   onRollbackSession?: (session: SessionTreeNode) => Promise<void> | void;
   onStartInitiative?: () => Promise<void> | void;
   onStartWorkstream?: (initiativeId: string | null) => Promise<void> | void;
+  initialInterventionDraft?: {
+    workstreamId: string | null;
+    text: string;
+  } | null;
+  onSubmitIntervention?: (input: {
+    session: SessionTreeNode;
+    workstreamId: string | null;
+    text: string;
+  }) => Promise<void> | void;
 }
 
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
@@ -140,11 +149,26 @@ export const SessionInspector = memo(function SessionInspector({
   onRollbackSession,
   onStartInitiative,
   onStartWorkstream,
+  initialInterventionDraft = null,
+  onSubmitIntervention,
 }: SessionInspectorProps) {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [interventionText, setInterventionText] = useState('');
   const { enqueue: enqueueUndo, ToastRenderer: UndoToastRenderer } = useUndoToast();
+
+  useEffect(() => {
+    if (!session) {
+      setInterventionText('');
+      return;
+    }
+    if (initialInterventionDraft?.text) {
+      setInterventionText(initialInterventionDraft.text);
+      return;
+    }
+    setInterventionText('');
+  }, [initialInterventionDraft?.text, session?.id]);
 
   const recentEvents = useMemo(() => {
     if (!session) return [] as LiveActivityItem[];
@@ -518,6 +542,42 @@ export const SessionInspector = memo(function SessionInspector({
                 </button>
               )}
             </div>
+            {onSubmitIntervention && (
+              <div className="mt-3 rounded-lg border border-white/[0.08] bg-black/[0.18] px-3 py-2.5">
+                <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Intervene</p>
+                <textarea
+                  value={interventionText}
+                  onChange={(event) => setInterventionText(event.target.value)}
+                  placeholder="Share guidance for this run..."
+                  className="min-h-[84px] w-full resize-y rounded-lg border border-white/[0.10] bg-white/[0.03] px-3 py-2 text-body text-bright outline-none placeholder:text-faint focus:border-white/20"
+                />
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-micro text-secondary">Visible to agents and collaborators.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = interventionText.trim();
+                      if (!text) {
+                        setNotice('Intervention note cannot be empty.');
+                        return;
+                      }
+                      void runAction('intervene-note', 'Intervention sent', async () => {
+                        await onSubmitIntervention({
+                          session,
+                          workstreamId: initialInterventionDraft?.workstreamId ?? session.workstreamId ?? null,
+                          text,
+                        });
+                        setInterventionText('');
+                      });
+                    }}
+                    disabled={!!busyAction || interventionText.trim().length === 0}
+                    className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+                  >
+                    {busyAction === 'intervene-note' ? 'Sending…' : 'Send intervention'}
+                  </button>
+                </div>
+              </div>
+            )}
             {canCancel && onCancelSession && (
               <div className="mt-3 border-t border-subtle pt-3">
                 <button

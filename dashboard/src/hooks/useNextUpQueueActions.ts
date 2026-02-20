@@ -169,6 +169,26 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
+        if (isUnknownApiEndpointError(response, body)) {
+          const legacyResponse = await fetch('/orgx/api/mission-control/next-up/unpin', {
+            method: 'POST',
+            headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+            body: JSON.stringify(payload),
+          });
+          const legacyBody = await readResponseJson<{ error?: string; message?: string }>(
+            legacyResponse
+          );
+          if (!legacyResponse.ok) {
+            throw new Error(
+              normalizeErrorMessage(
+                legacyResponse,
+                legacyBody,
+                'Failed to remove item from queue with legacy fallback'
+              )
+            );
+          }
+          return legacyBody ?? { ok: true, fallback: 'next-up-unpin' };
+        }
         throw new Error(normalizeErrorMessage(response, body, 'Failed to remove item from queue'));
       }
       return body;
@@ -221,6 +241,27 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     },
   });
 
+  const bulk = useMutation({
+    mutationFn: async (payload: {
+      action: 'move_top' | 'move_bottom' | 'remove';
+      items: Array<{ initiativeId: string; workstreamId: string }>;
+    }) => {
+      const response = await fetch('/orgx/api/mission-control/next-up/bulk', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify(payload),
+      });
+      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      if (!response.ok) {
+        throw new Error(normalizeErrorMessage(response, body, 'Failed to apply bulk queue action'));
+      }
+      return body;
+    },
+    onSuccess: () => {
+      void invalidate();
+    },
+  });
+
   return {
     pin: pin.mutateAsync,
     unpin: unpin.mutateAsync,
@@ -229,6 +270,7 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     remove: remove.mutateAsync,
     stopTriage: stopTriage.mutateAsync,
     clear: clear.mutateAsync,
+    bulk: bulk.mutateAsync,
     isPinning: pin.isPending,
     isUnpinning: unpin.isPending,
     isReordering: reorder.isPending,
@@ -236,5 +278,6 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     isRemoving: remove.isPending,
     isStoppingTriage: stopTriage.isPending,
     isClearing: clear.isPending,
+    isBulking: bulk.isPending,
   };
 }

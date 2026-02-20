@@ -31,7 +31,7 @@ function autopilotSliceSchema(): Record<string, unknown> {
     name: { type: "string", minLength: 1 },
     artifact_type: {
       type: "string",
-      enum: ["pr", "commit", "document", "config", "report", "design", "other"],
+      enum: ["pr", "commit", "document", "config", "report", "design", "retro", "other"],
     },
     confidence_score: { type: ["number", "null"], minimum: 0, maximum: 1 },
     description: { type: ["string", "null"] },
