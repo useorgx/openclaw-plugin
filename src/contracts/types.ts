@@ -22,6 +22,8 @@ export type {
   RuntimeInstanceState,
   RuntimeProviderLogo,
   RuntimeSourceClient,
+  SessionBlockerContext,
+  SessionBlockerDiagnostics,
   SessionTreeEdge,
   SessionTreeGroup,
   SessionTreeNode,

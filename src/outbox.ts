@@ -66,6 +66,11 @@ export interface OutboxSummary {
   newestEventAt: string | null;
 }
 
+/** Events older than 7 days are stale — sync will never recover them. */
+const OUTBOX_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
+/** Hard cap per session to prevent unbounded growth if sync repeatedly fails. */
+const OUTBOX_MAX_EVENTS_PER_SESSION = 500;
+
 async function ensureDir(): Promise<void> {
   const dir = outboxDir();
   try {
@@ -125,13 +130,37 @@ async function writeFileAtomic(
   await hardenPath(targetPath, mode);
 }
 
+/** Drop stale events and enforce per-session cap. Returns true if any were removed. */
+function pruneOutboxEvents(events: OutboxEvent[]): { pruned: OutboxEvent[]; changed: boolean } {
+  const cutoff = Date.now() - OUTBOX_EVENT_TTL_MS;
+  const fresh = events.filter((e) => {
+    const epoch = Date.parse(e.timestamp);
+    return Number.isFinite(epoch) && epoch >= cutoff;
+  });
+  // Keep newest events if over cap.
+  const capped = fresh.length > OUTBOX_MAX_EVENTS_PER_SESSION
+    ? fresh.slice(fresh.length - OUTBOX_MAX_EVENTS_PER_SESSION)
+    : fresh;
+  return { pruned: capped, changed: capped.length !== events.length };
+}
+
 export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
   const targetPath = outboxPath(sessionId);
   try {
     const raw = await readFile(targetPath, "utf8");
     try {
       const parsed = JSON.parse(raw) as unknown;
-      return Array.isArray(parsed) ? (parsed as OutboxEvent[]) : [];
+      const events = Array.isArray(parsed) ? (parsed as OutboxEvent[]) : [];
+      const { pruned, changed } = pruneOutboxEvents(events);
+      // Write back if stale events were dropped.
+      if (changed) {
+        if (pruned.length === 0) {
+          try { await unlink(targetPath); } catch { /* ok */ }
+        } else {
+          await writeFileAtomic(targetPath, JSON.stringify(pruned), 0o600);
+        }
+      }
+      return pruned;
     } catch {
       await backupCorruptOutboxFile(targetPath);
       return [];
@@ -154,7 +183,7 @@ export async function appendToOutbox(
   } else {
     existing.push(event);
   }
-  await writeFileAtomic(targetPath, JSON.stringify(existing, null, 2), 0o600);
+  await writeFileAtomic(targetPath, JSON.stringify(existing), 0o600);
 }
 
 export async function replaceOutbox(
@@ -172,7 +201,7 @@ export async function replaceOutbox(
       return;
     }
   }
-  await writeFileAtomic(targetPath, JSON.stringify(events, null, 2), 0o600);
+  await writeFileAtomic(targetPath, JSON.stringify(events), 0o600);
 }
 
 export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {

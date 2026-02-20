@@ -51,6 +51,8 @@ interface InProgressPanelProps {
   sessions: SessionTreeNode[];
   title?: string;
   className?: string;
+  showHeader?: boolean;
+  panelStyle?: 'card' | 'flat';
   onOpenSession?: (sessionId: string) => void;
   onFocusRunId?: (runId: string) => void;
   onPlayWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
@@ -64,6 +66,8 @@ export const InProgressPanel = memo(function InProgressPanel({
   sessions,
   title = 'In Progress',
   className,
+  showHeader = true,
+  panelStyle = 'card',
   onOpenSession,
   onFocusRunId,
   onPlayWorkstream,
@@ -136,13 +140,20 @@ export const InProgressPanel = memo(function InProgressPanel({
   };
 
   return (
-    <PremiumCard className={`flex h-full min-h-0 flex-col overflow-hidden ${className ?? ''}`}>
-      <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
-          <span className="chip text-micro">{inProgress.length}</span>
+    <PremiumCard
+      surface={panelStyle === 'card'}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${
+        panelStyle === 'flat' ? '!rounded-none !border-none !bg-transparent !shadow-none' : ''
+      } ${className ?? ''}`}
+    >
+      {showHeader ? (
+        <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
+            <span className="chip text-micro">{inProgress.length}</span>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {statusOptions.length > 1 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle px-3 py-2">

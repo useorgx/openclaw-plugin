@@ -6,7 +6,6 @@ import type {
   ConnectionStatus,
   Initiative,
   LiveActivityItem,
-  NextUpQueueItem,
   RuntimeInstance,
 } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
@@ -27,6 +26,7 @@ import { EntityDetailModal } from './EntityDetailModal';
 import { MissionControlFilters } from './MissionControlFilters';
 import { NextUpPanel } from './NextUpPanel';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { InlineToast } from '@/components/shared/InlineToast';
 
 interface MissionControlViewProps {
   initiatives: Initiative[];
@@ -46,7 +46,6 @@ interface MissionControlViewProps {
   onCreateInitiative?: () => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
-  onFollowWorkstream?: (item: NextUpQueueItem) => void;
 }
 
 function toStatusKey(value: string | null | undefined): string {
@@ -233,7 +232,6 @@ export function MissionControlView({
   onCreateInitiative,
   onPlayNextUp,
   onStartAutopilot,
-  onFollowWorkstream,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
 
@@ -257,7 +255,6 @@ export function MissionControlView({
         onCreateInitiative={onCreateInitiative}
         onPlayNextUp={onPlayNextUp}
         onStartAutopilot={onStartAutopilot}
-        onFollowWorkstream={onFollowWorkstream}
       />
     </MissionControlProvider>
   );
@@ -288,7 +285,6 @@ function MissionControlInner({
   onCreateInitiative,
   onPlayNextUp,
   onStartAutopilot,
-  onFollowWorkstream,
 }: {
   initiatives: Initiative[];
   runtimeInstances: RuntimeInstance[];
@@ -303,7 +299,6 @@ function MissionControlInner({
   onCreateInitiative?: () => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
-  onFollowWorkstream?: (item: NextUpQueueItem) => void;
 }) {
   const {
     searchQuery,
@@ -338,7 +333,7 @@ function MissionControlInner({
   const [stickyToolbarOffset, setStickyToolbarOffset] = useState(0);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [isExpandWaveActive, setIsExpandWaveActive] = useState(false);
-  const [showConnectivityHint, setShowConnectivityHint] = useState(false);
+  const [connectivityToastDismissed, setConnectivityToastDismissed] = useState(false);
   const [nextUpRailOpen, setNextUpRailOpen] = useState(false);
   const [nextUpDrawerOpen, setNextUpDrawerOpen] = useState(false);
   const [nextActionNotice, setNextActionNotice] = useState<{
@@ -874,27 +869,7 @@ function MissionControlInner({
       hasApiKey &&
       (connection === 'disconnected' || error)
   );
-  const isConnectivityCritical = Boolean(connection === 'disconnected' || error);
-
-  useEffect(() => {
-    if (!hasConnectivityIssue) {
-      setShowConnectivityHint(false);
-      return;
-    }
-
-    if (isConnectivityCritical) {
-      setShowConnectivityHint(true);
-    }
-  }, [hasConnectivityIssue, isConnectivityCritical]);
-
-  const hintTone: 'critical' | 'info' =
-    connection === 'disconnected' || Boolean(error)
-      ? 'critical'
-      : 'info';
-  const hintBorder =
-    hintTone === 'critical'
-      ? 'border-red-400/30 bg-red-500/14 text-red-100'
-      : 'border-strong bg-white/[0.08] text-primary';
+  const hintTone: 'critical' | 'info' = connection === 'disconnected' || Boolean(error) ? 'critical' : 'info';
   const hintLabel =
     connection === 'disconnected'
       ? 'Offline'
@@ -906,6 +881,12 @@ function MissionControlInner({
     : connection === 'disconnected'
       ? 'Data may be stale'
       : `Last snapshot ${formatLocalTimestamp(lastSnapshotAt)}`;
+
+  useEffect(() => {
+    if (!hasConnectivityIssue) {
+      setConnectivityToastDismissed(false);
+    }
+  }, [hasConnectivityIssue]);
   const openInitiativeFromNextUp = useCallback(
     (initiativeId: string, initiativeTitle?: string) => {
       const target = initiatives.find((initiative) => initiative.id === initiativeId);
@@ -996,13 +977,6 @@ function MissionControlInner({
       sortedInitiatives,
       stickyToolbarOffset,
     ]
-  );
-  const handleFollowFromNextUp = useCallback(
-    (item: NextUpQueueItem) => {
-      onFollowWorkstream?.(item);
-      setNextUpDrawerOpen(false);
-    },
-    [onFollowWorkstream]
   );
   const startInitiativeFromNextAction = useCallback(() => {
     if (!nextActionInitiative) return;
@@ -1361,53 +1335,32 @@ function MissionControlInner({
               ref={stickyToolbarRef}
               className="sticky top-0 z-40 relative -mx-4 border-b border-subtle bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6"
             >
-              <AnimatePresence initial={false}>
-                {showConnectivityHint && hasConnectivityIssue && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                    transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                    className="pointer-events-none absolute right-4 top-2.5 z-50 sm:right-6"
-                  >
-                    <div className={`pointer-events-auto inline-flex max-w-[540px] items-center gap-2 rounded-full border px-2.5 py-1.5 shadow-[0_10px_24px_rgba(0,0,0,0.35)] ${hintBorder}`}>
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          hintTone === 'critical'
-                            ? 'bg-red-300'
-                            : 'bg-white/70'
-                        }`}
-                      />
-                      <span className="text-micro font-semibold uppercase tracking-[0.08em]">
-                        {hintLabel}
-                      </span>
-                      <span className="max-w-[280px] truncate text-caption opacity-85" title={hintDetail}>
-                        {hintDetail}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        {onRefresh && (
-                          <button
-                            type="button"
-                            onClick={onRefresh}
-                            className="h-6 rounded-full border border-strong bg-white/[0.08] px-2 text-micro font-semibold text-current transition-colors hover:bg-white/[0.15]"
-                          >
-                            Refresh
-                          </button>
-                        )}
-                        {onOpenSettings && (
-                          <button
-                            type="button"
-                            onClick={onOpenSettings}
-                            className="h-6 rounded-full border border-strong bg-white/[0.08] px-2 text-micro font-semibold text-current transition-colors hover:bg-white/[0.15]"
-                          >
-                            Settings
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <div className="pointer-events-none absolute right-4 top-2.5 z-50 sm:right-6">
+                <InlineToast
+                  open={hasConnectivityIssue && !connectivityToastDismissed}
+                  tone={hintTone === 'critical' ? 'error' : 'warning'}
+                  title={hintLabel}
+                  message={hintDetail}
+                  className="pointer-events-auto"
+                  onDismiss={() => setConnectivityToastDismissed(true)}
+                  primaryAction={
+                    onRefresh
+                      ? {
+                          label: 'Refresh',
+                          onClick: onRefresh,
+                        }
+                      : null
+                  }
+                  secondaryAction={
+                    onOpenSettings
+                      ? {
+                          label: 'Settings',
+                          onClick: onOpenSettings,
+                        }
+                      : null
+                  }
+                />
+              </div>
 
               <div className="toolbar-shell flex flex-col gap-2.5 md:flex-row md:items-center">
                 <div className="min-w-0 flex-1">
@@ -2122,11 +2075,11 @@ function MissionControlInner({
                           </button>
                           <NextUpPanel
                             title="Next Up"
+                            panelStyle="flat"
                             className="!bg-transparent !shadow-none !border-transparent"
                             disableEnterAnimation
                             authToken={authToken}
                             embedMode={embedMode}
-                            onFollowWorkstream={handleFollowFromNextUp}
                             onOpenInitiative={openInitiativeFromNextUp}
                             onOpenSettings={onOpenSettings}
                             onUpgradeGate={setAutopilotUpgradeGate}
@@ -2180,11 +2133,11 @@ function MissionControlInner({
                       >
                           <NextUpPanel
                             title="Next Up"
+                            panelStyle="flat"
                             className="!bg-transparent !shadow-none !border-transparent"
                             disableEnterAnimation
                             authToken={authToken}
                             embedMode={embedMode}
-                            onFollowWorkstream={handleFollowFromNextUp}
                             onOpenInitiative={(initiativeId, initiativeTitle) => {
                               openInitiativeFromNextUp(initiativeId, initiativeTitle);
                               setNextUpDrawerOpen(false);

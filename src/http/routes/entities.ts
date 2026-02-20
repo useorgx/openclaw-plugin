@@ -55,9 +55,47 @@ type RegisterEntitiesRoutesDeps<TReq, TRes> = {
     progress?: number | null;
   }>;
   getSnapshot: () => OrgSnapshot | null;
+  scheduleWorkstreamReassignment?: (input: {
+    initiativeId: string;
+    workstreamId: string;
+    status: string | null;
+    event: string;
+  }) => Promise<{ requestId?: string | null; dueAt?: string | null } | null>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 };
+
+const WORKSTREAM_REASSIGNMENT_FIELDS = [
+  "domain",
+  "role",
+  "assigned_agents",
+  "assignedAgents",
+  "assigned_agent_ids",
+  "assignedAgentIds",
+  "assigned_agent_names",
+  "assignedAgentNames",
+];
+
+function hasOwn(input: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function includesWorkstreamReassignmentMutation(payload: Record<string, unknown>): boolean {
+  return WORKSTREAM_REASSIGNMENT_FIELDS.some((field) => hasOwn(payload, field));
+}
+
+function isActiveOrReadyStatus(status: string | null | undefined): boolean {
+  const normalized = (status ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized === "active" || normalized === "ready";
+}
+
+function toObjectArray(input: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(input)) return [];
+  return input.filter(
+    (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object"
+  );
+}
 
 export function registerEntitiesRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
@@ -142,10 +180,121 @@ export function registerEntitiesRoutes<TReq, TRes>(
         const normalizedType = type.trim().toLowerCase();
         const normalizedUpdates = deps.normalizeEntityMutationPayload(updates);
         const entity = await deps.client.updateEntity(type, id, normalizedUpdates);
+        let reassignment:
+          | { scheduled: true; requestId: string | null; dueAt: string | null }
+          | { scheduled: false; reason: string }
+          | null = null;
+        let initiativeReassignment:
+          | {
+              triggered: boolean;
+              requested: number;
+              scheduled: number;
+              skipped: number;
+              failures: string[];
+            }
+          | null = null;
+        if (
+          normalizedType === "workstream" &&
+          deps.scheduleWorkstreamReassignment &&
+          includesWorkstreamReassignmentMutation(normalizedUpdates)
+        ) {
+          const entityRecord =
+            entity && typeof entity === "object"
+              ? (entity as Record<string, unknown>)
+              : ({} as Record<string, unknown>);
+          const initiativeId =
+            deps.pickString(entityRecord, ["initiative_id", "initiativeId"]) ??
+            deps.pickString(normalizedUpdates, ["initiative_id", "initiativeId"]) ??
+            null;
+          const workstreamStatus =
+            deps.pickString(entityRecord, ["status"]) ??
+            deps.pickString(normalizedUpdates, ["status"]) ??
+            null;
+          if (!initiativeId) {
+            reassignment = { scheduled: false, reason: "missing_initiative" };
+          } else if (!isActiveOrReadyStatus(workstreamStatus)) {
+            reassignment = { scheduled: false, reason: "workstream_not_active_or_ready" };
+          } else {
+            try {
+              const scheduled = await deps.scheduleWorkstreamReassignment({
+                initiativeId,
+                workstreamId: id,
+                status: workstreamStatus,
+                event: "workstream_reassigned",
+              });
+              reassignment = {
+                scheduled: true,
+                requestId:
+                  scheduled && typeof scheduled === "object"
+                    ? (deps.pickString(scheduled as Record<string, unknown>, ["requestId"]) ?? null)
+                    : null,
+                dueAt:
+                  scheduled && typeof scheduled === "object"
+                    ? (deps.pickString(scheduled as Record<string, unknown>, ["dueAt"]) ?? null)
+                    : null,
+              };
+            } catch (reassignmentErr: unknown) {
+              reassignment = {
+                scheduled: false,
+                reason: `schedule_failed:${deps.safeErrorMessage(reassignmentErr)}`,
+              };
+            }
+          }
+        }
+        if (
+          normalizedType === "initiative" &&
+          deps.scheduleWorkstreamReassignment &&
+          includesWorkstreamReassignmentMutation(normalizedUpdates)
+        ) {
+          const workstreams = await deps.client.listEntities("workstream", {
+            initiative_id: id,
+            limit: 200,
+          });
+          const workstreamRows = toObjectArray(
+            workstreams && typeof workstreams === "object"
+              ? (workstreams as Record<string, unknown>).data
+              : []
+          );
+          const failures: string[] = [];
+          let requested = 0;
+          let scheduled = 0;
+          let skipped = 0;
+          for (const row of workstreamRows) {
+            const workstreamId = deps.pickString(row, ["id"]);
+            if (!workstreamId) {
+              skipped += 1;
+              continue;
+            }
+            const workstreamStatus = deps.pickString(row, ["status"]);
+            requested += 1;
+            if (!isActiveOrReadyStatus(workstreamStatus)) {
+              skipped += 1;
+              continue;
+            }
+            try {
+              await deps.scheduleWorkstreamReassignment({
+                initiativeId: id,
+                workstreamId,
+                status: workstreamStatus,
+                event: "initiative_reassigned",
+              });
+              scheduled += 1;
+            } catch (reassignmentErr: unknown) {
+              failures.push(`${workstreamId}:${deps.safeErrorMessage(reassignmentErr)}`);
+            }
+          }
+          initiativeReassignment = {
+            triggered: true,
+            requested,
+            scheduled,
+            skipped,
+            failures,
+          };
+        }
         if (normalizedType === "initiative") {
           deps.clearLocalInitiativeStatusOverride(id);
         }
-        deps.sendJson(res, 200, { ok: true, entity });
+        deps.sendJson(res, 200, { ok: true, entity, reassignment, initiative_reassignment: initiativeReassignment });
       } catch (err: unknown) {
         if (
           type?.trim().toLowerCase() === "initiative" &&

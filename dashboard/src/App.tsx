@@ -12,7 +12,6 @@ import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
-import { FirstRunGuideModal, getFirstRunGuideDismissed } from '@/components/onboarding/FirstRunGuideModal';
 import { Badge } from '@/components/shared/Badge';
 import { Modal } from '@/components/shared/Modal';
 import { MobileTabBar } from '@/components/shared/MobileTabBar';
@@ -61,11 +60,9 @@ const CONNECTION_COLOR: Record<string, string> = {
   disconnected: colors.red,
 };
 
-const MC_WELCOME_DISMISS_KEY = 'orgx.mission_control.welcome.dismissed';
 const DEMO_MODE_KEY = 'orgx.demo_mode';
 const DEV_MODE_KEY = 'orgx.dev_mode';
 const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
-const FIRST_RUN_GUIDE_SESSION_KEY = 'orgx.first_run_guide.shown_session';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -371,16 +368,11 @@ function DashboardShell({
   const [bulkModal, setBulkModal] = useState<
     BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs' | null
   >(null);
-  const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('initiatives');
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
   );
-  const [dismissedMissionControlWelcome, setDismissedMissionControlWelcome] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(MC_WELCOME_DISMISS_KEY) === '1';
-  });
 
   const inProgressCount = useMemo(() => {
     const inProgressStatuses = new Set([
@@ -423,15 +415,6 @@ function DashboardShell({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (dismissedMissionControlWelcome) {
-      window.localStorage.setItem(MC_WELCOME_DISMISS_KEY, '1');
-    } else {
-      window.localStorage.removeItem(MC_WELCOME_DISMISS_KEY);
-    }
-  }, [dismissedMissionControlWelcome]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     try {
       if (demoMode) {
         window.localStorage.setItem(DEMO_MODE_KEY, '1');
@@ -468,27 +451,6 @@ function DashboardShell({
       // ignore
     }
   }, [devMode]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (firstRunGuideOpen) return;
-    if (getFirstRunGuideDismissed()) return;
-    // Auto-open only once per browser session so users can dismiss without
-    // being forced into "dismiss forever".
-    try {
-      if (window.sessionStorage.getItem(FIRST_RUN_GUIDE_SESSION_KEY) === '1') return;
-    } catch {
-      // ignore
-    }
-    if (demoMode || onboarding.state.connectionVerified) {
-      setFirstRunGuideOpen(true);
-      try {
-        window.sessionStorage.setItem(FIRST_RUN_GUIDE_SESSION_KEY, '1');
-      } catch {
-        // ignore
-      }
-    }
-  }, [demoMode, firstRunGuideOpen, onboarding.state.connectionVerified]);
 
   const openSettings = useCallback((tab?: SettingsTab) => {
     setSettingsState((previous) => ({
@@ -1116,9 +1078,6 @@ function DashboardShell({
     return Array.from(byAgentId.values());
   }, [sessionNodesInScope]);
 
-  const showMissionControlWelcome =
-    onboarding.state.connectionVerified && !dismissedMissionControlWelcome;
-
   const continueHighestPriority = useCallback(async () => {
     if (sessionNodesInScope.length === 0) {
       setOpsNotice('No sessions available to continue.');
@@ -1668,18 +1627,6 @@ function DashboardShell({
     [sessionNodesInScope]
   );
 
-  const followQueuedWorkstream = useCallback(
-    (item: NextUpQueueItem) => {
-      setActivityFilterSessionId(null);
-      setActivityFilterWorkstreamId(item.workstreamId);
-      setActivityFilterWorkstreamLabel(item.workstreamTitle);
-      setAgentFilter(null);
-      switchDashboardView('activity');
-      setOpsNotice(`Following workstream: ${item.workstreamTitle}`);
-    },
-    [switchDashboardView]
-  );
-
   const openInitiativeFromNextUp = useCallback(
     (initiativeId: string) => {
       const initiative =
@@ -1920,21 +1867,6 @@ function DashboardShell({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setFirstRunGuideOpen(true);
-                try { window.sessionStorage.setItem(FIRST_RUN_GUIDE_SESSION_KEY, '1'); } catch { /* ignore */ }
-              }}
-              title="Help"
-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" />
-                <path d="M12 17h.01" />
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-            </button>
-            <button
-              type="button"
               onClick={refetch}
               className="group inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-body text-primary transition-colors hover:bg-white/[0.08] sm:w-auto sm:gap-1.5 sm:px-3"
               title="Refresh data"
@@ -2091,31 +2023,6 @@ function DashboardShell({
           </div>
         </div>
 
-        {showMissionControlWelcome && (
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#7C7CFF]/30 bg-[#7C7CFF]/10 px-3 py-2 text-body text-[#E6E4FF]">
-            <span>
-              Mission Control now includes a dependency map plus expandable hierarchy rows for initiatives, workstreams, milestones, and tasks.
-            </span>
-            <div className="flex items-center gap-2">
-	              <button
-	                type="button"
-	                onClick={() => switchDashboardView('mission-control')}
-	                onMouseEnter={prefetchMissionControl}
-	                onFocus={prefetchMissionControl}
-	                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2.5 py-1 text-caption text-[#D8FFA1]"
-	              >
-	                Open
-	              </button>
-              <button
-                type="button"
-                onClick={() => setDismissedMissionControlWelcome(true)}
-                className="text-caption text-secondary underline underline-offset-2"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        )}
       </header>
 
       {/* Contextual status moved into header */}
@@ -2146,8 +2053,7 @@ function DashboardShell({
                 onCreateInitiative={startInitiative}
                 onPlayNextUp={playNextUpFromActivity}
                 onStartAutopilot={startAutopilotFromActivity}
-                onFollowWorkstream={followQueuedWorkstream}
-	            />
+		            />
 	          </Suspense>
 	        </div>
 	      ) : (
@@ -2276,6 +2182,8 @@ function DashboardShell({
                   {initiativesSidebarTab === 'in_progress' ? (
                     <InProgressPanel
                       className="h-full min-h-0"
+                      showHeader={false}
+                      panelStyle="flat"
                       sessions={sessionNodesInScope}
                       onOpenSession={handleSelectSession}
                       onFocusRunId={focusActivityRunId}
@@ -2289,9 +2197,11 @@ function DashboardShell({
                     <NextUpPanel
                       title="Next Up"
                       showHeader={false}
+                      panelStyle="flat"
                       className="h-full"
                       compact={false}
                       selectionEnabled
+                      showQueueSettings
                       onOpenInitiative={openInitiativeFromNextUp}
                     />
                   )}
@@ -2569,20 +2479,6 @@ function DashboardShell({
         open={bulkModal === 'handoffs'}
         onClose={() => setBulkModal(null)}
         handoffs={data.handoffs}
-      />
-
-      <FirstRunGuideModal
-        open={firstRunGuideOpen}
-        onClose={() => setFirstRunGuideOpen(false)}
-        onOpenSettings={() => openSettings('providers')}
-        onOpenOrgxSettings={() => openSettings('orgx')}
-        onOpenMissionControl={() => {
-          switchDashboardView('mission-control');
-          setFirstRunGuideOpen(false);
-        }}
-        demoMode={demoMode}
-        connectionVerified={onboarding.state.connectionVerified}
-        hasSessions={sessionNodesInScope.length > 0}
       />
 
       <ArtifactViewerModal />

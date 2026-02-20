@@ -54,6 +54,10 @@ const GENERIC_FAILURE_REASONS = new Set([
   'failed',
 ]);
 
+function hasText(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function normalizeStatus(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase();
 }
@@ -64,6 +68,11 @@ function normalizeReason(value: string | null | undefined): string {
 
 function isGenericFailureReason(value: string): boolean {
   return GENERIC_FAILURE_REASONS.has(normalizeReason(value));
+}
+
+function compactList(values: string[], max = 3): string {
+  if (values.length <= max) return values.join(', ');
+  return `${values.slice(0, max).join(', ')} +${values.length - max} more`;
 }
 
 function resolveRunId(item: LiveActivityItem): string | null {
@@ -109,6 +118,7 @@ function resolveStatusReason(
   sessionSummary: string | null
 ): string | null {
   const candidates = [
+    session.blockerDiagnostics?.reason ?? null,
     session.blockerReason ?? null,
     ...session.blockers,
     sessionStatus === 'blocked' || sessionStatus === 'failed' || sessionStatus === 'handoff'
@@ -342,6 +352,75 @@ export const SessionInspector = memo(function SessionInspector({
             ? 'border-teal-400/30 bg-teal-400/10 text-teal-200'
             : 'border-strong bg-white/[0.04] text-secondary';
   const isRunning = ['running', 'active', 'working', 'in_progress', 'planning', 'review'].includes(sessionStatus);
+  const blockerDiagnostics = session.blockerDiagnostics ?? null;
+  const blockerContext = blockerDiagnostics?.context ?? null;
+  const blockerMetaChips = [
+    hasText(blockerDiagnostics?.source) ? `Source: ${blockerDiagnostics.source.trim()}` : null,
+    hasText(blockerDiagnostics?.errorCode) ? `Code: ${blockerDiagnostics.errorCode.trim()}` : null,
+    hasText(blockerDiagnostics?.errorCategory)
+      ? `Category: ${blockerDiagnostics.errorCategory.trim()}`
+      : null,
+    blockerDiagnostics?.retryable === true
+      ? 'Retryable: yes'
+      : blockerDiagnostics?.retryable === false
+        ? 'Retryable: no'
+        : null,
+  ].filter((entry): entry is string => Boolean(entry));
+  const blockerContextRows: Array<{ label: string; value: string }> = [];
+  if (blockerContext) {
+    if (hasText(blockerContext.workstreamTitle)) {
+      blockerContextRows.push({
+        label: 'Workstream',
+        value: hasText(blockerContext.workstreamId)
+          ? `${blockerContext.workstreamTitle.trim()} (${blockerContext.workstreamId.trim()})`
+          : blockerContext.workstreamTitle.trim(),
+      });
+    } else if (hasText(blockerContext.workstreamId)) {
+      blockerContextRows.push({ label: 'Workstream', value: blockerContext.workstreamId.trim() });
+    }
+    if (hasText(blockerContext.sliceRunId)) {
+      blockerContextRows.push({ label: 'Slice run', value: blockerContext.sliceRunId.trim() });
+    }
+    if (hasText(blockerContext.parallelMode)) {
+      blockerContextRows.push({ label: 'Mode', value: blockerContext.parallelMode.trim().toUpperCase() });
+    }
+    if (Array.isArray(blockerContext.taskIds) && blockerContext.taskIds.length > 0) {
+      blockerContextRows.push({
+        label: 'Tasks',
+        value: compactList(blockerContext.taskIds),
+      });
+    }
+    if (Array.isArray(blockerContext.milestoneIds) && blockerContext.milestoneIds.length > 0) {
+      blockerContextRows.push({
+        label: 'Milestones',
+        value: compactList(blockerContext.milestoneIds),
+      });
+    }
+    if (hasText(blockerContext.logPath)) {
+      blockerContextRows.push({ label: 'Log path', value: blockerContext.logPath.trim() });
+    }
+    if (hasText(blockerContext.outputPath)) {
+      blockerContextRows.push({ label: 'Output path', value: blockerContext.outputPath.trim() });
+    }
+  }
+  const showBlockedContext =
+    (sessionStatus === 'blocked' || sessionStatus === 'failed') &&
+    Boolean(
+      blockerDiagnostics &&
+        (hasText(blockerDiagnostics.reason) ||
+          blockerMetaChips.length > 0 ||
+          blockerContextRows.length > 0 ||
+          (Array.isArray(blockerDiagnostics.suggestedActions) &&
+            blockerDiagnostics.suggestedActions.length > 0))
+    );
+  const statusReasonText = hasText(statusReason) ? statusReason : null;
+  const showStatusReason =
+    statusReasonText !== null &&
+    !(
+      sessionSummary &&
+      (statusReasonText === sessionSummary || sessionSummary.includes(statusReasonText))
+    ) &&
+    !showBlockedContext;
 
   const handleCancelWithUndo = useCallback(() => {
     if (!onCancelSession || !session) return;
@@ -445,10 +524,65 @@ export const SessionInspector = memo(function SessionInspector({
 
             {/* Phase/Runtime badges removed — status chip in header is sufficient */}
 
-            {statusReason && !(sessionSummary && (statusReason === sessionSummary || sessionSummary.includes(statusReason))) && (
+            {showStatusReason && (
               <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
                 <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{statusReasonLabel}</p>
-                <p className="text-body text-secondary">{statusReason}</p>
+                <p className="text-body text-secondary">{statusReasonText}</p>
+              </div>
+            )}
+
+            {showBlockedContext && (
+              <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5">
+                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-red-200/75">Why blocked</p>
+                <p className="text-body text-red-100/90">
+                  {blockerDiagnostics?.reason ?? statusReason ?? 'Runtime marked this run as blocked without details.'}
+                </p>
+
+                {blockerMetaChips.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {blockerMetaChips.map((chip) => (
+                      <span
+                        key={chip}
+                        className="rounded-full border border-red-300/25 bg-red-500/10 px-2 py-0.5 text-micro text-red-100/85"
+                      >
+                        {chip}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {blockerContextRows.length > 0 && (
+                  <div className="mt-2 rounded-md border border-red-300/20 bg-black/15 p-2.5">
+                    <p className="mb-1 text-micro uppercase tracking-[0.14em] text-red-200/65">Associated context</p>
+                    <dl className="grid grid-cols-1 gap-1.5 text-caption text-red-100/85">
+                      {blockerContextRows.map((row) => (
+                        <div key={row.label} className="grid grid-cols-[86px_1fr] gap-2">
+                          <dt className="text-red-200/70">{row.label}</dt>
+                          <dd className="break-all text-red-50/95">{row.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+
+                {Array.isArray(blockerDiagnostics?.suggestedActions) &&
+                  blockerDiagnostics.suggestedActions.length > 0 && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-micro uppercase tracking-[0.14em] text-red-200/65">Suggested actions</p>
+                      <ul className="space-y-1 text-caption text-red-100/85">
+                        {blockerDiagnostics.suggestedActions.map((action) => (
+                          <li key={action}>• {action}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                {hasText(blockerDiagnostics?.eventTimestamp) && (
+                  <p className="mt-2 text-micro text-red-200/60">
+                    Last blocker event: {new Date(blockerDiagnostics.eventTimestamp).toLocaleString()} ·{' '}
+                    {formatRelativeTime(blockerDiagnostics.eventTimestamp)}
+                  </p>
+                )}
               </div>
             )}
           </div>

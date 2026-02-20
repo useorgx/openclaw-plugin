@@ -536,6 +536,244 @@ test("live/snapshot reclassifies stale reporting-only blocked sessions to comple
   }
 });
 
+test("live/snapshot reclassifies stale reporting sessions with generic recovery blockers", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-reporting-generic-recovery-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const staleUpdatedAt = new Date(Date.now() - 45 * 60_000).toISOString();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-reporting-generic-1",
+            runId: "run_reporting_generic_recovery",
+            title: "Reporting · codex",
+            status: "blocked",
+            phase: "blocked",
+            state: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: null,
+            agentId: null,
+            agentName: null,
+            blockers: ["Agent execution failed"],
+            blockerReason: "Agent execution failed",
+            lastEventSummary: "Agent execution failed",
+            startedAt: staleUpdatedAt,
+            updatedAt: staleUpdatedAt,
+            lastEventAt: staleUpdatedAt,
+            parentId: null,
+            progress: null,
+            groupId: "init_test_1",
+            groupLabel: "Init Test",
+          },
+        ],
+        edges: [],
+        groups: [{ id: "init_test_1", label: "Init Test", status: "blocked" }],
+      }),
+      getLiveActivity: async () => ({
+        activities: [
+          {
+            id: "evt-generic-recovery-1",
+            type: "blocker_created",
+            title: "Agent execution failed",
+            description: "Agent execution failed",
+            summary: "Agent execution failed",
+            runId: "run_reporting_generic_recovery",
+            initiativeId: "init_test_1",
+            timestamp: new Date(Date.now() - 44 * 60_000).toISOString(),
+            metadata: {
+              source: "console_worker",
+              errorCode: "STATE_ERROR",
+              errorCategory: "state_error",
+              description:
+                "Run was stuck in running state for 58m. Automatically recovered.",
+              suggestedActions: ["Open session inspector", "Resume if needed"],
+            },
+          },
+        ],
+      }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=reporting-generic-recovery",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const session =
+      body?.sessions?.nodes?.find((node) => node?.id === "sess-reporting-generic-1") ?? null;
+    assert.ok(session, "expected reporting session node");
+    assert.equal(session?.status, "completed");
+    assert.equal(session?.phase, "completed");
+    assert.equal(session?.state, "completed");
+    assert.equal(session?.blockerReason, null);
+    assert.deepEqual(session?.blockers ?? [], []);
+    assert.equal(session?.blockerDiagnostics ?? null, null);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
+test("live/snapshot enriches blocked reporting sessions with actionable diagnostics", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-reporting-diagnostics-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const activeUpdatedAt = new Date(Date.now() - 2 * 60_000).toISOString();
+    const eventTimestamp = new Date(Date.now() - 90_000).toISOString();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({
+        nodes: [
+          {
+            id: "sess-reporting-diagnostics-1",
+            runId: "run_reporting_diagnostics",
+            title: "Reporting · openclaw",
+            status: "blocked",
+            phase: "blocked",
+            state: "blocked",
+            initiativeId: "init_test_1",
+            workstreamId: null,
+            agentId: null,
+            agentName: null,
+            blockers: [],
+            blockerReason: null,
+            lastEventSummary: null,
+            startedAt: activeUpdatedAt,
+            updatedAt: activeUpdatedAt,
+            lastEventAt: activeUpdatedAt,
+            parentId: null,
+            progress: null,
+            groupId: "init_test_1",
+            groupLabel: "Init Test",
+          },
+        ],
+        edges: [],
+        groups: [{ id: "init_test_1", label: "Init Test", status: "blocked" }],
+      }),
+      getLiveActivity: async () => ({
+        activities: [
+          {
+            id: "evt-reporting-diagnostics-context",
+            type: "run_started",
+            title: "Autopilot slice started",
+            description: "slice started",
+            summary: "slice started",
+            runId: "run_reporting_diagnostics",
+            initiativeId: "init_test_1",
+            timestamp: new Date(Date.now() - 100_000).toISOString(),
+            metadata: {
+              workstream_id: "ws_sage",
+              workstream_title: "Sage",
+              slice_run_id: "slice_123",
+              task_ids: ["task_a", "task_b"],
+              milestone_ids: ["ms_1"],
+              parallel_mode: "iwmt",
+              log_path: "/tmp/autopilot/slice_123.log",
+              output_path: "/tmp/autopilot/slice_123.output.json",
+            },
+          },
+          {
+            id: "evt-reporting-diagnostics-blocker",
+            type: "run_failed",
+            title: "Autopilot slice failed",
+            description: "Slice exited without valid output contract",
+            summary: "Autopilot slice failed",
+            runId: "run_reporting_diagnostics",
+            initiativeId: "init_test_1",
+            timestamp: eventTimestamp,
+            metadata: {
+              source: "autopilot",
+              errorCode: "SLICE_EXIT_INVALID",
+              errorCategory: "execution_failure",
+              retryable: false,
+              suggestedActions: [
+                "Open evidence log",
+                "Approve retry with narrower scope",
+              ],
+            },
+          },
+        ],
+      }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=20&decisionsLimit=10&testCase=reporting-diagnostics",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const session =
+      body?.sessions?.nodes?.find((node) => node?.id === "sess-reporting-diagnostics-1") ?? null;
+    assert.ok(session, "expected reporting session node");
+    assert.equal(session?.status, "blocked");
+    assert.equal(session?.blockerReason, "Autopilot slice failed");
+    assert.deepEqual(session?.blockers ?? [], ["Autopilot slice failed"]);
+    assert.ok(session?.blockerDiagnostics, "expected blocker diagnostics");
+    assert.equal(session?.blockerDiagnostics?.errorCode, "SLICE_EXIT_INVALID");
+    assert.equal(session?.blockerDiagnostics?.errorCategory, "execution_failure");
+    assert.equal(session?.blockerDiagnostics?.source, "autopilot");
+    assert.equal(session?.blockerDiagnostics?.retryable, false);
+    assert.deepEqual(session?.blockerDiagnostics?.suggestedActions ?? [], [
+      "Open evidence log",
+      "Approve retry with narrower scope",
+    ]);
+    assert.equal(session?.blockerDiagnostics?.context?.workstreamId, "ws_sage");
+    assert.equal(session?.blockerDiagnostics?.context?.workstreamTitle, "Sage");
+    assert.equal(session?.blockerDiagnostics?.context?.sliceRunId, "slice_123");
+    assert.equal(session?.blockerDiagnostics?.context?.parallelMode, "iwmt");
+    assert.deepEqual(session?.blockerDiagnostics?.context?.taskIds ?? [], ["task_a", "task_b"]);
+    assert.deepEqual(session?.blockerDiagnostics?.context?.milestoneIds ?? [], ["ms_1"]);
+    assert.equal(session?.blockerDiagnostics?.context?.logPath, "/tmp/autopilot/slice_123.log");
+    assert.equal(
+      session?.blockerDiagnostics?.context?.outputPath,
+      "/tmp/autopilot/slice_123.output.json"
+    );
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
 test("live/snapshot keeps reporting blocked sessions blocked when blocker evidence exists", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-reporting-blocked-"));
   const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;

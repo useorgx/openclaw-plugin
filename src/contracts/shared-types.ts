@@ -161,6 +161,31 @@ export interface LiveDecision {
   selectedOptionId?: string | null;
 }
 
+export interface SessionBlockerContext {
+  initiativeId: string | null;
+  workstreamId: string | null;
+  workstreamTitle: string | null;
+  taskIds: string[];
+  milestoneIds: string[];
+  sliceRunId: string | null;
+  parallelMode: string | null;
+  logPath: string | null;
+  outputPath: string | null;
+}
+
+export interface SessionBlockerDiagnostics {
+  reason: string | null;
+  source: string | null;
+  errorCode: string | null;
+  errorCategory: string | null;
+  retryable: boolean | null;
+  suggestedActions: string[];
+  eventId: string | null;
+  eventType: string | null;
+  eventTimestamp: string | null;
+  context: SessionBlockerContext;
+}
+
 export interface SessionTreeNode {
   id: string;
   parentId: string | null;
@@ -190,6 +215,7 @@ export interface SessionTreeNode {
   runtimeProvider?: RuntimeProviderLogo | null;
   instanceId?: string | null;
   lastHeartbeatAt?: string | null;
+  blockerDiagnostics?: SessionBlockerDiagnostics | null;
 }
 
 export interface SessionTreeEdge {

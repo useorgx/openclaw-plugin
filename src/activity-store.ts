@@ -7,7 +7,7 @@ import { Buffer } from "node:buffer";
 import type { LiveActivityItem } from "./contracts/types.js";
 import { enrichActivityActorFieldsList } from "./activity-actor-fields.js";
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
-import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
 import { ensureStoreDirSync, parseJsonSafe } from "./stores/json-store.js";
 
 type PersistedActivityStore = {
@@ -38,9 +38,9 @@ export type ListActivityPageResult = {
 
 const STORE_VERSION = 1 as const;
 const STORE_FILENAME = "activity-store.json";
-const MAX_ITEMS = 50_000;
-const RETENTION_DAYS = 45;
-const FLUSH_DEBOUNCE_MS = 1_250;
+const MAX_ITEMS = 10_000;
+const RETENTION_DAYS = 14;
+const FLUSH_DEBOUNCE_MS = 3_000;
 
 let cached: {
   storeUpdatedAt: string;
@@ -62,6 +62,21 @@ function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function shallowMetadataEqual(
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown> | null | undefined,
+): boolean {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 }
 
 function compareActivity(a: LiveActivityItem, b: LiveActivityItem): number {
@@ -172,7 +187,7 @@ function scheduleFlush(state: NonNullable<typeof cached>): void {
       updatedAt: state.storeUpdatedAt,
       items: state.items,
     };
-    writeJsonFileAtomicSync(storePath(), payload, 0o600);
+    writeFileAtomicSync(storePath(), JSON.stringify(payload), { mode: 0o600 });
   }, FLUSH_DEBOUNCE_MS);
   state.flushTimer.unref?.();
 }
@@ -212,7 +227,7 @@ export function appendActivityItems(items: LiveActivityItem[]): { appended: numb
       (existing.executorAgentId ?? null) !== (item.executorAgentId ?? null) ||
       (existing.executorAgentName ?? null) !== (item.executorAgentName ?? null) ||
       (existing as any).summary !== (item as any).summary ||
-      JSON.stringify((existing as any).metadata ?? null) !== JSON.stringify((item as any).metadata ?? null)
+      !shallowMetadataEqual((existing as any).metadata, (item as any).metadata)
     ) {
       state.byId.set(id, item);
       updated += 1;
@@ -223,8 +238,13 @@ export function appendActivityItems(items: LiveActivityItem[]): { appended: numb
     return { appended: 0, updated: 0, total: state.items.length };
   }
 
-  // Rebuild sorted list from map. This is O(n) but bounded by MAX_ITEMS.
-  state.items = normalizeItems(Array.from(state.byId.values()));
+  // Rebuild sorted list from map, bounded by MAX_ITEMS.
+  // Skip full normalizeItems (enrichment + dedup) for small batches — items are already validated above.
+  if (appended + updated > 50) {
+    state.items = normalizeItems(Array.from(state.byId.values()));
+  } else {
+    state.items = Array.from(state.byId.values()).sort(compareActivity).slice(0, MAX_ITEMS);
+  }
   state.byId = new Map(state.items.map((item) => [item.id, item]));
   state.dirty = true;
   scheduleFlush(state);

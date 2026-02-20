@@ -1,0 +1,77 @@
+{
+  "title": "RFC: Agent Reassignment for AI Eval Framework v2 Ankur",
+  "initiative_id": "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+  "workstream_id": "fe7d7021-e37d-4f5a-9bef-476bc14234ae",
+  "task_id": "71964b43-a2bd-451d-a778-c54196ac7f70",
+  "milestone_id": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+  "date": "2026-02-20",
+  "summary": "Reassign AI Eval Framework v2 Ankur work to align ownership with delivery domain responsibilities while preserving clear product accountability for outcomes and acceptance criteria.",
+  "problem": "The current assignment split does not consistently reflect domain ownership boundaries. Product should own measurable outcomes and framing, while engineering should own implementation and evaluation execution workflows. Without explicit reassignment, handoffs and accountability can drift.",
+  "reassignment_plan": [
+    {
+      "scope": "Success Criteria & Metrics",
+      "new_owner_domain": "product",
+      "reason": "Defines user value, business outcomes, and measurable acceptance thresholds."
+    },
+    {
+      "scope": "Dataset Construction",
+      "new_owner_domain": "engineering",
+      "reason": "Requires implementation-level data pipeline and quality guard decisions."
+    },
+    {
+      "scope": "Eval Criteria & Failure Analysis",
+      "new_owner_domain": "engineering",
+      "reason": "Needs technical instrumentation, failure categorization, and reproducible analysis."
+    },
+    {
+      "scope": "Offline & Online Pipelines",
+      "new_owner_domain": "engineering",
+      "reason": "Owns build, runtime, observability, and deployment readiness."
+    }
+  ],
+  "acceptance_criteria": [
+    "OrgX records show the four scoped ownership updates exactly as defined in reassignment_plan.",
+    "Product-owned metrics include numeric targets and pass/fail thresholds for the evaluation program.",
+    "Engineering-owned scopes include implementation checklists and explicit integration dependencies.",
+    "No scoped area has dual-primary ownership after reassignment.",
+    "A single verification pass confirms that downstream task execution follows updated owners."
+  ],
+  "success_metrics": [
+    {
+      "name": "Ownership Mapping Accuracy",
+      "target": "100% of scoped areas assigned to intended domain owners"
+    },
+    {
+      "name": "Metric Completeness",
+      "target": "100% of product metrics include numeric target + measurement method"
+    },
+    {
+      "name": "Execution Readiness Coverage",
+      "target": "All engineering scopes contain implementation checklist + dependency list"
+    },
+    {
+      "name": "Reassignment Verification SLA",
+      "target": "Ownership verification completed within 1 working day of update"
+    }
+  ],
+  "verification_steps": [
+    "Open the initiative and task in OrgX, then inspect each scoped area owner domain value.",
+    "Confirm Success Criteria & Metrics is owned by product and includes numeric targets.",
+    "Confirm the three technical scopes are owned by engineering and include implementation notes.",
+    "Capture evidence (screenshots or logs) and mark verification outcome for the milestone."
+  ],
+  "risks": [
+    {
+      "risk": "Residual ambiguity between product metric definition and engineering feasibility.",
+      "mitigation": "Run a short cross-domain review before finalizing metric thresholds."
+    },
+    {
+      "risk": "Partial reassignment is applied, leaving mixed ownership.",
+      "mitigation": "Use a single checklist-driven update with explicit before/after validation."
+    }
+  ],
+  "non_goals": [
+    "Changing initiative scope beyond ownership realignment.",
+    "Redefining existing evaluation architecture in this reassignment step."
+  ]
+}

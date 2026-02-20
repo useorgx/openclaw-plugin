@@ -1,7 +1,33 @@
-import type { LiveActivityItem, SessionTreeNode, SessionTreeResponse } from "../../types.js";
+import type {
+  LiveActivityItem,
+  SessionBlockerContext,
+  SessionBlockerDiagnostics,
+  SessionTreeNode,
+  SessionTreeResponse,
+} from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 
 const DEFAULT_REPORTING_STALE_MS = 15 * 60_000;
+const GENERIC_BLOCKER_REASONS = new Set([
+  "agent execution failed",
+  "execution failed",
+  "run failed",
+  "failed",
+  "blocked",
+]);
+
+type RunBlockerSignal = {
+  reason: string | null;
+  source: string | null;
+  errorCode: string | null;
+  errorCategory: string | null;
+  retryable: boolean | null;
+  suggestedActions: string[];
+  eventId: string | null;
+  eventType: string | null;
+  eventTimestamp: string | null;
+  isConsoleRecovery: boolean;
+};
 
 type RunActivitySignals = {
   completedCount: number;
@@ -9,6 +35,9 @@ type RunActivitySignals = {
   hardBlockerCount: number;
   latestCompletedAt: number;
   latestHardBlockerAt: number;
+  latestBlockerAt: number;
+  latestBlocker: RunBlockerSignal | null;
+  context: SessionBlockerContext;
 };
 
 function statusKey(value: string | null | undefined): string {
@@ -25,18 +54,243 @@ function nonEmpty(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function normalizeReason(value: string | null | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isGenericFailureReason(value: string | null | undefined): boolean {
+  const normalized = normalizeReason(value);
+  if (!normalized) return false;
+  return GENERIC_BLOCKER_REASONS.has(normalized);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function metadataVariants(metadata: Record<string, unknown> | null): Record<string, unknown>[] {
+  if (!metadata) return [];
+  const variants = [metadata];
+  const nested = asRecord(metadata.orgx_context);
+  if (nested) variants.push(nested);
+  return variants;
+}
+
 function metadataString(
   metadata: Record<string, unknown> | null,
   keys: string[]
 ): string | null {
-  if (!metadata) return null;
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed.length > 0) return trimmed;
+  for (const source of metadataVariants(metadata)) {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
   }
   return null;
+}
+
+function metadataStringArray(
+  metadata: Record<string, unknown> | null,
+  keys: string[]
+): string[] {
+  for (const source of metadataVariants(metadata)) {
+    for (const key of keys) {
+      const value = source[key];
+      if (Array.isArray(value)) {
+        const normalized = value
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter((entry) => entry.length > 0);
+        if (normalized.length > 0) return dedupeStrings(normalized);
+      }
+      if (typeof value === "string") {
+        const parsed = value
+          .split(/[\n,;]+/g)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+        if (parsed.length > 0) return dedupeStrings(parsed);
+      }
+    }
+  }
+  return [];
+}
+
+function metadataBoolean(
+  metadata: Record<string, unknown> | null,
+  keys: string[]
+): boolean | null {
+  for (const source of metadataVariants(metadata)) {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === "boolean") return value;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "true") return true;
+        if (normalized === "false") return false;
+      }
+    }
+  }
+  return null;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of values) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(trimmed);
+  }
+  return output;
+}
+
+function firstNonEmpty(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (!nonEmpty(value)) continue;
+    return value!.trim();
+  }
+  return null;
+}
+
+function firstSpecificReason(values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (!nonEmpty(value)) continue;
+    const trimmed = value!.trim();
+    if (!isGenericFailureReason(trimmed)) return trimmed;
+  }
+  return null;
+}
+
+function hasBlockerContext(context: SessionBlockerContext): boolean {
+  return Boolean(
+    nonEmpty(context.initiativeId) ||
+      nonEmpty(context.workstreamId) ||
+      nonEmpty(context.workstreamTitle) ||
+      context.taskIds.length > 0 ||
+      context.milestoneIds.length > 0 ||
+      nonEmpty(context.sliceRunId) ||
+      nonEmpty(context.parallelMode) ||
+      nonEmpty(context.logPath) ||
+      nonEmpty(context.outputPath)
+  );
+}
+
+function emptyBlockerContext(): SessionBlockerContext {
+  return {
+    initiativeId: null,
+    workstreamId: null,
+    workstreamTitle: null,
+    taskIds: [],
+    milestoneIds: [],
+    sliceRunId: null,
+    parallelMode: null,
+    logPath: null,
+    outputPath: null,
+  };
+}
+
+function mergeRunContext(
+  context: SessionBlockerContext,
+  item: LiveActivityItem,
+  metadata: Record<string, unknown> | null
+): SessionBlockerContext {
+  const initiativeId = firstNonEmpty([
+    item.initiativeId,
+    metadataString(metadata, ["initiative_id", "initiativeId"]),
+  ]);
+  if (initiativeId) context.initiativeId = initiativeId;
+
+  const workstreamId = metadataString(metadata, ["workstream_id", "workstreamId"]);
+  if (workstreamId) context.workstreamId = workstreamId;
+
+  const workstreamTitle = metadataString(metadata, ["workstream_title", "workstreamTitle"]);
+  if (workstreamTitle) context.workstreamTitle = workstreamTitle;
+
+  const taskIds = metadataStringArray(metadata, [
+    "task_ids",
+    "taskIds",
+    "active_task_ids",
+    "activeTaskIds",
+  ]);
+  if (taskIds.length > 0) {
+    context.taskIds = dedupeStrings([...context.taskIds, ...taskIds]);
+  }
+
+  const milestoneIds = metadataStringArray(metadata, ["milestone_ids", "milestoneIds"]);
+  if (milestoneIds.length > 0) {
+    context.milestoneIds = dedupeStrings([...context.milestoneIds, ...milestoneIds]);
+  }
+
+  const sliceRunId = metadataString(metadata, [
+    "slice_run_id",
+    "sliceRunId",
+    "active_run_id",
+    "activeRunId",
+  ]);
+  if (sliceRunId) context.sliceRunId = sliceRunId;
+
+  const parallelMode = metadataString(metadata, [
+    "parallel_mode",
+    "parallelMode",
+    "auto_continue_parallel_mode",
+    "autoContinueParallelMode",
+  ]);
+  if (parallelMode) context.parallelMode = parallelMode;
+
+  const logPath = metadataString(metadata, ["log_path", "logPath"]);
+  if (logPath) context.logPath = logPath;
+
+  const outputPath = metadataString(metadata, ["output_path", "outputPath"]);
+  if (outputPath) context.outputPath = outputPath;
+
+  return context;
+}
+
+function deriveBlockerSignal(item: LiveActivityItem): RunBlockerSignal {
+  const metadata = asRecord(item.metadata);
+  const reason =
+    firstSpecificReason([
+      metadataString(metadata, ["description", "reason", "error", "error_message"]),
+      item.summary ?? null,
+      item.description ?? null,
+      metadataString(metadata, ["message", "summary", "last_error", "lastError"]),
+      item.title,
+    ]) ??
+    firstNonEmpty([
+      metadataString(metadata, ["description", "reason", "error", "error_message"]),
+      item.summary ?? null,
+      item.description ?? null,
+      metadataString(metadata, ["message", "summary", "last_error", "lastError"]),
+      item.title,
+    ]);
+
+  return {
+    reason,
+    source: metadataString(metadata, ["source", "runtime_source", "runtimeSource"]),
+    errorCode: metadataString(metadata, ["errorCode", "error_code"]),
+    errorCategory: metadataString(metadata, ["errorCategory", "error_category"]),
+    retryable: metadataBoolean(metadata, [
+      "retryable",
+      "isRetryable",
+      "retry_allowed",
+      "retryAllowed",
+    ]),
+    suggestedActions: metadataStringArray(metadata, [
+      "suggestedActions",
+      "suggested_actions",
+      "next_actions",
+      "nextActions",
+    ]),
+    eventId: item.id ?? null,
+    eventType: item.type ?? null,
+    eventTimestamp: item.timestamp ?? null,
+    isConsoleRecovery: isConsoleRecoveryBlocker(item),
+  };
 }
 
 function isLikelyReportingControlSession(node: SessionTreeNode): boolean {
@@ -45,9 +299,17 @@ function isLikelyReportingControlSession(node: SessionTreeNode): boolean {
   return title.startsWith("reporting");
 }
 
-function hasActionableBlockerData(node: SessionTreeNode): boolean {
-  if (Array.isArray(node.blockers) && node.blockers.length > 0) return true;
-  if (nonEmpty(node.blockerReason ?? null)) return true;
+function hasActionableBlockerData(
+  node: SessionTreeNode,
+  signal: RunActivitySignals | null
+): boolean {
+  const blockerEntries = dedupeStrings([
+    ...(Array.isArray(node.blockers) ? node.blockers : []),
+    node.blockerReason ?? "",
+  ]);
+  const hasSpecificNodeReason = blockerEntries.some((entry) => !isGenericFailureReason(entry));
+  if (hasSpecificNodeReason) return true;
+  if (signal && signal.hardBlockerCount > 0) return true;
   return false;
 }
 
@@ -70,10 +332,7 @@ function sessionLastTouchedEpoch(node: SessionTreeNode): number {
 
 function isConsoleRecoveryBlocker(item: LiveActivityItem): boolean {
   if (item.type !== "blocker_created") return false;
-  const metadata =
-    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
-      ? (item.metadata as Record<string, unknown>)
-      : null;
+  const metadata = asRecord(item.metadata);
   const source = statusKey(metadataString(metadata, ["source"]));
   const errorCode = statusKey(metadataString(metadata, ["errorCode", "error_code"]));
   const errorCategory = statusKey(
@@ -87,11 +346,13 @@ function isConsoleRecoveryBlocker(item: LiveActivityItem): boolean {
 
 function buildRunActivitySignals(activity: LiveActivityItem[]): Map<string, RunActivitySignals> {
   const byRunId = new Map<string, RunActivitySignals>();
+  const ordered = [...activity].sort((a, b) => toEpoch(a.timestamp) - toEpoch(b.timestamp));
 
-  for (const item of activity) {
+  for (const item of ordered) {
     const runId = item.runId?.trim();
     if (!runId) continue;
     const timestamp = toEpoch(item.timestamp);
+    const metadata = asRecord(item.metadata);
 
     const existing = byRunId.get(runId) ?? {
       completedCount: 0,
@@ -99,11 +360,16 @@ function buildRunActivitySignals(activity: LiveActivityItem[]): Map<string, RunA
       hardBlockerCount: 0,
       latestCompletedAt: 0,
       latestHardBlockerAt: 0,
+      latestBlockerAt: 0,
+      latestBlocker: null,
+      context: emptyBlockerContext(),
     };
+    existing.context = mergeRunContext(existing.context, item, metadata);
 
     const phase = statusKey(item.phase ?? null);
     const state = statusKey(item.state ?? null);
-    const completedLike = item.type === "run_completed" || phase === "completed" || state === "completed";
+    const completedLike =
+      item.type === "run_completed" || phase === "completed" || state === "completed";
     if (completedLike) {
       existing.completedCount += 1;
       existing.latestCompletedAt = Math.max(existing.latestCompletedAt, timestamp);
@@ -118,6 +384,10 @@ function buildRunActivitySignals(activity: LiveActivityItem[]): Map<string, RunA
     if (blockerLike) {
       existing.blockerCount += 1;
       const isConsoleRecovery = isConsoleRecoveryBlocker(item);
+      if (timestamp >= existing.latestBlockerAt) {
+        existing.latestBlockerAt = timestamp;
+        existing.latestBlocker = deriveBlockerSignal(item);
+      }
       if (!isConsoleRecovery) {
         existing.hardBlockerCount += 1;
         existing.latestHardBlockerAt = Math.max(existing.latestHardBlockerAt, timestamp);
@@ -130,14 +400,128 @@ function buildRunActivitySignals(activity: LiveActivityItem[]): Map<string, RunA
   return byRunId;
 }
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function blockerContextsEqual(a: SessionBlockerContext, b: SessionBlockerContext): boolean {
+  return (
+    a.initiativeId === b.initiativeId &&
+    a.workstreamId === b.workstreamId &&
+    a.workstreamTitle === b.workstreamTitle &&
+    arraysEqual(a.taskIds, b.taskIds) &&
+    arraysEqual(a.milestoneIds, b.milestoneIds) &&
+    a.sliceRunId === b.sliceRunId &&
+    a.parallelMode === b.parallelMode &&
+    a.logPath === b.logPath &&
+    a.outputPath === b.outputPath
+  );
+}
+
+function blockerDiagnosticsEqual(
+  a: SessionBlockerDiagnostics | null | undefined,
+  b: SessionBlockerDiagnostics | null | undefined
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.reason === b.reason &&
+    a.source === b.source &&
+    a.errorCode === b.errorCode &&
+    a.errorCategory === b.errorCategory &&
+    a.retryable === b.retryable &&
+    arraysEqual(a.suggestedActions, b.suggestedActions) &&
+    a.eventId === b.eventId &&
+    a.eventType === b.eventType &&
+    a.eventTimestamp === b.eventTimestamp &&
+    blockerContextsEqual(a.context, b.context)
+  );
+}
+
+function mergeReportingBlockerDetails(
+  node: SessionTreeNode,
+  signal: RunActivitySignals | null
+): SessionTreeNode {
+  if (!signal) return node;
+
+  const latest = signal.latestBlocker;
+  const resolvedReason =
+    firstSpecificReason([
+      latest?.reason ?? null,
+      node.blockerReason ?? null,
+      ...(Array.isArray(node.blockers) ? node.blockers : []),
+    ]) ??
+    firstNonEmpty([
+      latest?.reason ?? null,
+      node.blockerReason ?? null,
+      ...(Array.isArray(node.blockers) ? node.blockers : []),
+    ]);
+
+  const currentBlockers = dedupeStrings(Array.isArray(node.blockers) ? node.blockers : []);
+  const hasOnlyGenericBlockers =
+    currentBlockers.length > 0 && currentBlockers.every(isGenericFailureReason);
+  const nextBlockers = resolvedReason
+    ? hasOnlyGenericBlockers
+      ? [resolvedReason]
+      : dedupeStrings([...currentBlockers, resolvedReason])
+    : hasOnlyGenericBlockers
+      ? []
+      : currentBlockers;
+
+  const context: SessionBlockerContext = {
+    ...signal.context,
+    initiativeId: signal.context.initiativeId ?? node.initiativeId ?? null,
+    workstreamId: signal.context.workstreamId ?? node.workstreamId ?? null,
+  };
+  const diagnostics: SessionBlockerDiagnostics | null =
+    latest || hasBlockerContext(context)
+      ? {
+          reason: resolvedReason,
+          source: latest?.source ?? null,
+          errorCode: latest?.errorCode ?? null,
+          errorCategory: latest?.errorCategory ?? null,
+          retryable: latest?.retryable ?? null,
+          suggestedActions: latest?.suggestedActions ?? [],
+          eventId: latest?.eventId ?? null,
+          eventType: latest?.eventType ?? null,
+          eventTimestamp: latest?.eventTimestamp ?? null,
+          context,
+        }
+      : null;
+
+  const nextNode: SessionTreeNode = {
+    ...node,
+    initiativeId: node.initiativeId ?? context.initiativeId ?? null,
+    workstreamId: node.workstreamId ?? context.workstreamId ?? null,
+    blockerReason: resolvedReason,
+    blockers: nextBlockers,
+    blockerDiagnostics: diagnostics,
+    lastEventSummary: node.lastEventSummary ?? latest?.reason ?? null,
+  };
+
+  const unchanged =
+    nextNode.initiativeId === node.initiativeId &&
+    nextNode.workstreamId === node.workstreamId &&
+    nextNode.blockerReason === node.blockerReason &&
+    nextNode.lastEventSummary === node.lastEventSummary &&
+    arraysEqual(nextNode.blockers, node.blockers) &&
+    blockerDiagnosticsEqual(nextNode.blockerDiagnostics, node.blockerDiagnostics);
+  return unchanged ? node : nextNode;
+}
+
 function reportingSessionShouldBeCompleted(input: {
   node: SessionTreeNode;
   signal: RunActivitySignals | null;
   hasRuntimeSignal: boolean;
+  hasActionableBlocker: boolean;
   nowMs: number;
   staleMs: number;
 }): boolean {
-  const { node, signal, hasRuntimeSignal, nowMs, staleMs } = input;
+  const { node, signal, hasRuntimeSignal, hasActionableBlocker, nowMs, staleMs } = input;
   const hasCompletedSignal = Boolean(signal && signal.completedCount > 0);
   const hasHardBlocker = Boolean(signal && signal.hardBlockerCount > 0);
   const completedAfterHardBlocker = Boolean(
@@ -152,7 +536,7 @@ function reportingSessionShouldBeCompleted(input: {
 
   const touchedAt = sessionLastTouchedEpoch(node);
   const stale = touchedAt > 0 && nowMs - touchedAt >= staleMs;
-  if (stale && !hasRuntimeSignal && !hasHardBlocker) {
+  if (stale && !hasRuntimeSignal && !hasHardBlocker && !hasActionableBlocker) {
     return true;
   }
 
@@ -167,6 +551,7 @@ function completeReportingSession(node: SessionTreeNode): SessionTreeNode {
     state: "completed",
     blockers: [],
     blockerReason: null,
+    blockerDiagnostics: null,
     lastEventSummary:
       node.lastEventSummary && node.lastEventSummary.trim().length > 0
         ? node.lastEventSummary
@@ -200,27 +585,31 @@ export function normalizeReportingBlockedSessions(input: {
   const nodes = sessions.nodes.map((node) => {
     if (!isBlockedLike(node)) return node;
     if (!isLikelyReportingControlSession(node)) return node;
-    if (hasActionableBlockerData(node)) return node;
 
     const runId = node.runId?.trim();
     if (!runId) return node;
 
     const signal = runSignals.get(runId) ?? null;
+    const hydrated = mergeReportingBlockerDetails(node, signal);
+    if (hydrated !== node) changed = true;
+
+    const hasActionable = hasActionableBlockerData(hydrated, signal);
     const hasRuntimeSignal = runtimeRunIds.has(runId);
     if (
       !reportingSessionShouldBeCompleted({
-        node,
+        node: hydrated,
         signal,
         hasRuntimeSignal,
+        hasActionableBlocker: hasActionable,
         nowMs,
         staleMs,
       })
     ) {
-      return node;
+      return hydrated;
     }
 
     changed = true;
-    return completeReportingSession(node);
+    return completeReportingSession(hydrated);
   });
 
   return changed ? { ...sessions, nodes } : sessions;
