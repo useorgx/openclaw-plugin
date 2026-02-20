@@ -1893,7 +1893,7 @@ function MissionControlInner({
             <motion.div
               layout
               transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-              className={`grid gap-4 pb-8 ${
+              className={`mt-3 grid gap-4 pb-8 ${
                 nextUpRailOpen ? 'xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-0' : 'grid-cols-1'
               }`}
             >
