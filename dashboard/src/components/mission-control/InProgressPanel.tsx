@@ -1,8 +1,10 @@
 import { memo, useMemo, useState } from 'react';
-import type { Initiative, SessionTreeNode, SliceRunProjection } from '@/types';
+import type { Initiative, SessionTreeNode, SliceRunProjection, SliceScope } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { Pill } from '@/components/shared/Pill';
+import { getAgentPersonality, inferAgentDomain } from '@/lib/agentPersonality';
 import { formatRelativeTime } from '@/lib/time';
 import { normalizeStatus } from '@/lib/tokens';
 
@@ -88,6 +90,8 @@ export type InProgressRow = {
   artifactCount: number;
   decisionCount: number;
   updatedAt: string | null;
+  scope?: 'task' | 'milestone' | 'workstream';
+  milestoneProgress?: Array<{ id: string; title: string; total: number; done: number }>;
 };
 
 interface SelectInProgressRowsInput {
@@ -185,6 +189,8 @@ export function selectInProgressRows({
       artifactCount: slice.artifactCount ?? 0,
       decisionCount: slice.blockingDecisionCount ?? slice.decisionCount ?? 0,
       updatedAt: slice.updatedAt ?? slice.lastEventAt ?? linkedSession?.updatedAt ?? null,
+      scope: slice.scope,
+      milestoneProgress: slice.scopeProgress?.milestones,
     });
   }
 
@@ -441,11 +447,16 @@ export const InProgressPanel = memo(function InProgressPanel({
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(row, linkedSliceRun); } }}
                 >
                   <div className="flex min-w-0 items-start gap-2.5">
-                    <AgentAvatar
-                      name={row.session?.agentName ?? 'OrgX'}
-                      hint={row.session?.agentId ?? row.runId}
-                      size="sm"
-                    />
+                    <div
+                      className={row.status === 'running' ? 'agent-glow-ring rounded-full' : ''}
+                      style={row.status === 'running' ? { '--agent-glow-color': getAgentPersonality(inferAgentDomain(row.session?.agentId)).glowColor } as React.CSSProperties : undefined}
+                    >
+                      <AgentAvatar
+                        name={row.session?.agentName ?? 'OrgX'}
+                        hint={row.session?.agentId ?? row.runId}
+                        size="sm"
+                      />
+                    </div>
                     <div className="min-w-0 flex-1">
                       {row.initiativeTitle ? (
                         <p className="text-micro uppercase tracking-[0.08em] text-muted">
@@ -457,8 +468,15 @@ export const InProgressPanel = memo(function InProgressPanel({
                         <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={row.title}>
                           {row.title}
                         </p>
-                        <span className="ml-auto flex-shrink-0 rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
-                          {statusLabel(status)}
+                        <span className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                          {row.scope && row.scope !== 'task' && (
+                            <Pill tone={row.scope === 'milestone' ? 'cyan' : 'lime'}>
+                              {row.scope}
+                            </Pill>
+                          )}
+                          <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                            {statusLabel(status)}
+                          </span>
                         </span>
                       </div>
                       {subtitle ? (
@@ -474,16 +492,43 @@ export const InProgressPanel = memo(function InProgressPanel({
                               {progressValue === null ? 'Tracking…' : `${progressValue}%`}
                             </span>
                           </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.09]">
+                          <div className={`h-1.5 overflow-hidden rounded-full bg-white/[0.09]${progressValue === 100 ? ' shimmer-on-complete' : ''}`}>
                             {progressValue === null ? (
                               <div className="h-full w-1/3 animate-pulse rounded-full bg-[#7dd3c0]/70" />
                             ) : (
                               <div
-                                className="h-full rounded-full bg-gradient-to-r from-[#BFFF00]/80 to-[#7dd3c0]"
-                                style={{ width: `${Math.max(3, progressValue)}%` }}
+                                className="h-full rounded-full transition-[width] duration-500"
+                                style={{
+                                  width: `${Math.max(3, progressValue)}%`,
+                                  background: `linear-gradient(90deg, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[0]}, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[1]})`,
+                                }}
                               />
                             )}
                           </div>
+                        </div>
+                      )}
+                      {row.milestoneProgress && row.milestoneProgress.length > 0 && (
+                        <div className="mt-2 space-y-1.5">
+                          {row.milestoneProgress.map((ms) => {
+                            const pct = ms.total > 0 ? Math.round((ms.done / ms.total) * 100) : 0;
+                            return (
+                              <div key={ms.id}>
+                                <div className="flex items-center justify-between text-micro">
+                                  <span className="truncate text-secondary" title={ms.title}>{ms.title}</span>
+                                  <span className="ml-2 flex-shrink-0 tabular-nums text-tertiary">{ms.done}/{ms.total}</span>
+                                </div>
+                                <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                                  <div
+                                    className="h-full rounded-full transition-[width] duration-500"
+                                    style={{
+                                      width: `${Math.max(2, pct)}%`,
+                                      background: `linear-gradient(90deg, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[0]}88, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[1]}88)`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 

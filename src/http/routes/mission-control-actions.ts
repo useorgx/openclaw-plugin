@@ -394,6 +394,15 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                   : null
               );
 
+        const scopeRaw =
+          deps.pickString(payload, ["scope", "sliceScope", "slice_scope"]) ??
+          query.get("scope") ??
+          query.get("sliceScope") ??
+          query.get("slice_scope") ??
+          null;
+        const scope =
+          scopeRaw === "milestone" || scopeRaw === "workstream" ? scopeRaw : "task";
+
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         const existingActiveRunIds = Array.isArray(existingRun?.activeSliceRunIds)
           ? (existingRun?.activeSliceRunIds as Array<unknown>)
@@ -437,6 +446,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           parallelMode: "iwmt",
           stopAfterSlice: true,
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
+          scope,
         });
 
         let fallbackDispatch:
@@ -1426,6 +1436,17 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             .toLowerCase();
         const parallelMode = parallelModeRaw === "iwmt" ? "iwmt" : "iwmt";
 
+        const startScopeRaw =
+          deps.pickString(payload, ["scope", "sliceScope", "slice_scope"]) ??
+          query.get("scope") ??
+          query.get("sliceScope") ??
+          query.get("slice_scope") ??
+          null;
+        const startScope =
+          startScopeRaw === "milestone" || startScopeRaw === "workstream"
+            ? startScopeRaw
+            : "task";
+
         const run = await deps.startAutoContinueRun({
           initiativeId,
           agentId,
@@ -1436,6 +1457,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           maxParallelSlices: maxParallelRaw,
           parallelMode,
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
+          scope: startScope,
         });
 
         deps.sendJson(res, 200, { ok: true, run });

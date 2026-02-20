@@ -109,3 +109,75 @@ export function computeWorkstreamRollup(taskStatuses: unknown[] = []): TaskStatu
   };
 }
 
+function normalizePassRate(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return 0;
+  if (n <= 1) return n;
+  if (n <= 100) return n / 100;
+  return 1;
+}
+
+function average(values: number[]): number {
+  if (values.length <= 0) return 0;
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return total / values.length;
+}
+
+export type EvalPassRateDriftResult = {
+  alert: boolean;
+  baselinePassRate: number;
+  rollingPassRate7d: number;
+  dropPct: number;
+  thresholdDropPct: number;
+  baselineSamples: number;
+  rollingSamples: number;
+};
+
+export function detectEvalPassRateDrift(input: {
+  passRates: unknown[];
+  thresholdDropPct?: number;
+  rollingWindowDays?: number;
+  baselineWindowDays?: number;
+}): EvalPassRateDriftResult | null {
+  const thresholdDropPct =
+    typeof input.thresholdDropPct === "number" && Number.isFinite(input.thresholdDropPct) && input.thresholdDropPct >= 0
+      ? input.thresholdDropPct
+      : 5;
+  const rollingWindowDays =
+    typeof input.rollingWindowDays === "number" && Number.isFinite(input.rollingWindowDays) && input.rollingWindowDays > 0
+      ? Math.floor(input.rollingWindowDays)
+      : 7;
+  const baselineWindowDays =
+    typeof input.baselineWindowDays === "number" &&
+    Number.isFinite(input.baselineWindowDays) &&
+    input.baselineWindowDays > 0
+      ? Math.floor(input.baselineWindowDays)
+      : rollingWindowDays;
+
+  const normalizedPassRates = (Array.isArray(input.passRates) ? input.passRates : [])
+    .map(normalizePassRate)
+    .filter((value): value is number => value != null);
+  const requiredSamples = rollingWindowDays + baselineWindowDays;
+  if (normalizedPassRates.length < requiredSamples) return null;
+
+  const rollingStart = normalizedPassRates.length - rollingWindowDays;
+  const baselineEnd = rollingStart;
+  const baselineStart = Math.max(0, baselineEnd - baselineWindowDays);
+  const rollingSlice = normalizedPassRates.slice(rollingStart);
+  const baselineSlice = normalizedPassRates.slice(baselineStart, baselineEnd);
+  if (rollingSlice.length <= 0 || baselineSlice.length <= 0) return null;
+
+  const baselinePassRate = average(baselineSlice);
+  const rollingPassRate7d = average(rollingSlice);
+  const dropPct = Number(((baselinePassRate - rollingPassRate7d) * 100).toFixed(2));
+  return {
+    alert: dropPct > thresholdDropPct,
+    baselinePassRate: Number(baselinePassRate.toFixed(4)),
+    rollingPassRate7d: Number(rollingPassRate7d.toFixed(4)),
+    dropPct,
+    thresholdDropPct,
+    baselineSamples: baselineSlice.length,
+    rollingSamples: rollingSlice.length,
+  };
+}

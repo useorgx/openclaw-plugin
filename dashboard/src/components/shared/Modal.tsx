@@ -10,6 +10,12 @@ interface ModalProps {
   maxWidth?: string;
   /** When true, modal height fits its content instead of stretching to 88vh. Use for small form dialogs. */
   fitContent?: boolean;
+  /** When true, clicking the backdrop closes the modal. */
+  closeOnBackdropClick?: boolean;
+  /** When true, pressing Escape closes the modal. */
+  closeOnEscape?: boolean;
+  /** When false, Escape does not close while focused in text-entry fields. */
+  closeOnEscapeWhenTyping?: boolean;
 }
 
 export function Modal({
@@ -18,6 +24,9 @@ export function Modal({
   children,
   maxWidth = 'max-w-2xl',
   fitContent = false,
+  closeOnBackdropClick = true,
+  closeOnEscape = true,
+  closeOnEscapeWhenTyping = true,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -53,6 +62,19 @@ export function Modal({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (!closeOnEscape) return;
+        if (!closeOnEscapeWhenTyping) {
+          const target = event.target as HTMLElement | null;
+          if (
+            target &&
+            (target.tagName === 'INPUT' ||
+              target.tagName === 'TEXTAREA' ||
+              target.tagName === 'SELECT' ||
+              target.isContentEditable)
+          ) {
+            return;
+          }
+        }
         event.preventDefault();
         onClose();
         return;
@@ -91,7 +113,7 @@ export function Modal({
       document.removeEventListener('keydown', onKeyDown);
       previouslyFocusedRef.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open, onClose, closeOnEscape, closeOnEscapeWhenTyping]);
 
   const modalContent = (
     <AnimatePresence>
@@ -101,7 +123,9 @@ export function Modal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[120] flex items-stretch justify-center p-0 sm:items-center sm:p-6"
-          onClick={onClose}
+          onClick={() => {
+            if (closeOnBackdropClick) onClose();
+          }}
           aria-hidden={!open}
         >
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />

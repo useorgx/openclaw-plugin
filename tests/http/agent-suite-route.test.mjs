@@ -392,6 +392,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
   const openclawHome = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-settings-http-"));
   const prevOpenclawHome = process.env.OPENCLAW_HOME;
   process.env.OPENCLAW_HOME = openclawHome;
+  const projectId = "22222222-2222-4222-8222-222222222222";
 
   try {
     const config = baseConfig();
@@ -400,7 +401,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
       getBaseUrl: () => config.baseUrl,
       getClientAgentRuntimeSettings: async () => ({
         ok: true,
-        project_id: "proj_test",
+        project_id: projectId,
         agents: [
           {
             id: "11111111-1111-1111-1111-111111111111",
@@ -422,7 +423,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
         patchPayload = input;
         return {
           ok: true,
-          project_id: input.project_id ?? "proj_test",
+          project_id: input.project_id ?? projectId,
           agent: {
             id: input.agent_id,
             name: "OrgX Engineering",
@@ -444,7 +445,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
     assert.equal(getRes.status, 200);
     const getBody = JSON.parse(getRes.body);
     assert.equal(getBody?.ok, true);
-    assert.equal(getBody?.data?.project_id, "proj_test");
+    assert.equal(getBody?.data?.project_id, projectId);
     assert.equal(getBody?.data?.agents?.length, 1);
     assert.equal(
       getBody?.data?.agents?.[0]?.runtime_settings?.decision_v2_enabled,
@@ -458,7 +459,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
         url: "/orgx/api/agent-suite/runtime-settings",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          project_id: "proj_test",
+          project_id: projectId,
           agent_id: "11111111-1111-1111-1111-111111111111",
           runtime_settings: {
             decision_v2_enabled: false,
@@ -479,7 +480,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
       true
     );
     assert.deepEqual(patchPayload, {
-      project_id: "proj_test",
+      project_id: projectId,
       agent_id: "11111111-1111-1111-1111-111111111111",
       runtime_settings: {
         decision_v2_enabled: false,
@@ -487,6 +488,78 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
         decision_evidence_required_for_blocking: true,
         decision_auto_resolve_guarded_enabled: false,
         custom_run_instructions: "Always include verification output.",
+      },
+    });
+  } finally {
+    if (prevOpenclawHome == null) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = prevOpenclawHome;
+    }
+  }
+});
+
+test("Agent suite runtime settings PATCH ignores invalid project_id", async () => {
+  const openclawHome = mkdtempSync(
+    join(tmpdir(), "orgx-openclaw-runtime-settings-invalid-project-id-http-")
+  );
+  const prevOpenclawHome = process.env.OPENCLAW_HOME;
+  process.env.OPENCLAW_HOME = openclawHome;
+
+  try {
+    const config = baseConfig();
+    let patchPayload = null;
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getClientAgentRuntimeSettings: async () => ({
+        ok: true,
+        project_id: null,
+        agents: [],
+      }),
+      updateClientAgentRuntimeSettings: async (input) => {
+        patchPayload = input;
+        return {
+          ok: true,
+          project_id: null,
+          agent: {
+            id: input.agent_id,
+            name: "OrgX Engineering",
+            type: "workflow_optimizer",
+            status: "active",
+            model: "gpt-5.1",
+            runtime_settings: input.runtime_settings,
+          },
+        };
+      },
+    };
+    const handler = createHttpHandler(
+      config,
+      client,
+      () => null,
+      createNoopOnboarding()
+    );
+
+    const patchRes = createStubResponse();
+    await handler(
+      {
+        method: "PATCH",
+        url: "/orgx/api/agent-suite/runtime-settings",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          project_id: "proj_test",
+          agent_id: "11111111-1111-1111-1111-111111111111",
+          runtime_settings: {
+            decision_v2_enabled: true,
+          },
+        }),
+      },
+      patchRes
+    );
+    assert.equal(patchRes.status, 200);
+    assert.deepEqual(patchPayload, {
+      agent_id: "11111111-1111-1111-1111-111111111111",
+      runtime_settings: {
+        decision_v2_enabled: true,
       },
     });
   } finally {

@@ -530,6 +530,36 @@
   animation: successGlow 600ms var(--orgx-ease-standard) both;
 }
 
+/* Agent glow ring for active slice execution */
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--agent-glow-color, rgba(34, 197, 94, 0.2));
+  }
+  50% {
+    box-shadow: 0 0 8px 3px var(--agent-glow-color, rgba(34, 197, 94, 0.2));
+  }
+}
+
+.agent-glow-ring {
+  animation: pulseGlow 2.4s ease-in-out infinite;
+}
+
+/* Progress bar shimmer on scope completion */
+.shimmer-on-complete {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-on-complete::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 600ms ease-out 1;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

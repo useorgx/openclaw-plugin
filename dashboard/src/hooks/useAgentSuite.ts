@@ -68,6 +68,15 @@ interface UseAgentSuiteOptions {
   enabled?: boolean;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeUuid(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return UUID_RE.test(trimmed) ? trimmed : null;
+}
+
 const DEFAULT_RUNTIME_SETTINGS: AgentRuntimeSettings = {
   decisionV2Enabled: true,
   decisionDedupeEnabled: true,
@@ -129,7 +138,7 @@ function normalizeRuntimeSettingsResponse(
     ? [envelope.agent]
     : [];
   return {
-    projectId: typeof envelope.project_id === 'string' ? envelope.project_id : null,
+    projectId: normalizeUuid(typeof envelope.project_id === 'string' ? envelope.project_id : null),
     agents: agents.map(normalizeRuntimeSettingsAgent),
   };
 }
@@ -226,11 +235,12 @@ export function useAgentSuite({
     AgentRuntimeSettingsSaveInput
   >({
     mutationFn: async (input) => {
+      const projectId = normalizeUuid(input.projectId ?? null);
       const response = await fetch('/orgx/api/agent-suite/runtime-settings', {
         method: 'PATCH',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify({
-          ...(input.projectId ? { project_id: input.projectId } : {}),
+          ...(projectId ? { project_id: projectId } : {}),
           agent_id: input.agentId,
           runtime_settings: {
             decision_v2_enabled: input.runtimeSettings.decisionV2Enabled,

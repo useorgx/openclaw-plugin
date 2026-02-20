@@ -95,7 +95,13 @@ export function SettingsModal({
   agentBehaviorInitialDomain?: AgentSuiteDomain | null;
 }) {
   return (
-    <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
+    <Modal
+      open={open}
+      onClose={onClose}
+      maxWidth="max-w-4xl"
+      closeOnBackdropClick={false}
+      closeOnEscapeWhenTyping={false}
+    >
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col">
         <div className="w-full border-b border-subtle px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">

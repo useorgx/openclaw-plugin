@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { SliceScope } from '@/types';
 
 type QueuePlacement = 'top' | 'bottom';
 
@@ -14,13 +15,55 @@ interface QueuePlacementControlProps {
   menuClassName?: string;
   title?: string;
   stopPropagation?: boolean;
-  onSelectPlacement: (placement: QueuePlacement) => void | Promise<void>;
+  onSelectPlacement: (placement: QueuePlacement, scope?: SliceScope) => void | Promise<void>;
 }
 
 const placementCopy: Record<QueuePlacement, string> = {
   top: 'Play next',
   bottom: 'Add to queue',
 };
+
+const scopeOptions: Array<{ scope: SliceScope; label: string; description: string }> = [
+  { scope: 'task', label: 'Play next', description: 'task scope' },
+  { scope: 'milestone', label: 'Play milestone', description: 'milestone scope' },
+  { scope: 'workstream', label: 'Play workstream', description: 'workstream scope' },
+];
+
+function ScopeIcon({ scope, size = 12 }: { scope: SliceScope; size?: number }) {
+  const s = size;
+  const r = Math.round(s * 0.14);
+  const gap = Math.round(s * 0.06);
+  if (scope === 'task') {
+    // Single dot
+    return (
+      <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} fill="currentColor" aria-hidden>
+        <circle cx={s / 2} cy={s / 2} r={r + 1} />
+      </svg>
+    );
+  }
+  if (scope === 'milestone') {
+    // Vertical stack of 3 dots
+    const cx = s / 2;
+    const spacing = (s - r * 6) / 2;
+    return (
+      <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} fill="currentColor" aria-hidden>
+        <circle cx={cx} cy={r + gap} r={r} />
+        <circle cx={cx} cy={s / 2} r={r} />
+        <circle cx={cx} cy={s - r - gap} r={r} />
+      </svg>
+    );
+  }
+  // Workstream: 2x2 grid
+  const inset = r + gap + 1;
+  return (
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} fill="currentColor" aria-hidden>
+      <circle cx={inset} cy={inset} r={r} />
+      <circle cx={s - inset} cy={inset} r={r} />
+      <circle cx={inset} cy={s - inset} r={r} />
+      <circle cx={s - inset} cy={s - inset} r={r} />
+    </svg>
+  );
+}
 
 export function QueuePlacementControl({
   label = 'Queue',
@@ -67,10 +110,10 @@ export function QueuePlacementControl({
     };
   }, [menuOpen]);
 
-  const runAction = (event: React.MouseEvent, placement: QueuePlacement) => {
+  const runAction = (event: React.MouseEvent, placement: QueuePlacement, scope?: SliceScope) => {
     if (stopPropagation) event.stopPropagation();
     setMenuOpen(false);
-    void onSelectPlacement(placement);
+    void onSelectPlacement(placement, scope);
   };
 
   return (
@@ -135,19 +178,30 @@ export function QueuePlacementControl({
         <div
           id={menuId.current}
           role="menu"
-          className={`absolute ${menuAlignClass} ${menuVerticalClass} z-[260] min-w-[172px] rounded-lg border border-strong bg-[#0B0F16]/95 p-1 shadow-[0_16px_32px_rgba(0,0,0,0.38)] backdrop-blur ${menuClassName}`}
+          className={`absolute ${menuAlignClass} ${menuVerticalClass} z-[260] min-w-[196px] rounded-lg border border-strong bg-[#0B0F16]/95 p-1 shadow-[0_16px_32px_rgba(0,0,0,0.38)] backdrop-blur ${menuClassName}`}
         >
-          {(['top', 'bottom'] as const).map((placement) => (
+          {scopeOptions.map((opt) => (
             <button
-              key={placement}
+              key={opt.scope}
               type="button"
               role="menuitem"
-              onClick={(event) => runAction(event, placement)}
-              className="flex w-full items-center rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.07]"
+              onClick={(event) => runAction(event, 'top', opt.scope)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.07]"
             >
-              <span className="text-caption font-medium text-primary">{placementCopy[placement]}</span>
+              <ScopeIcon scope={opt.scope} size={12} />
+              <span className="text-caption font-medium text-primary">{opt.label}</span>
+              <span className="ml-auto text-micro text-tertiary">{opt.description}</span>
             </button>
           ))}
+          <div className="my-1 border-t border-strong" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(event) => runAction(event, 'bottom')}
+            className="flex w-full items-center rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.07]"
+          >
+            <span className="text-caption font-medium text-primary">{placementCopy.bottom}</span>
+          </button>
         </div>
       )}
     </div>

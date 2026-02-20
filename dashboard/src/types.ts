@@ -75,6 +75,8 @@ export interface OutboxStatus {
   lastReplayError: string | null;
 }
 
+export type SliceScope = 'task' | 'milestone' | 'workstream';
+
 export type SliceRunLifecycleState =
   | 'queued'
   | 'dispatching'
@@ -141,6 +143,13 @@ export interface SliceRunProjection {
   lastEventSummary: string | null;
   correlationId: string | null;
   confidence: 'low' | 'medium' | 'high';
+  scope?: SliceScope;
+  scopeMilestoneIds?: string[];
+  scopeProgress?: {
+    totalTasks: number;
+    completedTasks: number;
+    milestones?: Array<{ id: string; title: string; total: number; done: number }>;
+  };
 }
 
 export type SliceKind = 'work_slice' | 'runtime_reporting' | 'system_maintenance';
@@ -228,6 +237,8 @@ export interface WorkSliceProjectionV2 {
   runtimeState: string | null;
   sourceClient: string | null;
   confidence: 'low' | 'medium' | 'high';
+  scope?: SliceScope;
+  scopeProgress?: { totalTasks: number; completedTasks: number };
 }
 
 export interface SliceTimelineNarrativeProjectionV2 {
