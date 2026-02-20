@@ -139,6 +139,33 @@ test("main posts runtime relay when hook token is provided", async () => {
   assert.equal(calls[0].headers["X-OrgX-Hook-Token"], "hook_test");
 });
 
+test("main does not synthesize correlation ids when run id is missing", async () => {
+  const calls = [];
+  const fetchImpl = async (_url, init) => {
+    calls.push(JSON.parse(init?.body ?? "{}"));
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({ ok: true }),
+      text: async () => "",
+    };
+  };
+
+  await main({
+    argv: ["--event=progress", "--phase=execution", "--source_client=openclaw"],
+    env: {
+      ORGX_HOOK_TOKEN: "hook_test",
+      ORGX_RUNTIME_HOOK_URL: "http://127.0.0.1:18789/orgx/api/hooks/runtime",
+      ORGX_INITIATIVE_ID: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+    },
+    fetchImpl,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal("correlation_id" in calls[0], false);
+});
+
 test("main posts activity and optional completion changeset", async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

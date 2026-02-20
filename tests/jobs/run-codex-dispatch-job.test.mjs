@@ -7,6 +7,7 @@ import {
   extractPlanContext,
   buildCodexPrompt,
   deriveTaskExecutionPolicy,
+  resolveBehaviorConfig,
   isSpawnGuardRetryable,
   evaluateResourceGuard,
   detectMcpHandshakeFailure,
@@ -190,6 +191,105 @@ test("buildCodexPrompt embeds skill docs when provided", () => {
   assert.match(prompt, /orgx-engineering-agent/);
   assert.match(prompt, /\/tmp\/skill\.md/);
   assert.match(prompt, /# Skill content/);
+});
+
+test("buildCodexPrompt includes behavior config context when provided", () => {
+  const prompt = buildCodexPrompt({
+    task: {
+      id: "task_behavior",
+      title: "Enforce runtime behavior config",
+      workstream_id: "ws_1",
+      milestone_id: "ms_1",
+    },
+    planPath: "/tmp/plan.md",
+    planContext: "enforce behavior context",
+    initiativeId: "init_1",
+    jobId: "job_1",
+    attempt: 1,
+    totalTasks: 2,
+    completedTasks: 0,
+    taskDomain: "engineering",
+    requiredSkills: ["orgx-engineering-agent"],
+    spawnGuardResult: { modelTier: "sonnet", allowed: true },
+    behaviorConfig: {
+      configId: "cfg_123",
+      version: "4",
+      hash: "abc123",
+      policySource: "workstream_override",
+      automationLevel: "supervised",
+      context: "Always run targeted checks only.",
+      artifactType: "content_draft",
+    },
+  });
+
+  assert.match(prompt, /Behavior config \(runtime enforcement\):/);
+  assert.match(prompt, /behavior_config_id:\s+cfg_123/);
+  assert.match(prompt, /behavior_config_version:\s+4/);
+  assert.match(prompt, /behavior_config_hash:\s+abc123/);
+  assert.match(prompt, /policy_source:\s+workstream_override/);
+  assert.match(prompt, /automation_level:\s+supervised/);
+  assert.match(prompt, /behavior_context:\s+Always run targeted checks only\./);
+  assert.match(prompt, /artifact_output_type:\s+content_draft/);
+});
+
+test("resolveBehaviorConfig honors explicit artifact type from metadata", () => {
+  const behavior = resolveBehaviorConfig(
+    {
+      metadata: {
+        behavior_config_id: "cfg_marketing",
+        output_artifact_type: "content-draft",
+      },
+    },
+    null,
+    "marketing"
+  );
+
+  assert.equal(behavior?.configId, "cfg_marketing");
+  assert.equal(behavior?.artifactType, "content-draft");
+  assert.equal(behavior?.policySource, "domain_default");
+});
+
+test("resolveBehaviorConfig falls back to domain artifact type defaults", () => {
+  const behavior = resolveBehaviorConfig(
+    {
+      id: "task_1",
+      title: "Write launch campaign copy",
+    },
+    null,
+    "marketing"
+  );
+
+  assert.equal(behavior?.artifactType, "content_draft");
+  assert.equal(behavior?.policySource, "domain_default");
+  assert.equal(behavior?.automationLevel, "auto");
+});
+
+test("resolveBehaviorConfig normalizes automation level aliases", () => {
+  const behavior = resolveBehaviorConfig(
+    {
+      metadata: {
+        automation_level: "full-auto",
+      },
+    },
+    null,
+    "engineering"
+  );
+
+  assert.equal(behavior?.automationLevel, "auto");
+});
+
+test("resolveBehaviorConfig honors explicit manual automation level", () => {
+  const behavior = resolveBehaviorConfig(
+    {
+      metadata: {
+        automation_level: "manual",
+      },
+    },
+    null,
+    "engineering"
+  );
+
+  assert.equal(behavior?.automationLevel, "manual");
 });
 
 test("deriveTaskExecutionPolicy infers domain and required skill", () => {

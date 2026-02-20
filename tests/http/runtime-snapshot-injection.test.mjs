@@ -143,6 +143,77 @@ test("live/snapshot injects runtime instances as sessions", async () => {
   }
 });
 
+test("live/snapshot-v2 excludes runtime reporting slices from in-progress work", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-v2-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const token = resolveRuntimeHookToken();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resHook = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/hooks/runtime",
+        headers: { "content-type": "application/json", "x-orgx-hook-token": token },
+        body: JSON.stringify({
+          source_client: "openclaw",
+          event: "session_update",
+          run_id: "reporting_runtime_1",
+          phase: "execution",
+          progress_pct: 5,
+          message: "Reporting telemetry heartbeat",
+        }),
+      },
+      resHook
+    );
+    assert.equal(resHook.status, 200);
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot-v2?sessionsLimit=10&activityLimit=10&decisionsLimit=10",
+        headers: {},
+      },
+      resSnapshot
+    );
+
+    assert.equal(resSnapshot.status, 200);
+    const body = JSON.parse(resSnapshot.body);
+    const projections = Array.isArray(body?.projections) ? body.projections : [];
+    const reporting = projections.find((entry) => entry?.sliceRunId === "reporting_runtime_1");
+    assert.ok(reporting, "expected reporting projection in snapshot-v2");
+    assert.equal(reporting.sliceKind, "runtime_reporting");
+    const inProgress = Array.isArray(body?.inProgress) ? body.inProgress : [];
+    assert.equal(
+      inProgress.some((entry) => entry?.sliceRunId === "reporting_runtime_1"),
+      false,
+      "runtime reporting run should not appear in in-progress work slices"
+    );
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
 test("runtime session fallback identity and blocked reason are derived when agent info is missing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-fallback-"));
   const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
@@ -174,6 +245,9 @@ test("runtime session fallback identity and blocked reason are derived when agen
           source_client: "codex",
           event: "session_start",
           run_id: "run_test_blocked",
+          initiative_id: "init_test_1",
+          workstream_id: "ws_test_1",
+          task_id: "task_test_1",
           phase: "blocked",
           message: "Agent execution failed",
         }),
@@ -201,6 +275,69 @@ test("runtime session fallback identity and blocked reason are derived when agen
     assert.equal(injected.status, "blocked");
     assert.equal(injected.blockerReason, "Agent execution failed");
     assert.deepEqual(injected.blockers, ["Agent execution failed"]);
+  } finally {
+    if (prevPluginDir == null) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});
+
+test("runtime entries without execution scope are not injected as synthetic sessions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-runtime-unscope-inject-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const config = baseConfig();
+    const token = resolveRuntimeHookToken();
+
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+      getLiveActivity: async () => ({ activities: [] }),
+      getHandoffs: async () => ({ handoffs: [] }),
+      getLiveDecisions: async () => ({ decisions: [] }),
+      getLiveAgents: async () => ({ agents: [] }),
+      listEntities: async () => ({ data: [] }),
+    };
+
+    const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+    const resHook = createStubResponse();
+    await handler(
+      {
+        method: "POST",
+        url: "/orgx/api/hooks/runtime",
+        headers: { "content-type": "application/json", "x-orgx-hook-token": token },
+        body: JSON.stringify({
+          source_client: "openclaw",
+          event: "progress",
+          run_id: "run_unscoped_reporting",
+          phase: "execution",
+          message: "Hook event: post_tool_use",
+          metadata: { source: "hook_runtime_relay", hook_event: "post_tool_use" },
+        }),
+      },
+      resHook
+    );
+    assert.equal(resHook.status, 200);
+
+    const resSnapshot = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: "/orgx/api/live/snapshot?sessionsLimit=10&activityLimit=10&decisionsLimit=10&testCase=runtime-unscoped-not-injected",
+        headers: {},
+      },
+      resSnapshot
+    );
+    assert.equal(resSnapshot.status, 200);
+
+    const body = JSON.parse(resSnapshot.body);
+    const injected = body?.sessions?.nodes?.find((n) => n?.runId === "run_unscoped_reporting") ?? null;
+    assert.equal(injected, null, "unscoped telemetry runtime should not appear as an active session");
   } finally {
     if (prevPluginDir == null) {
       delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;

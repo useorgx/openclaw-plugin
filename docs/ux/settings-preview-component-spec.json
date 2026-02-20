@@ -1,0 +1,50 @@
+{
+  "name": "AgentRunPreviewCard",
+  "description": "Pre-save run preview panel for agent settings that synthesizes expected run behavior from in-memory draft configuration and surfaces blockers before persistence.",
+  "usage": "Render alongside per-agent settings form. Recompute on draft changes using a 250ms debounce. Mark output as Draft until settings are saved.",
+  "props": [
+    {
+      "name": "agentId",
+      "type": "string"
+    },
+    {
+      "name": "draftConfig",
+      "type": "AgentConfigDraft"
+    },
+    {
+      "name": "savedConfig",
+      "type": "AgentConfigSaved"
+    },
+    {
+      "name": "validation",
+      "type": "{ isValid: boolean; errors: Array<{ field: string; message: string }> }"
+    },
+    {
+      "name": "isDirty",
+      "type": "boolean"
+    },
+    {
+      "name": "onRefreshPreview",
+      "type": "() => void"
+    }
+  ],
+  "accessibility": {
+    "notes": "Keyboard: Tab order follows heading -> refresh action -> each preview section -> risk flags. ARIA: role=region with aria-labelledby for the panel heading; use aria-live='polite' for regenerated summary text; associate validation errors with source fields and include non-color text labels for risk severity."
+  },
+  "examples": [
+    "<AgentRunPreviewCard agentId='orion' draftConfig={draft} savedConfig={saved} validation={validation} isDirty onRefreshPreview={refresh} />",
+    "<AgentRunPreviewCard agentId='eli' draftConfig={saved} savedConfig={saved} validation={{ isValid: true, errors: [] }} isDirty={false} onRefreshPreview={refresh} />"
+  ],
+  "dos": [
+    "Show Draft vs Saved status text whenever form state is dirty.",
+    "Display explicit blocker copy when preview is unavailable due to validation errors.",
+    "Map warning chips to text labels (for example, 'High retry pressure') so status is not color-only.",
+    "Keep touch targets at least 44px for refresh and section toggles on 375px layouts."
+  ],
+  "donts": [
+    "Do not persist preview output; it must be synthesized from in-memory draft state.",
+    "Do not hide validation blockers behind collapsed sections.",
+    "Do not mix lime and teal accents on the same control or status chip.",
+    "Do not disable keyboard access to preview sections or action buttons."
+  ]
+}

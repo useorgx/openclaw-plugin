@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useAgentSuite } from '@/hooks/useAgentSuite';
 import { buildOrgxHeaders } from '@/lib/http';
+import type { AgentSuitePlan } from '@/types';
 
 function pluralize(count: number, noun: string): string {
   return count === 1 ? `${count} ${noun}` : `${count} ${noun}s`;
@@ -24,6 +25,102 @@ function Tag({ tone, children }: { tone: TagTone; children: ReactNode }) {
   );
 }
 
+interface DryRunPreview {
+  outcome: 'ready' | 'warning';
+  executionTrace: string[];
+  riskFlags: string[];
+  expectedOutputs: string[];
+  confidence: string;
+}
+
+type BehaviorPresetId = 'conservative' | 'balanced' | 'autonomous';
+
+const BEHAVIOR_PRESET_LABELS: Record<BehaviorPresetId, string> = {
+  conservative: 'Conservative',
+  balanced: 'Balanced',
+  autonomous: 'Autonomous',
+};
+
+const BEHAVIOR_PRESET_DESCRIPTIONS: Record<BehaviorPresetId, string> = {
+  conservative: 'All approvals. Freeze and pin policy updates until manually reviewed.',
+  balanced: 'Smart defaults. Keep policy live but pinned to current checksum.',
+  autonomous: 'Max automation. Keep policy live and unpinned for newest updates.',
+};
+
+function resolveBehaviorPreset(policy: AgentSuitePlan['skillPackPolicy']): BehaviorPresetId | null {
+  if (!policy) return null;
+  if (policy.frozen && policy.pinnedChecksum) return 'conservative';
+  if (!policy.frozen && policy.pinnedChecksum) return 'balanced';
+  if (!policy.frozen && !policy.pinnedChecksum) return 'autonomous';
+  return null;
+}
+
+function buildPresetPolicyUpdate(preset: BehaviorPresetId): Record<string, unknown> {
+  if (preset === 'conservative') {
+    return {
+      frozen: true,
+      pinToCurrent: true,
+      reason: 'Applied Conservative preset from Agent Settings UI',
+    };
+  }
+  if (preset === 'balanced') {
+    return {
+      frozen: false,
+      pinToCurrent: true,
+      reason: 'Applied Balanced preset from Agent Settings UI',
+    };
+  }
+  return {
+    frozen: false,
+    clearPin: true,
+    reason: 'Applied Autonomous preset from Agent Settings UI',
+  };
+}
+
+function buildDryRunPreview({
+  plan,
+  agentId,
+  sampleTaskId,
+}: {
+  plan: AgentSuitePlan;
+  agentId: string;
+  sampleTaskId: string;
+}): DryRunPreview {
+  const changedFileItems = plan.workspaceFiles.filter((f) => f.action !== 'noop');
+  const conflicts = changedFileItems.filter((f) => f.action === 'conflict').length;
+  const creates = changedFileItems.filter((f) => f.action === 'create').length;
+  const updates = changedFileItems.filter((f) => f.action === 'update').length;
+
+  const riskFlags: string[] = [];
+  if (conflicts > 0) riskFlags.push(`${pluralize(conflicts, 'managed file')} needs review before apply.`);
+  if (plan.skillPackUpdateAvailable) riskFlags.push('Remote skill update is available; behavior could drift after refresh.');
+  if (plan.skillPackPolicy?.frozen) riskFlags.push('Skill pack is frozen; preview reflects pinned behavior only.');
+
+  const executionTrace = [
+    `Load draft simulation for ${agentId}.`,
+    `Run sample task "${sampleTaskId}" through current suite guardrails.`,
+    `Assemble managed/local overlay and compute write plan.`,
+    conflicts > 0 ? 'Stop before apply because conflicts require operator review.' : 'Proceed to apply path if operator confirms.',
+  ];
+
+  const expectedOutputs = [
+    `${pluralize(plan.openclawConfigAddedAgents.length, 'agent')} added to OpenClaw config.`,
+    `${pluralize(changedFileItems.length, 'workspace file')} changed (${creates} create, ${updates} update).`,
+    `Progress stream expected at start and completion for sample "${sampleTaskId}".`,
+  ];
+
+  return {
+    outcome: riskFlags.length > 0 ? 'warning' : 'ready',
+    executionTrace,
+    riskFlags,
+    expectedOutputs,
+    confidence:
+      riskFlags.length > 0
+        ? 'Medium confidence: preview is deterministic but includes review-dependent flags.'
+        : 'High confidence: preview is deterministic with no active risk flags.',
+  };
+}
+
 export function AgentSuitePanel({
   authToken = null,
   embedMode = false,
@@ -36,6 +133,15 @@ export function AgentSuitePanel({
   devMode?: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [testAgentId, setTestAgentId] = useState('');
+  const [sampleTaskId, setSampleTaskId] = useState('triage-sample');
+  const [testResult, setTestResult] = useState<DryRunPreview | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [lastTestedAt, setLastTestedAt] = useState<string | null>(null);
+  const [applyingPresetId, setApplyingPresetId] = useState<BehaviorPresetId | null>(null);
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
   const suite = useAgentSuite({ authToken, embedMode, enabled });
 
   const plan = suite.status?.ok ? suite.status.data : null;
@@ -73,6 +179,33 @@ export function AgentSuitePanel({
 
   const lastInstall = suite.installResult?.ok ? suite.installResult : null;
   const isDryRun = Boolean(lastInstall?.dryRun);
+  const activePreset = resolveBehaviorPreset(plan?.skillPackPolicy ?? null);
+
+  const runConfigTest = async () => {
+    if (!plan || suite.isInstalling || isTesting) return;
+    const selectedAgentId = testAgentId || (plan.agents[0]?.id ?? 'unassigned-agent');
+    setShowDetails(true);
+    setIsTesting(true);
+    setTestError(null);
+    try {
+      const response = await suite.installAsync({ dryRun: true });
+      if (!response.ok) {
+        throw new Error(response.error ?? 'Dry-run failed.');
+      }
+      setTestResult(
+        buildDryRunPreview({
+          plan: response.data,
+          agentId: selectedAgentId,
+          sampleTaskId,
+        })
+      );
+      setLastTestedAt(new Date().toISOString());
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : 'Dry-run failed.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const updateSkillPackPolicy = async (body: Record<string, unknown>) => {
     await fetch('/orgx/api/skill-pack/policy', {
@@ -86,6 +219,21 @@ export function AgentSuitePanel({
       }
     });
     await suite.refetchStatus();
+  };
+
+  const applyBehaviorPreset = async (presetId: BehaviorPresetId) => {
+    if (!plan?.skillPackPolicy || applyingPresetId) return;
+    setPresetError(null);
+    setPresetNotice(null);
+    setApplyingPresetId(presetId);
+    try {
+      await updateSkillPackPolicy(buildPresetPolicyUpdate(presetId));
+      setPresetNotice(`${BEHAVIOR_PRESET_LABELS[presetId]} preset applied.`);
+    } catch (error) {
+      setPresetError(error instanceof Error ? error.message : 'Failed to apply preset.');
+    } finally {
+      setApplyingPresetId(null);
+    }
   };
 
   return (
@@ -113,14 +261,13 @@ export function AgentSuitePanel({
           <button
             type="button"
             onClick={() => {
-              setShowDetails(true);
-              suite.install({ dryRun: true });
+              void runConfigTest();
             }}
-            disabled={suite.isInstalling}
-            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Computes the plan without writing any files"
+            disabled={suite.isInstalling || isTesting}
+            className="inline-flex min-h-[44px] items-center rounded-full border border-lime/30 bg-lime/[0.14] px-4 py-2 text-body font-semibold text-lime transition-colors hover:bg-lime/[0.2] disabled:cursor-not-allowed disabled:opacity-50"
+            title="Runs a sample dry-run against the current draft settings"
           >
-            Dry run
+            {isTesting ? 'Testing config...' : 'Test This Config'}
           </button>
           <button
             type="button"
@@ -185,6 +332,95 @@ export function AgentSuitePanel({
 
       {plan && (
         <div className="mt-4">
+          <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
+            <p className="text-body font-semibold text-primary">Dry-run sample</p>
+            <p className="mt-1 text-caption leading-relaxed text-secondary">
+              Validate expected behavior with draft settings before applying changes.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1.5 text-caption text-secondary">
+                Agent
+                <select
+                  value={testAgentId}
+                  onChange={(event) => setTestAgentId(event.target.value)}
+                  className="min-h-[44px] rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-body text-primary outline-none transition-colors focus:border-lime/35"
+                >
+                  <option value="">Auto-select first pending agent</option>
+                  {plan.agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} ({agent.id})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1.5 text-caption text-secondary">
+                Sample task
+                <select
+                  value={sampleTaskId}
+                  onChange={(event) => setSampleTaskId(event.target.value)}
+                  className="min-h-[44px] rounded-lg border border-white/[0.1] bg-white/[0.03] px-3 text-body text-primary outline-none transition-colors focus:border-lime/35"
+                >
+                  <option value="triage-sample">Triage sample</option>
+                  <option value="incident-template">Incident template</option>
+                  <option value="handoff-summary">Handoff summary</option>
+                </select>
+              </label>
+            </div>
+            {testError && (
+              <p className="mt-3 rounded-lg border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-caption text-rose-100">
+                {testError}
+              </p>
+            )}
+            {testResult && (
+              <div role="region" aria-live="polite" className="mt-3 rounded-lg border border-teal/30 bg-teal/[0.08] px-3 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-caption font-semibold uppercase tracking-[0.08em] text-teal">
+                    Draft simulation
+                  </p>
+                  <Tag tone={testResult.outcome === 'ready' ? 'good' : 'warn'}>
+                    {testResult.outcome === 'ready' ? 'Ready to apply' : 'Review recommended'}
+                  </Tag>
+                </div>
+                {lastTestedAt && (
+                  <p className="mt-1 text-caption text-secondary">
+                    {new Date(lastTestedAt).toLocaleString()}
+                  </p>
+                )}
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2.5">
+                    <p className="text-caption font-semibold text-primary">Execution trace</p>
+                    <ol className="mt-1.5 grid gap-1 text-caption text-secondary">
+                      {testResult.executionTrace.map((step, index) => (
+                        <li key={step}>
+                          {index + 1}. {step}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2.5">
+                    <p className="text-caption font-semibold text-primary">Risk flags</p>
+                    <div className="mt-1.5 grid gap-1 text-caption text-secondary">
+                      {testResult.riskFlags.length > 0 ? (
+                        testResult.riskFlags.map((flag) => <p key={flag}>{flag}</p>)
+                      ) : (
+                        <p>No risk flags detected.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.08] bg-black/20 p-2.5">
+                    <p className="text-caption font-semibold text-primary">Expected outputs</p>
+                    <div className="mt-1.5 grid gap-1 text-caption text-secondary">
+                      {testResult.expectedOutputs.map((entry) => (
+                        <p key={entry}>{entry}</p>
+                      ))}
+                      <p className="text-primary">{testResult.confidence}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between gap-3">
             <p className="text-body font-semibold text-primary">Suite details</p>
             <button
@@ -241,6 +477,58 @@ export function AgentSuitePanel({
                         {plan.skillPackPolicy.frozen ? 'frozen' : 'live'}
                         {plan.skillPackPolicy.pinnedChecksum ? `, pinned:${plan.skillPackPolicy.pinnedChecksum.slice(0, 8)}…` : ''}
                       </code>
+                    </div>
+                  )}
+                  {plan.skillPackPolicy && (
+                    <div className="mt-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-caption font-semibold uppercase tracking-[0.08em] text-secondary">
+                          Execution presets
+                        </p>
+                        <Tag tone={activePreset ? 'good' : 'neutral'}>
+                          {activePreset ? `Active: ${BEHAVIOR_PRESET_LABELS[activePreset]}` : 'Active: custom'}
+                        </Tag>
+                      </div>
+                      <p className="mt-1 text-caption text-secondary">
+                        Choose how much human approval vs automation your default behavior policy should use.
+                      </p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        {(['conservative', 'balanced', 'autonomous'] as const).map((presetId) => {
+                          const isActive = activePreset === presetId;
+                          const isApplying = applyingPresetId === presetId;
+                          return (
+                            <button
+                              key={presetId}
+                              type="button"
+                              onClick={() => { void applyBehaviorPreset(presetId); }}
+                              disabled={Boolean(applyingPresetId)}
+                              className={cn(
+                                'min-h-[44px] rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                isActive
+                                  ? 'border-lime/35 bg-lime/[0.12] text-lime'
+                                  : 'border-white/[0.12] bg-white/[0.03] text-primary hover:bg-white/[0.06]'
+                              )}
+                            >
+                              <p className="text-body font-semibold">
+                                {isApplying ? 'Applying…' : BEHAVIOR_PRESET_LABELS[presetId]}
+                              </p>
+                              <p className="mt-1 text-caption text-secondary">
+                                {BEHAVIOR_PRESET_DESCRIPTIONS[presetId]}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {presetNotice && (
+                        <p className="mt-2 rounded-lg border border-lime/20 bg-lime/[0.07] px-2.5 py-2 text-caption text-[#D8FFA1]">
+                          {presetNotice}
+                        </p>
+                      )}
+                      {presetError && (
+                        <p className="mt-2 rounded-lg border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-caption text-rose-100">
+                          {presetError}
+                        </p>
+                      )}
                     </div>
                   )}
                   {plan.skillPackPolicy && (

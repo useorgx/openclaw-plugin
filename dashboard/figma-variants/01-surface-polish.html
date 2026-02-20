@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1472, height=792">
+<title>OrgX — Surface Polish Variant</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  body { width: 1472px; height: 792px; overflow: hidden; }
+
+  .dashboard-shell {
+    display: flex;
+    width: 1472px;
+    height: 792px;
+    background:
+      radial-gradient(ellipse 700px 700px at 12% -20%, rgba(191,255,0,0.09) 0%, transparent 58%),
+      radial-gradient(ellipse 500px 700px at 90% -20%, rgba(20,184,166,0.09) 0%, transparent 64%),
+      var(--bg-root);
+  }
+
+  /* ─── Sidebar ─── */
+  .sidebar {
+    width: 176px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 12px;
+    gap: 4px;
+    border-right: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 16px;
+  }
+
+  .sidebar-brand-icon {
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, var(--lime), var(--teal));
+    border-radius: 6px;
+    opacity: 0.9;
+  }
+
+  .sidebar-brand span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .sidebar-item:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+  }
+
+  .sidebar-item.active {
+    background: rgba(191,255,0,0.06);
+    color: var(--lime);
+  }
+
+  .sidebar-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+
+  .sidebar-item.active .sidebar-icon {
+    background: rgba(191,255,0,0.2);
+  }
+
+  .sidebar-kbd {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-faint);
+    font-family: 'SF Mono', monospace;
+  }
+
+  .sidebar-section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    padding: 16px 10px 6px;
+  }
+
+  /* ─── Main content ─── */
+  .main-content {
+    flex: 1;
+    padding: 8px 16px 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+  }
+
+  /* ─── Header with gradient bottom fade ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    position: relative;
+  }
+
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(191,255,0,0.15) 30%, rgba(20,184,166,0.15) 70%, transparent 100%);
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .header-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 200px;
+    transition: all 0.2s ease;
+  }
+
+  .search-trigger:hover {
+    border-color: rgba(191,255,0,0.2);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .search-trigger .search-icon {
+    opacity: 0.4;
+  }
+
+  /* ─── Initiative Cards with gradient borders and hover glow ─── */
+  .content-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 12px;
+    overflow: hidden;
+  }
+
+  .left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  /* ─── Initiative Card ─── */
+  .initiative-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.25s ease;
+  }
+
+  .initiative-card:hover {
+    box-shadow: 0 0 32px rgba(191,255,0,0.12), 0 0 64px rgba(191,255,0,0.04);
+    border-color: rgba(191,255,0,0.15);
+    transform: translateY(-1px);
+  }
+
+  .initiative-card.active {
+    position: relative;
+    border: none;
+  }
+
+  .initiative-card.active::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--lime), var(--teal), var(--iris));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .initiative-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .initiative-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .initiative-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .progress-bar {
+    width: 60px;
+    height: 3px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--lime);
+  }
+
+  .initiative-desc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+  }
+
+  .initiative-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  /* ─── Glass Modal Preview ─── */
+  .glass-modal-preview {
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .glass-modal-preview h3 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* ─── Session Cards ─── */
+  .session-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    transition: all 0.2s ease;
+  }
+
+  .session-card:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .session-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 8px rgba(191,255,0,0.4);
+    animation: pulse-glow 2s ease infinite;
+  }
+
+  .session-dot.idle { background: var(--text-muted); box-shadow: none; animation: none; }
+
+  .session-name { color: var(--text-secondary); font-weight: 500; flex: 1; }
+  .session-time { color: var(--text-muted); font-size: 10px; }
+
+  /* ─── Decision Queue Card ─── */
+  .decision-card {
+    background: rgba(139,92,246,0.04);
+    border: 1px solid rgba(139,92,246,0.15);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .decision-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .decision-icon {
+    width: 16px;
+    height: 16px;
+    background: rgba(139,92,246,0.2);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .decision-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .decision-desc {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    padding-left: 24px;
+  }
+
+  .decision-actions {
+    display: flex;
+    gap: 6px;
+    padding-left: 24px;
+  }
+
+  /* ─── Section headers ─── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0;
+  }
+
+  .section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .section-count {
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+
+  /* ─── Activity timeline ─── */
+  .activity-item {
+    display: flex;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 11px;
+    align-items: flex-start;
+  }
+
+  .activity-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex-shrink: 0;
+  }
+
+  .activity-dot.lime { background: var(--lime); }
+  .activity-dot.teal { background: var(--teal); }
+  .activity-dot.iris { background: var(--iris); }
+
+  .activity-text { color: var(--text-tertiary); line-height: 1.4; }
+  .activity-time { color: var(--text-faint); font-size: 10px; margin-left: auto; white-space: nowrap; }
+
+  /* Footer gradient */
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+  }
+
+  .footer span {
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+</style>
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+</head>
+<body>
+<div class="dashboard-shell">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-icon"></div>
+      <span>OrgX</span>
+    </div>
+
+    <div class="sidebar-item active">
+      <div class="sidebar-icon"></div>
+      Mission Control
+    </div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Initiatives
+      <span class="sidebar-kbd">⌘1</span>
+    </div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Sessions
+      <span class="sidebar-kbd">⌘2</span>
+    </div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Decisions
+      <span class="sidebar-kbd">⌘3</span>
+    </div>
+
+    <div class="sidebar-section-label">Agents</div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Claude Opus
+    </div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Code Runner
+    </div>
+
+    <div class="sidebar-section-label">Settings</div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      Providers
+    </div>
+    <div class="sidebar-item">
+      <div class="sidebar-icon"></div>
+      API Keys
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div class="main-content">
+    <!-- Header with gradient border bottom -->
+    <div class="header animate-in">
+      <div class="header-left">
+        <span class="header-title">Mission Control</span>
+        <span class="pill pill-lime" style="font-size:10px; padding: 2px 8px;">3 active</span>
+      </div>
+      <div class="header-right">
+        <div class="search-trigger">
+          <span class="search-icon">⌕</span>
+          <span>Search anything...</span>
+          <span class="kbd-badge" style="margin-left:auto;">⌘ K</span>
+        </div>
+        <button class="btn-ghost btn-sm">Settings</button>
+      </div>
+    </div>
+
+    <!-- Content grid -->
+    <div class="content-grid">
+      <!-- Left column: Initiatives + Sessions -->
+      <div class="left-col">
+        <div class="section-header animate-in-1">
+          <span class="section-label">Initiatives</span>
+          <span class="section-count">3 of 5</span>
+        </div>
+
+        <!-- Active initiative with gradient border -->
+        <div class="initiative-card active hover-glow animate-in-1">
+          <div class="initiative-card-header">
+            <span class="initiative-title">Launch OrgX Plugin v2</span>
+            <div class="initiative-meta">
+              <span class="pill pill-lime" style="font-size:9px;padding:1px 7px;">In Progress</span>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:68%"></div></div>
+            </div>
+          </div>
+          <div class="initiative-desc">Ship command palette, walkthrough onboarding, and enhanced empty states for the OpenClaw integration.</div>
+          <div class="initiative-tags">
+            <span class="pill" style="font-size:9px;padding:1px 7px;">3 workstreams</span>
+            <span class="pill" style="font-size:9px;padding:1px 7px;">12 tasks</span>
+            <span class="pill pill-teal" style="font-size:9px;padding:1px 7px;">2 decisions pending</span>
+          </div>
+        </div>
+
+        <div class="initiative-card hover-glow animate-in-2">
+          <div class="initiative-card-header">
+            <span class="initiative-title">Quality Gate Automation</span>
+            <div class="initiative-meta">
+              <span class="pill" style="font-size:9px;padding:1px 7px;">Planning</span>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:22%"></div></div>
+            </div>
+          </div>
+          <div class="initiative-desc">Automated checkpoints for code quality, test coverage, and deployment readiness gates.</div>
+        </div>
+
+        <div class="initiative-card hover-glow animate-in-3">
+          <div class="initiative-card-header">
+            <span class="initiative-title">Model Routing Optimization</span>
+            <div class="initiative-meta">
+              <span class="pill" style="font-size:9px;padding:1px 7px;">Blocked</span>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:45%; background: var(--red)"></div></div>
+            </div>
+          </div>
+          <div class="initiative-desc">Right model, right cost — dynamic routing based on task complexity and budget constraints.</div>
+        </div>
+
+        <!-- Sessions -->
+        <div class="section-header animate-in-2" style="margin-top:4px;">
+          <span class="section-label">Active Sessions</span>
+          <span class="section-count">2 running</span>
+        </div>
+
+        <div class="session-card animate-in-3">
+          <div class="session-dot"></div>
+          <span class="session-name">claude-opus · feat/command-palette</span>
+          <span class="session-time">12m ago</span>
+          <span class="pill" style="font-size:9px;padding:1px 6px;">Running</span>
+        </div>
+
+        <div class="session-card animate-in-3">
+          <div class="session-dot"></div>
+          <span class="session-name">code-runner · fix/empty-states</span>
+          <span class="session-time">3m ago</span>
+          <span class="pill pill-lime" style="font-size:9px;padding:1px 6px;">Needs Input</span>
+        </div>
+
+        <div class="session-card animate-in-4">
+          <div class="session-dot idle"></div>
+          <span class="session-name">claude-haiku · docs/api-reference</span>
+          <span class="session-time">1h ago</span>
+          <span class="pill" style="font-size:9px;padding:1px 6px;">Complete</span>
+        </div>
+      </div>
+
+      <!-- Right column: Decisions + Activity -->
+      <div class="right-col">
+        <div class="section-header animate-in-1">
+          <span class="section-label">Decision Queue</span>
+          <span class="pill pill-teal" style="font-size:9px;padding:1px 7px;">2 pending</span>
+        </div>
+
+        <div class="decision-card animate-in-2">
+          <div class="decision-header">
+            <div class="decision-icon"></div>
+            <span class="decision-title">Approve: Add framer-motion dependency</span>
+          </div>
+          <div class="decision-desc">claude-opus wants to add framer-motion@11.x for walkthrough animations. Bundle +18kb gzip.</div>
+          <div class="decision-actions">
+            <button class="btn-primary btn-sm press-feedback" style="font-size:10px;padding:3px 10px;">Approve</button>
+            <button class="btn-ghost btn-sm" style="font-size:10px;padding:3px 10px;">Reject</button>
+            <span class="kbd-badge" style="font-size:9px;">⌘ ⏎</span>
+          </div>
+        </div>
+
+        <div class="decision-card animate-in-3">
+          <div class="decision-header">
+            <div class="decision-icon"></div>
+            <span class="decision-title">Approve: Deploy to staging</span>
+          </div>
+          <div class="decision-desc">code-runner requests staging deploy for command-palette branch. 14 tests passing.</div>
+          <div class="decision-actions">
+            <button class="btn-primary btn-sm press-feedback" style="font-size:10px;padding:3px 10px;">Approve</button>
+            <button class="btn-ghost btn-sm" style="font-size:10px;padding:3px 10px;">Reject</button>
+          </div>
+        </div>
+
+        <!-- Activity -->
+        <div class="section-header animate-in-2" style="margin-top:8px;">
+          <span class="section-label">Activity</span>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <div class="activity-item animate-in-3">
+            <div class="activity-dot lime"></div>
+            <span class="activity-text">CommandPalette.tsx created</span>
+            <span class="activity-time">2m</span>
+          </div>
+          <div class="activity-item animate-in-3">
+            <div class="activity-dot teal"></div>
+            <span class="activity-text">Tests passing: 14/14</span>
+            <span class="activity-time">5m</span>
+          </div>
+          <div class="activity-item animate-in-4">
+            <div class="activity-dot iris"></div>
+            <span class="activity-text">Workstream "UX Polish" → 68%</span>
+            <span class="activity-time">12m</span>
+          </div>
+          <div class="activity-item animate-in-4">
+            <div class="activity-dot lime"></div>
+            <span class="activity-text">Session spawned: feat/command-palette</span>
+            <span class="activity-time">15m</span>
+          </div>
+          <div class="activity-item animate-in-4">
+            <div class="activity-dot teal"></div>
+            <span class="activity-text">Initiative sync completed</span>
+            <span class="activity-time">22m</span>
+          </div>
+        </div>
+
+        <!-- Glass modal preview -->
+        <div class="glass-panel-strong glass-modal-preview animate-in-4" style="margin-top:auto;border-radius:12px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px rgba(191,255,0,0.4);"></div>
+            <span style="font-size:11px;font-weight:600;">Glass Panel Strong</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">24px blur · 160% saturate</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-tertiary);line-height:1.5;">
+            Upgraded modal & overlay surfaces use stronger glassmorphism with backdrop-filter blur and saturation boost for premium depth.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <span>© 2026 OrgX · Surface Polish Variant · gradient-border · hover-glow · glass-panel-strong · gradient-text</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

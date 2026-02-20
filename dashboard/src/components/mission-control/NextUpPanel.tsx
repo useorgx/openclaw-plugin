@@ -27,6 +27,7 @@ interface NextUpPanelProps {
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
   onOpenSettings?: () => void;
   onUpgradeGate?: (gate: UpgradeRequiredError | null) => void;
+  onOpenSliceDetail?: (item: NextUpQueueItem) => void;
   selectionEnabled?: boolean;
   panelStyle?: 'card' | 'flat';
   showQueueSettings?: boolean;
@@ -37,37 +38,6 @@ interface ActionGlyphProps {
 }
 
 type QueuePlacement = 'top' | 'bottom';
-const NEXT_UP_DISMISSED_KEY = 'orgx.dashboard.nextup.dismissed.v1';
-
-function readDismissedQueueKeys(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(NEXT_UP_DISMISSED_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is string => typeof entry === 'string')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .slice(0, 400);
-  } catch {
-    return [];
-  }
-}
-
-function writeDismissedQueueKeys(keys: string[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (keys.length === 0) {
-      window.localStorage.removeItem(NEXT_UP_DISMISSED_KEY);
-      return;
-    }
-    window.localStorage.setItem(NEXT_UP_DISMISSED_KEY, JSON.stringify(keys.slice(0, 400)));
-  } catch {
-    // ignore persistence issues
-  }
-}
 
 function PlayGlyph({ className = '' }: ActionGlyphProps) {
   return (
@@ -176,21 +146,21 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
 
 function queueTone(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
-  if (queueState === 'blocked') return 'border-red-400/35 bg-red-500/[0.12] text-red-100';
+  if (queueState === 'blocked') return 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100';
   if (queueState === 'idle') return 'border-strong bg-white/[0.05] text-secondary';
   return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
 }
 
 function queueLabel(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'Running';
-  if (queueState === 'blocked') return 'Blocked';
+  if (queueState === 'blocked') return 'Needs input';
   if (queueState === 'idle') return 'Idle';
   return 'Queued';
 }
 
 function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'from-teal-300/0 via-teal-300/60 to-teal-300/0';
-  if (queueState === 'blocked') return 'from-red-300/0 via-red-300/55 to-red-300/0';
+  if (queueState === 'blocked') return 'from-amber-300/0 via-amber-300/55 to-amber-300/0';
   if (queueState === 'idle') return 'from-white/0 via-white/35 to-white/0';
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
@@ -304,6 +274,7 @@ export function NextUpPanel({
   onOpenInitiative,
   onOpenSettings,
   onUpgradeGate,
+  onOpenSliceDetail,
   selectionEnabled = true,
   panelStyle = 'card',
   showQueueSettings = true,
@@ -316,14 +287,14 @@ export function NextUpPanel({
     else setLocalCompact(next);
   };
   const [notice, setNotice] = useState<string | null>(null);
-  const [triagePlacement, setTriagePlacement] = useState<QueuePlacement>('bottom');
+  const triagePlacement: QueuePlacement = 'bottom';
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
   );
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [dismissedKeys, setDismissedKeys] = useState<string[]>(() => readDismissedQueueKeys());
+  const [selectionAnchorKey, setSelectionAnchorKey] = useState<string | null>(null);
   const [queueSettingsOpen, setQueueSettingsOpen] = useState(false);
   const [signalToastHidden, setSignalToastHidden] = useState(false);
   const queueSettingsRef = useRef<HTMLDivElement | null>(null);
@@ -344,12 +315,19 @@ export function NextUpPanel({
 
   const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
-  const dismissedKeySet = useMemo(() => new Set(dismissedKeys), [dismissedKeys]);
-  const queueItems = useMemo(
-    () => items.filter((item) => !dismissedKeySet.has(itemKey(item))),
-    [dismissedKeySet, items]
+  const activeElsewhereCount = useMemo(
+    () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+    [items]
   );
-  const hiddenCount = Math.max(0, items.length - queueItems.length);
+  const queueItems = useMemo(
+    () =>
+      items.filter(
+        (item) =>
+          item.queueState !== 'running' &&
+          item.queueState !== 'blocked'
+      ),
+    [items]
+  );
 
   const visibleItems = useMemo(
     () => (isCompact ? queueItems.slice(0, 5) : queueItems),
@@ -390,17 +368,11 @@ export function NextUpPanel({
   }, [orderedKeys]);
 
   useEffect(() => {
-    writeDismissedQueueKeys(dismissedKeys);
-  }, [dismissedKeys]);
-
-  useEffect(() => {
-    if (dismissedKeys.length === 0) return;
-    const liveKeys = new Set(items.map(itemKey));
-    const filtered = dismissedKeys.filter((key) => liveKeys.has(key));
-    if (filtered.length !== dismissedKeys.length) {
-      setDismissedKeys(filtered);
+    if (!selectionAnchorKey) return;
+    if (!visibleKeys.includes(selectionAnchorKey)) {
+      setSelectionAnchorKey(null);
     }
-  }, [dismissedKeys, items]);
+  }, [selectionAnchorKey, visibleKeys]);
 
   useEffect(() => {
     setSelectedKeys((previous) => {
@@ -429,6 +401,12 @@ export function NextUpPanel({
   }, [degraded]);
 
   useEffect(() => {
+    if (selectionEnabled && !isCompact && selectedKeys.size > 0) {
+      setQueueSettingsOpen(false);
+    }
+  }, [isCompact, selectedKeys.size, selectionEnabled]);
+
+  useEffect(() => {
     if (!queueSettingsOpen) return;
     const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node | null;
@@ -452,39 +430,65 @@ export function NextUpPanel({
   const removeQueueItem = async (item: NextUpQueueItem) => {
     const key = itemKey(item);
     const label = sanitizeDisplayText(item.workstreamTitle);
-    // Optimistic: hide immediately in the UI
-    setDismissedKeys((previous) => {
-      if (previous.includes(key)) return previous;
-      return [key, ...previous].slice(0, 400);
-    });
     try {
       await nextUpActions.remove({
         initiativeId: item.initiativeId,
         workstreamId: item.workstreamId,
       });
+      setSelectedKeys((previous) => {
+        if (!previous.has(key)) return previous;
+        const next = new Set(previous);
+        next.delete(key);
+        return next;
+      });
+      setSelectionAnchorKey((previous) => (previous === key ? null : previous));
       setNotice(`Removed ${label} from queue.`);
     } catch (err) {
-      // Revert optimistic dismiss on failure
-      setDismissedKeys((previous) => previous.filter((k) => k !== key));
       setNotice(err instanceof Error ? err.message : 'Failed to remove from queue');
     }
   };
 
-  const toggleSelection = (key: string) => {
+  const toggleSelection = (key: string, checked: boolean, shiftKey: boolean) => {
+    const selectionOrder = isCompact ? visibleKeys : orderedKeys.length > 0 ? orderedKeys : visibleKeys;
     setSelectedKeys((previous) => {
       const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      const anchorKey = selectionAnchorKey;
+      const canRangeSelect = shiftKey && anchorKey && selectionOrder.includes(anchorKey);
+
+      if (canRangeSelect) {
+        const targetIndex = selectionOrder.indexOf(key);
+        const anchorIndex = selectionOrder.indexOf(anchorKey);
+        if (targetIndex >= 0 && anchorIndex >= 0) {
+          const [start, end] =
+            targetIndex < anchorIndex ? [targetIndex, anchorIndex] : [anchorIndex, targetIndex];
+          for (const rangeKey of selectionOrder.slice(start, end + 1)) {
+            if (checked) next.add(rangeKey);
+            else next.delete(rangeKey);
+          }
+        } else if (checked) {
+          next.add(key);
+        } else {
+          next.delete(key);
+        }
+      } else if (checked) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+
       return next;
     });
+    setSelectionAnchorKey(key);
   };
 
   const selectAllVisible = () => {
-    setSelectedKeys(new Set(visibleItems.map(itemKey)));
+    setSelectedKeys(new Set(visibleKeys));
+    setSelectionAnchorKey(visibleKeys.length > 0 ? visibleKeys[visibleKeys.length - 1] : null);
   };
 
   const clearSelection = () => {
     setSelectedKeys(new Set());
+    setSelectionAnchorKey(null);
   };
 
   const runBulkQueueAction = async (action: NextUpQueueBulkAction) => {
@@ -513,15 +517,6 @@ export function NextUpPanel({
         items: payloadItems,
       });
 
-      if (action === 'remove') {
-        const removedKeys = new Set(selectedItems.map((entry) => entry.key));
-        setDismissedKeys((previous) => {
-          const next = new Set(previous);
-          for (const key of removedKeys) next.add(key);
-          return Array.from(next).slice(0, 400);
-        });
-      }
-
       const updated =
         typeof (result as { updated?: unknown })?.updated === 'number'
           ? ((result as { updated: number }).updated ?? 0)
@@ -530,6 +525,12 @@ export function NextUpPanel({
         typeof (result as { failed?: unknown })?.failed === 'number'
           ? ((result as { failed: number }).failed ?? 0)
           : 0;
+      const fallbackErrors = Array.isArray((result as { errors?: unknown })?.errors)
+        ? ((result as { errors: unknown[] }).errors
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => entry.trim())
+            .filter(Boolean))
+        : [];
 
       const label =
         action === 'remove'
@@ -537,12 +538,17 @@ export function NextUpPanel({
           : action === 'move_top'
             ? 'moved to top'
             : 'moved to bottom';
-      setNotice(
-        failed > 0
-          ? `${updated} item${updated === 1 ? '' : 's'} ${label}; ${failed} failed.`
-          : `${updated} item${updated === 1 ? '' : 's'} ${label}.`
-      );
+      if (updated === 0 && failed > 0 && fallbackErrors.length > 0) {
+        setNotice(fallbackErrors[0] ?? `${failed} queue action${failed === 1 ? '' : 's'} failed.`);
+      } else {
+        setNotice(
+          failed > 0
+            ? `${updated} item${updated === 1 ? '' : 's'} ${label}; ${failed} failed.`
+            : `${updated} item${updated === 1 ? '' : 's'} ${label}.`
+        );
+      }
       setSelectedKeys(new Set());
+      setSelectionAnchorKey(null);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Bulk queue action failed');
     } finally {
@@ -595,6 +601,51 @@ export function NextUpPanel({
   const showStatusBanner = statusTone !== null;
   const showSignalToast = degraded.length > 0 && !signalToastHidden;
   const selectedCount = visibleSelection.length;
+  const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
+
+  const bulkActionControls = (
+    <>
+      <button
+        type="button"
+        onClick={selectAllVisible}
+        className="control-pill h-8 px-2.5 text-caption font-semibold"
+      >
+        Select all
+      </button>
+      <button
+        type="button"
+        onClick={clearSelection}
+        disabled={selectedKeys.size === 0}
+        className="control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45"
+      >
+        Clear
+      </button>
+      <button
+        type="button"
+        disabled={selectedCount === 0 || actionKey === 'bulk:move_top'}
+        onClick={() => void runBulkQueueAction('move_top')}
+        className="control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45"
+      >
+        Move top
+      </button>
+      <button
+        type="button"
+        disabled={selectedCount === 0 || actionKey === 'bulk:move_bottom'}
+        onClick={() => void runBulkQueueAction('move_bottom')}
+        className="control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45"
+      >
+        Move bottom
+      </button>
+      <button
+        type="button"
+        disabled={selectedCount === 0 || actionKey === 'bulk:remove'}
+        onClick={() => void runBulkQueueAction('remove')}
+        className="control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45"
+      >
+        Remove
+      </button>
+    </>
+  );
 
   return (
     <PremiumCard
@@ -614,27 +665,14 @@ export function NextUpPanel({
             ) : (
               <span className="chip text-micro">{queueItems.length}</span>
             )}
-            {!isLoading && hiddenCount > 0 && (
-              <span className="chip text-micro text-secondary">{hiddenCount} hidden</span>
+            {!isLoading && activeElsewhereCount > 0 && (
+              <span className="chip text-micro text-secondary">{activeElsewhereCount} active elsewhere</span>
             )}
             {isFetching && !isLoading && (
               <span className="text-micro text-muted">refreshing…</span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
-            {!isLoading && hiddenCount > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setDismissedKeys([]);
-                  setNotice('Restored hidden queue items.');
-                }}
-                className="control-pill h-8 flex-shrink-0 whitespace-nowrap px-3 text-caption font-semibold"
-                title="Show queue items removed from this view"
-              >
-                Show hidden
-              </button>
-            )}
             {allowCompactToggle ? (
               <button
                 type="button"
@@ -764,24 +802,24 @@ export function NextUpPanel({
 
       <div className={`flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 ${showHeader ? 'pt-1' : 'pt-2.5'}`}>
         {!isLoading && queueItems.length > 0 ? (
-          <div className="flex items-center justify-between gap-2 px-0.5">
+          <div className="flex flex-col gap-2.5 px-0.5 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <p className="truncate text-micro uppercase tracking-[0.08em] text-muted">
-                Queue mode · {triagePlacement === 'top' ? 'Play next default' : 'Add to end default'}
+                Queue
               </p>
-              <div className="mt-1 flex items-center gap-1.5">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {selectedCount > 0 ? (
                   <span className="chip text-micro">{selectedCount} selected</span>
                 ) : null}
                 {isFetching && !isLoading ? (
                   <span className="text-micro text-muted">refreshing…</span>
                 ) : null}
-                {hiddenCount > 0 ? (
-                  <span className="text-micro text-muted">{hiddenCount} hidden</span>
+                {selectionEnabled && !isCompact && selectedCount === 0 ? (
+                  <span className="text-micro text-muted">Shift+select to pick ranges.</span>
                 ) : null}
               </div>
             </div>
-            <div ref={queueSettingsRef} className="relative flex flex-shrink-0 items-center gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
               {allowCompactToggle ? (
                 <button
                   type="button"
@@ -793,137 +831,63 @@ export function NextUpPanel({
                   {isCompact ? 'Expand' : 'Compact'}
                 </button>
               ) : null}
-              {showQueueSettings ? (
-                <button
-                  type="button"
-                  onClick={() => setQueueSettingsOpen((previous) => !previous)}
-                  className="control-pill h-8 px-2.5 text-caption font-semibold"
-                  aria-haspopup="menu"
-                  aria-expanded={queueSettingsOpen}
-                  title="Queue settings"
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="opacity-85"
-                    aria-hidden
-                  >
-                    <path d="M4 6h16" />
-                    <path d="M7 12h10" />
-                    <path d="M10 18h4" />
-                  </svg>
-                  <span>Queue</span>
-                </button>
+              {showInlineBulkActions ? (
+                <div className="flex flex-wrap justify-end gap-1.5">{bulkActionControls}</div>
               ) : null}
-              {queueSettingsOpen ? (
-                <div className="surface-tier-2 absolute right-0 top-[calc(100%+8px)] z-[280] w-[320px] max-w-[86vw] rounded-xl p-3 shadow-[0_18px_42px_rgba(0,0,0,0.46)] backdrop-blur-xl">
-                  <div className="space-y-2.5">
-                    <div>
-                      <p className="section-kicker">Queue default</p>
-                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-strong bg-white/[0.03] p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setTriagePlacement('top')}
-                          className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
-                            triagePlacement === 'top'
-                              ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
-                              : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
-                          }`}
-                        >
-                          Play next
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTriagePlacement('bottom')}
-                          className={`h-7 rounded px-2.5 text-micro font-semibold transition-colors ${
-                            triagePlacement === 'bottom'
-                              ? 'bg-[#BFFF00]/14 text-[#E1FFB2]'
-                              : 'text-secondary hover:bg-white/[0.08] hover:text-primary'
-                          }`}
-                        >
-                          Add to end
-                        </button>
-                      </div>
-                    </div>
-
-                    {selectionEnabled && !isCompact ? (
-                      <div>
-                        <p className="section-kicker">Bulk actions</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {!showInlineBulkActions && showQueueSettings ? (
+                <div ref={queueSettingsRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setQueueSettingsOpen((previous) => !previous)}
+                    className="control-pill h-8 px-2.5 text-caption font-semibold"
+                    aria-haspopup="menu"
+                    aria-expanded={queueSettingsOpen}
+                    title="Queue settings"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="opacity-85"
+                      aria-hidden
+                    >
+                      <path d="M4 6h16" />
+                      <path d="M7 12h10" />
+                      <path d="M10 18h4" />
+                    </svg>
+                    <span>Queue</span>
+                  </button>
+                  {queueSettingsOpen ? (
+                    <div className="surface-tier-2 absolute right-0 top-[calc(100%+8px)] z-[280] w-[320px] max-w-[86vw] rounded-xl p-3 shadow-[0_18px_42px_rgba(0,0,0,0.46)] backdrop-blur-xl">
+                      <div className="space-y-2.5">
+                        {selectionEnabled && !isCompact ? (
+                          <div>
+                            <p className="section-kicker">Bulk actions</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {bulkActionControls}
+                            </div>
+                          </div>
+                        ) : null}
+                        {onOpenSettings ? (
                           <button
                             type="button"
-                            onClick={selectAllVisible}
+                            onClick={() => {
+                              setQueueSettingsOpen(false);
+                              onOpenSettings();
+                            }}
                             className="control-pill h-7 px-2.5 text-micro font-semibold"
                           >
-                            Select all
+                            Open settings
                           </button>
-                          <button
-                            type="button"
-                            onClick={clearSelection}
-                            disabled={selectedKeys.size === 0}
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                          >
-                            Clear
-                          </button>
-                          <button
-                            type="button"
-                            disabled={selectedCount === 0 || actionKey === 'bulk:move_top'}
-                            onClick={() => void runBulkQueueAction('move_top')}
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                          >
-                            Move top
-                          </button>
-                          <button
-                            type="button"
-                            disabled={selectedCount === 0 || actionKey === 'bulk:move_bottom'}
-                            onClick={() => void runBulkQueueAction('move_bottom')}
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                          >
-                            Move bottom
-                          </button>
-                          <button
-                            type="button"
-                            disabled={selectedCount === 0 || actionKey === 'bulk:remove'}
-                            onClick={() => void runBulkQueueAction('remove')}
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        ) : null}
                       </div>
-                    ) : null}
-
-                    {hiddenCount > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDismissedKeys([]);
-                          setNotice('Restored hidden queue items.');
-                        }}
-                        className="control-pill h-7 px-2.5 text-micro font-semibold"
-                      >
-                        Show hidden ({hiddenCount})
-                      </button>
-                    ) : null}
-                    {onOpenSettings ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setQueueSettingsOpen(false);
-                          onOpenSettings();
-                        }}
-                        className="control-pill h-7 px-2.5 text-micro font-semibold"
-                      >
-                        Open settings
-                      </button>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -966,7 +930,11 @@ export function NextUpPanel({
                     delay: Math.min(index, 7) * 0.018,
                     ease: [0.22, 1, 0.36, 1],
                   }}
-                  className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2"
+                  className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2 cursor-pointer transition-colors hover:border-white/[0.14]"
+                  onClick={() => onOpenSliceDetail?.(item)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(item); } }}
                 >
                   <div
                     className={`pointer-events-none absolute inset-x-2.5 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
@@ -1012,7 +980,8 @@ export function NextUpPanel({
                     </div>
                   )}
 
-                  <div className="mt-1.5 flex items-center gap-1.5">
+                  {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+                  <div className="mt-1.5 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       disabled={isRowBusy || isRunningRow}
@@ -1157,6 +1126,7 @@ export function NextUpPanel({
                   setUpgradeGate={setUpgradeGate}
                   onUpgradeGate={onUpgradeGate}
                   onOpenInitiative={onOpenInitiative}
+                  onOpenSliceDetail={onOpenSliceDetail}
                   selected={selectedKeys.has(itemKey(item!))}
                   selectionEnabled={selectionEnabled}
                   onToggleSelection={toggleSelection}
@@ -1212,6 +1182,7 @@ function NextUpReorderRow({
   setUpgradeGate,
   onUpgradeGate,
   onOpenInitiative,
+  onOpenSliceDetail,
   selected,
   selectionEnabled,
   onToggleSelection,
@@ -1233,9 +1204,10 @@ function NextUpReorderRow({
   setUpgradeGate: (value: UpgradeRequiredError | null) => void;
   onUpgradeGate?: (gate: UpgradeRequiredError | null) => void;
   onOpenInitiative?: (initiativeId: string, initiativeTitle?: string) => void;
+  onOpenSliceDetail?: (item: NextUpQueueItem) => void;
   selected: boolean;
   selectionEnabled: boolean;
-  onToggleSelection: (key: string) => void;
+  onToggleSelection: (key: string, checked: boolean, shiftKey: boolean) => void;
   menuKey: string | null;
   setMenuKey: (value: string | null | ((previous: string | null) => string | null)) => void;
   playWorkstream: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
@@ -1297,7 +1269,11 @@ function NextUpReorderRow({
           delay: Math.min(index, 7) * 0.05,
           opacity: { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] },
         }}
-        className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
+        className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 cursor-pointer transition-colors hover:border-white/[0.14]"
+        onClick={() => onOpenSliceDetail?.(item)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(item); } }}
       >
 
         <div
@@ -1307,34 +1283,55 @@ function NextUpReorderRow({
 
         <div className="flex items-start justify-between gap-2.5">
           <div className="min-w-0 flex flex-1 items-start gap-2.5">
-            <div className="relative flex-shrink-0">
-              <AgentAvatar
-                name={item.runnerAgentName}
-                hint={`${item.runnerAgentId} ${item.runnerSource}`}
-                size="sm"
-              />
+            <div className="relative h-8 w-8 flex-shrink-0">
+              <div
+                className={`absolute inset-0 transition-[opacity,transform] duration-200 ease-out ${
+                  selectionEnabled
+                    ? selected
+                      ? 'opacity-0 scale-90'
+                      : 'opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-90 group-focus-within:opacity-0 group-focus-within:scale-90'
+                    : 'opacity-100 scale-100'
+                }`}
+              >
+                <AgentAvatar
+                  name={item.runnerAgentName}
+                  hint={`${item.runnerAgentId} ${item.runnerSource}`}
+                  size="sm"
+                />
+              </div>
               {selectionEnabled ? (
-                <motion.label
-                  initial={false}
-                  animate={{
-                    opacity: selected ? 1 : 0,
-                    scale: selected ? 1 : 0.8,
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selected}
+                  aria-label="Select queue row"
+                  title={selected ? 'Selected (Shift+click for range)' : 'Select (Shift+click for range)'}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleSelection(key, !selected, event.shiftKey);
                   }}
-                  transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-                  className={`absolute -left-1 -top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 backdrop-blur-sm ${
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className={`absolute inset-0 flex items-center justify-center rounded-full border transition-[opacity,transform,background-color,border-color,color] duration-200 ease-out ${
                     selected
-                      ? 'pointer-events-auto'
-                      : 'pointer-events-none group-hover:pointer-events-auto group-hover:!opacity-100 group-hover:!scale-100 group-focus-within:pointer-events-auto group-focus-within:!opacity-100'
+                      ? 'opacity-100 scale-100 border-[#BFFF00]/40 bg-[#BFFF00]/18 text-[#E1FFB2]'
+                      : 'opacity-0 scale-90 border-white/[0.24] bg-black/55 text-white/78 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 hover:bg-black/62'
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() => onToggleSelection(key)}
-                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/50 text-[#BFFF00] focus:ring-[#BFFF00]/35"
-                    aria-label="Select queue row"
-                  />
-                </motion.label>
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current/45 bg-black/30">
+                    {selected ? (
+                      <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                        <path
+                          d="M3.2 8.3 6.2 11l6.6-6.1"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : null}
+                  </span>
+                </button>
               ) : null}
             </div>
             <div className="min-w-0 flex-1">
@@ -1394,7 +1391,8 @@ function NextUpReorderRow({
           </div>
         )}
 
-        <div className="mt-2 flex items-center gap-1.5">
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             disabled={isRowBusy || isRunningRow}

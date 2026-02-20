@@ -19,6 +19,13 @@ function buildPrompt(requiredSkills = ["$orgx-sales-agent"]) {
       },
     ],
     executionPolicy: { domain: "sales", requiredSkills },
+    behaviorConfig: {
+      configId: "cfg-123",
+      version: "v7",
+      hash: "sha256:abc123",
+      policySource: "task",
+      context: "Always include concrete verification commands and expected outputs.",
+    },
     runId: "run-1",
     schemaPath: "/tmp/autopilot-slice-schema.json",
   });
@@ -47,4 +54,14 @@ test("buildWorkstreamSlicePrompt emits skill hints for orgx-sales-agent aliases"
   assert.match(prompt, /\.codex\/skills\/orgx-sales-agent\/SKILL\.md/);
   assert.match(prompt, /\.codex\/skills\/sales-agent\/SKILL\.md/);
   assert.match(prompt, /\.codex\/skills\/orgx-sales\/SKILL\.md/);
+});
+
+test("buildWorkstreamSlicePrompt injects behavior config context when provided", () => {
+  const prompt = buildPrompt();
+  assert.match(prompt, /Behavior config \(plugin-injected context\):/);
+  assert.match(prompt, /- behavior_config_id: cfg-123/);
+  assert.match(prompt, /- behavior_config_version: v7/);
+  assert.match(prompt, /- behavior_config_hash: sha256:abc123/);
+  assert.match(prompt, /- policy_source: task/);
+  assert.match(prompt, /- behavior_context: Always include concrete verification commands and expected outputs\./);
 });

@@ -4,9 +4,11 @@ import type { OnboardingState } from '@/types';
 import { OrgxConnectionPanel } from '@/components/settings/OrgxConnectionPanel';
 import { AgentSuitePanel } from '@/components/settings/AgentSuitePanel';
 import { ByokSettingsPanel } from '@/components/settings/ByokSettingsPanel';
+import { AgentBehaviorPanel } from '@/components/settings/AgentBehaviorPanel';
 import { LegalLinks } from '@/components/shared/LegalLinks';
+import type { AgentSuiteDomain } from '@/types';
 
-export type SettingsTab = 'orgx' | 'providers';
+export type SettingsTab = 'orgx' | 'agents' | 'providers';
 
 function PreferenceToggle({
   label,
@@ -65,6 +67,7 @@ export function SettingsModal({
   onboarding,
   authToken = null,
   embedMode = false,
+  agentBehaviorInitialDomain = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -89,6 +92,7 @@ export function SettingsModal({
   };
   authToken?: string | null;
   embedMode?: boolean;
+  agentBehaviorInitialDomain?: AgentSuiteDomain | null;
 }) {
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
@@ -98,7 +102,7 @@ export function SettingsModal({
             <div>
               <h3 className="text-heading font-semibold text-white">Settings</h3>
               <p className="mt-1 text-body leading-relaxed text-secondary">
-                OrgX connection and provider keys for agent launches.
+                OrgX connection, agent behavior, and provider keys for agent launches.
               </p>
             </div>
             <button
@@ -130,6 +134,7 @@ export function SettingsModal({
           >
             {([
               { id: 'orgx' as const, label: 'OrgX' },
+              { id: 'agents' as const, label: 'Agents' },
               { id: 'providers' as const, label: 'Provider keys' },
             ] satisfies Array<{ id: SettingsTab; label: string }>).map((tab) => {
               const selected = activeTab === tab.id;
@@ -200,6 +205,13 @@ export function SettingsModal({
               />
               <AgentSuitePanel authToken={authToken} embedMode={embedMode} enabled={open} devMode={devMode} />
             </div>
+          ) : activeTab === 'agents' ? (
+            <AgentBehaviorPanel
+              authToken={authToken}
+              embedMode={embedMode}
+              enabled={open}
+              initialDomain={agentBehaviorInitialDomain}
+            />
           ) : (
             <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />
           )}

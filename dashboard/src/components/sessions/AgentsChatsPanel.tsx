@@ -1332,12 +1332,12 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       </AgentHealthRing>
                     )}
                     {canonicalOrgx && (
-                      <span className="absolute -bottom-0.5 -left-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
+                      <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
                         <img
                           src="/orgx/live/brand/orgx-logo.png"
                           alt=""
                           aria-hidden="true"
-                          className="h-2.5 w-2.5 rounded-full object-contain"
+                          className="h-3 w-3 rounded-full object-contain"
                           loading="lazy"
                         />
                       </span>

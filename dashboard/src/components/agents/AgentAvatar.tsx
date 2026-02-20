@@ -82,6 +82,7 @@ export function AgentAvatar({
 
   return (
     <div
+      data-agent-avatar="true"
       className={`${sizeMap[size]} overflow-hidden rounded-full flex items-center justify-center font-semibold flex-shrink-0`}
       style={{
         backgroundColor: `${color}20`,
@@ -103,3 +104,5 @@ export function AgentAvatar({
     </div>
   );
 }
+
+AgentAvatar.displayName = 'AgentAvatar';

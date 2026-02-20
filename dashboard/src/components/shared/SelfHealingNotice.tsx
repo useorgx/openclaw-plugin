@@ -58,9 +58,9 @@ export function SelfHealingNotice({
           className="rounded-xl px-3.5 py-2.5"
           style={{
             backgroundColor: showRecovered
-              ? `${colors.lime}08`
-              : `${colors.amber}08`,
-            border: `1px solid ${showRecovered ? `${colors.lime}25` : `${colors.amber}20`}`,
+              ? 'rgba(10, 18, 16, 0.95)'
+              : 'rgba(18, 16, 10, 0.95)',
+            border: `1px solid ${showRecovered ? `${colors.lime}40` : `${colors.amber}35`}`,
           }}
         >
           <div className="flex items-center gap-2.5">

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1472, height=792">
+<title>OrgX — Micro-interactions Polish</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  body { width: 1472px; height: 792px; overflow: hidden; }
+
+  .showcase {
+    width: 1472px;
+    height: 792px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto 1fr 1fr;
+    gap: 16px;
+    padding: 24px 32px;
+    background:
+      radial-gradient(ellipse 700px 700px at 12% -20%, rgba(191,255,0,0.06) 0%, transparent 58%),
+      radial-gradient(ellipse 500px 700px at 90% -20%, rgba(20,184,166,0.06) 0%, transparent 64%),
+      var(--bg-root);
+  }
+
+  /* ─── Title row ─── */
+  .showcase-title-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .showcase-title {
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .showcase-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ─── Component card wrapper ─── */
+  .component-card {
+    background: rgba(12,14,20,0.6);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .component-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  }
+
+  .component-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .component-sublabel {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: -8px;
+  }
+
+  /* ─── 1. Badge with spring animation ─── */
+  .badge-showcase {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-medium);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+  }
+
+  .badge-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 700;
+    animation: spring-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes spring-pop {
+    0% { transform: scale(0.5); opacity: 0; }
+    60% { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .badge.lime { background: rgba(191,255,0,0.08); border-color: rgba(191,255,0,0.2); color: var(--lime); }
+  .badge.lime .badge-count { background: var(--lime); color: #000; }
+
+  .badge.teal { background: rgba(20,184,166,0.08); border-color: rgba(20,184,166,0.2); color: var(--teal); }
+  .badge.teal .badge-count { background: var(--teal); color: #000; }
+
+  .badge.iris { background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.2); color: var(--iris); }
+  .badge.iris .badge-count { background: var(--iris); color: #fff; }
+
+  .badge.red { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); color: var(--red); }
+  .badge.red .badge-count { background: var(--red); color: #fff; }
+
+  /* ─── 2. Pill with press feedback ─── */
+  .pill-showcase {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .pill-interactive {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 14px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-medium);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: transform 0.1s ease, background 0.15s ease;
+  }
+
+  .pill-interactive:active {
+    transform: scale(0.95);
+    background: rgba(255,255,255,0.08);
+  }
+
+  .pill-interactive:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .pill-interactive.active-state {
+    transform: scale(0.95);
+    background: rgba(191,255,0,0.06);
+    border-color: rgba(191,255,0,0.2);
+    color: var(--lime);
+  }
+
+  /* ─── 3. Cards with hover lift ─── */
+  .card-hover-showcase {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .hover-lift-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+    cursor: pointer;
+  }
+
+  .hover-lift-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2), 0 0 32px rgba(191,255,0,0.06);
+    border-color: rgba(191,255,0,0.1);
+  }
+
+  .hover-lift-card:nth-child(2):hover {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2), 0 0 32px rgba(20,184,166,0.06);
+    border-color: rgba(20,184,166,0.1);
+  }
+
+  .hover-lift-card .card-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .hover-lift-card .card-label { font-size: 12px; font-weight: 500; }
+  .hover-lift-card .card-desc { font-size: 10px; color: var(--text-tertiary); }
+  .hover-lift-card .card-meta { margin-left: auto; font-size: 10px; color: var(--text-muted); }
+
+  /* The "hovered" state preview */
+  .hover-lift-card.preview-hovered {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2), 0 0 32px rgba(191,255,0,0.08);
+    border-color: rgba(191,255,0,0.12);
+  }
+
+  /* ─── 4. Stagger entrance preview ─── */
+  .stagger-showcase {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .stagger-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+  }
+
+  .stagger-item:nth-child(1) { animation: slide-up 0.4s ease 0.0s both; }
+  .stagger-item:nth-child(2) { animation: slide-up 0.4s ease 0.08s both; }
+  .stagger-item:nth-child(3) { animation: slide-up 0.4s ease 0.16s both; }
+  .stagger-item:nth-child(4) { animation: slide-up 0.4s ease 0.24s both; }
+  .stagger-item:nth-child(5) { animation: slide-up 0.4s ease 0.32s both; }
+
+  .stagger-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .stagger-text { color: var(--text-secondary); flex: 1; }
+  .stagger-time { color: var(--text-muted); font-size: 10px; }
+
+  /* ─── 5. Button whileTap ─── */
+  .button-showcase {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .btn-tap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-pill);
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+  }
+
+  .btn-tap:active {
+    transform: scale(0.95);
+  }
+
+  .btn-tap.primary {
+    background: var(--lime);
+    color: #000;
+    box-shadow: 0 0 24px rgba(191,255,0,0.15);
+  }
+
+  .btn-tap.ghost {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-tertiary);
+  }
+
+  .btn-tap.danger {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.2);
+    color: rgba(252,165,165,0.85);
+  }
+
+  .btn-tap.teal {
+    background: rgba(20,184,166,0.1);
+    border: 1px solid rgba(20,184,166,0.2);
+    color: var(--teal);
+  }
+
+  /* Pressed state visualization */
+  .btn-tap.pressed {
+    transform: scale(0.95);
+    filter: brightness(0.9);
+  }
+
+  /* ─── 6. Gradient border showcase ─── */
+  .gradient-showcase {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .gradient-card {
+    position: relative;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .gradient-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--lime), var(--teal), var(--iris));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .gradient-card .gc-title { font-size: 12px; font-weight: 600; }
+  .gradient-card .gc-desc { font-size: 10px; color: var(--text-tertiary); }
+  .gradient-card .gc-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* Animated variant */
+  .gradient-card.animated::before {
+    animation: rotate-gradient 4s linear infinite;
+  }
+
+  /* ─── Focus glow showcase ─── */
+  .focus-showcase {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .focus-input {
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    width: 180px;
+  }
+
+  .focus-input.focused {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px var(--lime), 0 0 16px rgba(191,255,0,0.2);
+  }
+
+  .focus-btn {
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    outline: none;
+  }
+
+  .focus-btn.focused {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px var(--lime), 0 0 16px rgba(191,255,0,0.2);
+  }
+
+  .variant-label {
+    position: fixed;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--text-faint);
+    z-index: 20;
+  }
+</style>
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+</head>
+<body>
+<div class="showcase">
+  <!-- Title -->
+  <div class="showcase-title-row">
+    <div>
+      <div class="showcase-title gradient-text">Micro-interactions & Polish</div>
+      <div class="showcase-subtitle">Small details that compound into a premium feel — spring animations, press feedback, stagger entrances, gradient borders, focus glows</div>
+    </div>
+  </div>
+
+  <!-- 1. Badge spring animation -->
+  <div class="component-card">
+    <span class="component-label">Badges — Spring Pop on Count Change</span>
+    <div class="badge-showcase">
+      <div class="badge lime">Sessions <span class="badge-count">3</span></div>
+      <div class="badge teal">Decisions <span class="badge-count">2</span></div>
+      <div class="badge iris">Agents <span class="badge-count">5</span></div>
+      <div class="badge red">Blocked <span class="badge-count">1</span></div>
+      <div class="badge">Tasks <span class="badge-count" style="background:rgba(255,255,255,0.1);color:var(--text-secondary);">12</span></div>
+    </div>
+    <span class="component-sublabel">Count badges animate with spring-pop (scale 0.5→1.15→1) when values change</span>
+  </div>
+
+  <!-- 2. Pill press feedback -->
+  <div class="component-card">
+    <span class="component-label">Pills — Press Feedback</span>
+    <div class="pill-showcase">
+      <div class="pill-interactive">All</div>
+      <div class="pill-interactive">In Progress</div>
+      <div class="pill-interactive active-state">Blocked ← pressed</div>
+      <div class="pill-interactive">Complete</div>
+      <div class="pill-interactive">Planning</div>
+    </div>
+    <span class="component-sublabel">Scale 0.95 on :active with 100ms ease — immediate tactile feedback</span>
+  </div>
+
+  <!-- 3. Cards hover lift -->
+  <div class="component-card">
+    <span class="component-label">Cards — Hover Lift + Glow</span>
+    <div class="card-hover-showcase">
+      <div class="hover-lift-card preview-hovered">
+        <div class="card-dot" style="background:var(--lime);box-shadow:0 0 6px rgba(191,255,0,0.4);"></div>
+        <div>
+          <div class="card-label">Launch OrgX Plugin v2</div>
+          <div class="card-desc">↑ translateY(-2px) + lime glow</div>
+        </div>
+        <span class="card-meta">68%</span>
+      </div>
+      <div class="hover-lift-card">
+        <div class="card-dot" style="background:var(--teal);"></div>
+        <div>
+          <div class="card-label">Quality Gate Automation</div>
+          <div class="card-desc">Normal state — resting</div>
+        </div>
+        <span class="card-meta">22%</span>
+      </div>
+    </div>
+    <span class="component-sublabel">spring(0.34, 1.56, 0.64, 1) cubic-bezier for bounce on hover</span>
+  </div>
+
+  <!-- 4. Stagger entrance -->
+  <div class="component-card">
+    <span class="component-label">Lists — Stagger Entrance</span>
+    <div class="stagger-showcase">
+      <div class="stagger-item">
+        <div class="stagger-dot" style="background:var(--lime);"></div>
+        <span class="stagger-text">CommandPalette.tsx created</span>
+        <span class="stagger-time">0ms delay</span>
+      </div>
+      <div class="stagger-item">
+        <div class="stagger-dot" style="background:var(--teal);"></div>
+        <span class="stagger-text">Tests passing: 14/14</span>
+        <span class="stagger-time">+80ms</span>
+      </div>
+      <div class="stagger-item">
+        <div class="stagger-dot" style="background:var(--iris);"></div>
+        <span class="stagger-text">Workstream "UX Polish" → 68%</span>
+        <span class="stagger-time">+160ms</span>
+      </div>
+      <div class="stagger-item">
+        <div class="stagger-dot" style="background:var(--lime);"></div>
+        <span class="stagger-text">Session spawned: feat/command-palette</span>
+        <span class="stagger-time">+240ms</span>
+      </div>
+      <div class="stagger-item">
+        <div class="stagger-dot" style="background:var(--teal);"></div>
+        <span class="stagger-text">Initiative sync completed</span>
+        <span class="stagger-time">+320ms</span>
+      </div>
+    </div>
+    <span class="component-sublabel">80ms stagger with slide-up (translateY 16px→0, opacity 0→1)</span>
+  </div>
+
+  <!-- 5. Button whileTap -->
+  <div class="component-card">
+    <span class="component-label">Buttons — whileTap Scale</span>
+    <div class="button-showcase">
+      <button class="btn-tap primary">Approve</button>
+      <button class="btn-tap primary pressed">← pressed</button>
+      <button class="btn-tap ghost">Reject</button>
+      <button class="btn-tap danger">Delete</button>
+      <button class="btn-tap teal">Launch</button>
+      <span class="kbd-badge">⌘ ⏎</span>
+    </div>
+    <span class="component-sublabel">motion.button with whileTap={{ scale: 0.97 }} — all action buttons</span>
+  </div>
+
+  <!-- 6. Gradient borders + Focus glow -->
+  <div class="component-card">
+    <span class="component-label">Gradient Borders + Focus Glow</span>
+    <div class="gradient-showcase">
+      <div class="gradient-card">
+        <div class="gc-dot" style="background:linear-gradient(135deg,var(--lime),var(--teal));"></div>
+        <div>
+          <div class="gc-title">Active Initiative — Static Gradient</div>
+          <div class="gc-desc">lime → teal → iris gradient border using mask trick</div>
+        </div>
+      </div>
+      <div class="gradient-card animated">
+        <div class="gc-dot" style="background:linear-gradient(135deg,var(--teal),var(--iris));"></div>
+        <div>
+          <div class="gc-title">Focused Element — Animated Gradient</div>
+          <div class="gc-desc">@property --gradient-angle rotating 360° over 4s</div>
+        </div>
+      </div>
+    </div>
+    <div class="focus-showcase" style="margin-top:4px;">
+      <input class="focus-input focused" value="Focus glow active" readonly>
+      <button class="focus-btn focused">Button focused</button>
+      <span style="font-size:10px;color:var(--text-muted);">← 2px lime ring + 16px glow</span>
+    </div>
+  </div>
+</div>
+
+<div class="variant-label">Micro-interactions Polish — Spring Animations, Press Feedback, Stagger Entrance, Gradient Borders, Focus Glow</div>
+</body>
+</html>

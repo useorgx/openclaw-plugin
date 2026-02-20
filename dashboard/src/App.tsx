@@ -9,8 +9,17 @@ import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
+import { cutoffEpochForActivityFilter } from '@/lib/activityTimeFilters';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
-import type { Agent, Initiative, LiveActivityItem, NextUpQueueItem, SessionTreeNode } from '@/types';
+import type {
+  Agent,
+  AgentSuiteDomain,
+  Initiative,
+  LiveActivityItem,
+  NextUpQueueItem,
+  SessionTreeNode,
+  SliceRunProjection,
+} from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { Badge } from '@/components/shared/Badge';
 import { Modal } from '@/components/shared/Modal';
@@ -19,8 +28,10 @@ import type { MobileTab } from '@/components/shared/MobileTabBar';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DecisionQueue } from '@/components/decisions/DecisionQueue';
-import { InProgressPanel } from '@/components/mission-control/InProgressPanel';
+import { InProgressPanel, type InProgressRow } from '@/components/mission-control/InProgressPanel';
+import { NeedsInputPanel } from '@/components/mission-control/NeedsInputPanel';
 import { NextUpPanel } from '@/components/mission-control/NextUpPanel';
+import { SliceDetailModal, type SliceDetailTarget } from '@/components/mission-control/SliceDetailModal';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
@@ -84,6 +95,8 @@ const ACTIVE_SESSION_METRIC_STATUSES = new Set([
   'working',
   'planning',
 ]);
+const CONFIGURE_ENGINEERING_AGENT_INTENT_RE =
+  /^\s*configure\s+engineering\s+agent(?:\s*[.!?])?\s*$/i;
 
 type HeaderNotification = {
   id: string;
@@ -118,6 +131,44 @@ function resolveActivityRunId(item: LiveActivityItem): string | null {
   }
   const metadata = item.metadata as Record<string, unknown>;
   const keys = ['runId', 'run_id', 'sessionId', 'session_id', 'agentRunId'];
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function resolveActivitySliceRunId(item: LiveActivityItem): string | null {
+  const direct = (item as LiveActivityItem & { sliceRunId?: string | null }).sliceRunId;
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim();
+  if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
+    return null;
+  }
+  const metadata = item.metadata as Record<string, unknown>;
+  const keys = ['sliceRunId', 'slice_run_id', 'sliceId', 'slice_id', 'sliceRun', 'slice_run'];
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function resolveActivityMetadata(item: LiveActivityItem): Record<string, unknown> | null {
+  if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
+    return null;
+  }
+  return item.metadata as Record<string, unknown>;
+}
+
+function readActivityMetadataString(
+  metadata: Record<string, unknown> | null,
+  keys: string[]
+): string | null {
+  if (!metadata) return null;
   for (const key of keys) {
     const value = metadata[key];
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -162,6 +213,16 @@ function isSyntheticActivityItem(item: LiveActivityItem): boolean {
   if (/^run-\d+$/.test(runId)) return true;
   if (runId.startsWith('mock-')) return true;
   return false;
+}
+
+/** Items emitted by mock autopilot workers during test harness runs. */
+function isMockActivityItem(item: LiveActivityItem): boolean {
+  const meta = (item as any).metadata;
+  return meta != null && typeof meta === 'object' && meta.mock === true;
+}
+
+function isConfigureEngineeringAgentIntent(value: string): boolean {
+  return CONFIGURE_ENGINEERING_AGENT_INTENT_RE.test(value);
 }
 
 export function App() {
@@ -335,10 +396,12 @@ function DashboardShell({
   );
   const activityInScope = useMemo(
     () =>
-      includeSyntheticEntities
-        ? data.activity
-        : data.activity.filter((item) => !isSyntheticActivityItem(item)),
-    [data.activity, includeSyntheticEntities]
+      data.activity.filter((item) => {
+        if (!includeSyntheticEntities && isSyntheticActivityItem(item)) return false;
+        if (!devMode && isMockActivityItem(item)) return false;
+        return true;
+      }),
+    [data.activity, includeSyntheticEntities, devMode]
   );
   const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -352,6 +415,7 @@ function DashboardShell({
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
     useState<ActivityTimeFilterId>('live');
+  const autoResolvedActivityFilterScopesRef = useRef<Set<string>>(new Set());
   const [requestedActivityItemId, setRequestedActivityItemId] = useState<string | null>(null);
   const [requestedDecisionId, setRequestedDecisionId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
@@ -361,9 +425,14 @@ function DashboardShell({
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
-  const [settingsState, setSettingsState] = useState<{ open: boolean; tab: SettingsTab }>({
+  const [settingsState, setSettingsState] = useState<{
+    open: boolean;
+    tab: SettingsTab;
+    focusAgentDomain: AgentSuiteDomain | null;
+  }>({
     open: false,
     tab: 'orgx',
+    focusAgentDomain: null,
   });
   const [bulkModal, setBulkModal] = useState<
     BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs' | null
@@ -373,8 +442,17 @@ function DashboardShell({
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
   );
-
+  const [inProgressSubFilter, setInProgressSubFilter] = useState<'all' | 'needs_attention'>('all');
   const inProgressCount = useMemo(() => {
+    if (typeof data.runningWorkSlices === 'number' && Number.isFinite(data.runningWorkSlices)) {
+      return Math.max(0, Math.floor(data.runningWorkSlices));
+    }
+    if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
+      return data.sliceRuns.filter(
+        (slice) => slice.status === 'running' || slice.status === 'dispatching'
+      ).length;
+    }
+
     const inProgressStatuses = new Set([
       'running',
       'active',
@@ -382,17 +460,59 @@ function DashboardShell({
       'working',
       'planning',
       'dispatching',
-      'blocked',
     ]);
 
     let count = 0;
     for (const session of sessionNodesInScope) {
       const status = normalizeStatus(session.status ?? '');
-      if (status === 'queued' || status === 'pending') continue;
+      if (status === 'queued' || status === 'pending' || status === 'blocked') continue;
       if (inProgressStatuses.has(status) || Boolean(session.lastHeartbeatAt)) count += 1;
     }
     return count;
-  }, [sessionNodesInScope]);
+  }, [data.sliceRuns, sessionNodesInScope]);
+
+  const needsInputCount = useMemo(() => {
+    if (typeof data.needsInputTotal === 'number' && Number.isFinite(data.needsInputTotal)) {
+      return Math.max(0, Math.floor(data.needsInputTotal));
+    }
+    if (!Array.isArray(data.sliceRuns) || data.sliceRuns.length === 0) {
+      return 0;
+    }
+    return data.sliceRuns.filter((slice) =>
+      slice.status === 'awaiting_input' || slice.status === 'needs_review' || slice.status === 'failed'
+    ).length;
+  }, [data.sliceRuns]);
+
+  const actionableSliceRuns = useMemo<SliceRunProjection[]>(
+    () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
+    [data.sliceRuns]
+  );
+
+  const [sliceDetailTarget, setSliceDetailTarget] = useState<SliceDetailTarget | null>(null);
+
+  const openSliceDetailFromQueue = useCallback(
+    (item: NextUpQueueItem) => {
+      const linked =
+        actionableSliceRuns.find(
+          (sr) =>
+            sr.initiativeId === item.initiativeId &&
+            sr.workstreamId === item.workstreamId
+        ) ?? null;
+      setSliceDetailTarget({ source: 'queue', item, linkedSliceRun: linked });
+    },
+    [actionableSliceRuns]
+  );
+
+  const openSliceDetailFromInProgress = useCallback(
+    (row: InProgressRow, sliceRun: SliceRunProjection | null) => {
+      setSliceDetailTarget({ source: 'in_progress', row, sliceRun });
+    },
+    []
+  );
+
+  const openSliceDetailFromNeedsInput = useCallback((sliceRun: SliceRunProjection) => {
+    setSliceDetailTarget({ source: 'needs_input', sliceRun });
+  }, []);
 
   const activityNextUpQueue = useNextUpQueue({
     initiativeId: null,
@@ -452,10 +572,11 @@ function DashboardShell({
     }
   }, [devMode]);
 
-  const openSettings = useCallback((tab?: SettingsTab) => {
+  const openSettings = useCallback((tab?: SettingsTab, opts?: { focusAgentDomain?: AgentSuiteDomain | null }) => {
     setSettingsState((previous) => ({
       open: true,
       tab: tab ?? previous.tab,
+      focusAgentDomain: opts?.focusAgentDomain ?? null,
     }));
   }, []);
 
@@ -624,6 +745,102 @@ function DashboardShell({
     return runId === nodeId ? [runId] : [runId, nodeId];
   }, [selectedActivitySession?.id, selectedActivitySession?.runId]);
 
+  const selectedActivityRunIdSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const value of selectedActivityRunIds) {
+      const normalized = value.trim();
+      if (normalized.length > 0) {
+        set.add(normalized);
+      }
+    }
+    return set;
+  }, [selectedActivityRunIds]);
+
+  const activityWorkstreamByRunId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const node of sessionNodesInScope) {
+      const workstreamId = node.workstreamId ?? null;
+      if (node.runId) map.set(node.runId, workstreamId);
+      if (node.id) map.set(node.id, workstreamId);
+    }
+    return map;
+  }, [sessionNodesInScope]);
+
+  const activityScopeKey = useMemo(() => {
+    const runKey = selectedActivityRunIds.length > 0 ? selectedActivityRunIds.join('|') : '*';
+    const workstreamKey = activityFilterWorkstreamId?.trim() || '*';
+    const agentKey = agentFilter?.trim() || '*';
+    return `${runKey}::${workstreamKey}::${agentKey}`;
+  }, [activityFilterWorkstreamId, agentFilter, selectedActivityRunIds]);
+
+  const handleActivityTimeFilterChange = useCallback(
+    (next: ActivityTimeFilterId) => {
+      autoResolvedActivityFilterScopesRef.current.add(activityScopeKey);
+      setActivityTimeFilterId(next);
+    },
+    [activityScopeKey]
+  );
+
+  useEffect(() => {
+    if (autoResolvedActivityFilterScopesRef.current.has(activityScopeKey)) return;
+    if (isLoading) return;
+
+    const now = Date.now();
+    const inScopeItems = activityInScope.filter((item) => {
+      const runId = resolveActivityRunId(item);
+      if (selectedActivityRunIdSet.size > 0) {
+        if (!runId || !selectedActivityRunIdSet.has(runId)) return false;
+      }
+
+      if (activityFilterWorkstreamId) {
+        const metadata = resolveActivityMetadata(item);
+        const metadataWorkstreamId = readActivityMetadataString(metadata, [
+          'workstreamId',
+          'workstream_id',
+        ]);
+        const resolvedWorkstreamId =
+          metadataWorkstreamId ?? (runId ? activityWorkstreamByRunId.get(runId) ?? null : null);
+        if (resolvedWorkstreamId !== activityFilterWorkstreamId) return false;
+      }
+
+      if (agentFilter) {
+        const metadata = resolveActivityMetadata(item);
+        const metadataAgent = readActivityMetadataString(metadata, ['agentName', 'agent_name']);
+        const resolvedAgent = metadataAgent ?? item.agentName;
+        if (resolvedAgent !== agentFilter) return false;
+      }
+
+      return true;
+    });
+
+    if (inScopeItems.length === 0) return;
+
+    const orderedFilters: ActivityTimeFilterId[] = ['live', '24h', '7d', 'all'];
+    const nextFilter =
+      orderedFilters.find((filterId) => {
+        const cutoff = cutoffEpochForActivityFilter(filterId, now);
+        return inScopeItems.some((item) => {
+          const epoch = toEpoch(item.timestamp);
+          if (!epoch) return false;
+          return cutoff === null || epoch >= cutoff;
+        });
+      }) ?? 'all';
+
+    autoResolvedActivityFilterScopesRef.current.add(activityScopeKey);
+    if (nextFilter !== activityTimeFilterId) {
+      setActivityTimeFilterId(nextFilter);
+    }
+  }, [
+    activityFilterWorkstreamId,
+    activityInScope,
+    activityScopeKey,
+    activityTimeFilterId,
+    activityWorkstreamByRunId,
+    agentFilter,
+    isLoading,
+    selectedActivityRunIdSet,
+  ]);
+
   const activityFeed = useActivityFeed({
     seed: activityInScope,
     timeFilterId: activityTimeFilterId,
@@ -643,8 +860,24 @@ function DashboardShell({
   );
 
   const blockedCount = useMemo(
-    () =>
-      sessionNodesInScope.filter((node) => {
+    () => {
+      if (
+        typeof data.needsInputTotal === 'number' &&
+        typeof data.failedActionableTotal === 'number' &&
+        Number.isFinite(data.needsInputTotal) &&
+        Number.isFinite(data.failedActionableTotal)
+      ) {
+        return Math.max(0, Math.floor(data.needsInputTotal + data.failedActionableTotal));
+      }
+      if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
+        return data.sliceRuns.filter(
+          (slice) =>
+            slice.status === 'awaiting_input' ||
+            slice.status === 'needs_review' ||
+            slice.status === 'failed'
+        ).length;
+      }
+      return sessionNodesInScope.filter((node) => {
         const status = normalizeStatus(node.status);
         const phase = normalizeStatus(node.phase ?? '');
         const state = normalizeStatus(node.state ?? '');
@@ -659,8 +892,9 @@ function DashboardShell({
           return false;
         }
         return node.blockers.length > 0;
-      }).length,
-    [sessionNodesInScope]
+      }).length;
+    },
+    [data.sliceRuns, sessionNodesInScope]
   );
 
   const failedCount = useMemo(
@@ -1357,13 +1591,19 @@ function DashboardShell({
       if (!workstreamId) {
         throw new Error('This session is missing a workstream id for intervention notes.');
       }
+      const interventionText = input.text.trim();
+      if (isConfigureEngineeringAgentIntent(interventionText)) {
+        openSettings('agents', { focusAgentDomain: 'engineering' });
+        setOpsNotice('Opened agent settings for engineering runtime configuration.');
+        return;
+      }
       const response = await fetch(
         `/orgx/api/entities/workstream/${encodeURIComponent(workstreamId)}/comments`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            body: input.text.trim(),
+            body: interventionText,
             commentType: 'intervention',
             severity: 'info',
             tags: ['intervention', 'in_progress'],
@@ -1376,7 +1616,7 @@ function DashboardShell({
       setOpsNotice(`Intervention sent for ${input.session.title}.`);
       await refetch();
     },
-    [readApiErrorMessage, refetch]
+    [openSettings, readApiErrorMessage, refetch]
   );
 
   const dispatchSession = useCallback(
@@ -1654,6 +1894,95 @@ function DashboardShell({
       );
     },
     [switchDashboardView]
+  );
+
+  const openReviewActivityForSlice = useCallback(
+    (slice: SliceRunProjection) => {
+      const runCandidates = new Set<string>();
+      const runId = (slice.runId ?? '').trim();
+      if (runId.length > 0) runCandidates.add(runId);
+      runCandidates.add(slice.sliceRunId);
+
+      const candidateSet = new Map<string, LiveActivityItem>();
+      for (const item of activityInScope) {
+        const candidateRunId = resolveActivityRunId(item);
+        const candidateSliceRunId = resolveActivitySliceRunId(item);
+        if (
+          (candidateRunId && runCandidates.has(candidateRunId)) ||
+          (candidateSliceRunId && candidateSliceRunId === slice.sliceRunId)
+        ) {
+          candidateSet.set(item.id, item);
+        }
+      }
+
+      const candidates = Array.from(candidateSet.values());
+      const scoreItem = (item: LiveActivityItem): number => {
+        const normalizedType = item.type.trim().toLowerCase();
+        let score = 0;
+        if (normalizedType === 'decision_requested' || normalizedType === 'blocker_created') score += 80;
+        if (normalizedType === 'run_failed' || normalizedType === 'autopilot_stopped') score += 70;
+        if (normalizedType.includes('slice_completed') || normalizedType.includes('completed')) score += 60;
+        if (normalizedType.includes('artifact')) score += 55;
+        if (normalizedType.includes('progress') || normalizedType.includes('update')) score += 35;
+        score += Math.floor(toEpoch(item.timestamp) / 1000);
+        return score;
+      };
+
+      candidates.sort((left, right) => scoreItem(right) - scoreItem(left));
+      const bestItem = candidates[0] ?? null;
+
+      switchDashboardView('activity');
+      setMobileTab('activity');
+      setExpandedRightPanel('initiatives');
+
+      const linkedSession =
+        (runId
+          ? sessionNodesInScope.find((node) => node.runId === runId || node.id === runId) ?? null
+          : null) ??
+        (slice.initiativeId && slice.workstreamId
+          ? sessionNodesInScope.find(
+              (node) =>
+                node.initiativeId === slice.initiativeId && node.workstreamId === slice.workstreamId
+            ) ?? null
+          : null);
+
+      if (linkedSession) {
+        setSelectedSessionId(linkedSession.id);
+        setActivityFilterSessionId(linkedSession.id);
+        setActivityFilterWorkstreamId(null);
+        setActivityFilterWorkstreamLabel(null);
+      } else if (slice.workstreamId) {
+        setActivityFilterSessionId(null);
+        setActivityFilterWorkstreamId(slice.workstreamId);
+        setActivityFilterWorkstreamLabel(slice.workstreamTitle ?? 'Work slice');
+      }
+
+      if (bestItem?.id) {
+        setRequestedActivityItemId(bestItem.id);
+        setOpsNotice(`Reviewing activity for ${slice.workstreamTitle ?? 'work slice'}.`);
+        return;
+      }
+
+      if (slice.primaryAction === 'resolve_decision') {
+        openDecisionsFromActivity();
+        return;
+      }
+
+      if (runId.length > 0) {
+        focusActivityRunId(runId);
+        setOpsNotice('Opened the related work session. Timeline details were unavailable.');
+        return;
+      }
+
+      setOpsNotice('No activity details were found for this slice yet.');
+    },
+    [
+      activityInScope,
+      focusActivityRunId,
+      openDecisionsFromActivity,
+      sessionNodesInScope,
+      switchDashboardView,
+    ]
   );
 
   const focusActivitySessionByStatus = useCallback(
@@ -2079,13 +2408,14 @@ function DashboardShell({
 	            activity={activityFeed.items}
 	            sessions={sessionNodesInScope}
 	            initiatives={initiatives}
+	            timelineNarrative={data.timelineNarrative ?? []}
 	            selectedRunIds={selectedActivityRunIds}
 	            selectedSessionLabel={selectedActivitySessionLabel}
               selectedWorkstreamId={activityFilterWorkstreamId}
               selectedWorkstreamLabel={activityFilterWorkstreamLabel}
 	            agentFilter={agentFilter}
               timeFilterId={activityTimeFilterId}
-              onTimeFilterChange={setActivityTimeFilterId}
+              onTimeFilterChange={handleActivityTimeFilterChange}
               hasMore={activityFeed.hasMore}
               isLoadingMore={activityFeed.isLoadingMore}
 	            onLoadMore={activityFeed.loadMore}
@@ -2110,46 +2440,56 @@ function DashboardShell({
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
-              <div className="flex h-full min-h-0 flex-col gap-0">
-                <div className="flex items-center gap-2 rounded-t-2xl border border-strong bg-black/20 px-2 py-1.5">
-                  <div
-                    className="inline-flex flex-1 items-center gap-1 rounded-full border border-strong bg-black/20 p-0.5"
-                    role="tablist"
-                    aria-label="Initiatives sidebar"
-                  >
+              <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+                <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 pt-3">
+                  <div className="flex min-w-0 items-center gap-4 overflow-x-auto">
                     <button
                       type="button"
                       role="tab"
                       aria-selected={initiativesSidebarTab === 'in_progress'}
-                      onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('in_progress'); }}
-                      className={
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInitiativesSidebarTab('in_progress');
+                      }}
+                      className={cn(
+                        'relative inline-flex items-center gap-1.5 pb-2 text-caption font-semibold transition-colors',
                         initiativesSidebarTab === 'in_progress'
-                          ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
-                          : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                      }
+                          ? 'text-white'
+                          : 'text-secondary hover:text-bright'
+                      )}
                     >
                       <span>In Progress</span>
-                      <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
-                        {inProgressCount}
-                      </span>
+                      <span className="text-micro tabular-nums text-muted">{inProgressCount}</span>
+                      <span
+                        className={cn(
+                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-[#BFFF00] transition-opacity',
+                          initiativesSidebarTab === 'in_progress' ? 'opacity-100' : 'opacity-0'
+                        )}
+                      />
                     </button>
                     <button
                       type="button"
                       role="tab"
                       aria-selected={initiativesSidebarTab === 'next_up'}
-                      onClick={(e) => { e.stopPropagation(); setInitiativesSidebarTab('next_up'); }}
-                      className={
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInitiativesSidebarTab('next_up');
+                      }}
+                      className={cn(
+                        'relative inline-flex items-center gap-1.5 pb-2 text-caption font-semibold transition-colors',
                         initiativesSidebarTab === 'next_up'
-                          ? 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-[#bfff00]/40 bg-[#bfff00]/20 text-[#E1FFB2] shadow-[inset_0_1px_0_rgba(191,255,0,0.15)]'
-                          : 'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-micro font-semibold transition-colors border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
-                      }
+                          ? 'text-white'
+                          : 'text-secondary hover:text-bright'
+                      )}
                     >
                       <span>Next Up</span>
-                      {activityNextUpQueue.total > 0 && (
-                        <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro tabular-nums text-primary">
-                          {activityNextUpQueue.total}
-                        </span>
-                      )}
+                      <span className="text-micro tabular-nums text-muted">{activityNextUpQueue.total}</span>
+                      <span
+                        className={cn(
+                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-[#BFFF00] transition-opacity',
+                          initiativesSidebarTab === 'next_up' ? 'opacity-100' : 'opacity-0'
+                        )}
+                      />
                     </button>
                   </div>
                   <button
@@ -2160,10 +2500,11 @@ function DashboardShell({
                       });
                     }}
                     disabled={sidebarAutopilotBusy}
-                    className="control-pill flex h-8 flex-shrink-0 items-center gap-1.5 px-2.5 text-caption font-semibold disabled:opacity-45"
+                    className="control-pill flex h-8 w-8 items-center justify-center p-0 text-caption font-semibold disabled:opacity-45"
                     data-tone="teal"
                     data-state={activityAutopilotActive ? 'active' : 'idle'}
                     title={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
+                    aria-label={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
                   >
                     <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
                       <path
@@ -2174,25 +2515,71 @@ function DashboardShell({
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <span>{activityAutopilotActive ? 'Auto on' : 'Auto'}</span>
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1" key={initiativesSidebarTab}>
+                {initiativesSidebarTab === 'in_progress' ? (
+                  <div className="flex items-center gap-1.5 border-b border-subtle px-4 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setInProgressSubFilter('all')}
+                      className={cn(
+                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                        inProgressSubFilter === 'all'
+                          ? 'bg-white/[0.09] text-primary'
+                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                      )}
+                    >
+                      <span>All active</span>
+                      <span className="tabular-nums opacity-75">{inProgressCount}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInProgressSubFilter('needs_attention')}
+                      className={cn(
+                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                        inProgressSubFilter === 'needs_attention'
+                          ? 'bg-[#F5B700]/14 text-[#FFE7A8]'
+                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                      )}
+                    >
+                      <span>Needs attention</span>
+                      <span className="tabular-nums opacity-80">{needsInputCount}</span>
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="min-h-0 flex-1" key={`${initiativesSidebarTab}:${inProgressSubFilter}`}>
                   {initiativesSidebarTab === 'in_progress' ? (
-                    <InProgressPanel
-                      className="h-full min-h-0"
-                      showHeader={false}
-                      panelStyle="flat"
-                      sessions={sessionNodesInScope}
-                      onOpenSession={handleSelectSession}
-                      onFocusRunId={focusActivityRunId}
-                      onPlayWorkstream={playSessionWorkstream}
-                      onPauseWorkstream={pauseSessionWorkstream}
-                      onResumeWorkstream={playSessionWorkstream}
-                      onRestartSession={restartSessionWorkstream}
-                      onIntervene={openInterventionComposer}
-                    />
+                    inProgressSubFilter === 'needs_attention' ? (
+                      <NeedsInputPanel
+                        className="h-full min-h-0"
+                        showHeader={false}
+                        panelStyle="flat"
+                        sliceRuns={actionableSliceRuns}
+                        onOpenDecisions={() => openDecisionsFromActivity()}
+                        onFocusRunId={focusActivityRunId}
+                        onReviewActivity={openReviewActivityForSlice}
+                        onOpenSliceDetail={openSliceDetailFromNeedsInput}
+                      />
+                    ) : (
+                      <InProgressPanel
+                        className="h-full min-h-0"
+                        showHeader={false}
+                        panelStyle="flat"
+                        sessions={sessionNodesInScope}
+                        sliceRuns={actionableSliceRuns}
+                        initiatives={initiatives}
+                        onOpenSession={handleSelectSession}
+                        onFocusRunId={focusActivityRunId}
+                        onPlayWorkstream={playSessionWorkstream}
+                        onPauseWorkstream={pauseSessionWorkstream}
+                        onResumeWorkstream={playSessionWorkstream}
+                        onRestartSession={restartSessionWorkstream}
+                        onIntervene={openInterventionComposer}
+                        onOpenSliceDetail={openSliceDetailFromInProgress}
+                      />
+                    )
                   ) : (
                     <NextUpPanel
                       title="Next Up"
@@ -2203,10 +2590,11 @@ function DashboardShell({
                       selectionEnabled
                       showQueueSettings
                       onOpenInitiative={openInitiativeFromNextUp}
+                      onOpenSliceDetail={openSliceDetailFromQueue}
                     />
                   )}
                 </div>
-              </div>
+              </PremiumCard>
             ) : (
               <PremiumCard className="card-enter">
                 <button
@@ -2329,6 +2717,7 @@ function DashboardShell({
                     session={selectedSession}
                     activity={activityInScope}
                     initiatives={initiatives}
+                    sliceRuns={actionableSliceRuns}
                     initialInterventionDraft={interventionDraft}
                     onSubmitIntervention={submitSessionIntervention}
                     onOpenActivityItem={openActivityItemFromSessionDetail}
@@ -2408,9 +2797,12 @@ function DashboardShell({
 
       <SettingsModal
         open={settingsState.open}
-        onClose={() => setSettingsState((previous) => ({ ...previous, open: false }))}
+        onClose={() =>
+          setSettingsState((previous) => ({ ...previous, open: false, focusAgentDomain: null }))
+        }
         activeTab={settingsState.tab}
         onChangeTab={(tab) => setSettingsState((previous) => ({ ...previous, tab }))}
+        agentBehaviorInitialDomain={settingsState.focusAgentDomain}
         demoMode={demoMode}
         onToggleDemoMode={(next) => {
           setDemoModeEnabled(next);
@@ -2482,6 +2874,87 @@ function DashboardShell({
       />
 
       <ArtifactViewerModal />
+
+      <SliceDetailModal
+        target={sliceDetailTarget}
+        onClose={() => setSliceDetailTarget(null)}
+        onPlayWorkstream={async (initiativeId, workstreamId, agentId) => {
+          const response = await fetch('/orgx/api/mission-control/next-up/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              initiativeId,
+              workstreamId,
+              agentId: agentId ?? undefined,
+              fastAck: true,
+              ignoreSpawnGuardRateLimit: true,
+            }),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+            setOpsNotice(body?.error ?? body?.message ?? `Failed to dispatch workstream (${response.status})`);
+            return;
+          }
+          setOpsNotice(`Dispatched workstream.`);
+          void refetch();
+        }}
+        onStartAutoContinue={async (initiativeId, workstreamId, agentId) => {
+          await fetch('/orgx/api/mission-control/next-up/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initiativeId, workstreamId, placement: 'top' }),
+          });
+          const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              initiativeId,
+              agentId: agentId ?? undefined,
+              ignoreSpawnGuardRateLimit: true,
+            }),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+            setOpsNotice(body?.error ?? body?.message ?? `Failed to start auto-continue (${response.status})`);
+            return;
+          }
+          setOpsNotice(`Auto-continue started.`);
+          void refetch();
+        }}
+        onMoveWorkstream={async (initiativeId, workstreamId, placement) => {
+          const response = await fetch('/orgx/api/mission-control/next-up/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initiativeId, workstreamId, placement }),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+            setOpsNotice(body?.error ?? body?.message ?? `Move failed (${response.status})`);
+            return;
+          }
+          setOpsNotice(`Moved workstream to ${placement}.`);
+          void refetch();
+        }}
+        onRemoveFromQueue={async (initiativeId, workstreamId) => {
+          const response = await fetch('/orgx/api/mission-control/next-up/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initiativeId, workstreamId }),
+          });
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+            setOpsNotice(body?.error ?? body?.message ?? `Remove failed (${response.status})`);
+            return;
+          }
+          setOpsNotice(`Removed workstream from queue.`);
+          void refetch();
+        }}
+        onOpenSession={handleSelectSession}
+        onFocusRunId={focusActivityRunId}
+        onOpenInitiative={openInitiativeFromNextUp}
+        onReviewActivity={openReviewActivityForSlice}
+        onOpenDecisions={() => openDecisionsFromActivity()}
+      />
     </div>
   );
 }

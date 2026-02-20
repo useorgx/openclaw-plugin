@@ -125,6 +125,13 @@ export interface KickoffContext {
     collaboration_style?: string | null;
     defaults?: string[] | null;
   } | null;
+  runtime_settings?: {
+    decision_v2_enabled?: boolean;
+    decision_dedupe_enabled?: boolean;
+    decision_evidence_required_for_blocking?: boolean;
+    decision_auto_resolve_guarded_enabled?: boolean;
+    custom_run_instructions?: string | null;
+  } | null;
 }
 
 export type KickoffContextRequest = KickoffContextScope & {
@@ -174,6 +181,38 @@ export type OrgxAgentPack = {
   agents: OrgxAgentProfile[];
   managed_files: string[];
 };
+
+export interface AgentRuntimeSettingsPayload {
+  decision_v2_enabled?: boolean;
+  decision_dedupe_enabled?: boolean;
+  decision_evidence_required_for_blocking?: boolean;
+  decision_auto_resolve_guarded_enabled?: boolean;
+  custom_run_instructions?: string | null;
+}
+
+export interface ClientRuntimeSettingsAgent {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  model: string | null;
+  runtime_settings: AgentRuntimeSettingsPayload;
+}
+
+export type ClientRuntimeSettingsResponse =
+  | {
+      ok: true;
+      project_id: string | null;
+      agents?: ClientRuntimeSettingsAgent[];
+      agent?: ClientRuntimeSettingsAgent;
+    }
+  | { ok: false; error: string };
+
+export interface ClientRuntimeSettingsUpdateRequest {
+  project_id?: string;
+  agent_id: string;
+  runtime_settings: AgentRuntimeSettingsPayload;
+}
 
 // =============================================================================
 // SKILL PACKS (CANONICAL SKILLS FOR DESKTOP CLIENTS)
@@ -480,6 +519,27 @@ export interface EntityListFilters {
   [key: string]: unknown;
 }
 
+export interface WorkstreamReassignmentStatus {
+  scheduled: boolean;
+  requestId?: string | null;
+  dueAt?: string | null;
+  reason?: string;
+}
+
+export interface InitiativeReassignmentStatus {
+  triggered: boolean;
+  requested: number;
+  scheduled: number;
+  skipped: number;
+  failures: string[];
+}
+
+export interface EntityUpdateResult {
+  entity: Entity;
+  reassignment?: WorkstreamReassignmentStatus | null;
+  initiative_reassignment?: InitiativeReassignmentStatus | null;
+}
+
 // =============================================================================
 // REPORTING CONTROL PLANE
 // =============================================================================
@@ -501,6 +561,31 @@ export type MilestoneStatus =
   | 'at_risk'
   | 'cancelled';
 export type DecisionUrgency = 'low' | 'medium' | 'high' | 'urgent';
+export type DecisionOptionImpliedStatus =
+  | 'approved'
+  | 'declined'
+  | 'cancelled'
+  | 'rejected';
+
+export interface DecisionCreateOption {
+  id?: string;
+  label: string;
+  description?: string;
+  implied_status?: DecisionOptionImpliedStatus;
+  action_type?: string;
+  requires_note?: boolean;
+}
+
+export interface DecisionEvidenceRef {
+  evidence_type?: string;
+  title?: string;
+  summary?: string;
+  source_url?: string;
+  source_pointer?: string;
+  freshness?: string;
+  confidence?: number;
+  payload?: Record<string, unknown>;
+}
 
 export interface EmitActivityRequest {
   initiative_id: string;
@@ -554,8 +639,22 @@ export type ChangesetOperation =
       title: string;
       summary?: string;
       urgency?: DecisionUrgency;
-      options?: string[];
+      options?: Array<string | DecisionCreateOption>;
       blocking?: boolean;
+      decision_type?: string;
+      workstream_id?: string;
+      agent_id?: string;
+      due_at?: string;
+      source_system?: string;
+      conflict_source?: string;
+      dedupe_key?: string;
+      recommended_action?: string;
+      source_run_id?: string;
+      source_session_id?: string;
+      source_stream_id?: string;
+      source_ref?: Record<string, unknown>;
+      evidence_refs?: DecisionEvidenceRef[];
+      metadata?: Record<string, unknown>;
     };
 
 export interface ApplyChangesetRequest {

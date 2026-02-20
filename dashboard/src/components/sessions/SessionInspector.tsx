@@ -4,7 +4,7 @@ import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
-import type { Initiative, LiveActivityItem, SessionTreeNode } from '@/types';
+import type { Initiative, LiveActivityItem, SessionTreeNode, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { MarkdownText } from '@/components/shared/MarkdownText';
@@ -14,6 +14,7 @@ interface SessionInspectorProps {
   session: SessionTreeNode | null;
   activity: LiveActivityItem[];
   initiatives?: Initiative[];
+  sliceRuns?: SliceRunProjection[];
   onOpenActivityItem?: (item: LiveActivityItem) => void;
   onContinueHighestPriority?: () => Promise<void> | void;
   onDispatchSession?: (session: SessionTreeNode) => Promise<void> | void;
@@ -75,11 +76,37 @@ function compactList(values: string[], max = 3): string {
   return `${values.slice(0, max).join(', ')} +${values.length - max} more`;
 }
 
+function normalizeLineageIds(values: string[] | undefined, fallback?: string | null): string[] {
+  const out: string[] = [];
+  const push = (value: string | null | undefined) => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (out.some((entry) => entry.toLowerCase() === trimmed.toLowerCase())) return;
+    out.push(trimmed);
+  };
+  if (Array.isArray(values)) {
+    for (const value of values) push(value);
+  }
+  push(fallback ?? null);
+  return out;
+}
+
 function resolveRunId(item: LiveActivityItem): string | null {
-  if (item.runId) return item.runId;
+  if (item.runId && item.runId.trim().length > 0) return item.runId.trim();
   const metadata = item.metadata as Record<string, unknown> | undefined;
   if (!metadata) return null;
-  const keys = ['runId', 'run_id', 'sessionId', 'session_id', 'agentRunId'];
+  const keys = [
+    'slice_run_id',
+    'sliceRunId',
+    'runId',
+    'run_id',
+    'correlation_id',
+    'correlationId',
+    'sessionId',
+    'session_id',
+    'agentRunId',
+  ];
   for (const key of keys) {
     const value = metadata[key];
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -149,6 +176,7 @@ export const SessionInspector = memo(function SessionInspector({
   session,
   activity,
   initiatives = [],
+  sliceRuns = [],
   onOpenActivityItem,
   onContinueHighestPriority,
   onDispatchSession,
@@ -180,14 +208,59 @@ export const SessionInspector = memo(function SessionInspector({
     setInterventionText('');
   }, [initialInterventionDraft?.text, session?.id]);
 
+  const sessionRunKeys = useMemo(() => {
+    if (!session) return new Set<string>();
+    const keys = new Set<string>();
+    if (session.runId?.trim()) keys.add(session.runId.trim());
+    if (session.id?.trim()) keys.add(session.id.trim());
+    if (session.blockerDiagnostics?.context?.sliceRunId?.trim()) {
+      keys.add(session.blockerDiagnostics.context.sliceRunId.trim());
+    }
+    return keys;
+  }, [session]);
+
   const recentEvents = useMemo(() => {
     if (!session) return [] as LiveActivityItem[];
+    if (sessionRunKeys.size === 0) return [] as LiveActivityItem[];
 
     return activity
-      .filter((item) => resolveRunId(item) === session.runId)
+      .filter((item) => {
+        const runId = resolveRunId(item);
+        return Boolean(runId && sessionRunKeys.has(runId));
+      })
       .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-      .slice(0, 8);
-  }, [activity, session]);
+      .slice(0, 12);
+  }, [activity, session, sessionRunKeys]);
+
+  const relatedSlice = useMemo(() => {
+    if (!session || !Array.isArray(sliceRuns) || sliceRuns.length === 0) return null;
+    const sessionInitiativeId = session.initiativeId?.trim() ?? '';
+    const sessionWorkstreamId = session.workstreamId?.trim() ?? '';
+    const candidates = sliceRuns.filter((slice) => {
+      const sliceRunId = slice.sliceRunId?.trim() ?? '';
+      const runId = slice.runId?.trim() ?? '';
+      if ((sliceRunId && sessionRunKeys.has(sliceRunId)) || (runId && sessionRunKeys.has(runId))) {
+        return true;
+      }
+      if (!sessionWorkstreamId) return false;
+      const sliceWorkstreamIds = normalizeLineageIds(slice.workstreamIds, slice.workstreamId);
+      if (!sliceWorkstreamIds.includes(sessionWorkstreamId)) return false;
+      if (!sessionInitiativeId) return true;
+      const sliceInitiativeIds = normalizeLineageIds(slice.initiativeIds, slice.initiativeId);
+      if (sliceInitiativeIds.length > 0 && !sliceInitiativeIds.includes(sessionInitiativeId)) {
+        return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) return null;
+    return [...candidates].sort((a, b) => {
+      const aEpoch = Date.parse(a.updatedAt ?? a.lastEventAt ?? a.startedAt ?? '');
+      const bEpoch = Date.parse(b.updatedAt ?? b.lastEventAt ?? b.startedAt ?? '');
+      const safeA = Number.isFinite(aEpoch) ? aEpoch : 0;
+      const safeB = Number.isFinite(bEpoch) ? bEpoch : 0;
+      return safeB - safeA;
+    })[0];
+  }, [session, sessionRunKeys, sliceRuns]);
 
   const breadcrumbs = useMemo(() => {
     if (!session) return [] as Array<{ label: string; value: string }>;
@@ -368,12 +441,25 @@ export const SessionInspector = memo(function SessionInspector({
   ].filter((entry): entry is string => Boolean(entry));
   const blockerContextRows: Array<{ label: string; value: string }> = [];
   if (blockerContext) {
+    if (Array.isArray(blockerContext.initiativeIds) && blockerContext.initiativeIds.length > 0) {
+      blockerContextRows.push({
+        label: 'Initiatives',
+        value: compactList(blockerContext.initiativeIds, 4),
+      });
+    } else if (hasText(blockerContext.initiativeId)) {
+      blockerContextRows.push({ label: 'Initiative', value: blockerContext.initiativeId.trim() });
+    }
     if (hasText(blockerContext.workstreamTitle)) {
       blockerContextRows.push({
         label: 'Workstream',
         value: hasText(blockerContext.workstreamId)
           ? `${blockerContext.workstreamTitle.trim()} (${blockerContext.workstreamId.trim()})`
           : blockerContext.workstreamTitle.trim(),
+      });
+    } else if (Array.isArray(blockerContext.workstreamIds) && blockerContext.workstreamIds.length > 0) {
+      blockerContextRows.push({
+        label: 'Workstreams',
+        value: compactList(blockerContext.workstreamIds, 4),
       });
     } else if (hasText(blockerContext.workstreamId)) {
       blockerContextRows.push({ label: 'Workstream', value: blockerContext.workstreamId.trim() });
@@ -395,6 +481,14 @@ export const SessionInspector = memo(function SessionInspector({
         label: 'Milestones',
         value: compactList(blockerContext.milestoneIds),
       });
+    }
+    if (Array.isArray(blockerContext.iwmtIds) && blockerContext.iwmtIds.length > 0) {
+      blockerContextRows.push({
+        label: 'IWMT IDs',
+        value: compactList(blockerContext.iwmtIds, 4),
+      });
+    } else if (hasText(blockerContext.iwmtId)) {
+      blockerContextRows.push({ label: 'IWMT ID', value: blockerContext.iwmtId.trim() });
     }
     if (hasText(blockerContext.logPath)) {
       blockerContextRows.push({ label: 'Log path', value: blockerContext.logPath.trim() });
@@ -452,6 +546,23 @@ export const SessionInspector = memo(function SessionInspector({
         : '—',
     },
   ];
+  const relatedSliceStatusLabel = relatedSlice ? relatedSlice.status.replace(/_/g, ' ') : null;
+  const relatedSliceInitiativeIds = normalizeLineageIds(
+    relatedSlice?.initiativeIds,
+    relatedSlice?.initiativeId ?? null
+  );
+  const relatedSliceWorkstreamIds = normalizeLineageIds(
+    relatedSlice?.workstreamIds,
+    relatedSlice?.workstreamId ?? null
+  );
+  const relatedSliceIwmtIds = normalizeLineageIds(
+    relatedSlice?.iwmtIds,
+    relatedSlice?.iwmtId ?? null
+  );
+  const relatedSliceInitiativeTitle = relatedSliceInitiativeIds[0]
+    ? initiatives.find((item) => item.id === relatedSliceInitiativeIds[0])?.name ??
+      relatedSliceInitiativeIds[0]
+    : null;
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col overflow-hidden card-enter">
@@ -586,6 +697,83 @@ export const SessionInspector = memo(function SessionInspector({
               </div>
             )}
           </div>
+
+          {relatedSlice && (
+            <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-caption uppercase tracking-[0.12em] text-secondary">Slice scope</h3>
+                {relatedSliceStatusLabel ? (
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                    {relatedSliceStatusLabel}
+                  </span>
+                ) : null}
+              </div>
+              {relatedSlice.statusExplainer ? (
+                <p className="mt-2 text-caption text-secondary">{relatedSlice.statusExplainer}</p>
+              ) : null}
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-caption text-secondary">
+                <div>
+                  <dt className="text-muted">Initiative</dt>
+                  <dd className="text-body font-semibold text-white">{relatedSliceInitiativeTitle ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Workstream</dt>
+                  <dd className="text-body font-semibold text-white">
+                    {relatedSlice.workstreamTitle ?? relatedSliceWorkstreamIds[0] ?? '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Run</dt>
+                  <dd className="break-all text-body font-semibold text-white">{relatedSlice.runId ?? relatedSlice.sliceRunId}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted">Updated</dt>
+                  <dd className="text-body font-semibold text-white">
+                    {relatedSlice.updatedAt ? formatRelativeTime(relatedSlice.updatedAt) : '—'}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-micro">
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                  Tasks {relatedSlice.taskIds.length}
+                </span>
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                  Milestones {relatedSlice.milestoneIds.length}
+                </span>
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                  Artifacts {relatedSlice.artifactCount}
+                </span>
+                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                  Needs input {relatedSlice.blockingDecisionCount}
+                </span>
+                {relatedSliceInitiativeIds.length > 1 ? (
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    +{relatedSliceInitiativeIds.length - 1} initiatives
+                  </span>
+                ) : null}
+                {relatedSliceWorkstreamIds.length > 1 ? (
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    +{relatedSliceWorkstreamIds.length - 1} workstreams
+                  </span>
+                ) : null}
+              </div>
+              {relatedSlice.taskIds.length > 0 ? (
+                <p className="mt-2 text-micro text-secondary">
+                  Task IDs: {compactList(relatedSlice.taskIds, 5)}
+                </p>
+              ) : null}
+              {relatedSlice.milestoneIds.length > 0 ? (
+                <p className="mt-1 text-micro text-secondary">
+                  Milestones: {compactList(relatedSlice.milestoneIds, 4)}
+                </p>
+              ) : null}
+              {relatedSliceIwmtIds.length > 0 ? (
+                <p className="mt-1 text-micro text-secondary">
+                  IWMT: {compactList(relatedSliceIwmtIds, 3)}
+                </p>
+              ) : null}
+            </div>
+          )}
 
           <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
             {progressValue !== null && (

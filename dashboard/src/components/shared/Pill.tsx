@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { Children, isValidElement, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 type PillTone = 'neutral' | 'muted' | 'lime' | 'cyan' | 'red';
@@ -17,10 +17,19 @@ interface PillProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 export function Pill({ children, tone = 'muted', className, ...rest }: PillProps) {
+  const hasAgentAvatar = Children.toArray(children).some((child) => {
+    if (!isValidElement(child)) return false;
+    const elementType = child.type as { displayName?: string; name?: string };
+    return elementType.displayName === 'AgentAvatar' || elementType.name === 'AgentAvatar';
+  });
+
   return (
     <span
       className={cn(
-        'inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption font-medium leading-none',
+        'inline-flex h-7 items-center rounded-full border text-caption font-medium leading-none whitespace-nowrap',
+        hasAgentAvatar
+          ? 'gap-1.5 pl-px pr-2.5'
+          : 'gap-1.5 px-2.5',
         toneClasses[tone],
         className
       )}

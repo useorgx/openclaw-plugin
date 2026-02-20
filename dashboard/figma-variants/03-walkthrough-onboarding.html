@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1472, height=792">
+<title>OrgX — Walkthrough Onboarding</title>
+<link rel="stylesheet" href="shared-styles.css">
+<style>
+  body { width: 1472px; height: 792px; overflow: hidden; }
+
+  .walkthrough-viewport {
+    width: 1472px;
+    height: 792px;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ─── Full-viewport overlay background ─── */
+  .walkthrough-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 800px 600px at 50% 20%, rgba(191,255,0,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 600px 500px at 20% 80%, rgba(20,184,166,0.05) 0%, transparent 60%),
+      radial-gradient(ellipse 500px 500px at 80% 70%, rgba(139,92,246,0.04) 0%, transparent 60%),
+      var(--bg-root);
+  }
+
+  /* Floating ambient dots */
+  .ambient-dot {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.4;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .ambient-dot:nth-child(1) {
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, rgba(191,255,0,0.08) 0%, transparent 70%);
+    top: 10%; left: 8%;
+    animation-delay: 0s;
+  }
+  .ambient-dot:nth-child(2) {
+    width: 80px; height: 80px;
+    background: radial-gradient(circle, rgba(20,184,166,0.08) 0%, transparent 70%);
+    top: 60%; right: 12%;
+    animation-delay: 2s;
+  }
+  .ambient-dot:nth-child(3) {
+    width: 60px; height: 60px;
+    background: radial-gradient(circle, rgba(139,92,246,0.06) 0%, transparent 70%);
+    bottom: 15%; left: 20%;
+    animation-delay: 4s;
+  }
+
+  /* ─── Step container ─── */
+  .step-container {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    gap: 0;
+  }
+
+  /* Show all 5 steps side by side as a storyboard */
+  .step {
+    min-width: 280px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px;
+    gap: 20px;
+    position: relative;
+  }
+
+  .step::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 15%;
+    bottom: 15%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.06), transparent);
+  }
+
+  .step:last-child::after { display: none; }
+
+  /* ─── Step number badge ─── */
+  .step-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .step-number.active {
+    background: var(--lime);
+    color: #000;
+    box-shadow: 0 0 20px rgba(191,255,0,0.3);
+  }
+
+  .step-number.complete {
+    background: rgba(191,255,0,0.15);
+    color: var(--lime);
+  }
+
+  .step-number.pending {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* ─── Illustration area ─── */
+  .step-illustration {
+    width: 160px;
+    height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  /* Welcome hero illustration */
+  .illust-welcome {
+    position: relative;
+  }
+
+  .illust-welcome .brand-mark {
+    width: 80px;
+    height: 80px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, var(--lime), var(--teal));
+    box-shadow: 0 0 60px rgba(191,255,0,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .illust-welcome .brand-mark svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .illust-welcome .orbit-ring {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border: 1px solid rgba(191,255,0,0.1);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .illust-welcome .orbit-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 12px rgba(191,255,0,0.4);
+    animation: orbit 8s linear infinite;
+    top: 50%;
+    left: 50%;
+    margin: -4px 0 0 -4px;
+  }
+
+  /* Shield illustration */
+  .illust-shield {
+    position: relative;
+  }
+
+  .illust-shield .shield {
+    width: 64px;
+    height: 72px;
+    position: relative;
+  }
+
+  .illust-shield .shield svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Key illustration */
+  .illust-keys {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .illust-keys .key-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  /* Terminal illustration */
+  .illust-terminal {
+    width: 140px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+  }
+
+  .illust-terminal .term-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .illust-terminal .term-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+  }
+
+  .illust-terminal .term-line {
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .illust-terminal .term-cursor {
+    display: inline-block;
+    width: 6px;
+    height: 11px;
+    background: var(--lime);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+
+  /* Orbit illustration */
+  .illust-orbit {
+    position: relative;
+    width: 120px;
+    height: 120px;
+  }
+
+  .illust-orbit .ring {
+    position: absolute;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .illust-orbit .ring-1 { width: 60px; height: 60px; }
+  .illust-orbit .ring-2 { width: 90px; height: 90px; }
+  .illust-orbit .ring-3 { width: 120px; height: 120px; }
+
+  .illust-orbit .center {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--lime), var(--teal));
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 20px rgba(191,255,0,0.3);
+  }
+
+  .illust-orbit .sat {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    margin: -4px;
+  }
+
+  .illust-orbit .sat-1 { background: var(--lime); animation: orbit 4s linear infinite; }
+  .illust-orbit .sat-2 { background: var(--teal); animation: orbit 6s linear reverse infinite; }
+  .illust-orbit .sat-3 { background: var(--iris); animation: orbit 8s linear infinite; }
+
+  /* ─── Step text ─── */
+  .step-kicker {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .step-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  .step-title.gradient-text {
+    font-size: 20px;
+  }
+
+  .step-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    text-align: center;
+    line-height: 1.5;
+    max-width: 220px;
+  }
+
+  .step-cta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* ─── Progress dots ─── */
+  .progress-dots {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 20;
+  }
+
+  .progress-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+    transition: all 0.3s ease;
+  }
+
+  .progress-dot.active {
+    background: var(--lime);
+    box-shadow: 0 0 12px rgba(191,255,0,0.4);
+    width: 24px;
+    border-radius: 4px;
+  }
+
+  .progress-dot.complete {
+    background: rgba(191,255,0,0.3);
+  }
+
+  .progress-line {
+    width: 20px;
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+  }
+
+  /* ─── Variant label ─── */
+  .variant-label {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--text-faint);
+    z-index: 20;
+  }
+</style>
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+</head>
+<body>
+<div class="walkthrough-viewport">
+  <div class="walkthrough-bg">
+    <div class="ambient-dot"></div>
+    <div class="ambient-dot"></div>
+    <div class="ambient-dot"></div>
+  </div>
+
+  <div class="step-container">
+    <!-- Step 1: Welcome Hero -->
+    <div class="step animate-in">
+      <div class="step-number active">1</div>
+      <div class="step-illustration">
+        <div class="illust-welcome">
+          <div class="orbit-ring">
+            <div class="orbit-dot"></div>
+          </div>
+          <div class="brand-mark">
+            <svg viewBox="0 0 40 40" fill="none">
+              <path d="M8 20L16 12L24 20L16 28Z" fill="rgba(0,0,0,0.6)" stroke-width="0"/>
+              <path d="M16 20L24 12L32 20L24 28Z" fill="rgba(0,0,0,0.4)" stroke-width="0"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="step-kicker">Welcome to</div>
+      <div class="step-title gradient-text">OrgX</div>
+      <div class="step-desc">Orchestrate AI agents, approve decisions, and ship with confidence — all from one dashboard.</div>
+      <div class="step-cta">
+        <button class="btn-primary press-feedback">Get Started</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Connect OrgX -->
+    <div class="step animate-in-1">
+      <div class="step-number pending">2</div>
+      <div class="step-illustration">
+        <div class="illust-shield">
+          <div class="shield">
+            <svg viewBox="0 0 64 72" fill="none">
+              <path d="M32 4L4 18V36C4 52 16 64 32 68C48 64 60 52 60 36V18L32 4Z" stroke="rgba(20,184,166,0.3)" stroke-width="1.5" fill="rgba(20,184,166,0.04)"/>
+              <path d="M24 36L30 42L42 30" stroke="var(--teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="100" stroke-dashoffset="0" style="animation: draw-in 1.5s ease 0.5s both;"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="step-kicker">Step 2</div>
+      <div class="step-title">Connect OrgX</div>
+      <div class="step-desc">Pair your workspace to sync initiatives, workstreams, and execution state in real time.</div>
+      <div class="step-cta">
+        <button class="btn-primary press-feedback" style="font-size:12px;padding:8px 16px;">Pair Workspace</button>
+        <button class="btn-ghost" style="font-size:12px;padding:8px 16px;">Use API Key</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Configure Providers -->
+    <div class="step animate-in-2">
+      <div class="step-number pending">3</div>
+      <div class="step-illustration">
+        <div class="illust-keys">
+          <div class="key-icon">🔑</div>
+          <div class="key-icon">⚡</div>
+          <div class="key-icon">🤖</div>
+          <div class="key-icon">🔧</div>
+        </div>
+      </div>
+      <div class="step-kicker">Step 3</div>
+      <div class="step-title">Configure Providers</div>
+      <div class="step-desc">Add API keys for Claude, GPT, or your custom models. OrgX routes to the right one automatically.</div>
+      <div class="step-cta">
+        <button class="btn-ghost press-feedback" style="font-size:12px;padding:8px 16px;">Open Settings</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Launch First Agent -->
+    <div class="step animate-in-3">
+      <div class="step-number pending">4</div>
+      <div class="step-illustration">
+        <div class="illust-terminal">
+          <div class="term-bar">
+            <div class="term-dot"></div>
+            <div class="term-dot"></div>
+            <div class="term-dot"></div>
+          </div>
+          <div class="term-line" style="color:var(--lime);">$ orgx launch</div>
+          <div class="term-line">→ spawning agent...</div>
+          <div class="term-line">→ connected <span class="term-cursor"></span></div>
+        </div>
+      </div>
+      <div class="step-kicker">Step 4</div>
+      <div class="step-title">Launch Your First Agent</div>
+      <div class="step-desc">Spawn an agent session, assign it an initiative, and watch it execute autonomously.</div>
+      <div class="step-cta">
+        <button class="btn-ghost press-feedback" style="font-size:12px;padding:8px 16px;">Launch Agent</button>
+      </div>
+    </div>
+
+    <!-- Step 5: Open Mission Control -->
+    <div class="step animate-in-4">
+      <div class="step-number pending">5</div>
+      <div class="step-illustration">
+        <div class="illust-orbit">
+          <div class="ring ring-1"></div>
+          <div class="ring ring-2"></div>
+          <div class="ring ring-3"></div>
+          <div class="center"></div>
+          <div class="sat sat-1"></div>
+          <div class="sat sat-2"></div>
+          <div class="sat sat-3"></div>
+        </div>
+      </div>
+      <div class="step-kicker">Step 5</div>
+      <div class="step-title">Open Mission Control</div>
+      <div class="step-desc">See everything at once — initiatives, sessions, decisions, and live execution state in one view.</div>
+      <div class="step-cta">
+        <button class="btn-primary press-feedback" style="font-size:12px;padding:8px 16px;">Open Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress dots -->
+  <div class="progress-dots">
+    <div class="progress-dot active"></div>
+    <div class="progress-line"></div>
+    <div class="progress-dot"></div>
+    <div class="progress-line"></div>
+    <div class="progress-dot"></div>
+    <div class="progress-line"></div>
+    <div class="progress-dot"></div>
+    <div class="progress-line"></div>
+    <div class="progress-dot"></div>
+  </div>
+
+  <div class="variant-label">Walkthrough Onboarding — 5-Step Raycast-Inspired Flow</div>
+</div>
+</body>
+</html>

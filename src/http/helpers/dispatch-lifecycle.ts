@@ -34,6 +34,15 @@ type DispatchLifecycleDeps = {
 };
 
 export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
+  const decisionV2Enabled =
+    String(process.env.DECISION_V2_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const decisionDedupeEnabled =
+    String(process.env.DECISION_DEDUPE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const decisionEvidenceRequiredForBlocking =
+    String(process.env.DECISION_EVIDENCE_REQUIRED_FOR_BLOCKING ?? "false")
+      .trim()
+      .toLowerCase() === "true";
+
   type DecisionRequestResult = {
     queued: boolean;
     decisionIds: string[];
@@ -316,14 +325,160 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     title: string;
     summary?: string | null;
     urgency?: "low" | "medium" | "high" | "urgent";
-    options?: string[];
+    options?: Array<string | Record<string, unknown>>;
     blocking?: boolean;
+    decisionType?: string | null;
+    workstreamId?: string | null;
+    agentId?: string | null;
+    dueAt?: string | null;
+    sourceSystem?: string | null;
+    conflictSource?: string | null;
+    dedupeKey?: string | null;
+    recommendedAction?: string | null;
+    sourceRunId?: string | null;
+    sourceSessionId?: string | null;
+    sourceStreamId?: string | null;
+    sourceRef?: Record<string, unknown> | null;
+    evidenceRefs?: Array<Record<string, unknown>> | null;
+    metadata?: Record<string, unknown> | null;
   }): Promise<DecisionRequestResult> {
     const initiativeId = input.initiativeId?.trim() ?? "";
     const title = input.title.trim();
     if (!initiativeId || !title) {
       return { queued: false, decisionIds: [] };
     }
+
+    type DecisionOptionPayload = {
+      id?: string;
+      label: string;
+      description?: string;
+      implied_status?: "approved" | "declined" | "cancelled" | "rejected";
+      action_type?: string;
+      requires_note?: boolean;
+    };
+    const normalizedOptions: Array<string | DecisionOptionPayload> = [];
+    for (const entry of Array.isArray(input.options) ? input.options : []) {
+      if (typeof entry === "string") {
+        const label = entry.trim();
+        if (label.length > 0) normalizedOptions.push(label);
+        continue;
+      }
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const record = entry as Record<string, unknown>;
+      const label = typeof record.label === "string" ? record.label.trim() : "";
+      if (!label) continue;
+      const optionPayload: DecisionOptionPayload = {
+        label,
+      };
+      if (typeof record.id === "string" && record.id.trim()) {
+        optionPayload.id = record.id.trim();
+      }
+      if (typeof record.description === "string" && record.description.trim()) {
+        optionPayload.description = record.description.trim();
+      }
+      if (typeof record.implied_status === "string" && record.implied_status.trim()) {
+        const implied = record.implied_status.trim().toLowerCase();
+        if (
+          implied === "approved" ||
+          implied === "declined" ||
+          implied === "cancelled" ||
+          implied === "rejected"
+        ) {
+          optionPayload.implied_status = implied;
+        }
+      }
+      if (typeof record.action_type === "string" && record.action_type.trim()) {
+        optionPayload.action_type = record.action_type.trim();
+      }
+      if (record.requires_note === true) {
+        optionPayload.requires_note = true;
+      }
+      normalizedOptions.push(optionPayload);
+    }
+
+    const normalizedEvidenceRefs = (Array.isArray(input.evidenceRefs) ? input.evidenceRefs : [])
+      .map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) ? entry : null))
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const asUuid = (value: string | null | undefined): string | undefined => {
+      const normalized = value?.trim() ?? "";
+      return uuidPattern.test(normalized) ? normalized : undefined;
+    };
+    const asIsoDateTime = (value: string | null | undefined): string | undefined => {
+      const normalized = value?.trim() ?? "";
+      if (!normalized) return undefined;
+      const epoch = Date.parse(normalized);
+      if (!Number.isFinite(epoch)) return undefined;
+      return new Date(epoch).toISOString();
+    };
+
+    const sourceRef =
+      input.sourceRef && typeof input.sourceRef === "object" && !Array.isArray(input.sourceRef)
+        ? input.sourceRef
+        : null;
+    const metadata =
+      input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
+        ? input.metadata
+        : null;
+
+    const dedupeKey =
+      input.dedupeKey?.trim() ||
+      `decision:${deps.stableHash(
+        [
+          initiativeId,
+          input.workstreamId?.trim() || "none",
+          input.conflictSource?.trim() || "general",
+          title.toLowerCase(),
+        ].join("|")
+      ).slice(0, 24)}`;
+
+    const blocking = input.blocking ?? true;
+    const fallbackEvidenceRefs =
+      blocking && decisionEvidenceRequiredForBlocking && normalizedEvidenceRefs.length === 0
+        ? [
+            {
+              evidence_type: "decision_context",
+              title: "Decision context",
+              summary:
+                input.summary?.trim() ||
+                "Blocking decision emitted without explicit evidence payload.",
+              payload: {
+                source_ref: sourceRef ?? null,
+                generated_by: "plugin_guardrail",
+              },
+            },
+          ]
+        : [];
+    const effectiveEvidenceRefs = [...normalizedEvidenceRefs, ...fallbackEvidenceRefs];
+    const operation = {
+      op: "decision.create" as const,
+      title,
+      summary: input.summary ?? undefined,
+      urgency: input.urgency ?? "high",
+      options: normalizedOptions,
+      blocking,
+      ...(decisionV2Enabled
+        ? {
+            decision_type: input.decisionType?.trim() || undefined,
+            workstream_id: asUuid(input.workstreamId),
+            agent_id: asUuid(input.agentId),
+            due_at: asIsoDateTime(input.dueAt),
+            source_system: input.sourceSystem?.trim() || "openclaw",
+            conflict_source: input.conflictSource?.trim() || undefined,
+            dedupe_key: decisionDedupeEnabled ? dedupeKey : undefined,
+            recommended_action: input.recommendedAction?.trim() || undefined,
+            source_run_id: asUuid(input.sourceRunId),
+            source_session_id: input.sourceSessionId?.trim() || undefined,
+            source_stream_id: asUuid(input.sourceStreamId),
+            source_ref: sourceRef ?? undefined,
+            evidence_refs:
+              effectiveEvidenceRefs.length > 0 ? effectiveEvidenceRefs : undefined,
+            metadata: metadata ?? undefined,
+          }
+        : {}),
+    };
 
     try {
       const response = await deps.client.applyChangeset({
@@ -334,19 +489,11 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           "openclaw",
           "decision",
           initiativeId,
+          dedupeKey,
           title,
           input.correlationId ?? null,
         ]),
-        operations: [
-          {
-            op: "decision.create",
-            title,
-            summary: input.summary ?? undefined,
-            urgency: input.urgency ?? "high",
-            options: input.options ?? [],
-            blocking: input.blocking ?? true,
-          },
-        ],
+        operations: [operation],
       });
       return {
         queued: true,
@@ -355,16 +502,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
     } catch (err: unknown) {
       const timestamp = new Date().toISOString();
       const correlationId = input.correlationId?.trim() || undefined;
-      const operations = [
-        {
-          op: "decision.create",
-          title,
-          summary: input.summary ?? undefined,
-          urgency: input.urgency ?? "high",
-          options: input.options ?? [],
-          blocking: input.blocking ?? true,
-        },
-      ];
+      const operations = [operation];
 
       const activityItem: LiveActivityItem = {
         id: deps.randomUUID(),
@@ -387,7 +525,17 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           event: "decision_buffered",
           urgency: input.urgency ?? "high",
           blocking: input.blocking ?? true,
-          options: input.options ?? [],
+          options: normalizedOptions,
+          dedupe_key: decisionDedupeEnabled ? dedupeKey : null,
+          decision_type: decisionV2Enabled
+            ? input.decisionType?.trim() || null
+            : null,
+          conflict_source: decisionV2Enabled
+            ? input.conflictSource?.trim() || null
+            : null,
+          source_system: decisionV2Enabled
+            ? input.sourceSystem?.trim() || "openclaw"
+            : "openclaw",
           error: deps.safeErrorMessage(err),
         },
       };
@@ -405,6 +553,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
               "openclaw",
               "decision",
               initiativeId,
+              dedupeKey,
               title,
               input.correlationId ?? null,
               "outbox",
@@ -813,6 +962,39 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           "Pause and investigate quality gate",
         ],
         blocking: true,
+        decisionType: "spawn_guard_blocked",
+        workstreamId: workstreamId || null,
+        agentId: input.agentId ?? null,
+        sourceSystem: "openclaw",
+        conflictSource: "spawn_guard_blocked",
+        dedupeKey: [
+          "dispatch",
+          input.initiativeId ?? "none",
+          workstreamId || "none",
+          taskId || "none",
+          "spawn_guard_blocked",
+        ].join(":"),
+        recommendedAction:
+          "Choose exception, reassignment, or pause before retrying dispatch.",
+        sourceRunId: input.runId ?? null,
+        sourceRef: {
+          run_id: input.runId ?? null,
+          correlation_id: input.correlationId,
+          task_id: taskId || null,
+          workstream_id: workstreamId || null,
+          domain: input.executionPolicy.domain,
+        },
+        evidenceRefs: [
+          {
+            evidence_type: "spawn_guard_result",
+            title: `Spawn guard blocked ${targetLabel}`,
+            summary: blockedReason,
+            payload: {
+              spawn_guard: spawnGuardResult,
+              required_skills: input.executionPolicy.requiredSkills,
+            },
+          },
+        ],
       });
     }
 

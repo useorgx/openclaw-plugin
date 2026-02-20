@@ -116,3 +116,82 @@ test("PATCH /entities does not schedule reassignment redispatch for todo workstr
   assert.equal(res.payload?.reassignment?.scheduled, false);
   assert.equal(res.payload?.reassignment?.reason, "workstream_not_active_or_ready");
 });
+
+test("PATCH /entities schedules reassignment redispatch for pending workstream updates", async () => {
+  const scheduled = [];
+  const deps = createDeps({
+    scheduleWorkstreamReassignment: async (input) => {
+      scheduled.push(input);
+      return { requestId: "req-3", dueAt: null };
+    },
+  });
+
+  const res = await invokePatch(
+    {
+      type: "workstream",
+      id: "ws-3",
+      initiative_id: "init-1",
+      status: "pending",
+      domain: "engineering",
+    },
+    deps
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].status, "pending");
+  assert.equal(res.payload?.reassignment?.scheduled, true);
+});
+
+test("PATCH /entities schedules reassignment redispatch for in_progress workstreams", async () => {
+  const scheduled = [];
+  const deps = createDeps({
+    scheduleWorkstreamReassignment: async (input) => {
+      scheduled.push(input);
+      return { requestId: "req-3", dueAt: null };
+    },
+  });
+
+  const res = await invokePatch(
+    {
+      type: "workstream",
+      id: "ws-3",
+      initiative_id: "init-1",
+      status: "in_progress",
+      assigned_agent_ids: ["agent-3"],
+    },
+    deps
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].workstreamId, "ws-3");
+  assert.equal(scheduled[0].status, "in_progress");
+  assert.equal(res.payload?.reassignment?.scheduled, true);
+});
+
+test("PATCH /entities ignores blank reassignment mutations", async () => {
+  const scheduled = [];
+  const deps = createDeps({
+    scheduleWorkstreamReassignment: async (input) => {
+      scheduled.push(input);
+      return { requestId: "req-blank", dueAt: null };
+    },
+  });
+
+  const res = await invokePatch(
+    {
+      type: "workstream",
+      id: "ws-4",
+      initiative_id: "init-1",
+      status: "active",
+      domain: "   ",
+      assigned_agent_ids: [],
+    },
+    deps
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(scheduled.length, 0);
+  assert.equal(res.payload?.reassignment, null);
+});

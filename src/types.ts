@@ -8,3 +8,4 @@
 
 export * from "./contracts/types.js";
 export * from "./contracts/retro-schema.js";
+export * from "./contracts/skill-pack-schema.js";

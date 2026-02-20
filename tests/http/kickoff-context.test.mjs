@@ -72,6 +72,11 @@ test("agents/launch dry-run renders deterministic kickoff message when kickoff c
     overview: "Build the kickoff renderer and include provenance.",
     acceptance_criteria: ["Deterministic sections", "Includes context hash"],
     constraints: ["No secrets in output"],
+    persona: {
+      voice: "Concise, direct, and pragmatic.",
+      collaboration_style: "Challenge weak assumptions with concrete alternatives.",
+      defaults: ["State assumptions explicitly.", "Provide verification evidence."],
+    },
     tool_scope: { allow: ["orgx_sync", "orgx_emit_activity"], deny: ["rm -rf"], notes: "Prefer read-only when unsure." },
     reporting_expectations: ["Post progress when tests pass", "Ask for decisions when blocked"],
     task: { id: "task-1", title: "Implement kickoff context", status: "todo" },
@@ -126,8 +131,10 @@ test("agents/launch dry-run renders deterministic kickoff message when kickoff c
   assert.equal(parsed?.kickoffContextHash, "ctx_abc123");
   assert.ok(typeof parsed?.message === "string");
   assert.ok(parsed.message.includes("# Kickoff"));
+  assert.ok(parsed.message.includes("## Behavior"));
+  assert.ok(parsed.message.includes("Voice: Concise, direct, and pragmatic."));
+  assert.ok(parsed.message.includes("Collaboration style: Challenge weak assumptions with concrete alternatives."));
   assert.ok(parsed.message.includes("## Provenance"));
   assert.ok(parsed.message.includes("kickoff_context_hash: ctx_abc123"));
   assert.ok(parsed.message.includes("## Tool Scope"));
 });
-

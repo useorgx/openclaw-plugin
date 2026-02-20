@@ -51,7 +51,12 @@ import {
   type RegisteredPrompt,
 } from "./mcp-http-handler.js";
 import { posthogCapture } from "./telemetry/posthog.js";
-import { readSkillPackState, refreshSkillPackState } from "./skill-pack-state.js";
+import {
+  readSkillPackState,
+  refreshSkillPackState,
+  rollbackSkillPackPolicy,
+  updateSkillPackPolicy,
+} from "./skill-pack-state.js";
 import {
   resolveConfig,
   resolveRuntimeUserId,
@@ -1672,6 +1677,8 @@ export default function register(api: PluginAPI): void {
     pickNonEmptyString,
     resolveReportingContext,
     readSkillPackState,
+    updateSkillPackPolicy,
+    rollbackSkillPackPolicy,
     randomUUID,
   });
 

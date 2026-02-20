@@ -106,6 +106,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     agentName?: string | null;
     workstreamId: string;
     artifact: AutopilotSliceArtifact;
+    isMockWorker?: boolean;
   }): Promise<{ ok: boolean; id: string | null }> {
     const now = new Date().toISOString();
     const name = (input.artifact.name ?? "").trim();
@@ -220,6 +221,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
               artifact_id: artifactId,
               url: input.artifact.url ?? null,
               error: deps.safeErrorMessage(err),
+              ...(input.isMockWorker ? { mock: true } : {}),
             },
           } satisfies LiveActivityItem,
         });
@@ -236,6 +238,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     correlationId: string;
     taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
     milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
+    isMockWorker?: boolean;
   }): Promise<{
     applied: number;
     buffered: boolean;
@@ -391,6 +394,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
               source: "openclaw_local_fallback",
               event: "autopilot_slice_status_updates_buffered",
               error: deps.safeErrorMessage(err),
+              ...(input.isMockWorker ? { mock: true } : {}),
             },
           } satisfies LiveActivityItem,
         });

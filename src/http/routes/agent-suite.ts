@@ -3,8 +3,11 @@ import type { Router } from "../router.js";
 type JsonRecord = Record<string, unknown>;
 type ReadSkillPackStateFn = typeof import("../../skill-pack-state.js").readSkillPackState;
 type UpdateSkillPackPolicyFn = typeof import("../../skill-pack-state.js").updateSkillPackPolicy;
+type RollbackSkillPackPolicyFn = typeof import("../../skill-pack-state.js").rollbackSkillPackPolicy;
 type ComputeOrgxAgentSuitePlanFn = typeof import("../../agent-suite.js").computeOrgxAgentSuitePlan;
 type ApplyOrgxAgentSuitePlanFn = typeof import("../../agent-suite.js").applyOrgxAgentSuitePlan;
+type ClientRuntimeSettingsResponse = import("../../contracts/types.js").ClientRuntimeSettingsResponse;
+type ClientRuntimeSettingsUpdateRequest = import("../../contracts/types.js").ClientRuntimeSettingsUpdateRequest;
 type SkillPackState = ReturnType<ReadSkillPackStateFn>;
 type OrgxSkillPackOverrides = import("../../agent-suite.js").OrgxSkillPackOverrides;
 
@@ -20,6 +23,13 @@ type RegisterAgentSuiteRoutesDeps<TReq, TRes> = {
   applyOrgxAgentSuitePlan: ApplyOrgxAgentSuitePlanFn;
   generateAgentSuiteOperationId: () => string;
   updateSkillPackPolicy: UpdateSkillPackPolicyFn;
+  rollbackSkillPackPolicy: RollbackSkillPackPolicyFn;
+  fetchAgentRuntimeSettings: (input?: {
+    projectId?: string | null;
+  }) => Promise<ClientRuntimeSettingsResponse>;
+  updateAgentRuntimeSettings: (
+    payload: ClientRuntimeSettingsUpdateRequest
+  ) => Promise<ClientRuntimeSettingsResponse>;
   posthogCapture: (input: {
     event: string;
     distinctId: string;
@@ -56,6 +66,72 @@ function computeUpdateAvailable(state: SkillPackState): boolean {
       state.pack?.checksum &&
       state.remote.checksum !== state.pack.checksum
   );
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readOptionalBoolean(payload: JsonRecord, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
+  const runtime = toRecord(payload.runtime_settings ?? payload.runtimeSettings);
+  const patch: JsonRecord = {};
+
+  const decisionV2Enabled = readOptionalBoolean(
+    runtime,
+    "decision_v2_enabled",
+    "decisionV2Enabled"
+  );
+  if (typeof decisionV2Enabled === "boolean") {
+    patch.decision_v2_enabled = decisionV2Enabled;
+  }
+
+  const decisionDedupeEnabled = readOptionalBoolean(
+    runtime,
+    "decision_dedupe_enabled",
+    "decisionDedupeEnabled"
+  );
+  if (typeof decisionDedupeEnabled === "boolean") {
+    patch.decision_dedupe_enabled = decisionDedupeEnabled;
+  }
+
+  const decisionEvidenceRequiredForBlocking = readOptionalBoolean(
+    runtime,
+    "decision_evidence_required_for_blocking",
+    "decisionEvidenceRequiredForBlocking"
+  );
+  if (typeof decisionEvidenceRequiredForBlocking === "boolean") {
+    patch.decision_evidence_required_for_blocking =
+      decisionEvidenceRequiredForBlocking;
+  }
+
+  const decisionAutoResolveGuardedEnabled = readOptionalBoolean(
+    runtime,
+    "decision_auto_resolve_guarded_enabled",
+    "decisionAutoResolveGuardedEnabled"
+  );
+  if (typeof decisionAutoResolveGuardedEnabled === "boolean") {
+    patch.decision_auto_resolve_guarded_enabled =
+      decisionAutoResolveGuardedEnabled;
+  }
+
+  const customRunInstructions = toOptionalString(
+    runtime.custom_run_instructions ?? runtime.customRunInstructions
+  );
+  if (typeof customRunInstructions === "string") {
+    patch.custom_run_instructions = customRunInstructions.slice(0, 4000);
+  }
+
+  return patch;
 }
 
 export function registerAgentSuiteRoutes<TReq, TRes>(
@@ -102,6 +178,106 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
     "agent-suite/status",
     async ({ res }) => renderStatus(res),
     "Agent suite installation status (HEAD)"
+  );
+
+  router.add(
+    "GET",
+    "agent-suite/runtime-settings",
+    async ({ req, res }) => {
+      try {
+        const requestUrl = new URL(
+          String((req as any).url ?? "/"),
+          "http://localhost"
+        );
+        const projectId = requestUrl.searchParams.get("project_id");
+        const response = await deps.fetchAgentRuntimeSettings({
+          projectId: projectId && projectId.trim().length > 0 ? projectId.trim() : null,
+        });
+        if (!response?.ok) {
+          deps.sendJson(res, 502, {
+            ok: false,
+            error: response?.error ?? "Failed to load agent runtime settings",
+          });
+          return;
+        }
+        deps.sendJson(res, 200, {
+          ok: true,
+          data: response,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          ok: false,
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "List agent runtime settings"
+  );
+
+  router.add(
+    "PATCH",
+    "agent-suite/runtime-settings",
+    async ({ req, res }) => {
+      try {
+        const payload = toRecord(await deps.parseJsonRequest(req));
+        const agentId = toOptionalString(payload.agent_id ?? payload.agentId)?.trim();
+        if (!agentId) {
+          deps.sendJson(res, 400, {
+            ok: false,
+            error: "agent_id is required",
+          });
+          return;
+        }
+
+        const runtimeSettingsPatch = normalizeRuntimeSettingsPatch(payload);
+        if (Object.keys(runtimeSettingsPatch).length === 0) {
+          deps.sendJson(res, 400, {
+            ok: false,
+            error: "runtime_settings must include at least one mutable field",
+          });
+          return;
+        }
+
+        const projectId = toOptionalString(payload.project_id ?? payload.projectId)?.trim();
+        const response = await deps.updateAgentRuntimeSettings({
+          agent_id: agentId,
+          ...(projectId ? { project_id: projectId } : {}),
+          runtime_settings:
+            runtimeSettingsPatch as ClientRuntimeSettingsUpdateRequest["runtime_settings"],
+        });
+
+        if (!response?.ok) {
+          deps.sendJson(res, 502, {
+            ok: false,
+            error: response?.error ?? "Failed to update agent runtime settings",
+          });
+          return;
+        }
+
+        deps.sendJson(res, 200, {
+          ok: true,
+          data: response,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          ok: false,
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "Update agent runtime settings"
+  );
+
+  router.add(
+    "*",
+    "agent-suite/runtime-settings",
+    ({ res }) => {
+      deps.sendJson(res, 405, {
+        ok: false,
+        error: "Use GET/PATCH /orgx/api/agent-suite/runtime-settings",
+      });
+    },
+    "Reject unsupported methods for agent-suite/runtime-settings"
   );
 
   router.add(
@@ -207,6 +383,7 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
         ok: true,
         data: {
           policy: state.policy,
+          audit: state.audit,
           pack: state.pack,
           remote: state.remote,
           updateAvailable: computeUpdateAvailable(state),
@@ -228,20 +405,63 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
         const frozen = typeof frozenRaw === "boolean" ? frozenRaw : undefined;
         const pinToCurrent = readBoolean(payload, "pinToCurrent", "pin_to_current");
         const clearPin = readBoolean(payload, "clearPin", "clear_pin");
-        const pinnedChecksumRaw = payload.pinnedChecksum;
+        const changedByRaw = payload.changedBy ?? payload.changed_by;
+        const changedBy = typeof changedByRaw === "string" ? changedByRaw : undefined;
+        const reasonRaw = payload.reason;
+        const reason = typeof reasonRaw === "string" ? reasonRaw : undefined;
+        const actionRaw = payload.action;
+        const action = typeof actionRaw === "string" ? actionRaw.trim().toLowerCase() : "";
+        const rollbackToAuditIdRaw = payload.rollbackToAuditId ?? payload.rollback_to_audit_id;
+        const rollbackToAuditId = toOptionalString(rollbackToAuditIdRaw)?.trim() || undefined;
+        const pinnedChecksumRaw = payload.pinnedChecksum ?? payload.pinned_checksum;
         const pinnedChecksum =
           typeof pinnedChecksumRaw === "string"
             ? pinnedChecksumRaw
             : pinnedChecksumRaw === null
               ? null
               : undefined;
+        const hasFrozen = typeof frozen === "boolean";
+        const hasPinnedChecksum = typeof pinnedChecksum === "string" || pinnedChecksum === null;
+        const hasPinToCurrent = pinToCurrent === true;
+        const hasClearPin = clearPin === true;
+        const isRollback = action === "rollback" || typeof rollbackToAuditId === "string";
 
-        const state = deps.updateSkillPackPolicy({
-          frozen,
-          pinToCurrent,
-          clearPin,
-          pinnedChecksum,
-        });
+        if (action.length > 0 && action !== "rollback") {
+          throw new Error("action must be 'rollback' when provided.");
+        }
+        if (hasPinToCurrent && hasClearPin) {
+          throw new Error("pinToCurrent and clearPin cannot both be true.");
+        }
+        if (typeof pinnedChecksum === "string" && !pinnedChecksum.trim()) {
+          throw new Error("pinnedChecksum must be a non-empty string when provided.");
+        }
+        if (isRollback) {
+          if (hasFrozen || hasPinnedChecksum || hasPinToCurrent || hasClearPin) {
+            throw new Error(
+              "Rollback requests cannot include update fields (frozen, pinnedChecksum, pinToCurrent, clearPin)."
+            );
+          }
+        } else if (!hasFrozen && !hasPinnedChecksum && !hasPinToCurrent && !hasClearPin) {
+          throw new Error(
+            "Include at least one mutable field: frozen, pinnedChecksum, pinToCurrent, or clearPin."
+          );
+        }
+
+        const state =
+          isRollback
+            ? deps.rollbackSkillPackPolicy({
+                auditId: rollbackToAuditId,
+                changedBy,
+                reason,
+              })
+            : deps.updateSkillPackPolicy({
+                frozen,
+                pinToCurrent,
+                clearPin,
+                pinnedChecksum: typeof pinnedChecksum === "string" ? pinnedChecksum.trim() : pinnedChecksum,
+                changedBy,
+                reason,
+              });
 
         void deps
           .posthogCapture({
@@ -259,7 +479,13 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
             // best effort
           });
 
-        deps.sendJson(res, 200, { ok: true, data: state.policy });
+        deps.sendJson(res, 200, {
+          ok: true,
+          data: {
+            policy: state.policy,
+            audit: state.audit,
+          },
+        });
       } catch (err: unknown) {
         deps.sendJson(res, 400, { ok: false, error: deps.safeErrorMessage(err) });
       }

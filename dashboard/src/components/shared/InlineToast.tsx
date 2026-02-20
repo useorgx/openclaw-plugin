@@ -21,10 +21,10 @@ interface InlineToastProps {
 }
 
 function toneClasses(tone: ToastTone): string {
-  if (tone === 'success') return 'border-emerald-400/30 bg-emerald-500/14 text-emerald-100';
-  if (tone === 'warning') return 'border-amber-300/30 bg-amber-400/14 text-amber-100';
-  if (tone === 'error') return 'border-red-400/32 bg-red-500/16 text-red-100';
-  if (tone === 'info') return 'border-cyan-300/28 bg-cyan-400/12 text-cyan-100';
+  if (tone === 'success') return 'border-emerald-400/30 bg-[#0A1210]/95 text-emerald-100';
+  if (tone === 'warning') return 'border-amber-300/30 bg-[#12100A]/95 text-amber-100';
+  if (tone === 'error') return 'border-red-400/32 bg-[#120A0A]/95 text-red-100';
+  if (tone === 'info') return 'border-cyan-300/28 bg-[#0A1012]/95 text-cyan-100';
   return 'border-strong bg-[#0B0F16]/95 text-primary';
 }
 

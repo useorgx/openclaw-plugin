@@ -1,0 +1,54 @@
+{
+  "name": "TestThisConfigAction",
+  "description": "Dry-run trigger and result surface for per-agent settings that executes a simulated run using unsaved draft values against a sample task, helping operators validate expected behavior before committing configuration changes.",
+  "usage": "Render in the Agent Settings action area when a draft is present. Trigger a non-persistent dry-run against the selected sample task and display a structured result panel with outcome, expected execution trace, and risk flags.",
+  "props": [
+    {
+      "name": "agentId",
+      "type": "string"
+    },
+    {
+      "name": "draftConfig",
+      "type": "AgentConfigDraft"
+    },
+    {
+      "name": "sampleTaskId",
+      "type": "string"
+    },
+    {
+      "name": "isDirty",
+      "type": "boolean"
+    },
+    {
+      "name": "validation",
+      "type": "{ isValid: boolean; errors: Array<{ field: string; message: string }> }"
+    },
+    {
+      "name": "onRunDryTest",
+      "type": "(payload: { agentId: string; sampleTaskId: string; draftConfig: AgentConfigDraft }) => Promise<DryRunResult>"
+    },
+    {
+      "name": "lastResult",
+      "type": "DryRunResult | null"
+    }
+  ],
+  "accessibility": {
+    "notes": "Keyboard: button is in main tab order and remains reachable after result panel opens; Enter/Space triggers test; Escape closes result panel without clearing data. ARIA: test control uses aria-busy during execution; result container uses role='region' with aria-labelledby; summary updates announce via aria-live='polite'; blocked state includes explicit text and icon, not color-only signaling."
+  },
+  "examples": [
+    "<TestThisConfigAction agentId='orion' draftConfig={draft} sampleTaskId='triage-sample' isDirty validation={validation} onRunDryTest={runDry} lastResult={result} />",
+    "<TestThisConfigAction agentId='eli' draftConfig={saved} sampleTaskId='incident-template' isDirty={false} validation={{ isValid: true, errors: [] }} onRunDryTest={runDry} lastResult={null} />"
+  ],
+  "dos": [
+    "Disable test action only when validation fails; show specific blocker text beside the control.",
+    "Keep the primary test action touch target at least 44px on 375px viewports.",
+    "Label every dry-run output with 'Draft simulation' and timestamp to prevent confusion with persisted behavior.",
+    "Present expected execution steps as concise ordered items and include at least one confidence note."
+  ],
+  "donts": [
+    "Do not mutate persisted agent settings from a test invocation.",
+    "Do not hide failed dry-run details behind an undiscoverable interaction.",
+    "Do not mix lime and teal accents on the same control state.",
+    "Do not clear the previous successful result until a new run starts."
+  ]
+}

@@ -48,9 +48,19 @@ export interface LiveData {
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
+  sliceRuns: SliceRunProjection[];
   outbox: OutboxStatus;
   runtimeInstances?: RuntimeInstance[];
   agentSuite?: AgentSuitePlan;
+  workSliceProjections?: WorkSliceProjectionV2[];
+  timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
+  nextUpByInitiative?: NextUpInitiativeProjection[];
+  runningWorkSlices?: number;
+  needsInputTotal?: number;
+  failedActionableTotal?: number;
+  completedTodayTotal?: number;
+  consistencyFlags?: string[];
+  dataHealth?: SliceDataHealthSummary;
 }
 
 export interface OutboxStatus {
@@ -63,6 +73,207 @@ export interface OutboxStatus {
   lastReplaySuccessAt: string | null;
   lastReplayFailureAt: string | null;
   lastReplayError: string | null;
+}
+
+export type SliceRunLifecycleState =
+  | 'queued'
+  | 'dispatching'
+  | 'running'
+  | 'awaiting_input'
+  | 'completed'
+  | 'needs_review'
+  | 'failed'
+  | 'archived';
+
+export type SliceRunPrimaryAction =
+  | 'none'
+  | 'open_artifact'
+  | 'resolve_decision'
+  | 'retry_slice'
+  | 'review_output';
+
+export interface SliceRunArtifactSummary {
+  id: string | null;
+  type: string | null;
+  title: string;
+  url: string | null;
+  createdAt: string | null;
+}
+
+export interface SliceRunDecisionOption {
+  id: string;
+  label: string;
+  description: string | null;
+  impliedStatus: string | null;
+  requiresNote: boolean;
+}
+
+export interface SliceRunProjection {
+  id: string;
+  sliceRunId: string;
+  runId: string | null;
+  initiativeId: string | null;
+  initiativeIds?: string[];
+  workstreamId: string | null;
+  workstreamIds?: string[];
+  iwmtId?: string | null;
+  iwmtIds?: string[];
+  workstreamTitle: string | null;
+  taskIds: string[];
+  milestoneIds: string[];
+  status: SliceRunLifecycleState;
+  statusExplainer: string;
+  primaryAction: SliceRunPrimaryAction;
+  hasArtifact: boolean;
+  artifactCount: number;
+  artifacts: SliceRunArtifactSummary[];
+  decisionCount: number;
+  blockingDecisionCount: number;
+  decisionOptions: SliceRunDecisionOption[];
+  sourceClient: string | null;
+  runtimeState: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  archivedAt: string | null;
+  lastEventAt: string | null;
+  lastEventSummary: string | null;
+  correlationId: string | null;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+export type SliceKind = 'work_slice' | 'runtime_reporting' | 'system_maintenance';
+export type SliceLifecycleStateV2 =
+  | 'queued'
+  | 'dispatching'
+  | 'running'
+  | 'awaiting_input'
+  | 'completed'
+  | 'failed'
+  | 'archived';
+export type SliceOutcomeState =
+  | 'succeeded_with_artifacts'
+  | 'succeeded_without_artifacts'
+  | 'failed_actionable'
+  | 'failed_non_actionable'
+  | 'needs_input';
+export type SliceActionType =
+  | 'approve'
+  | 'reject'
+  | 'retry'
+  | 'resume'
+  | 'open_artifact'
+  | 'provide_context';
+
+export interface SliceActorProvenance {
+  actorType: 'agent' | 'user' | 'orgx' | 'system';
+  actorId: string;
+  displayName: string;
+  avatarKey: string;
+}
+
+export interface SliceLineageRef {
+  initiativeIds: string[];
+  initiativeTitles: string[];
+  workstreamIds: string[];
+  workstreamTitles: string[];
+  taskIds: string[];
+  milestoneIds: string[];
+  iwmtIds: string[];
+  sliceRunId: string;
+  sessionId: string | null;
+}
+
+export interface SliceArtifactEnvelope {
+  artifactId: string;
+  sliceRunId: string;
+  type: string;
+  title: string;
+  url: string | null;
+  preview: string | null;
+  validation: 'present' | 'missing' | 'invalid';
+  confidence: number;
+  producedAt: string | null;
+  producer: 'agent' | 'system' | 'user';
+}
+
+export interface SliceActionContract {
+  actionType: SliceActionType;
+  label: string;
+  payloadSchema: Record<string, unknown>;
+  primary: boolean;
+}
+
+export interface WorkSliceProjectionV2 {
+  projectionVersion: number;
+  lastEventId: string | null;
+  consistencyFlags: string[];
+  sliceRunId: string;
+  runId: string | null;
+  sliceKind: SliceKind;
+  lifecycleState: SliceLifecycleStateV2;
+  outcomeState: SliceOutcomeState;
+  statusExplainer: string;
+  actorProvenance: SliceActorProvenance;
+  lineage: SliceLineageRef;
+  artifacts: SliceArtifactEnvelope[];
+  artifactCount: number;
+  hasArtifact: boolean;
+  actionContract: SliceActionContract | null;
+  updatedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  archivedAt: string | null;
+  runtimeState: string | null;
+  sourceClient: string | null;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+export interface SliceTimelineNarrativeProjectionV2 {
+  projectionVersion: number;
+  sliceRunId: string;
+  title: string;
+  occurredAt: string | null;
+  actorProvenance: SliceActorProvenance;
+  intent: string;
+  dispatch: string;
+  highlights: string[];
+  outcome: {
+    state: SliceOutcomeState;
+    summary: string;
+    artifactCount: number;
+  };
+  nextAction: SliceActionContract | null;
+  technicalTrace: {
+    eventCount: number;
+    eventIds: string[];
+  };
+}
+
+export interface NextUpInitiativeProjection {
+  initiativeId: string | null;
+  initiativeTitle: string;
+  pendingCount: number;
+  queue: Array<{
+    workstreamId: string | null;
+    workstreamTitle: string;
+    queueState: string;
+    priorityNum: number | null;
+    dependencySummary: string | null;
+    tasksRemaining: number | null;
+  }>;
+}
+
+export interface SliceDataHealthSummary {
+  status: 'healthy' | 'degraded';
+  totals: {
+    slices: number;
+    missingTerminal: number;
+    lineageGap: number;
+    artifactMismatch: number;
+    invalidActor: number;
+  };
 }
 
 export interface LiveSnapshotAgent {
@@ -81,11 +292,24 @@ export interface LiveSnapshotResponse {
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];
   decisions: LiveDecision[];
+  sliceRuns?: SliceRunProjection[];
   agents: LiveSnapshotAgent[];
   runtimeInstances?: RuntimeInstance[];
   outbox?: OutboxStatus;
   generatedAt: string;
   degraded?: string[];
+  projections?: WorkSliceProjectionV2[];
+  inProgress?: WorkSliceProjectionV2[];
+  needsInputItems?: WorkSliceProjectionV2[];
+  failedItems?: WorkSliceProjectionV2[];
+  nextUpByInitiative?: NextUpInitiativeProjection[];
+  timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
+  runningWorkSlices?: number;
+  needsInput?: number;
+  failedActionable?: number;
+  completedToday?: number;
+  consistencyFlags?: string[];
+  dataHealth?: SliceDataHealthSummary;
 }
 
 // -----------------------------------------------------------------------------
@@ -108,6 +332,14 @@ export interface AgentSuiteAgent {
   workspace: string;
   configuredInOpenclaw: boolean;
   workspaceExists: boolean;
+  configHealth: {
+    status: 'healthy' | 'needs_apply' | 'conflict';
+    lastChangedAt: string | null;
+    evalPassRate: number;
+    totalChecks: number;
+    passedChecks: number;
+    failedChecks: number;
+  };
 }
 
 export interface AgentSuiteWorkspaceFile {
@@ -117,6 +349,28 @@ export interface AgentSuiteWorkspaceFile {
   localPath: string;
   compositePath: string;
   action: 'create' | 'update' | 'noop' | 'conflict';
+}
+
+export interface AgentRuntimeSettings {
+  decisionV2Enabled: boolean;
+  decisionDedupeEnabled: boolean;
+  decisionEvidenceRequiredForBlocking: boolean;
+  decisionAutoResolveGuardedEnabled: boolean;
+  customRunInstructions: string;
+}
+
+export interface AgentRuntimeSettingsAgent {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  model: string | null;
+  runtimeSettings: AgentRuntimeSettings;
+}
+
+export interface AgentRuntimeSettingsData {
+  projectId: string | null;
+  agents: AgentRuntimeSettingsAgent[];
 }
 
 export interface AgentSuitePlan {

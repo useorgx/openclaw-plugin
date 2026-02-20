@@ -401,6 +401,7 @@ function createClientHarness() {
 
 async function runPlayTickStatus({
   scenario,
+  initiativeId = "init-1",
   extraEnv = {},
   configureHarness = null,
   after = null,
@@ -427,9 +428,9 @@ async function runPlayTickStatus({
 
       const resPlay = await call(handler, {
         method: "POST",
-        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        url: `/orgx/api/mission-control/next-up/play?initiativeId=${encodeURIComponent(initiativeId)}&workstreamId=ws-1&agentId=agent-1`,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+        body: JSON.stringify({ initiativeId, workstreamId: "ws-1", agentId: "agent-1" }),
       });
       assert.equal(resPlay.status, 200);
 
@@ -438,15 +439,15 @@ async function runPlayTickStatus({
 
       const resTick = await call(handler, {
         method: "POST",
-        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+        url: `/orgx/api/mission-control/auto-continue/tick?initiativeId=${encodeURIComponent(initiativeId)}`,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId: "init-1" }),
+        body: JSON.stringify({ initiativeId }),
       });
       assert.equal(resTick.status, 200);
 
       const resStatus = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+        url: `/orgx/api/mission-control/auto-continue/status?initiativeId=${encodeURIComponent(initiativeId)}`,
         headers: {},
       });
       assert.equal(resStatus.status, 200);
@@ -962,6 +963,355 @@ test("autopilot slice lifecycle: needs_decision blocks and requests decision", a
   assert.equal(sliceResult.metadata?.non_blocking_decisions, 0);
   assert.equal(sliceResult.metadata?.decision_required, true);
   assert.equal(sliceResult.metadata?.activity_bucket, "decision");
+});
+
+test("autopilot slice lifecycle: behavior config approval gate blocks before dispatch", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-approval-gate-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        behavior_config_id: "default",
+        behavior_config_version: "v1",
+        behavior_approval_status: "pending",
+        behavior_requires_approval: true,
+      });
+
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.equal(resPlay.status, 409);
+
+      assert.equal(calls.checkSpawnGuard.length, 0, "spawn guard should not run before approval gate");
+      const decisionOps = listDecisionCreateOps(calls);
+      assert.ok(decisionOps.length > 0, "expected decision.create");
+      assert.ok(
+        decisionOps.some(
+          (op) =>
+            op.blocking === true &&
+            String(op.title ?? "").toLowerCase().includes("approve behavior config")
+        ),
+        "expected blocking config-approval decision"
+      );
+      const gateActivity = calls.emitActivity.find(
+        (payload) => payload?.metadata?.event === "auto_continue_behavior_config_approval_required"
+      );
+      assert.ok(gateActivity, "expected approval gate activity");
+    }
+  );
+});
+
+test("autopilot slice lifecycle: behavior config approval gate normalizes in-review status", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-approval-review-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        behavior_config_id: "default",
+        behavior_config_version: "v1",
+        behavior_approval_status: "In Review",
+        behavior_requires_approval: true,
+      });
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.equal(resPlay.status, 409);
+
+      assert.equal(calls.checkSpawnGuard.length, 0, "spawn guard should not run before approval gate");
+      const decisionOps = listDecisionCreateOps(calls);
+      assert.ok(decisionOps.length > 0, "expected decision.create");
+      assert.ok(
+        decisionOps.some((op) => op.blocking === true),
+        "expected blocking decision for in-review status"
+      );
+    }
+  );
+});
+
+test("autopilot slice lifecycle: behavior config drift emits alert and continues dispatch", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-config-drift-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        behavior_config_id: "default",
+        behavior_config_version: "v1",
+        behavior_config_hash: "task-hash",
+        policy_source: "workstream_override",
+        behavior_context: "Always run targeted checks only.",
+        automation_level: "auto",
+      });
+
+      const originalListEntities = client.listEntities;
+      client.listEntities = async (type, filters) => {
+        const result = await originalListEntities(type, filters);
+        if (type !== "workstream") return result;
+        return {
+          ...result,
+          data: (Array.isArray(result?.data) ? result.data : []).map((entry) =>
+            entry?.id === "ws-1"
+                ? {
+                  ...entry,
+                  behavior_config_id: "default",
+                  behavior_config_version: "v1",
+                  behavior_config_hash: "workstream-hash",
+                  policy_source: "Workstream Override",
+                  behavior_context: "Always run   targeted checks only.",
+                  automation_level: "auto",
+                }
+              : entry
+          ),
+        };
+      };
+
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.ok([200, 202].includes(resPlay.status), `expected successful dispatch, got ${resPlay.status}`);
+
+      const driftActivity = calls.emitActivity.find(
+        (payload) => payload?.metadata?.event === "auto_continue_behavior_config_drift_detected"
+      );
+      assert.ok(driftActivity, "expected behavior config drift alert activity");
+      const driftFields = Array.isArray(driftActivity?.metadata?.drift_fields)
+        ? driftActivity.metadata.drift_fields
+        : [];
+      assert.ok(driftFields.includes("hash"), "expected hash drift field");
+      assert.ok(
+        !driftFields.includes("policy_source"),
+        "expected no policy_source drift for equivalent formatting differences"
+      );
+    }
+  );
+});
+
+test("autopilot slice lifecycle: task-only behavior config does not emit drift without declared workstream config", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-config-drift-task-only-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        behavior_config_id: "task-specific",
+        behavior_config_version: "v2",
+        behavior_config_hash: "task-hash",
+        behavior_context: "Task-level override.",
+        automation_level: "auto",
+      });
+
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resPlay = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/next-up/play?initiativeId=init-1&workstreamId=ws-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", workstreamId: "ws-1", agentId: "agent-1" }),
+      });
+      assert.ok([200, 202].includes(resPlay.status), `expected successful dispatch, got ${resPlay.status}`);
+
+      const driftActivity = calls.emitActivity.find(
+        (payload) => payload?.metadata?.event === "auto_continue_behavior_config_drift_detected"
+      );
+      assert.equal(driftActivity, undefined, "expected no drift alert without declared workstream config");
+    }
+  );
+});
+
+test("autopilot slice lifecycle: manual automation level blocks auto-continue dispatch", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-manual-mode-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        automation_level: "manual",
+      });
+
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resStart = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/start?initiativeId=init-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", agentId: "agent-1" }),
+      });
+      assert.equal(resStart.status, 200);
+
+      const resTick = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resTick.status, 200);
+
+      const resStatus = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+        headers: {},
+      });
+      assert.equal(resStatus.status, 200);
+      const statusBody = JSON.parse(resStatus.body);
+      assert.equal(statusBody?.run?.status, "stopped");
+      assert.equal(statusBody?.run?.stopReason, "blocked");
+      assert.equal(calls.checkSpawnGuard.length, 0, "manual mode should not reach spawn guard");
+      const decisionOps = listDecisionCreateOps(calls);
+      assert.ok(decisionOps.length > 0, "expected blocking decision for manual mode");
+      assert.ok(
+        decisionOps.some(
+          (op) =>
+            op.blocking === true &&
+            String(op.title ?? "").toLowerCase().includes("manual dispatch required")
+        ),
+        "expected manual-dispatch decision title"
+      );
+      const blockedActivity = calls.emitActivity.find(
+        (payload) => payload?.metadata?.event === "auto_continue_behavior_automation_manual_blocked"
+      );
+      assert.ok(blockedActivity, "expected manual automation-level block activity");
+    }
+  );
+});
+
+test("autopilot slice lifecycle: supervised automation level stops after one dispatched slice", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-supervised-mode-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+    },
+    async () => {
+      const config = baseConfig();
+      const { client, calls, state } = createClientHarness();
+      const existing = state.tasks.get("task-1");
+      assert.ok(existing, "expected seeded task");
+      state.tasks.set("task-1", {
+        ...existing,
+        automation_level: "supervised",
+      });
+      state.tasks.set("task-2", {
+        id: "task-2",
+        title: "Second task waits for first completion",
+        status: "todo",
+        initiative_id: "init-1",
+        workstream_id: "ws-1",
+        milestone_id: null,
+        priority: "high",
+        depends_on: ["task-1"],
+      });
+
+      const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+      const resStart = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/start?initiativeId=init-1&agentId=agent-1",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1", agentId: "agent-1" }),
+      });
+      assert.equal(resStart.status, 200);
+
+      let statusBody = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const resTick = await call(handler, {
+          method: "POST",
+          url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ initiativeId: "init-1" }),
+        });
+        assert.equal(resTick.status, 200);
+
+        const resStatus = await call(handler, {
+          method: "GET",
+          url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+          headers: {},
+        });
+        assert.equal(resStatus.status, 200);
+        statusBody = JSON.parse(resStatus.body);
+        if (statusBody?.run?.status === "stopped") break;
+        await sleep(120);
+      }
+
+      assert.ok(statusBody?.run, "expected status payload");
+      assert.equal(statusBody.run.status, "stopped");
+      assert.equal(statusBody.run.stopReason, "completed");
+      assert.equal(state.tasks.get("task-2")?.status, "todo");
+      const dispatchedCount = calls.emitActivity.filter(
+        (payload) => payload?.metadata?.event === "autopilot_slice_dispatched"
+      ).length;
+      assert.equal(dispatchedCount, 1, "supervised mode should dispatch only one slice per run");
+    }
+  );
 });
 
 test("autopilot slice lifecycle: blocked without decisions synthesizes fallback blocking decision", async () => {

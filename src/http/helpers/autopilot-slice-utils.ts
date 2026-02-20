@@ -505,6 +505,13 @@ export function buildWorkstreamSlicePrompt(input: {
   milestoneSummaries: Array<{ id: string; title: string; status: string }>;
   taskSummaries: Array<{ id: string; title: string; status: string; milestoneId: string | null }>;
   executionPolicy: { domain: string; requiredSkills: string[] };
+  behaviorConfig?: {
+    configId?: string | null;
+    version?: string | null;
+    hash?: string | null;
+    policySource?: string | null;
+    context?: string | null;
+  } | null;
   runId: string;
   schemaPath: string;
 }): string {
@@ -545,6 +552,23 @@ export function buildWorkstreamSlicePrompt(input: {
     })
     .slice(0, 18)
     .join("\n");
+  const behaviorConfigLines = [
+    input.behaviorConfig?.configId
+      ? `- behavior_config_id: ${input.behaviorConfig.configId}`
+      : null,
+    input.behaviorConfig?.version
+      ? `- behavior_config_version: ${input.behaviorConfig.version}`
+      : null,
+    input.behaviorConfig?.hash
+      ? `- behavior_config_hash: ${input.behaviorConfig.hash}`
+      : null,
+    input.behaviorConfig?.policySource
+      ? `- policy_source: ${input.behaviorConfig.policySource}`
+      : null,
+    input.behaviorConfig?.context
+      ? `- behavior_context: ${input.behaviorConfig.context}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
 
   return [
     "You are an OrgX execution agent running ONE workstream slice in a background autonomous session.",
@@ -555,6 +579,13 @@ export function buildWorkstreamSlicePrompt(input: {
     `Initiative: ${input.initiativeTitle} [${input.initiativeId}]`,
     `Workstream: ${input.workstreamTitle} [${input.workstreamId}]`,
     `Slice run: ${input.runId}`,
+    ...(behaviorConfigLines.length > 0
+      ? [
+          "",
+          "Behavior config (plugin-injected context):",
+          ...behaviorConfigLines,
+        ]
+      : []),
     "",
     "Milestones (context):",
     milestones || "- (none found)",

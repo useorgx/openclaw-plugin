@@ -85,6 +85,33 @@ export function renderKickoffMessage(input: {
   const allow = normalizeKickoffLines(kickoff.tool_scope?.allow ?? null);
   const deny = normalizeKickoffLines(kickoff.tool_scope?.deny ?? null);
   const toolNotes = (kickoff.tool_scope?.notes ?? "").trim();
+  const personaVoice = (kickoff.persona?.voice ?? "").trim();
+  const collaborationStyle = (kickoff.persona?.collaboration_style ?? "").trim();
+  const personaDefaults = normalizeKickoffLines(kickoff.persona?.defaults ?? null);
+  const runtimeSettings =
+    kickoff.runtime_settings && typeof kickoff.runtime_settings === "object"
+      ? kickoff.runtime_settings
+      : null;
+  const customRunInstructions =
+    runtimeSettings && typeof runtimeSettings.custom_run_instructions === "string"
+      ? runtimeSettings.custom_run_instructions.trim()
+      : "";
+  const runtimeFlagLines = [
+    runtimeSettings && typeof runtimeSettings.decision_v2_enabled === "boolean"
+      ? `- Decision V2: ${runtimeSettings.decision_v2_enabled ? "enabled" : "disabled"}`
+      : null,
+    runtimeSettings && typeof runtimeSettings.decision_dedupe_enabled === "boolean"
+      ? `- Decision dedupe: ${runtimeSettings.decision_dedupe_enabled ? "enabled" : "disabled"}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.decision_evidence_required_for_blocking === "boolean"
+      ? `- Blocking evidence required: ${runtimeSettings.decision_evidence_required_for_blocking ? "enabled" : "disabled"}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.decision_auto_resolve_guarded_enabled === "boolean"
+      ? `- Guarded auto-resolve: ${runtimeSettings.decision_auto_resolve_guarded_enabled ? "enabled" : "disabled"}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
 
   const contextHash = kickoff.context_hash?.trim() || null;
   const schemaVersion = (kickoff.schema_version ?? "").trim();
@@ -156,6 +183,24 @@ export function renderKickoffMessage(input: {
   lines.push("- Communicate early when blocked. Provide options, tradeoffs, and a recommendation.");
   lines.push("- Verify before claiming done. Prefer proof (commands/tests) over confidence.");
   lines.push("");
+
+  if (runtimeFlagLines.length > 0 || customRunInstructions) {
+    lines.push("## Runtime Settings");
+    for (const line of runtimeFlagLines) lines.push(line);
+    if (customRunInstructions) {
+      lines.push("- Custom run instructions:");
+      lines.push(`  ${customRunInstructions}`);
+    }
+    lines.push("");
+  }
+
+  if (personaVoice || collaborationStyle || personaDefaults.length > 0) {
+    lines.push("## Behavior");
+    if (personaVoice) lines.push(`- Voice: ${personaVoice}`);
+    if (collaborationStyle) lines.push(`- Collaboration style: ${collaborationStyle}`);
+    for (const item of personaDefaults) lines.push(`- Default: ${item}`);
+    lines.push("");
+  }
 
   if (allow.length > 0 || deny.length > 0 || toolNotes) {
     lines.push("## Tool Scope");

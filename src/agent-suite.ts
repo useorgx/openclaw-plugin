@@ -36,6 +36,8 @@ export type OrgxSuiteAgentSpec = {
   domain: OrgxSuiteDomain;
 };
 
+export type OrgxAgentConfigHealthStatus = "healthy" | "needs_apply" | "conflict";
+
 export const ORGX_AGENT_SUITE_PACK_ID = "orgx-agent-suite";
 
 export const ORGX_AGENT_SUITE_AGENTS: OrgxSuiteAgentSpec[] = [
@@ -103,6 +105,14 @@ export type OrgxAgentSuiteStatus = {
     workspace: string;
     configuredInOpenclaw: boolean;
     workspaceExists: boolean;
+    configHealth: {
+      status: OrgxAgentConfigHealthStatus;
+      lastChangedAt: string | null;
+      evalPassRate: number;
+      totalChecks: number;
+      passedChecks: number;
+      failedChecks: number;
+    };
   }>;
 };
 
@@ -217,6 +227,19 @@ function loadTextFile(path: string): string | null {
 
 function normalizeNewlines(value: string): string {
   return value.replace(/\r\n/g, "\n");
+}
+
+function readFileMtimeMs(path: string): number | null {
+  try {
+    if (!existsSync(path)) return null;
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function roundRate(value: number): number {
+  return Number(value.toFixed(3));
 }
 
 function domainPersona(domain: OrgxSuiteDomain): {
@@ -388,6 +411,7 @@ function buildManagedFileContent(input: {
           "orgx_request_decision",
           "orgx_spawn_check",
           "orgx_apply_changeset",
+          "orgx_reassign_stream",
         ],
         orchestration: [
           "orgx_status",
@@ -398,6 +422,7 @@ function buildManagedFileContent(input: {
           "orgx_request_decision",
           "orgx_spawn_check",
           "orgx_apply_changeset",
+          "orgx_reassign_stream",
         ],
       };
       const scopeKey = `orgx-openclaw-${input.agent.domain}`;
@@ -412,6 +437,7 @@ function buildManagedFileContent(input: {
         "- orgx_register_artifact",
         "- orgx_request_decision",
         "- orgx_spawn_check",
+        "- orgx_reassign_stream",
         "",
         "## Scoped MCP (Recommended)",
         `If your client supports MCP server selection, prefer the scoped server key: \`${scopeKey}\`.`,
@@ -618,7 +644,7 @@ export function computeOrgxAgentSuitePlan(input: {
   const suiteWorkspaceRoot = resolveSuiteWorkspaceRoot(parsed);
   const upsert = upsertSuiteAgentsIntoConfig({ openclaw: parsed, suiteWorkspaceRoot });
 
-  const agents = ORGX_AGENT_SUITE_AGENTS.map((agent) => {
+  const baseAgents = ORGX_AGENT_SUITE_AGENTS.map((agent) => {
     const workspace = join(suiteWorkspaceRoot, agent.id);
     const list = Array.isArray(parsed?.agents?.list) ? parsed?.agents?.list : [];
     const configured = list.some((entry) => String(entry?.id ?? "").trim() === agent.id);
@@ -631,7 +657,11 @@ export function computeOrgxAgentSuitePlan(input: {
   });
 
   const workspaceFiles: OrgxAgentSuitePlan["workspaceFiles"] = [];
-  for (const agent of agents) {
+  const healthStats = new Map<
+    string,
+    { totalChecks: number; passedChecks: number; failedChecks: number; lastChangedMs: number | null }
+  >();
+  for (const agent of baseAgents) {
     for (const file of SUITE_FILES) {
       const managedPath = join(agent.workspace, SUITE_MANAGED_DIR, file);
       const localPath = join(agent.workspace, SUITE_LOCAL_DIR, file);
@@ -666,8 +696,54 @@ export function computeOrgxAgentSuitePlan(input: {
         compositePath,
         action,
       });
+
+      const stats = healthStats.get(agent.id) ?? {
+        totalChecks: 0,
+        passedChecks: 0,
+        failedChecks: 0,
+        lastChangedMs: null,
+      };
+      stats.totalChecks += 1;
+      if (action === "noop") {
+        stats.passedChecks += 1;
+      }
+      if (action === "conflict") {
+        stats.failedChecks += 1;
+      }
+      const changedMs = readFileMtimeMs(compositePath);
+      if (typeof changedMs === "number" && (stats.lastChangedMs == null || changedMs > stats.lastChangedMs)) {
+        stats.lastChangedMs = changedMs;
+      }
+      healthStats.set(agent.id, stats);
     }
   }
+
+  const agents: OrgxAgentSuiteStatus["agents"] = baseAgents.map((agent) => {
+    const stats = healthStats.get(agent.id) ?? {
+      totalChecks: 0,
+      passedChecks: 0,
+      failedChecks: 0,
+      lastChangedMs: null,
+    };
+    const status: OrgxAgentConfigHealthStatus =
+      stats.failedChecks > 0
+        ? "conflict"
+        : stats.totalChecks > 0 && stats.passedChecks === stats.totalChecks
+          ? "healthy"
+          : "needs_apply";
+    const evalPassRate = stats.totalChecks > 0 ? roundRate(stats.passedChecks / stats.totalChecks) : 0;
+    return {
+      ...agent,
+      configHealth: {
+        status,
+        lastChangedAt: stats.lastChangedMs == null ? null : new Date(stats.lastChangedMs).toISOString(),
+        evalPassRate,
+        totalChecks: stats.totalChecks,
+        passedChecks: stats.passedChecks,
+        failedChecks: stats.failedChecks,
+      },
+    };
+  });
 
   return {
     packId: ORGX_AGENT_SUITE_PACK_ID,

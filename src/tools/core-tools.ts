@@ -2,6 +2,7 @@ import { randomUUID as randomUuidFn } from "node:crypto";
 
 import type { OrgXClient } from "../api.js";
 import { registerArtifact } from "../artifacts/register-artifact.js";
+import { validateOpenClawSkillPackManifest } from "../contracts/skill-pack-schema.js";
 import type { AutoAssignedAgent } from "../entities/auto-assignment.js";
 import { listBuiltInSentinels } from "../http/helpers/sentinel-catalog.js";
 import type { RegisteredTool } from "../mcp-http-handler.js";
@@ -71,16 +72,16 @@ export interface RegisterCoreToolsDeps {
         ok: false;
         error: string;
       };
-  readSkillPackState: () => {
-    pack?: { name?: string | null; version?: string | null; checksum?: string | null } | null;
-    overrides?: {
-      source?: string | null;
-      name?: string | null;
-      version?: string | null;
-      checksum?: string | null;
-    } | null;
-    etag?: string | null;
-  };
+  readSkillPackState: () => import("../skill-pack-state.js").SkillPackState;
+  updateSkillPackPolicy: (input: {
+    frozen?: boolean;
+    pinnedChecksum?: string | null;
+    pinToCurrent?: boolean;
+    clearPin?: boolean;
+  }) => import("../skill-pack-state.js").SkillPackState;
+  rollbackSkillPackPolicy: (input?: {
+    auditId?: string;
+  }) => import("../skill-pack-state.js").SkillPackState;
   randomUUID?: () => string;
 }
 
@@ -102,6 +103,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     pickNonEmptyString,
     resolveReportingContext,
     readSkillPackState,
+    updateSkillPackPolicy,
+    rollbackSkillPackPolicy,
   } = deps;
   const randomUUID = deps.randomUUID ?? randomUuidFn;
   const mcpToolRegistry = new Map<string, RegisteredTool>();
@@ -109,6 +112,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     mcpToolRegistry.set(tool.name, tool as unknown as RegisteredTool);
     registerTool(tool, options);
   };
+
 
   // --- orgx_status ---
   registerMcpTool(
@@ -690,18 +694,694 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       async execute(_callId: string, params: Record<string, unknown> = {}) {
         try {
           const { type, id, ...updates } = params;
-          const entity = await client.updateEntity(
+          const result = await client.updateEntityDetailed(
             type as string,
             id as string,
             updates
           );
+          const payload =
+            result.reassignment || result.initiative_reassignment
+              ? {
+                  entity: result.entity,
+                  reassignment: result.reassignment ?? null,
+                  initiative_reassignment: result.initiative_reassignment ?? null,
+                }
+              : result.entity;
           return json(
             `✅ Updated ${type} ${(id as string).slice(0, 8)}`,
-            entity
+            payload
           );
         } catch (err: unknown) {
           return text(
             `❌ Update failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_reassign_stream ---
+  registerMcpTool(
+    {
+      name: "orgx_reassign_stream",
+      description:
+        "Reassign a workstream's stream ownership/agents and return reassignment scheduling details.",
+      parameters: {
+        type: "object",
+        properties: {
+          workstream_id: {
+            type: "string",
+            description: "Workstream UUID to reassign",
+            minLength: 1,
+          },
+          initiative_id: {
+            type: "string",
+            description: "Parent initiative UUID",
+            minLength: 1,
+          },
+          status: {
+            type: "string",
+            description: "Optional workstream status override (active, in_progress, pending, etc.)",
+            minLength: 1,
+          },
+          domain: {
+            type: "string",
+            description: "Optional target domain for the reassigned stream",
+            minLength: 1,
+          },
+          role: {
+            type: "string",
+            description: "Optional role hint for assignment routing",
+            minLength: 1,
+          },
+          assigned_agent_ids: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description: "Optional assigned agent IDs",
+          },
+          assignedAgentIds: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description: "Alias for assigned_agent_ids",
+          },
+          assigned_agent_names: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description: "Optional assigned agent display names",
+          },
+          assignedAgentNames: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description: "Alias for assigned_agent_names",
+          },
+          assigned_agents: {
+            type: "array",
+            description: "Optional structured assigned agent list",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                name: { type: "string" },
+                domain: { type: "string" },
+                role: { type: "string" },
+              },
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["workstream_id", "initiative_id"],
+        additionalProperties: false,
+      },
+      async execute(_callId: string, params: Record<string, unknown> = {}) {
+        try {
+          const workstreamId = pickNonEmptyString(params.workstream_id);
+          const initiativeId = pickNonEmptyString(params.initiative_id);
+          if (!workstreamId || !initiativeId) {
+            return text("❌ workstream_id and initiative_id are required.");
+          }
+          if (!isUuid(workstreamId)) {
+            return text("❌ workstream_id must be a valid UUID.");
+          }
+          if (!isUuid(initiativeId)) {
+            return text("❌ initiative_id must be a valid UUID.");
+          }
+
+          const normalizeOptionalString = (
+            value: unknown,
+            field: string
+          ): { ok: true; value: string | undefined } | { ok: false; error: string } => {
+            if (value === undefined) return { ok: true, value: undefined };
+            if (typeof value !== "string") {
+              return { ok: false, error: `❌ ${field} must be a string when provided.` };
+            }
+            const trimmed = value.trim();
+            return { ok: true, value: trimmed || undefined };
+          };
+          const normalizeStringArray = (
+            value: unknown,
+            field: string
+          ): { ok: true; value: string[] | undefined } | { ok: false; error: string } => {
+            if (value === undefined) return { ok: true, value: undefined };
+            if (!Array.isArray(value)) {
+              return { ok: false, error: `❌ ${field} must be an array of strings.` };
+            }
+            const normalized: string[] = [];
+            for (const entry of value) {
+              if (typeof entry !== "string" || !entry.trim()) {
+                return { ok: false, error: `❌ ${field} entries must be non-empty strings.` };
+              }
+              normalized.push(entry.trim());
+            }
+            return { ok: true, value: normalized };
+          };
+          const normalizeAssignedAgents = (
+            value: unknown
+          ):
+            | {
+                ok: true;
+                value:
+                  | Array<{
+                      id?: string;
+                      name?: string;
+                      domain?: string;
+                      role?: string;
+                    }>
+                  | undefined;
+              }
+            | { ok: false; error: string } => {
+            if (value === undefined) return { ok: true, value: undefined };
+            if (!Array.isArray(value)) {
+              return { ok: false, error: "❌ assigned_agents must be an array when provided." };
+            }
+            const normalized: Array<{
+              id?: string;
+              name?: string;
+              domain?: string;
+              role?: string;
+            }> = [];
+            for (const entry of value) {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                return {
+                  ok: false,
+                  error: "❌ assigned_agents entries must be objects with id, name, domain, or role.",
+                };
+              }
+
+              const candidate = entry as Record<string, unknown>;
+              const normalizedEntry: {
+                id?: string;
+                name?: string;
+                domain?: string;
+                role?: string;
+              } = {};
+
+              for (const key of ["id", "name", "domain", "role"] as const) {
+                if (!(key in candidate) || candidate[key] === undefined || candidate[key] === null) continue;
+                const valueAtKey = candidate[key];
+                if (typeof valueAtKey !== "string" || !valueAtKey.trim()) {
+                  return {
+                    ok: false,
+                    error: `❌ assigned_agents.${key} must be a non-empty string when provided.`,
+                  };
+                }
+                normalizedEntry[key] = valueAtKey.trim();
+              }
+
+              if (
+                normalizedEntry.id === undefined &&
+                normalizedEntry.name === undefined &&
+                normalizedEntry.domain === undefined &&
+                normalizedEntry.role === undefined
+              ) {
+                return {
+                  ok: false,
+                  error: "❌ assigned_agents entries must include at least one of id, name, domain, or role.",
+                };
+              }
+
+              normalized.push(normalizedEntry);
+            }
+            return { ok: true, value: normalized };
+          };
+          const arraysEqual = (left: string[], right: string[]): boolean =>
+            left.length === right.length && left.every((value, idx) => value === right[idx]);
+
+          const statusInput = normalizeOptionalString(params.status, "status");
+          if (!statusInput.ok) return text(statusInput.error);
+          const domainInput = normalizeOptionalString(params.domain, "domain");
+          if (!domainInput.ok) return text(domainInput.error);
+          const roleInput = normalizeOptionalString(params.role, "role");
+          if (!roleInput.ok) return text(roleInput.error);
+
+          const assignedAgentIdsSnake = normalizeStringArray(
+            params.assigned_agent_ids,
+            "assigned_agent_ids"
+          );
+          if (!assignedAgentIdsSnake.ok) return text(assignedAgentIdsSnake.error);
+          const assignedAgentIdsCamel = normalizeStringArray(
+            params.assignedAgentIds,
+            "assignedAgentIds"
+          );
+          if (!assignedAgentIdsCamel.ok) return text(assignedAgentIdsCamel.error);
+          const assignedAgentNamesSnake = normalizeStringArray(
+            params.assigned_agent_names,
+            "assigned_agent_names"
+          );
+          if (!assignedAgentNamesSnake.ok) return text(assignedAgentNamesSnake.error);
+          const assignedAgentNamesCamel = normalizeStringArray(
+            params.assignedAgentNames,
+            "assignedAgentNames"
+          );
+          if (!assignedAgentNamesCamel.ok) return text(assignedAgentNamesCamel.error);
+          const assignedAgentsInput = normalizeAssignedAgents(params.assigned_agents);
+          if (!assignedAgentsInput.ok) return text(assignedAgentsInput.error);
+
+          if (
+            assignedAgentIdsSnake.value &&
+            assignedAgentIdsCamel.value &&
+            !arraysEqual(assignedAgentIdsSnake.value, assignedAgentIdsCamel.value)
+          ) {
+            return text(
+              "❌ assigned_agent_ids and assignedAgentIds must match when both are provided."
+            );
+          }
+          if (
+            assignedAgentNamesSnake.value &&
+            assignedAgentNamesCamel.value &&
+            !arraysEqual(assignedAgentNamesSnake.value, assignedAgentNamesCamel.value)
+          ) {
+            return text(
+              "❌ assigned_agent_names and assignedAgentNames must match when both are provided."
+            );
+          }
+
+          const normalizedAssignedAgentIds =
+            assignedAgentIdsSnake.value ?? assignedAgentIdsCamel.value;
+          const normalizedAssignedAgentNames =
+            assignedAgentNamesSnake.value ?? assignedAgentNamesCamel.value;
+
+          const hasReassignmentMutation =
+            domainInput.value !== undefined ||
+            roleInput.value !== undefined ||
+            assignedAgentsInput.value !== undefined ||
+            normalizedAssignedAgentIds !== undefined ||
+            normalizedAssignedAgentNames !== undefined;
+          if (!hasReassignmentMutation) {
+            return text(
+              "❌ Include at least one reassignment field: domain, role, assigned_agents, assigned_agent_ids, or assigned_agent_names."
+            );
+          }
+
+          const updates: Record<string, unknown> = {
+            initiative_id: initiativeId,
+          };
+          if (statusInput.value !== undefined) updates.status = statusInput.value;
+          if (domainInput.value !== undefined) updates.domain = domainInput.value;
+          if (roleInput.value !== undefined) updates.role = roleInput.value;
+          if (assignedAgentsInput.value !== undefined) updates.assigned_agents = assignedAgentsInput.value;
+          if (normalizedAssignedAgentIds !== undefined) {
+            updates.assigned_agent_ids = normalizedAssignedAgentIds;
+          }
+          if (normalizedAssignedAgentNames !== undefined) {
+            updates.assigned_agent_names = normalizedAssignedAgentNames;
+          }
+
+          let beforeDomainFromSnapshot: string | null = null;
+          if (typeof client.listEntities === "function") {
+            try {
+              const currentWorkstreams = await client.listEntities("workstream", {
+                initiative_id: initiativeId,
+                limit: 200,
+              });
+              const rows =
+                currentWorkstreams &&
+                typeof currentWorkstreams === "object" &&
+                Array.isArray((currentWorkstreams as { data?: unknown }).data)
+                  ? ((currentWorkstreams as { data: unknown[] }).data as unknown[])
+                  : [];
+              for (const row of rows) {
+                if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+                const record = row as Record<string, unknown>;
+                const id = pickNonEmptyString(record.id);
+                if (id !== workstreamId) continue;
+                beforeDomainFromSnapshot = pickNonEmptyString(record.domain) ?? null;
+                break;
+              }
+            } catch {
+              // Best effort snapshot for before/after confirmation.
+            }
+          }
+
+          const result = await client.updateEntityDetailed(
+            "workstream",
+            workstreamId,
+            updates
+          );
+          const entityRecord =
+            result.entity && typeof result.entity === "object" && !Array.isArray(result.entity)
+              ? (result.entity as Record<string, unknown>)
+              : null;
+          const reassignmentRecord =
+            result.reassignment &&
+            typeof result.reassignment === "object" &&
+            !Array.isArray(result.reassignment)
+              ? (result.reassignment as unknown as Record<string, unknown>)
+              : null;
+          const beforeDomain =
+            pickNonEmptyString(
+              beforeDomainFromSnapshot,
+              reassignmentRecord?.before_domain,
+              reassignmentRecord?.previous_domain,
+              reassignmentRecord?.from_domain,
+              entityRecord?.before_domain,
+              entityRecord?.previous_domain,
+              entityRecord?.from_domain
+            ) ?? null;
+          const afterDomain =
+            pickNonEmptyString(
+              reassignmentRecord?.after_domain,
+              reassignmentRecord?.new_domain,
+              reassignmentRecord?.to_domain,
+              entityRecord?.after_domain,
+              entityRecord?.new_domain,
+              entityRecord?.to_domain,
+              entityRecord?.domain,
+              domainInput.value
+            ) ?? null;
+
+          return json(`✅ Reassigned workstream ${workstreamId.slice(0, 8)}`, {
+            workstream_id: workstreamId,
+            before_domain: beforeDomain,
+            after_domain: afterDomain,
+            entity: result.entity,
+            reassignment: result.reassignment ?? null,
+            initiative_reassignment: result.initiative_reassignment ?? null,
+          });
+        } catch (err: unknown) {
+          return text(
+            `❌ Stream reassignment failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_reassign_streams ---
+  registerMcpTool(
+    {
+      name: "orgx_reassign_streams",
+      description:
+        "Convenience batch reassignment tool. Takes initiative_id and a workstream-to-domain mapping, then updates all listed workstreams.",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: {
+            type: "string",
+            description: "Parent initiative UUID for all workstream updates",
+            minLength: 1,
+          },
+          workstream_domains: {
+            type: "object",
+            description: "Mapping of workstream UUID -> target domain",
+            additionalProperties: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          mapping: {
+            type: "object",
+            description:
+              "Alias for workstream_domains: mapping of workstream UUID -> target domain",
+            additionalProperties: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          mappings: {
+            type: "array",
+            description:
+              "Optional array mapping for advanced routing fields (workstream_id, domain, role, status).",
+            items: {
+              type: "object",
+              properties: {
+                workstream_id: {
+                  type: "string",
+                  description: "Workstream UUID to reassign",
+                  minLength: 1,
+                },
+                domain: {
+                  type: "string",
+                  description: "Target domain for reassignment",
+                  minLength: 1,
+                },
+                role: {
+                  type: "string",
+                  description: "Optional role hint for assignment routing",
+                  minLength: 1,
+                },
+                status: {
+                  type: "string",
+                  description:
+                    "Optional workstream status override (active, in_progress, pending, etc.)",
+                  minLength: 1,
+                },
+              },
+              required: ["workstream_id", "domain"],
+              additionalProperties: false,
+            },
+          },
+          status: {
+            type: "string",
+            description:
+              "Optional workstream status override applied to each reassigned stream",
+            minLength: 1,
+          },
+        },
+        required: ["initiative_id"],
+        additionalProperties: false,
+      },
+      async execute(_callId: string, params: Record<string, unknown> = {}) {
+        try {
+          const initiativeId = pickNonEmptyString(params.initiative_id);
+          if (!initiativeId) {
+            return text("❌ initiative_id is required.");
+          }
+          if (!isUuid(initiativeId)) {
+            return text("❌ initiative_id must be a valid UUID.");
+          }
+          const statusInput = params.status;
+          if (statusInput !== undefined && typeof statusInput !== "string") {
+            return text("❌ status must be a string when provided.");
+          }
+          const normalizedStatus =
+            typeof statusInput === "string" && statusInput.trim().length > 0
+              ? statusInput.trim()
+              : undefined;
+
+          const normalizedMappings: Array<{
+            workstreamId: string;
+            domain: string;
+            role?: string;
+            status?: string;
+          }> = [];
+          const seenWorkstreams = new Set<string>();
+          const addMapping = (
+            workstreamIdRaw: string,
+            domainRaw: string,
+            options?: { role?: string; status?: string }
+          ): string | null => {
+            const workstreamId = workstreamIdRaw.trim();
+            if (!workstreamId || !isUuid(workstreamId)) {
+              return `❌ workstream identifier '${workstreamIdRaw}' must be a valid UUID.`;
+            }
+            const domain = domainRaw.trim();
+            if (!domain) {
+              return `❌ workstream '${workstreamIdRaw}' must map to a non-empty domain string.`;
+            }
+            if (seenWorkstreams.has(workstreamId)) {
+              return "❌ Duplicate workstream mapping detected.";
+            }
+            seenWorkstreams.add(workstreamId);
+            normalizedMappings.push({
+              workstreamId,
+              domain,
+              ...(options?.role?.trim() ? { role: options.role.trim() } : {}),
+              ...(options?.status?.trim() ? { status: options.status.trim() } : {}),
+            });
+            return null;
+          };
+
+          if (params.workstream_domains !== undefined) {
+            if (
+              !params.workstream_domains ||
+              typeof params.workstream_domains !== "object" ||
+              Array.isArray(params.workstream_domains)
+            ) {
+              return text(
+                "❌ workstream_domains must be an object mapping workstream_id to domain."
+              );
+            }
+            const mappingEntries = Object.entries(
+              params.workstream_domains as Record<string, unknown>
+            );
+            for (const [workstreamId, domainValue] of mappingEntries) {
+              if (typeof domainValue !== "string") {
+                return text(
+                  `❌ workstream_domains['${workstreamId}'] must be a non-empty domain string.`
+                );
+              }
+              const error = addMapping(workstreamId, domainValue);
+              if (error) return text(error);
+            }
+          }
+
+          if (params.mapping !== undefined) {
+            if (
+              !params.mapping ||
+              typeof params.mapping !== "object" ||
+              Array.isArray(params.mapping)
+            ) {
+              return text("❌ mapping must be an object of workstream_id -> domain.");
+            }
+            const mappingEntries = Object.entries(params.mapping as Record<string, unknown>);
+            for (const [workstreamId, domainValue] of mappingEntries) {
+              if (typeof domainValue !== "string") {
+                return text(`❌ mapping['${workstreamId}'] must be a non-empty domain string.`);
+              }
+              const error = addMapping(workstreamId, domainValue);
+              if (error) return text(error);
+            }
+          }
+
+          if (params.mappings !== undefined) {
+            if (!Array.isArray(params.mappings)) {
+              return text("❌ mappings must be an array when provided.");
+            }
+            for (const entry of params.mappings) {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                return text(
+                  "❌ mappings entries must be objects with workstream_id and domain."
+                );
+              }
+              const candidate = entry as Record<string, unknown>;
+              const workstreamId = pickNonEmptyString(candidate.workstream_id);
+              const domain = pickNonEmptyString(candidate.domain);
+              const role = pickNonEmptyString(candidate.role);
+              const status = pickNonEmptyString(candidate.status);
+              if (!workstreamId || !domain) {
+                return text("❌ Each mappings entry requires workstream_id and domain.");
+              }
+              const error = addMapping(workstreamId, domain, { role, status });
+              if (error) return text(error);
+            }
+          }
+
+          if (normalizedMappings.length === 0) {
+            return text(
+              "❌ Include workstream_domains, mapping, or mappings with at least one workstream reassignment."
+            );
+          }
+
+          const updates: Array<{
+            workstream_id: string;
+            domain: string | null;
+            before_domain: string | null;
+            after_domain: string | null;
+            ok: boolean;
+            entity?: unknown;
+            reassignment?: unknown;
+            initiative_reassignment?: unknown;
+            error?: string;
+          }> = [];
+          const domainBeforeByWorkstreamId = new Map<string, string | null>();
+          if (typeof client.listEntities === "function") {
+            try {
+              const currentWorkstreams = await client.listEntities("workstream", {
+                initiative_id: initiativeId,
+                limit: 200,
+              });
+              const rows =
+                currentWorkstreams &&
+                typeof currentWorkstreams === "object" &&
+                Array.isArray((currentWorkstreams as { data?: unknown }).data)
+                  ? ((currentWorkstreams as { data: unknown[] }).data as unknown[])
+                  : [];
+              for (const row of rows) {
+                if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+                const record = row as Record<string, unknown>;
+                const id = pickNonEmptyString(record.id);
+                if (!id) continue;
+                domainBeforeByWorkstreamId.set(id, pickNonEmptyString(record.domain) ?? null);
+              }
+            } catch {
+              // Best effort snapshot for before/after confirmation.
+            }
+          }
+
+          for (const mapping of normalizedMappings) {
+            const workstreamId = mapping.workstreamId;
+            const domain = mapping.domain;
+            const beforeDomain = domainBeforeByWorkstreamId.get(workstreamId) ?? null;
+
+            const payload: Record<string, unknown> = {
+              initiative_id: initiativeId,
+              domain,
+            };
+            if (mapping.role !== undefined) payload.role = mapping.role;
+            if (mapping.status !== undefined) {
+              payload.status = mapping.status;
+            } else if (normalizedStatus !== undefined) {
+              payload.status = normalizedStatus;
+            }
+
+            try {
+              const result = await client.updateEntityDetailed("workstream", workstreamId, payload);
+              const entityRecord =
+                result.entity && typeof result.entity === "object" && !Array.isArray(result.entity)
+                  ? (result.entity as Record<string, unknown>)
+                  : null;
+              const reassignmentRecord =
+                result.reassignment &&
+                typeof result.reassignment === "object" &&
+                !Array.isArray(result.reassignment)
+                  ? (result.reassignment as unknown as Record<string, unknown>)
+                  : null;
+              const resolvedBeforeDomain =
+                pickNonEmptyString(
+                  beforeDomain,
+                  reassignmentRecord?.before_domain,
+                  reassignmentRecord?.previous_domain,
+                  reassignmentRecord?.from_domain,
+                  entityRecord?.before_domain,
+                  entityRecord?.previous_domain,
+                  entityRecord?.from_domain
+                ) ?? null;
+              const afterDomain =
+                pickNonEmptyString(
+                  reassignmentRecord?.after_domain,
+                  reassignmentRecord?.new_domain,
+                  reassignmentRecord?.to_domain,
+                  entityRecord?.after_domain,
+                  entityRecord?.new_domain,
+                  entityRecord?.to_domain,
+                  entityRecord?.domain,
+                  domain
+                ) ?? null;
+              updates.push({
+                workstream_id: workstreamId,
+                domain,
+                before_domain: resolvedBeforeDomain,
+                after_domain: afterDomain,
+                ok: true,
+                entity: result.entity,
+                reassignment: result.reassignment ?? null,
+                initiative_reassignment: result.initiative_reassignment ?? null,
+              });
+            } catch (updateErr: unknown) {
+              updates.push({
+                workstream_id: workstreamId,
+                domain,
+                before_domain: beforeDomain,
+                after_domain: null,
+                ok: false,
+                error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+              });
+            }
+          }
+
+          const succeeded = updates.filter((entry) => entry.ok).length;
+          const failed = updates.length - succeeded;
+          return json(`✅ Reassigned ${succeeded}/${updates.length} workstream(s)`, {
+            initiative_id: initiativeId,
+            updated_count: succeeded,
+            failed_count: failed,
+            updates,
+          });
+        } catch (err: unknown) {
+          return text(
+            `❌ Batch stream reassignment failed: ${err instanceof Error ? err.message : err}`
           );
         }
       },
@@ -748,6 +1428,376 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         } catch (err: unknown) {
           return text(
             `❌ List failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  type AgentConfigId = "default";
+  type AgentConfigTemplateId = "startup-speed";
+
+  function evalGateErrorForPackStatus(status: unknown): string | null {
+    if (typeof status !== "string") return null;
+    const normalized = status.trim().toLowerCase();
+    if (!normalized || normalized === "approved") return null;
+    return `SkillPack eval gate blocked activation: status '${status}' is not approved`;
+  }
+
+  function manifestValidationErrorForPackManifest(manifest: unknown): string | null {
+    if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+      return null;
+    }
+    const validation = validateOpenClawSkillPackManifest(manifest as Record<string, unknown>);
+    if (validation.errors.length === 0) return null;
+    return `SkillPack manifest validation errors: ${validation.errors.join("; ")}`;
+  }
+
+  function computeSkillPackUpdateAvailable(state: {
+    pack?: { checksum?: string | null } | null;
+    remote?: { checksum?: string | null } | null;
+  }): boolean {
+    return Boolean(
+      state.remote?.checksum &&
+        state.pack?.checksum &&
+        state.remote.checksum !== state.pack.checksum
+    );
+  }
+
+  function resolveAgentConfigId(input: unknown): AgentConfigId | null {
+    const value = typeof input === "string" ? input.trim() : "";
+    if (!value || value === "default") {
+      return "default";
+    }
+    return null;
+  }
+
+  function resolveAgentConfigTemplateId(input: unknown): AgentConfigTemplateId | null {
+    const value = typeof input === "string" ? input.trim().toLowerCase() : "";
+    if (value === "startup-speed") {
+      return "startup-speed";
+    }
+    return null;
+  }
+
+  function buildAgentConfigSnapshot(state: ReturnType<RegisterCoreToolsDeps["readSkillPackState"]>) {
+    return {
+      config_id: "default",
+      config_type: "skill_pack_policy",
+      policy: state.policy,
+      pack: state.pack,
+      remote: state.remote,
+      update_available: computeSkillPackUpdateAvailable(state),
+      last_checked_at: state.lastCheckedAt,
+      last_error: state.lastError,
+      updated_at: state.updatedAt,
+    };
+  }
+
+  async function readAgentConfigState(input?: {
+    refreshRemote?: boolean;
+  }): Promise<ReturnType<RegisterCoreToolsDeps["readSkillPackState"]>> {
+    const state = readSkillPackState();
+    if (!input?.refreshRemote) {
+      return state;
+    }
+
+    const getSkillPack = (client as { getSkillPack?: unknown }).getSkillPack;
+    if (typeof getSkillPack !== "function") {
+      return state;
+    }
+
+    try {
+      const response = await (
+        getSkillPack as (args?: { name?: string; ifNoneMatch?: string | null }) => Promise<{
+          ok: boolean;
+          notModified?: boolean;
+          etag?: string | null;
+          pack?: {
+            name: string;
+            version: string;
+            checksum: string;
+            status?: string;
+            manifest?: Record<string, unknown>;
+            updated_at?: string | null;
+          } | null;
+          error?: string;
+        }>
+      )({
+        name: state.pack?.name ?? state.remote?.name ?? "orgx-agent-suite",
+        ifNoneMatch: null,
+      });
+
+      const checkedAt = new Date().toISOString();
+
+      if (!response.ok) {
+        return {
+          ...state,
+          updatedAt: checkedAt,
+          lastCheckedAt: checkedAt,
+          lastError: response.error ?? state.lastError,
+        };
+      }
+
+      if (response.notModified || !response.pack) {
+        return {
+          ...state,
+          updatedAt: checkedAt,
+          lastCheckedAt: checkedAt,
+          lastError: null,
+          etag: response.etag ?? state.etag,
+        };
+      }
+
+      const remote = {
+        name: response.pack.name,
+        version: response.pack.version,
+        checksum: response.pack.checksum,
+        updated_at: response.pack.updated_at ?? null,
+      };
+      const evalGateError = evalGateErrorForPackStatus(response.pack.status);
+      const manifestValidationError = manifestValidationErrorForPackManifest(response.pack.manifest);
+      const activationValidationError = evalGateError ?? manifestValidationError;
+      const shouldApplyPack =
+        !activationValidationError &&
+        (!state.policy.pinnedChecksum || state.policy.pinnedChecksum === response.pack.checksum);
+
+      return {
+        ...state,
+        updatedAt: checkedAt,
+        lastCheckedAt: checkedAt,
+        lastError: activationValidationError,
+        etag: response.etag ?? state.etag,
+        remote,
+        pack: shouldApplyPack ? remote : state.pack,
+      };
+    } catch {
+      return state;
+    }
+  }
+
+  // --- list_agent_configs ---
+  registerMcpTool(
+    {
+      name: "list_agent_configs",
+      description:
+        "List available agent behavior configs managed by this plugin.",
+      parameters: {
+        type: "object",
+        properties: {
+          refresh_remote: {
+            type: "boolean",
+            description:
+              "When true, re-fetch behavior config policy from OrgX before returning data.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { refresh_remote?: boolean } = {}
+      ) {
+        try {
+          const state = await readAgentConfigState({
+            refreshRemote: params.refresh_remote === true,
+          });
+          return json("Agent configs:", {
+            total: 1,
+            configs: [buildAgentConfigSnapshot(state)],
+          });
+        } catch (err: unknown) {
+          return text(
+            `❌ Failed to list agent configs: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- get_agent_config ---
+  registerMcpTool(
+    {
+      name: "get_agent_config",
+      description:
+        "Get a single agent behavior config by id (default only).",
+      parameters: {
+        type: "object",
+        properties: {
+          config_id: {
+            type: "string",
+            description: "Agent config identifier. Use 'default'.",
+          },
+          refresh_remote: {
+            type: "boolean",
+            description:
+              "When true, re-fetch behavior config policy from OrgX before returning data.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { config_id?: string; refresh_remote?: boolean } = {}
+      ) {
+        const configId = resolveAgentConfigId(params.config_id);
+        if (!configId) {
+          return text("❌ config_id must be 'default'.");
+        }
+        try {
+          const state = await readAgentConfigState({
+            refreshRemote: params.refresh_remote === true,
+          });
+          return json("Agent config:", buildAgentConfigSnapshot(state));
+        } catch (err: unknown) {
+          return text(
+            `❌ Failed to read agent config: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- update_agent_config ---
+  registerMcpTool(
+    {
+      name: "update_agent_config",
+      description:
+        "Update plugin-managed agent behavior config policy (default config only).",
+      parameters: {
+        type: "object",
+        properties: {
+          config_id: {
+            type: "string",
+            description: "Agent config identifier. Use 'default'.",
+          },
+          frozen: {
+            type: "boolean",
+            description: "Freeze remote skill-pack refresh when true.",
+          },
+          pinned_checksum: {
+            type: ["string", "null"],
+            description: "Pin behavior policy to this exact checksum.",
+          },
+          pin_to_current: {
+            type: "boolean",
+            description: "Pin to current local/remote checksum.",
+          },
+          clear_pin: {
+            type: "boolean",
+            description: "Clear any pinned checksum.",
+          },
+          action: {
+            type: "string",
+            description: "Use 'rollback' to revert to the previous config version.",
+          },
+          rollback_to_audit_id: {
+            type: "string",
+            description:
+              "Optional audit entry id to rollback to. When omitted with action='rollback', uses the most recent audit entry.",
+          },
+          template_id: {
+            type: "string",
+            description:
+              "Optional preset template id. Currently supports 'startup-speed'.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          config_id?: string;
+          frozen?: boolean;
+          pinned_checksum?: string | null;
+          pin_to_current?: boolean;
+          clear_pin?: boolean;
+          action?: string;
+          rollback_to_audit_id?: string;
+          template_id?: string;
+        } = {}
+      ) {
+        const configId = resolveAgentConfigId(params.config_id);
+        if (!configId) {
+          return text("❌ config_id must be 'default'.");
+        }
+
+        const templateId = resolveAgentConfigTemplateId(params.template_id);
+        if (typeof params.template_id === "string" && !templateId) {
+          return text("❌ template_id must be 'startup-speed' when provided.");
+        }
+
+        let hasFrozen = typeof params.frozen === "boolean";
+        let hasPinnedChecksum =
+          typeof params.pinned_checksum === "string" || params.pinned_checksum === null;
+        let hasPinToCurrent = params.pin_to_current === true;
+        let hasClearPin = params.clear_pin === true;
+        const action = typeof params.action === "string" ? params.action.trim().toLowerCase() : "";
+        const rollbackToAuditId =
+          typeof params.rollback_to_audit_id === "string" && params.rollback_to_audit_id.trim()
+            ? params.rollback_to_audit_id.trim()
+            : undefined;
+        const isRollback = action === "rollback" || typeof rollbackToAuditId === "string";
+
+        if (action.length > 0 && action !== "rollback") {
+          return text("❌ action must be 'rollback' when provided.");
+        }
+
+        if (templateId === "startup-speed") {
+          // Shared default config fans out to all OrgX agent domains.
+          params.frozen = false;
+          params.clear_pin = true;
+          params.pin_to_current = false;
+          params.pinned_checksum = undefined;
+          hasFrozen = true;
+          hasPinnedChecksum = false;
+          hasPinToCurrent = false;
+          hasClearPin = true;
+        }
+
+        if (isRollback) {
+          if (hasFrozen || hasPinnedChecksum || hasPinToCurrent || hasClearPin || templateId) {
+            return text(
+              "❌ Rollback requests cannot include update fields (frozen, pinned_checksum, pin_to_current, clear_pin, template_id)."
+            );
+          }
+        } else if (!hasFrozen && !hasPinnedChecksum && !hasPinToCurrent && !hasClearPin) {
+          return text(
+            "❌ Include at least one mutable field: frozen, pinned_checksum, pin_to_current, clear_pin, or template_id."
+          );
+        }
+        if (hasPinToCurrent && hasClearPin) {
+          return text("❌ pin_to_current and clear_pin cannot both be true.");
+        }
+        if (typeof params.pinned_checksum === "string" && !params.pinned_checksum.trim()) {
+          return text("❌ pinned_checksum must be a non-empty string when provided.");
+        }
+
+        try {
+          const state = isRollback
+            ? rollbackSkillPackPolicy({
+                auditId: rollbackToAuditId,
+              })
+            : updateSkillPackPolicy({
+                frozen: hasFrozen ? params.frozen : undefined,
+                pinnedChecksum:
+                  typeof params.pinned_checksum === "string"
+                    ? params.pinned_checksum.trim()
+                    : params.pinned_checksum === null
+                      ? null
+                      : undefined,
+                pinToCurrent: hasPinToCurrent,
+                clearPin: hasClearPin,
+              });
+          return json(
+            isRollback ? "Agent config rolled back:" : "Agent config updated:",
+            buildAgentConfigSnapshot(state)
+          );
+        } catch (err: unknown) {
+          return text(
+            `❌ Failed to ${isRollback ? "rollback" : "update"} agent config: ${err instanceof Error ? err.message : err}`
           );
         }
       },
