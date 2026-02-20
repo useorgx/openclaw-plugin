@@ -267,7 +267,7 @@ export const SessionInspector = memo(function SessionInspector({
 
   if (!session) {
     return (
-      <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+      <PremiumCard className="flex h-full min-h-0 flex-col overflow-hidden card-enter">
         <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
           <h2 className="text-heading font-semibold text-white">Session Detail</h2>
           <button
@@ -292,7 +292,7 @@ export const SessionInspector = memo(function SessionInspector({
           'transition-all',
           isCollapsed ? 'max-h-0 overflow-hidden' : 'min-h-0 flex-1'
         )}>
-          <div className="space-y-2 overflow-y-auto p-4 text-body text-secondary">
+          <div className="h-full min-h-0 space-y-2 overflow-y-auto p-4 text-body text-secondary">
             <p>Select a session to inspect summary, breadcrumbs, blockers, and recent messages.</p>
             <button
               onClick={() =>
@@ -375,7 +375,7 @@ export const SessionInspector = memo(function SessionInspector({
   ];
 
   return (
-    <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+    <PremiumCard className="flex h-full min-h-0 flex-col overflow-hidden card-enter">
       <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
         <h2 className="text-heading font-semibold text-white">Session Detail</h2>
         <div className="flex items-center gap-2">
@@ -406,7 +406,7 @@ export const SessionInspector = memo(function SessionInspector({
         'transition-all',
         isCollapsed ? 'max-h-0 overflow-hidden' : 'min-h-0 flex-1'
       )}>
-        <div className="space-y-4 overflow-y-auto p-4">
+        <div className="h-full min-h-0 space-y-4 overflow-y-auto p-4">
           <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
             <div className="flex items-start gap-3">
               <ProviderLogo provider={provider.id} size="sm" />

@@ -2408,35 +2408,35 @@ function DashboardShell({
                     <path d="M18 6L6 18" /><path d="M6 6l12 12" />
                   </svg>
                 </button>
-	              </div>
-	              <div className="flex-1 min-h-0 overflow-y-auto">
-	                <Suspense
-	                  fallback={
-	                    <div className="p-4 text-body text-secondary">Loading session detail…</div>
-	                  }
-	                >
-	                  <LazySessionInspector
-	                    session={selectedSession}
-	                    activity={activityInScope}
-	                    initiatives={initiatives}
-                      initialInterventionDraft={interventionDraft}
-                      onSubmitIntervention={submitSessionIntervention}
-                      onOpenActivityItem={openActivityItemFromSessionDetail}
-	                    onContinueHighestPriority={continueHighestPriority}
-	                    onDispatchSession={dispatchSession}
-	                    onPauseSession={pauseSession}
-	                    onResumeSession={resumeSession}
-	                    onCancelSession={cancelSession}
-	                    onCreateCheckpoint={createSessionCheckpoint}
-	                    onRollbackSession={rollbackSession}
-	                    onStartInitiative={startInitiative}
-	                    onStartWorkstream={startWorkstream}
-	                  />
-	                </Suspense>
-	              </div>
-	            </motion.div>
-	          </>
-	        )}
+              </div>
+              <div className="flex-1 min-h-0">
+                <Suspense
+                  fallback={
+                    <div className="p-4 text-body text-secondary">Loading session detail…</div>
+                  }
+                >
+                  <LazySessionInspector
+                    session={selectedSession}
+                    activity={activityInScope}
+                    initiatives={initiatives}
+                    initialInterventionDraft={interventionDraft}
+                    onSubmitIntervention={submitSessionIntervention}
+                    onOpenActivityItem={openActivityItemFromSessionDetail}
+                    onContinueHighestPriority={continueHighestPriority}
+                    onDispatchSession={dispatchSession}
+                    onPauseSession={pauseSession}
+                    onResumeSession={resumeSession}
+                    onCancelSession={cancelSession}
+                    onCreateCheckpoint={createSessionCheckpoint}
+                    onRollbackSession={rollbackSession}
+                    onStartInitiative={startInitiative}
+                    onStartWorkstream={startWorkstream}
+                  />
+                </Suspense>
+              </div>
+            </motion.div>
+          </>
+        )}
       </AnimatePresence>
 
       <MobileTabBar
