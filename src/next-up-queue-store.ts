@@ -19,13 +19,22 @@ export type NextUpPinnedEntry = {
   updatedAt: string;
 };
 
+export type NextUpSuppressedEntry = {
+  initiativeId: string;
+  workstreamId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type PersistedNextUpQueue = {
-  version: 1;
+  version: 1 | 2;
   updatedAt: string;
   pins: NextUpPinnedEntry[];
+  suppressions: NextUpSuppressedEntry[];
 };
 
 const MAX_PINS = 240;
+const MAX_SUPPRESSIONS = 2_000;
 
 function storeDir(): string {
   return getOrgxPluginConfigDir();
@@ -56,22 +65,47 @@ function normalizeEntry(input: NextUpPinnedEntry): NextUpPinnedEntry {
   };
 }
 
+function normalizeSuppression(input: NextUpSuppressedEntry): NextUpSuppressedEntry {
+  return {
+    initiativeId: input.initiativeId.trim(),
+    workstreamId: input.workstreamId.trim(),
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+  };
+}
+
+function entryKey(input: { initiativeId: string; workstreamId: string }): string {
+  return `${input.initiativeId}:${input.workstreamId}`;
+}
+
+function createEmptyStore(): PersistedNextUpQueue {
+  return {
+    version: 2,
+    updatedAt: new Date().toISOString(),
+    pins: [],
+    suppressions: [],
+  };
+}
+
 export function readNextUpQueuePins(): PersistedNextUpQueue {
   const file = storeFile();
   try {
     if (!existsSync(file)) {
-      return { version: 1, updatedAt: new Date().toISOString(), pins: [] };
+      return createEmptyStore();
     }
     const raw = readFileSync(file, "utf8");
     const parsed = parseJsonSafe<PersistedNextUpQueue>(raw);
     if (!parsed || typeof parsed !== "object") {
       backupCorruptFileSync(file);
-      return { version: 1, updatedAt: new Date().toISOString(), pins: [] };
+      return createEmptyStore();
     }
 
     const pins = Array.isArray(parsed.pins) ? parsed.pins : [];
+    const suppressions = Array.isArray((parsed as { suppressions?: unknown }).suppressions)
+      ? ((parsed as { suppressions?: unknown }).suppressions as NextUpSuppressedEntry[])
+      : [];
     return {
-      version: 1,
+      version: 2,
       updatedAt:
         typeof parsed.updatedAt === "string"
           ? parsed.updatedAt
@@ -79,9 +113,15 @@ export function readNextUpQueuePins(): PersistedNextUpQueue {
       pins: pins
         .filter((entry): entry is NextUpPinnedEntry => Boolean(entry && typeof entry === "object"))
         .map((entry) => normalizeEntry(entry)),
+      suppressions: suppressions
+        .filter(
+          (entry): entry is NextUpSuppressedEntry =>
+            Boolean(entry && typeof entry === "object")
+        )
+        .map((entry) => normalizeSuppression(entry)),
     };
   } catch {
-    return { version: 1, updatedAt: new Date().toISOString(), pins: [] };
+    return createEmptyStore();
   }
 }
 
@@ -103,7 +143,7 @@ export function upsertNextUpQueuePin(input: {
 
   const key = `${initiativeId}:${workstreamId}`;
   const existing = next.pins.find(
-    (pin) => `${pin.initiativeId}:${pin.workstreamId}` === key
+    (pin) => entryKey(pin) === key
   );
 
   const updated: NextUpPinnedEntry = normalizeEntry({
@@ -116,10 +156,8 @@ export function upsertNextUpQueuePin(input: {
     updatedAt: now,
   });
 
-  next.pins = [updated, ...next.pins.filter((pin) => `${pin.initiativeId}:${pin.workstreamId}` !== key)].slice(
-    0,
-    MAX_PINS
-  );
+  next.pins = [updated, ...next.pins.filter((pin) => entryKey(pin) !== key)].slice(0, MAX_PINS);
+  next.suppressions = next.suppressions.filter((suppression) => entryKey(suppression) !== key);
   next.updatedAt = now;
 
   try {
@@ -144,7 +182,7 @@ export function removeNextUpQueuePin(input: {
   ensureStoreDir();
   const next = readNextUpQueuePins();
   const key = `${initiativeId}:${workstreamId}`;
-  const filtered = next.pins.filter((pin) => `${pin.initiativeId}:${pin.workstreamId}` !== key);
+  const filtered = next.pins.filter((pin) => entryKey(pin) !== key);
   if (filtered.length === next.pins.length) return next;
 
   next.pins = filtered;
@@ -200,6 +238,11 @@ export function setNextUpQueuePinOrder(input: {
   }
 
   next.pins = ordered.slice(0, MAX_PINS);
+  if (seen.size > 0 && next.suppressions.length > 0) {
+    next.suppressions = next.suppressions.filter(
+      (suppression) => !seen.has(entryKey(suppression) as PinKey)
+    );
+  }
   next.updatedAt = now;
   try {
     writeJsonFileAtomicSync(storeFile(), next, 0o600);
@@ -207,5 +250,68 @@ export function setNextUpQueuePinOrder(input: {
     // best effort
   }
 
+  return next;
+}
+
+export function suppressNextUpQueueItem(input: {
+  initiativeId: string;
+  workstreamId: string;
+}): PersistedNextUpQueue {
+  const initiativeId = input.initiativeId.trim();
+  const workstreamId = input.workstreamId.trim();
+  if (!initiativeId || !workstreamId) {
+    return readNextUpQueuePins();
+  }
+
+  ensureStoreDir();
+  const now = new Date().toISOString();
+  const next = readNextUpQueuePins();
+  const key = `${initiativeId}:${workstreamId}`;
+  const existing = next.suppressions.find((suppression) => entryKey(suppression) === key);
+
+  next.suppressions = [
+    normalizeSuppression({
+      initiativeId,
+      workstreamId,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }),
+    ...next.suppressions.filter((suppression) => entryKey(suppression) !== key),
+  ].slice(0, MAX_SUPPRESSIONS);
+  next.pins = next.pins.filter((pin) => entryKey(pin) !== key);
+  next.updatedAt = now;
+
+  try {
+    writeJsonFileAtomicSync(storeFile(), next, 0o600);
+  } catch {
+    // best effort
+  }
+
+  return next;
+}
+
+export function unsuppressNextUpQueueItem(input: {
+  initiativeId: string;
+  workstreamId: string;
+}): PersistedNextUpQueue {
+  const initiativeId = input.initiativeId.trim();
+  const workstreamId = input.workstreamId.trim();
+  if (!initiativeId || !workstreamId) {
+    return readNextUpQueuePins();
+  }
+
+  ensureStoreDir();
+  const next = readNextUpQueuePins();
+  const key = `${initiativeId}:${workstreamId}`;
+  const filtered = next.suppressions.filter((suppression) => entryKey(suppression) !== key);
+  if (filtered.length === next.suppressions.length) return next;
+
+  next.suppressions = filtered;
+  next.updatedAt = new Date().toISOString();
+  try {
+    writeJsonFileAtomicSync(storeFile(), next, 0o600);
+  } catch {
+    // best effort
+  }
   return next;
 }

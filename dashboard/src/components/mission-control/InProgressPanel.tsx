@@ -55,6 +55,9 @@ interface InProgressPanelProps {
   onFocusRunId?: (runId: string) => void;
   onPlayWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
   onPauseWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onResumeWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onRestartSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onIntervene?: (session: SessionTreeNode) => Promise<void> | void;
 }
 
 export const InProgressPanel = memo(function InProgressPanel({
@@ -65,6 +68,9 @@ export const InProgressPanel = memo(function InProgressPanel({
   onFocusRunId,
   onPlayWorkstream,
   onPauseWorkstream,
+  onResumeWorkstream,
+  onRestartSession,
+  onIntervene,
 }: InProgressPanelProps) {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [busySessionId, setBusySessionId] = useState<string | null>(null);
@@ -196,6 +202,16 @@ export const InProgressPanel = memo(function InProgressPanel({
                   ? `Updated ${formatRelativeTime(when)}`
                   : null;
               const progressValue = coerceProgress(session.progress);
+              const canPauseAction = [
+                'running',
+                'active',
+                'in_progress',
+                'working',
+                'planning',
+                'dispatching',
+              ].includes(status);
+              const canResumeAction = ['paused', 'blocked', 'queued', 'pending'].includes(status);
+              const restartHandler = onRestartSession ?? onPlayWorkstream;
               const showEstimatedProgress =
                 progressValue === null &&
                 ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(
@@ -265,44 +281,74 @@ export const InProgressPanel = memo(function InProgressPanel({
                         >
                           Focus
                         </button>
-                        {onPlayWorkstream &&
-                          session.initiativeId &&
-                          session.workstreamId && (
-                            <button
-                              type="button"
-                              disabled={busySessionId === session.id}
-                              onClick={() =>
-                                void runWorkstreamAction(
-                                  session,
-                                  onPlayWorkstream,
-                                  `Playing ${session.title}.`
-                                )
-                              }
-                              className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                              title="Dispatch this workstream now"
-                            >
-                              Play
-                            </button>
-                          )}
-                        {onPauseWorkstream &&
-                          session.initiativeId &&
-                          session.workstreamId && (
-                            <button
-                              type="button"
-                              disabled={busySessionId === session.id}
-                              onClick={() =>
-                                void runWorkstreamAction(
-                                  session,
-                                  onPauseWorkstream,
-                                  `Paused ${session.title}.`
-                                )
-                              }
-                              className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                              title="Pause and return this workstream to queue"
-                            >
-                              Pause
-                            </button>
-                          )}
+                        {canPauseAction && onPauseWorkstream && session.initiativeId && session.workstreamId && (
+                          <button
+                            type="button"
+                            disabled={busySessionId === session.id}
+                            onClick={() =>
+                              void runWorkstreamAction(
+                                session,
+                                onPauseWorkstream,
+                                `Paused ${session.title}.`
+                              )
+                            }
+                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                            title="Pause and return this workstream to queue"
+                          >
+                            Pause
+                          </button>
+                        )}
+                        {canResumeAction && onResumeWorkstream && session.initiativeId && session.workstreamId && (
+                          <button
+                            type="button"
+                            disabled={busySessionId === session.id}
+                            onClick={() =>
+                              void runWorkstreamAction(
+                                session,
+                                onResumeWorkstream,
+                                `Resumed ${session.title}.`
+                              )
+                            }
+                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                            title="Resume this workstream"
+                          >
+                            Resume
+                          </button>
+                        )}
+                        {restartHandler && session.initiativeId && session.workstreamId && (
+                          <button
+                            type="button"
+                            disabled={busySessionId === session.id}
+                            onClick={() =>
+                              void runWorkstreamAction(
+                                session,
+                                restartHandler,
+                                `Restarted ${session.title}.`
+                              )
+                            }
+                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                            title="Restart this workstream"
+                          >
+                            Restart
+                          </button>
+                        )}
+                        {onIntervene && (
+                          <button
+                            type="button"
+                            disabled={busySessionId === session.id}
+                            onClick={() =>
+                              void runWorkstreamAction(
+                                session,
+                                onIntervene,
+                                `Opened intervention for ${session.title}.`
+                              )
+                            }
+                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                            title="Intervene with context and guidance"
+                          >
+                            Intervene
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

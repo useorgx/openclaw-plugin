@@ -36,6 +36,7 @@ import {
   readNextUpQueuePins,
   removeNextUpQueuePin,
   setNextUpQueuePinOrder,
+  suppressNextUpQueueItem,
   upsertNextUpQueuePin,
 } from "../next-up-queue-store.js";
 
@@ -1960,6 +1961,16 @@ export function createHttpHandler(
         preferredMilestoneId: pin.preferredMilestoneId ?? null,
       });
     }
+    const suppressedKeySet = new Set<string>();
+    for (const suppression of pinnedQueue.suppressions ?? []) {
+      const initiativeId = suppression.initiativeId?.trim();
+      const workstreamId = suppression.workstreamId?.trim();
+      if (!initiativeId || !workstreamId) continue;
+      if (requestedInitiativeId && initiativeId !== requestedInitiativeId) continue;
+      suppressedKeySet.add(`${initiativeId}:${workstreamId}`);
+    }
+    const isSuppressed = (initiativeId: string, workstreamId: string): boolean =>
+      suppressedKeySet.has(`${initiativeId}:${workstreamId}`);
 
     const initiativeTitleById = new Map<string, string>();
     const initiativeStatusById = new Map<string, string>();
@@ -2155,11 +2166,14 @@ export function createHttpHandler(
           initiativeTitleById.get(`agent:${runnerAgentId}`) ||
           runnerAgentId;
 
-          const pinKey = `${entry.initiativeId}:${entry.workstreamId}`;
-	        fallbackItems.push({
-	          initiativeId: entry.initiativeId,
-	          initiativeTitle: entry.initiativeTitle,
-	          initiativeStatus: entry.initiativeStatus,
+        const pinKey = `${entry.initiativeId}:${entry.workstreamId}`;
+        if (isSuppressed(entry.initiativeId, entry.workstreamId) && queueState !== "running") {
+          continue;
+        }
+        fallbackItems.push({
+          initiativeId: entry.initiativeId,
+          initiativeTitle: entry.initiativeTitle,
+          initiativeStatus: entry.initiativeStatus,
           workstreamId: entry.workstreamId,
           workstreamTitle: entry.workstreamTitle,
           workstreamStatus:
@@ -2172,17 +2186,18 @@ export function createHttpHandler(
           nextTaskPriority: null,
           nextTaskDueAt: null,
           runnerAgentId,
-	          runnerAgentName,
-	          runnerSource: "fallback",
-	          queueState,
-	          blockReason: hasBlocked
-	            ? entry.blockers[0] ?? (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
-	            : null,
-	          isPinned: pinnedRankByKey.has(pinKey),
-	          pinnedRank: pinnedRankByKey.get(pinKey) ?? null,
-	          autoContinue: null,
-	        });
-	      }
+          runnerAgentName,
+          runnerSource: "fallback",
+          queueState,
+          blockReason: hasBlocked
+            ? entry.blockers[0] ??
+              (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
+            : null,
+          isPinned: pinnedRankByKey.has(pinKey),
+          pinnedRank: pinnedRankByKey.get(pinKey) ?? null,
+          autoContinue: null,
+        });
+      }
 
       fallbackItems.sort(sortQueueItems);
       return fallbackItems;
@@ -2294,6 +2309,7 @@ export function createHttpHandler(
       };
 
       for (const workstream of workstreamNodes) {
+        const workstreamKey = `${initiativeId}:${workstream.id}`;
         const todoTasks = graph.recentTodos
           .map((taskId) => nodeById.get(taskId))
           .filter(
@@ -2303,7 +2319,7 @@ export function createHttpHandler(
               isTodoStatus(node.status)
           ) as MissionControlNode[];
 
-        const pinKey = `${initiativeId}:${workstream.id}`;
+        const pinKey = workstreamKey;
         const pin = pinnedByKey.get(pinKey) ?? null;
         const preferredTask =
           pin?.preferredTaskId && nodeById.get(pin.preferredTaskId)
@@ -2356,15 +2372,15 @@ export function createHttpHandler(
           scopedAllowedWorkstreams.length === 1 &&
           scopedAllowedWorkstreams[0] === workstream.id &&
           autoContinueRun?.status === "running";
-	        let queueState: NextUpQueueState =
+        let queueState: NextUpQueueState =
           laneState === "running"
             ? "running"
             : runScopedToCurrentWorkstream
               ? "running"
-		          : candidateTask
-		            ? "queued"
-		            : "idle";
-	        let blockReason: string | null = null;
+              : candidateTask
+                ? "queued"
+                : "idle";
+        let blockReason: string | null = null;
 
         if (laneState === "blocked") {
           queueState = "blocked";
@@ -2393,8 +2409,8 @@ export function createHttpHandler(
           blockReason = autoContinueLane?.blockedReason ?? "Rate-limited";
         }
 
-	        if (!autoContinueRun && !readyTask && candidateTask) {
-	          queueState = "blocked";
+        if (!autoContinueRun && !readyTask && candidateTask) {
+          queueState = "blocked";
           const blockedDeps = candidateTask.dependencyIds
             .map((depId) => nodeById.get(depId))
             .filter(
@@ -2415,6 +2431,9 @@ export function createHttpHandler(
         }
 
         if (!candidateTask && !autoContinueRun && !pin) {
+          continue;
+        }
+        if (isSuppressed(initiativeId, workstream.id) && queueState !== "running") {
           continue;
         }
 
@@ -2443,25 +2462,25 @@ export function createHttpHandler(
           agentCatalogById.get(runnerAgentId)?.name ??
           runnerAgentId;
 
-	        itemsForInitiative.push({
+        itemsForInitiative.push({
           initiativeId,
           initiativeTitle,
           initiativeStatus,
           workstreamId: workstream.id,
           workstreamTitle: workstream.title,
           workstreamStatus: workstream.status,
-	          nextTaskId:
-	            candidateTask?.id ??
+          nextTaskId:
+            candidateTask?.id ??
             (autoContinueLane?.activeTaskIds?.[0]?.trim() ||
-	            autoContinueRun?.activeTaskId?.trim() ||
+              autoContinueRun?.activeTaskId?.trim() ||
               null),
-	          nextTaskTitle:
-	            candidateTask?.title ??
+          nextTaskTitle:
+            candidateTask?.title ??
             ((autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId)
-	              ? nodeById.get(
+              ? nodeById.get(
                   (autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId) as string
                 )?.title ?? null
-	              : null),
+              : null),
           nextTaskPriority: candidateTask?.priorityNum ?? null,
           nextTaskDueAt: candidateTask?.dueDate ?? null,
           runnerAgentId,
@@ -2471,11 +2490,11 @@ export function createHttpHandler(
           blockReason,
           isPinned: Boolean(pin),
           pinnedRank: pin ? (pinnedRankByKey.get(pinKey) ?? null) : null,
-	          autoContinue: autoContinueRun
-	            ? {
-	                status: autoContinueRun.status,
-	                activeTaskId: autoContinueRun.activeTaskId,
-	                activeRunId: autoContinueRun.activeRunId,
+          autoContinue: autoContinueRun
+            ? {
+                status: autoContinueRun.status,
+                activeTaskId: autoContinueRun.activeTaskId,
+                activeRunId: autoContinueRun.activeRunId,
                   activeTaskIds: Array.isArray((autoContinueRun as any).activeTaskIds)
                     ? ((autoContinueRun as any).activeTaskIds as string[])
                     : [],
@@ -2499,24 +2518,24 @@ export function createHttpHandler(
                     (autoContinueRun as any).parallelMode.toLowerCase() === "iwmt"
                       ? "iwmt"
                       : "iwmt"),
-	                stopReason: autoContinueRun.stopReason,
-	                updatedAt: autoContinueRun.updatedAt,
-	              }
-	            : null,
-	        });
+                stopReason: autoContinueRun.stopReason,
+                updatedAt: autoContinueRun.updatedAt,
+              }
+            : null,
+        });
       }
 
       const run = autoContinueRuns.get(initiativeId);
-	      if (
-	        run &&
-	        (run.status === "running" || run.status === "stopping") &&
-	        Array.isArray(run.allowedWorkstreamIds) &&
-	        run.allowedWorkstreamIds.length > 0
-	      ) {
-	        for (const workstreamId of run.allowedWorkstreamIds) {
-	          if (runningWorkstreams.has(workstreamId)) continue;
-	          const workstream = nodeById.get(workstreamId);
-	          if (!workstream || workstream.type !== "workstream") continue;
+      if (
+        run &&
+        (run.status === "running" || run.status === "stopping") &&
+        Array.isArray(run.allowedWorkstreamIds) &&
+        run.allowedWorkstreamIds.length > 0
+      ) {
+        for (const workstreamId of run.allowedWorkstreamIds) {
+          if (runningWorkstreams.has(workstreamId)) continue;
+          const workstream = nodeById.get(workstreamId);
+          if (!workstream || workstream.type !== "workstream") continue;
           const lane = getAutoContinueLaneForWorkstream(initiativeId, workstream.id);
           if (
             !lane &&
@@ -2533,39 +2552,42 @@ export function createHttpHandler(
                   laneState === "rate_limited"
                 ? "blocked"
                 : "queued";
-	          itemsForInitiative.push({
-	            initiativeId,
+          if (isSuppressed(initiativeId, workstream.id) && queueState !== "running") {
+            continue;
+          }
+          itemsForInitiative.push({
+            initiativeId,
             initiativeTitle,
             initiativeStatus,
             workstreamId: workstream.id,
             workstreamTitle: workstream.title,
             workstreamStatus: workstream.status,
-	            nextTaskId:
+            nextTaskId:
                 lane?.activeTaskIds?.[0] ??
                 run.activeTaskId,
-	            nextTaskTitle:
+            nextTaskTitle:
                 lane?.activeTaskIds?.[0]
                   ? nodeById.get(lane.activeTaskIds[0])?.title ?? null
                   : run.activeTaskId
-	              ? nodeById.get(run.activeTaskId)?.title ?? null
-	              : null,
+                    ? nodeById.get(run.activeTaskId)?.title ?? null
+                    : null,
             nextTaskPriority: null,
             nextTaskDueAt: null,
             runnerAgentId: run.agentId,
             runnerAgentName:
               agentCatalogById.get(run.agentId)?.name ?? run.agentId,
             runnerSource: "inferred",
-	            queueState,
-	            blockReason:
+            queueState,
+            blockReason:
                 queueState === "blocked"
                   ? lane?.blockedReason ?? "Blocked"
                   : null,
             isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),
             pinnedRank: pinnedRankByKey.get(`${initiativeId}:${workstream.id}`) ?? null,
-	            autoContinue: {
-	              status: run.status,
-	              activeTaskId: run.activeTaskId,
-	              activeRunId: run.activeRunId,
+            autoContinue: {
+              status: run.status,
+              activeTaskId: run.activeTaskId,
+              activeRunId: run.activeRunId,
                 activeTaskIds: Array.isArray((run as any).activeTaskIds)
                   ? ((run as any).activeTaskIds as string[])
                   : [],
@@ -2587,11 +2609,11 @@ export function createHttpHandler(
                   (run as any).parallelMode.toLowerCase() === "iwmt"
                     ? "iwmt"
                     : "iwmt",
-	              stopReason: run.stopReason,
-	              updatedAt: run.updatedAt,
-	            },
-	          });
-	        }
+              stopReason: run.stopReason,
+              updatedAt: run.updatedAt,
+            },
+          });
+        }
       }
 
       return itemsForInitiative;
@@ -2960,6 +2982,7 @@ export function createHttpHandler(
     scheduleAutoFixForWorkstream,
     upsertNextUpQueuePin,
     removeNextUpQueuePin,
+    suppressNextUpQueueItem,
     setNextUpQueuePinOrder,
     clearNextUpQueueCache,
     resolveAutoAssignments,

@@ -87,6 +87,10 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
     initiativeId: string;
     workstreamId: string;
   }) => { pins: unknown[]; updatedAt: string };
+  suppressNextUpQueueItem: (input: {
+    initiativeId: string;
+    workstreamId: string;
+  }) => { suppressions: unknown[]; updatedAt: string };
   setNextUpQueuePinOrder: (input: {
     order: Array<{ initiativeId: string; workstreamId: string }>;
   }) => { pins: unknown[]; updatedAt: string };
@@ -950,25 +954,13 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           return;
         }
 
-        const queue = await deps.buildNextUpQueue({ initiativeId });
-        const order = dedupeQueueOrder(
-          queue.items.map((item) => ({
-            initiativeId: item.initiativeId,
-            workstreamId: item.workstreamId,
-          }))
-        );
-        const key = `${initiativeId}:${workstreamId}`;
-        const nextOrder = order.filter(
-          (entry) => `${entry.initiativeId}:${entry.workstreamId}` !== key
-        );
-
-        const next = deps.setNextUpQueuePinOrder({ order: nextOrder });
+        deps.removeNextUpQueuePin({ initiativeId, workstreamId });
+        const next = deps.suppressNextUpQueueItem({ initiativeId, workstreamId });
         deps.clearNextUpQueueCache(initiativeId);
         deps.sendJson(res, 200, {
           ok: true,
           removed: { initiativeId, workstreamId },
-          orderRemaining: nextOrder.length,
-          pins: next.pins,
+          suppressions: next.suppressions,
           updatedAt: next.updatedAt,
         });
       } catch (err: unknown) {
@@ -976,6 +968,128 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
       }
     },
     "Mission-control next-up remove"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/next-up/bulk",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const actionRaw =
+          deps.pickString(payload, ["action"]) ??
+          query.get("action") ??
+          "";
+        const action = actionRaw.trim().toLowerCase();
+        const initiativeScopeRaw =
+          deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+          query.get("initiativeId") ??
+          query.get("initiative_id") ??
+          "";
+        const initiativeScope = initiativeScopeRaw.trim() || null;
+        const items = dedupeQueueOrder(
+          parseQueueOrder((payload as Record<string, unknown>).items, deps)
+        );
+
+        if (!["move_top", "move_bottom", "remove"].includes(action)) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.bulk.validation",
+            "action must be one of: move_top, move_bottom, remove"
+          );
+          return;
+        }
+
+        if (items.length === 0) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.next-up.bulk.validation",
+            "items must include at least one initiativeId/workstreamId pair"
+          );
+          return;
+        }
+
+        const queue = await deps.buildNextUpQueue({ initiativeId: initiativeScope });
+        const baseOrder = dedupeQueueOrder(
+          queue.items.map((item) => ({
+            initiativeId: item.initiativeId,
+            workstreamId: item.workstreamId,
+          }))
+        );
+        const knownKeys = new Set(
+          baseOrder.map((entry) => `${entry.initiativeId}:${entry.workstreamId}`)
+        );
+        const results = items.map((entry) => {
+          const key = `${entry.initiativeId}:${entry.workstreamId}`;
+          if (knownKeys.has(key)) {
+            return { ...entry, ok: true as const };
+          }
+          return {
+            ...entry,
+            ok: false as const,
+            error: "Queue item is not currently available in this scope",
+          };
+        });
+        const targetKeys = new Set(
+          results
+            .filter((entry) => entry.ok)
+            .map((entry) => `${entry.initiativeId}:${entry.workstreamId}`)
+        );
+
+        let nextOrder = baseOrder;
+        if (targetKeys.size > 0) {
+          if (action === "remove") {
+            for (const entry of results) {
+              if (!entry.ok) continue;
+              deps.removeNextUpQueuePin({
+                initiativeId: entry.initiativeId,
+                workstreamId: entry.workstreamId,
+              });
+              deps.suppressNextUpQueueItem({
+                initiativeId: entry.initiativeId,
+                workstreamId: entry.workstreamId,
+              });
+            }
+            nextOrder = baseOrder.filter((entry) => {
+              const key = `${entry.initiativeId}:${entry.workstreamId}`;
+              return !targetKeys.has(key);
+            });
+          } else {
+            nextOrder = buildPlacedOrder({
+              order: baseOrder,
+              targets: targetKeys,
+              placement: action === "move_top" ? "top" : "bottom",
+            });
+            deps.setNextUpQueuePinOrder({ order: nextOrder });
+          }
+          deps.clearNextUpQueueCache(initiativeScope);
+        }
+
+        const updated = results.filter((entry) => entry.ok).length;
+        const failed = results.length - updated;
+
+        deps.sendJson(res, 200, {
+          ok: true,
+          action,
+          requested: results.length,
+          updated,
+          failed,
+          results: results.map((entry) => ({
+            initiativeId: entry.initiativeId,
+            workstreamId: entry.workstreamId,
+            ok: entry.ok,
+            error: entry.ok ? null : entry.error,
+          })),
+          orderSize: nextOrder.length,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err: unknown) {
+        sendRouteException(res, "mission-control.next-up.bulk.handler", err);
+      }
+    },
+    "Mission-control next-up bulk"
   );
 
   router.add(

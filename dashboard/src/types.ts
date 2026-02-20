@@ -348,6 +348,25 @@ export interface NextUpQueueResponse {
   error?: string;
 }
 
+export type NextUpQueueBulkAction = 'move_top' | 'move_bottom' | 'remove';
+
+export interface NextUpQueueBulkResultItem {
+  initiativeId: string;
+  workstreamId: string;
+  ok: boolean;
+  error?: string | null;
+}
+
+export interface NextUpQueueBulkResponse {
+  ok: boolean;
+  action: NextUpQueueBulkAction;
+  requested: number;
+  updated: number;
+  failed: number;
+  results: NextUpQueueBulkResultItem[];
+  updatedAt: string;
+}
+
 export type AutoContinueStopReason =
   | 'budget_exhausted'
   | 'blocked'

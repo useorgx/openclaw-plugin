@@ -18,11 +18,13 @@ import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { CollapsibleSection } from './CollapsibleSection';
+import { QueuePlacementControl } from './QueuePlacementControl';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
@@ -34,6 +36,8 @@ interface InitiativeSectionProps {
     lastHeartbeatAt: string | null;
   } | null;
 }
+
+type QueuePlacement = 'top' | 'bottom';
 
 function priorityFromLabel(value: string | null | undefined): {
   priorityNum: number;
@@ -333,6 +337,7 @@ export function InitiativeSection({
   const [focusedWorkstreamId, setFocusedWorkstreamId] = useState<string | null>(null);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
   const [isBodyAnimating, setIsBodyAnimating] = useState(false);
+  const [queueNotice, setQueueNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const initiativeHeaderRef = useRef<HTMLDivElement | null>(null);
   const [initiativeHeaderOffset, setInitiativeHeaderOffset] = useState(52);
   const [stickyMorph, setStickyMorph] = useState(0);
@@ -354,6 +359,7 @@ export function InitiativeSection({
     embedMode,
     enabled: isExpanded,
   });
+  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
 
   const legacyGraph = useMemo(
     () => buildLegacyGraphNodes(initiative, details),
@@ -460,6 +466,12 @@ export function InitiativeSection({
     }
   }, [isExpanded, nodes, selectedNodeId]);
 
+  useEffect(() => {
+    if (!queueNotice) return;
+    const timeout = window.setTimeout(() => setQueueNotice(null), queueNotice.tone === 'success' ? 2800 : 4200);
+    return () => window.clearTimeout(timeout);
+  }, [queueNotice]);
+
   const explicitAgents = (graph?.initiative.assignedAgents ?? []).map((agent) => ({
     id: agent.id,
     name: agent.name,
@@ -501,6 +513,14 @@ export function InitiativeSection({
 
   const milestoneNodes = nodes.filter((node) => node.type === 'milestone');
   const workstreamNodes = nodes.filter((node) => node.type === 'workstream');
+  const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
+  const queueTargets = useMemo(
+    () =>
+      workstreamNodes
+        .filter((workstream) => workstream.initiativeId === initiative.id)
+        .sort((left, right) => left.priorityNum - right.priorityNum || left.title.localeCompare(right.title)),
+    [initiative.id, workstreamNodes]
+  );
   const hasEntityHierarchy =
     isExpanded &&
     (hasPrimaryGraphData ||
@@ -531,6 +551,60 @@ export function InitiativeSection({
   const stickyShadow =
     `0 10px 26px rgba(0,0,0,${(0.18 + stickyMorphEased * 0.24).toFixed(3)}), ` +
     `0 1px 0 rgba(191,255,0,${(stickyMorphEased * 0.09).toFixed(3)})`;
+
+  const queueInitiative = async (placement: QueuePlacement) => {
+    if (queueTargets.length === 0) {
+      setQueueNotice({ tone: 'error', message: 'No workstreams available to queue for this initiative.' });
+      return;
+    }
+
+    const orderedTargets =
+      placement === 'top' ? [...queueTargets].reverse() : queueTargets;
+    let queuedCount = 0;
+    let failedCount = 0;
+    let firstError: string | null = null;
+
+    for (const workstream of orderedTargets) {
+      try {
+        await nextUpActions.pin({
+          initiativeId: initiative.id,
+          workstreamId: workstream.id,
+        });
+        await nextUpActions.move({
+          initiativeId: initiative.id,
+          workstreamId: workstream.id,
+          placement,
+        });
+        queuedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        if (!firstError) {
+          firstError =
+            error instanceof Error
+              ? error.message
+              : 'Failed to queue this initiative.';
+        }
+      }
+    }
+
+    if (failedCount > 0) {
+      setQueueNotice({
+        tone: queuedCount > 0 ? 'success' : 'error',
+        message:
+          queuedCount > 0
+            ? `Queued ${queuedCount}/${queueTargets.length} workstreams (${failedCount} failed).`
+            : firstError ?? 'Failed to queue initiative workstreams.',
+      });
+      return;
+    }
+
+    setQueueNotice({
+      tone: 'success',
+      message: `Queued ${queuedCount} workstream${queuedCount === 1 ? '' : 's'} to ${
+        placement === 'top' ? 'top' : 'end'
+      }.`,
+    });
+  };
 
   const openNodeModal = (node: MissionControlNode) => {
     if (node.type === 'initiative') {
@@ -600,7 +674,7 @@ export function InitiativeSection({
             toggleExpanded(initiative.id);
           }
         }}
-        className={`group flex min-h-[66px] w-full min-w-0 items-center gap-2.5 overflow-hidden px-3 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:gap-3 sm:px-4 ${
+        className={`group flex min-h-[66px] w-full min-w-0 items-center gap-2.5 overflow-visible px-3 py-3 text-left transition-[background-color,border-radius,box-shadow] duration-300 hover:bg-white/[0.035] sm:gap-3 sm:px-4 ${
           isExpanded
             ? 'sticky z-30 border-b border-subtle bg-[#0C0E14]/95 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-xl'
             : ''
@@ -678,8 +752,41 @@ export function InitiativeSection({
           </span>
         </div>
 
-        <div className="ml-1.5 flex w-[148px] min-w-[148px] flex-shrink-0 items-center justify-end gap-2.5 pr-0.5 sm:w-[182px] sm:min-w-[182px] sm:pr-1 md:w-[206px] md:min-w-[206px]">
-          <div className="min-w-[88px] flex-1 sm:min-w-[112px] md:min-w-[140px]">
+        {/* Radial progress — compact, shown below lg */}
+        <div className="ml-1.5 flex-shrink-0 lg:hidden" title={`${progress}% complete`}>
+          <svg viewBox="0 0 36 36" className="h-9 w-9" aria-label={`${progress}% complete`}>
+            <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
+            <motion.circle
+              cx="18" cy="18" r="15"
+              fill="none"
+              stroke={statusColor(effectiveInitiativeStatus)}
+              strokeWidth="3"
+              strokeLinecap="round"
+              initial={false}
+              animate={{
+                strokeDasharray: `${(progressFillPercent / 100) * 94.25} 94.25`,
+                opacity: progress === 0 ? 0.45 : 1,
+              }}
+              transition={{ type: 'spring', stiffness: 260, damping: 34, mass: 0.75 }}
+              transform="rotate(-90 18 18)"
+            />
+            <text
+              x="18" y="19"
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill="currentColor"
+              fontSize="9"
+              fontWeight="600"
+              className="text-muted"
+            >
+              {progress}%
+            </text>
+          </svg>
+        </div>
+
+        {/* Linear progress — full width, shown at lg+ */}
+        <div className="ml-1.5 hidden w-[148px] min-w-[148px] flex-shrink-0 items-center justify-end gap-2.5 pr-0.5 lg:flex xl:w-[182px] xl:min-w-[182px] xl:pr-1 2xl:w-[206px] 2xl:min-w-[206px]">
+          <div className="min-w-[88px] flex-1 xl:min-w-[112px] 2xl:min-w-[140px]">
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
               <motion.div
                 className="h-full rounded-full transition-all"
@@ -694,14 +801,28 @@ export function InitiativeSection({
             </div>
           </div>
           <span
-            className="w-[42px] text-right text-micro text-muted sm:w-[48px] sm:text-caption"
+            className="w-[42px] text-right text-micro text-muted xl:w-[48px] xl:text-caption"
             style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             {progress}%
           </span>
         </div>
 
-        <div className="ml-2 flex w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 sm:w-[116px] sm:min-w-[116px] sm:pl-2.5 md:w-[132px] md:min-w-[132px]">
+        {/* Queue button — hidden below lg */}
+        <div className="ml-1 hidden w-[132px] min-w-[132px] flex-shrink-0 justify-end lg:flex">
+          <QueuePlacementControl
+            label="Queue"
+            size="sm"
+            busy={queueActionBusy}
+            disabled={queueTargets.length === 0}
+            stopPropagation
+            title={`Queue initiative: ${initiative.name}`}
+            onSelectPlacement={queueInitiative}
+          />
+        </div>
+
+        {/* Live/agents section — hidden below md */}
+        <div className="ml-2 hidden w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 md:flex lg:w-[116px] lg:min-w-[116px] lg:pl-2.5 xl:w-[132px] xl:min-w-[132px]">
           {runtimeActiveCount > 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
@@ -753,6 +874,20 @@ export function InitiativeSection({
           </button>
         </div>
       </div>
+
+      {queueNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mx-3 mb-2 rounded-lg border px-2.5 py-1.5 text-micro ${
+            queueNotice.tone === 'success'
+              ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.1] text-[#D8FFA1]'
+              : 'border-red-400/24 bg-red-500/[0.1] text-red-100'
+          }`}
+        >
+          {queueNotice.message}
+        </div>
+      )}
 
       <AnimatePresence>
         {isExpanded && (

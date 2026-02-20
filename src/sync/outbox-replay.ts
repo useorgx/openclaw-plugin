@@ -111,8 +111,12 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         payload.retro && typeof payload.retro === "object" && !Array.isArray(payload.retro)
           ? (payload.retro as Record<string, unknown>)
           : null;
+      const trimAndClamp = (value: string, maxLength: number): string =>
+        value.trim().slice(0, maxLength);
       const summary =
-        retro && typeof retro.summary === "string" ? retro.summary.trim() : "";
+        retro && typeof retro.summary === "string"
+          ? trimAndClamp(retro.summary, 4000)
+          : "";
       if (!retro || !summary) {
         return null;
       }
@@ -121,11 +125,13 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         if (!Array.isArray(value)) return undefined;
         const normalized = value
           .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
+          .map((item) => trimAndClamp(item, 1000))
           .filter((item) => item.length > 0)
           .slice(0, 25);
         return normalized.length > 0 ? normalized : undefined;
       };
+      const pickRetroStringList = (snakeCaseKey: string, camelCaseKey: string): string[] | undefined =>
+        normalizeStringList(retro[snakeCaseKey]) ?? normalizeStringList((retro as any)[camelCaseKey]);
 
       const followUpsRaw = Array.isArray(retro.follow_ups)
         ? retro.follow_ups
@@ -143,7 +149,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         }
         const title =
           typeof (candidate as { title?: unknown }).title === "string"
-            ? (candidate as { title: string }).title.trim()
+            ? trimAndClamp((candidate as { title: string }).title, 500)
             : "";
         if (!title) {
           continue;
@@ -158,13 +164,20 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
             : undefined;
         const reason =
           typeof (candidate as { reason?: unknown }).reason === "string"
-            ? (candidate as { reason: string }).reason.trim()
+            ? trimAndClamp((candidate as { reason: string }).reason, 2000)
             : "";
-        followUps.push({
-          title,
-          priority,
-          reason: reason || undefined,
-        });
+        const normalizedFollowUp: {
+          title: string;
+          priority?: "p0" | "p1" | "p2";
+          reason?: string;
+        } = { title };
+        if (priority) {
+          normalizedFollowUp.priority = priority;
+        }
+        if (reason) {
+          normalizedFollowUp.reason = reason;
+        }
+        followUps.push(normalizedFollowUp);
         if (followUps.length >= 25) {
           break;
         }
@@ -178,9 +191,9 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
       return {
         schema_version: RETRO_ARTIFACT_SCHEMA_VERSION,
         summary,
-        what_went_well: normalizeStringList(retro.what_went_well),
-        what_went_wrong: normalizeStringList(retro.what_went_wrong),
-        decisions: normalizeStringList(retro.decisions),
+        what_went_well: pickRetroStringList("what_went_well", "whatWentWell"),
+        what_went_wrong: pickRetroStringList("what_went_wrong", "whatWentWrong"),
+        decisions: pickRetroStringList("decisions", "keyDecisions"),
         follow_ups: followUps.length > 0 ? followUps : undefined,
         signals,
       };

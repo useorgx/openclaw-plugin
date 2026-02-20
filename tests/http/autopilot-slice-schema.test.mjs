@@ -59,6 +59,10 @@ test("autopilot slice schema is strict-format compatible for codex output-schema
         { type: ["number", "null"], minimum: 0, maximum: 1 },
         "artifact.confidence_score should be constrained to [0,1] (nullable)"
       );
+      assert.ok(
+        (artifactItem?.properties?.artifact_type?.enum ?? []).includes("retro"),
+        "artifact.artifact_type should allow retro as a first-class artifact type"
+      );
 
       const decisionItem = schema.properties?.decisions_needed?.items;
       assert.equal(

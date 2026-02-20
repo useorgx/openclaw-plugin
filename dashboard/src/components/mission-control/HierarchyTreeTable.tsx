@@ -13,6 +13,7 @@ import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useMissionControl } from './MissionControlContext';
 import { buildOrgxHeaders } from '@/lib/http';
+import { QueuePlacementControl } from './QueuePlacementControl';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
 
@@ -42,6 +43,7 @@ type FlatRow = {
 type SortField = 'title' | 'status' | 'priority' | 'eta' | null;
 type SortDir = 'asc' | 'desc';
 type StatusScope = 'all' | 'open' | 'blocked' | 'done';
+type QueuePlacement = 'top' | 'bottom';
 
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return '';
@@ -423,8 +425,85 @@ export function HierarchyTreeTable({
   }, [showAdvancedStatusFilters]);
 
   const dependencyCount = (node: MissionControlNode) => node.dependencyIds.length;
+  const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
 
-  const addToNextUp = async (node: MissionControlNode) => {
+  const queueWorkstream = async (payload: {
+    initiativeId: string;
+    workstreamId: string;
+    taskId?: string | null;
+    milestoneId?: string | null;
+    placement: QueuePlacement;
+  }) => {
+    await nextUpActions.pin({
+      initiativeId: payload.initiativeId,
+      workstreamId: payload.workstreamId,
+      taskId: payload.taskId ?? null,
+      milestoneId: payload.milestoneId ?? null,
+    });
+    await nextUpActions.move({
+      initiativeId: payload.initiativeId,
+      workstreamId: payload.workstreamId,
+      placement: payload.placement,
+    });
+  };
+
+  const addToNextUp = async (
+    node: MissionControlNode,
+    placement: QueuePlacement = 'bottom'
+  ) => {
+    if (node.type === 'initiative') {
+      const initiativeWorkstreams = workstreams.filter(
+        (candidate) => candidate.initiativeId === node.id
+      );
+      if (initiativeWorkstreams.length === 0) {
+        setBulkNotice({
+          tone: 'error',
+          message: 'Cannot queue initiative: no workstreams found.',
+        });
+        return;
+      }
+      const ordered =
+        placement === 'top'
+          ? [...initiativeWorkstreams].reverse()
+          : initiativeWorkstreams;
+      let queuedCount = 0;
+      let failedCount = 0;
+      let firstError: string | null = null;
+      for (const workstream of ordered) {
+        try {
+          await queueWorkstream({
+            initiativeId: node.id,
+            workstreamId: workstream.id,
+            placement,
+          });
+          queuedCount += 1;
+        } catch (err) {
+          failedCount += 1;
+          if (!firstError) {
+            firstError = err instanceof Error ? err.message : 'Failed to add initiative workstream to queue.';
+          }
+        }
+      }
+      if (failedCount > 0) {
+        setBulkNotice({
+          tone: queuedCount > 0 ? 'success' : 'error',
+          message:
+            queuedCount > 0
+              ? `Queued ${queuedCount}/${initiativeWorkstreams.length} workstreams (${failedCount} failed). ${firstError ?? ''}`.trim()
+              : firstError ?? 'Failed to queue initiative workstreams.',
+        });
+      } else {
+        setBulkNotice({
+          tone: 'success',
+          message: `Queued ${queuedCount} workstream${queuedCount === 1 ? '' : 's'} to ${
+            placement === 'top' ? 'top' : 'end'
+          }.`,
+        });
+      }
+      window.setTimeout(() => setBulkNotice(null), failedCount > 0 ? 4200 : 2400);
+      return;
+    }
+
     const initiativeId = node.initiativeId ?? '';
     const workstreamId =
       node.type === 'workstream' ? node.id : (node.workstreamId ?? '');
@@ -437,17 +516,23 @@ export function HierarchyTreeTable({
     }
 
     try {
-      await nextUpActions.pin({ initiativeId, workstreamId, taskId, milestoneId });
+      await queueWorkstream({
+        initiativeId,
+        workstreamId,
+        taskId,
+        milestoneId,
+        placement,
+      });
       setBulkNotice({
         tone: 'success',
         message:
           node.type === 'task'
-            ? 'Added task workstream to queue.'
+            ? `Queued task workstream to ${placement === 'top' ? 'top' : 'end'}.`
             : node.type === 'milestone'
-              ? 'Added milestone workstream to queue.'
-              : 'Added workstream to queue.',
+              ? `Queued milestone workstream to ${placement === 'top' ? 'top' : 'end'}.`
+              : `Queued workstream to ${placement === 'top' ? 'top' : 'end'}.`,
       });
-      window.setTimeout(() => setBulkNotice(null), 1800);
+      window.setTimeout(() => setBulkNotice(null), 2000);
     } catch (err) {
       setBulkNotice({
         tone: 'error',
@@ -965,7 +1050,8 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
+      {/* overflowX: clip prevents creating a scroll container so position:sticky on thead works relative to outer scroll host */}
+      <div className="min-w-0 max-w-full rounded-xl border border-white/[0.07] bg-black/[0.14] p-2" style={{ overflowX: 'clip', overflowY: 'visible' }}>
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
           <thead className="sticky z-20" style={{ top: tableHeaderStickyTop }}>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
@@ -1037,6 +1123,13 @@ export function HierarchyTreeTable({
                 .join(', ');
               const completion = progressByNodeId.get(node.id);
               const editableRow = editMode && selected;
+              const canQueueNode =
+                node.type === 'initiative' ||
+                node.type === 'workstream' ||
+                node.type === 'milestone' ||
+                node.type === 'task';
+              const canPlayNode =
+                node.type === 'workstream' || node.type === 'milestone' || node.type === 'task';
 
               return (
                 <tr
@@ -1071,104 +1164,74 @@ export function HierarchyTreeTable({
                   </td>
                   {/* Item */}
                   <td className="px-2 py-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <div style={{ width: depth * 14 }} />
-                      {canCollapse ? (
+                    <div className="flex min-w-0 items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
+                        <div style={{ width: depth * 14 }} />
+                        {canCollapse ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpandedRows((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(node.id)) next.delete(node.id);
+                                else next.add(node.id);
+                                return next;
+                              });
+                            }}
+                            aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
+                            className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          >
+                            {expandedRows.has(node.id) ? '▾' : '▸'}
+                          </button>
+                        ) : (
+                          <span className="w-2.5" />
+                        )}
+                        <LevelIcon type={node.type} />
                         <button
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setExpandedRows((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(node.id)) next.delete(node.id);
-                              else next.add(node.id);
-                              return next;
-                            });
+                            onOpenNode(node);
                           }}
-                          aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
-                          className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          aria-label={`Open ${node.type} details: ${node.title}`}
+                          className="min-w-0 max-w-[560px] flex-1 truncate rounded text-left text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                         >
-                          {expandedRows.has(node.id) ? '▾' : '▸'}
+                          {node.title}
                         </button>
-                      ) : (
-                        <span className="w-2.5" />
-                      )}
-                      <LevelIcon type={node.type} />
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenNode(node);
-                        }}
-                        aria-label={`Open ${node.type} details: ${node.title}`}
-                        className="max-w-[320px] truncate rounded text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
-                      >
-                        {node.title}
-                      </button>
+                      </div>
 
-                      {/* Quick actions — hover revealed */}
-                      {!editMode && (node.type === 'workstream' || node.type === 'milestone' || node.type === 'task') && (
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity ml-1">
-                          {node.type === 'task' && mutations ? (
-                            <>
-                              {['not_started', 'todo', 'planned', 'pending', 'backlog'].includes(node.status.toLowerCase()) ? (
-                                <button
-                                  type="button"
-                                  title="Start"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void onUpdateNode(node, { status: 'in_progress' });
-                                  }}
-                                  aria-label={`Start task: ${node.title}`}
-                                  className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                                </button>
-                              ) : ['in_progress', 'active'].includes(node.status.toLowerCase()) ? (
-                                <button
-                                  type="button"
-                                  title="Mark done"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void onUpdateNode(node, { status: 'done' });
-                                  }}
-                                  aria-label={`Mark task done: ${node.title}`}
-                                  className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-emerald-400 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>
-                                </button>
-                              ) : null}
-                            </>
-                          ) : null}
+                      {!editMode && (
+                        <div className="ml-1 grid w-[168px] min-w-[168px] grid-cols-[124px_34px] items-center justify-end gap-2">
+                          {canQueueNode ? (
+                            <QueuePlacementControl
+                              label="Queue"
+                              size="sm"
+                              busy={queueActionBusy}
+                              stopPropagation
+                              title={`Queue ${node.type}: ${node.title}`}
+                              onSelectPlacement={(placement) => addToNextUp(node, placement)}
+                            />
+                          ) : (
+                            <span className="h-7 w-[124px]" />
+                          )}
 
-                          <button
-                            type="button"
-                            title="Play now"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void playNow(node);
-                            }}
-                            aria-label={`Play now: ${node.type} ${node.title}`}
-                            className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-teal-300 hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                          </button>
-
-                          <button
-                            type="button"
-                            title="Add to queue"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void addToNextUp(node);
-                            }}
-                            aria-label={`Add to queue: ${node.type} ${node.title}`}
-                            className="flex items-center justify-center w-7 h-7 rounded-md text-muted transition-colors hover:text-[#BFFF00] hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                              <path d="M12 5v14" />
-                              <path d="M5 12h14" />
-                            </svg>
-                          </button>
+                          {canPlayNode ? (
+                            <button
+                              type="button"
+                              title="Start"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void playNow(node);
+                              }}
+                              aria-label={`Start ${node.type}: ${node.title}`}
+                              className="control-pill flex h-7 w-[34px] items-center justify-center px-0 text-[#D8FFA1] hover:text-[#E9FFBD]"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                            </button>
+                          ) : (
+                            <span className="h-7 w-[34px]" />
+                          )}
                         </div>
                       )}
                     </div>

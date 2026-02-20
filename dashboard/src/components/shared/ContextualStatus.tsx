@@ -9,6 +9,7 @@ interface ContextualStatusProps {
   onDecisionsClick?: () => void;
   onBlockedClick?: () => void;
   onNewInitiative?: () => void;
+  className?: string;
 }
 
 function resolveState(props: ContextualStatusProps): {
@@ -82,10 +83,11 @@ function resolveState(props: ContextualStatusProps): {
 }
 
 export function ContextualStatus(props: ContextualStatusProps) {
+  const { className } = props;
   const { key, segments } = resolveState(props);
 
   return (
-    <div className="flex items-center gap-1.5 text-body">
+    <div className={`flex items-center gap-1.5 whitespace-nowrap text-body ${className ?? ''}`}>
       <AnimatePresence mode="wait">
         <motion.span
           key={key}
