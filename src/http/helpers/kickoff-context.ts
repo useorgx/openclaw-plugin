@@ -216,6 +216,38 @@ export function renderKickoffMessage(input: {
     lines.push("");
   }
 
+  const teamContext = kickoff.team_context;
+  if (teamContext) {
+    const completions = Array.isArray(teamContext.recent_completions)
+      ? teamContext.recent_completions.slice(0, 5)
+      : [];
+    const teamDecisions = Array.isArray(teamContext.recent_decisions)
+      ? teamContext.recent_decisions.slice(0, 3)
+      : [];
+
+    if (completions.length > 0 || teamDecisions.length > 0) {
+      lines.push("## Team Activity");
+      lines.push("Recent work by other agents (for awareness, not direct action):");
+      for (const c of completions) {
+        const outputs =
+          Array.isArray(c.key_outputs) && c.key_outputs.length > 0
+            ? ` (${c.key_outputs.join(", ")})`
+            : "";
+        lines.push(`- [${c.domain}] ${c.task_title}: ${c.summary}${outputs}`);
+      }
+      if (teamDecisions.length > 0) {
+        lines.push("");
+        lines.push("Recent decisions:");
+        for (const d of teamDecisions) {
+          lines.push(`- ${d.title}: ${d.resolution}`);
+        }
+      }
+      lines.push("");
+      lines.push("Reference naturally when relevant. Do not summarize back.");
+      lines.push("");
+    }
+  }
+
   if (contextHash || schemaVersion) {
     lines.push("## Provenance");
     if (schemaVersion) lines.push(`- kickoff_schema: ${schemaVersion}`);

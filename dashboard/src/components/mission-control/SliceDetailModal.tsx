@@ -8,6 +8,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import { statusColor, formatEntityStatus } from '@/lib/entityStatusColors';
 import { colors, motion as motionTokens } from '@/lib/tokens';
+import { projectRunStatus } from '@/lib/runStatusModel';
 import type { NextUpQueueItem, SliceRunProjection } from '@/types';
 import type { InProgressRow } from './InProgressPanel';
 
@@ -270,6 +271,43 @@ export function SliceDetailModal({
 
   const d = extractData(target);
   const sr = d.sliceRun;
+  const canonicalProjection = projectRunStatus({
+    sessionStatus: d.queueState,
+    sessionPhase: d.workstreamStatus,
+    sliceStatus: sr?.status ?? d.workstreamStatus,
+    activityStatus: sr?.runtimeState ?? d.workstreamStatus ?? d.queueState,
+    stopReason: d.queueState === 'blocked' ? 'blocked' : null,
+    decisionRequired: (sr?.blockingDecisionCount ?? 0) > 0,
+    blockingDecisionCount: sr?.blockingDecisionCount ?? 0,
+    nonBlockingDecisionCount: Math.max(
+      0,
+      (sr?.decisionCount ?? 0) - (sr?.blockingDecisionCount ?? 0)
+    ),
+    blockerCount: d.blockReason ? 1 : 0,
+    blockerReason: d.blockReason,
+  });
+  const canonicalStatusClass =
+    canonicalProjection.status === 'completed'
+      ? 'text-lime border-lime/30 bg-lime/[0.12]'
+      : canonicalProjection.status === 'failed'
+        ? 'text-red-200 border-red-400/30 bg-red-500/[0.12]'
+        : canonicalProjection.status === 'needs_attention'
+          ? 'text-amber-200 border-amber-400/30 bg-amber-500/[0.12]'
+          : canonicalProjection.status === 'in_progress'
+            ? 'text-teal-200 border-teal-400/30 bg-teal-500/[0.12]'
+            : 'text-secondary border-white/[0.14] bg-white/[0.04]';
+  const canonicalNarrativeClass =
+    canonicalProjection.tone === 'critical'
+      ? 'border-red-400/24 bg-red-500/[0.08]'
+      : canonicalProjection.tone === 'warning'
+        ? 'border-amber-400/24 bg-amber-500/[0.08]'
+        : canonicalProjection.tone === 'positive'
+          ? 'border-lime/24 bg-lime/[0.08]'
+          : 'border-subtle bg-white/[0.02]';
+  const rawWorkstreamStatusLabel = d.workstreamStatus ? formatEntityStatus(d.workstreamStatus) : null;
+  const showRawWorkstreamStatus =
+    Boolean(rawWorkstreamStatusLabel) &&
+    rawWorkstreamStatusLabel!.toLowerCase() !== canonicalProjection.label.toLowerCase();
 
   const breadcrumbs = [
     ...(d.initiativeTitle
@@ -281,16 +319,17 @@ export function SliceDetailModal({
     { label: d.workstreamTitle },
   ];
 
-  const isRunning = d.queueState === 'running';
-  const canStart = d.initiativeId && d.workstreamId && !isRunning;
+  const isRunning = canonicalProjection.status === 'in_progress';
+  const canStart = Boolean(d.initiativeId && d.workstreamId && !isRunning);
   const nextActionLabel =
-    target.source === 'needs_input' && sr
+    canonicalProjection.nextAction ??
+    (target.source === 'needs_input' && sr
       ? sr.primaryAction === 'resolve_decision'
         ? 'Resolve decision'
         : sr.primaryAction === 'open_artifact'
           ? 'Open result'
           : 'Review activity'
-      : null;
+      : null);
 
   // -------------------------------------------------------------------------
   // Footer
@@ -403,7 +442,7 @@ export function SliceDetailModal({
           <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
             <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
           </svg>
-          Start
+          {canonicalProjection.status === 'completed' ? 'Restart' : 'Start'}
         </button>
       )}
     </div>
@@ -452,7 +491,12 @@ export function SliceDetailModal({
                   </p>
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {d.workstreamStatus && (
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
+                  >
+                    {canonicalProjection.label}
+                  </span>
+                  {showRawWorkstreamStatus && d.workstreamStatus && (
                     <span
                       className="inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em]"
                       style={{
@@ -461,7 +505,7 @@ export function SliceDetailModal({
                         backgroundColor: `${statusColor(d.workstreamStatus)}14`,
                       }}
                     >
-                      {formatEntityStatus(d.workstreamStatus)}
+                      {rawWorkstreamStatusLabel}
                     </span>
                   )}
                   <span
@@ -487,16 +531,23 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.08] px-4 py-3"
+                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
                 >
                   <p className="section-kicker">What to do now</p>
                   <p className="mt-1 text-body text-primary">
-                    {sr.artifactCount > 0
-                      ? `${sr.artifactCount} artifact${sr.artifactCount === 1 ? '' : 's'} are ready. Review and confirm next steps.`
-                      : sr.blockingDecisionCount > 0
-                        ? `${sr.blockingDecisionCount} decision${sr.blockingDecisionCount === 1 ? '' : 's'} are waiting for your input.`
-                        : sr.statusExplainer}
+                    {canonicalProjection.sentence}
                   </p>
+                  {sr.artifactCount > 0 ? (
+                    <p className="mt-1 text-caption text-secondary">
+                      {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
+                    </p>
+                  ) : null}
+                  {sr.blockingDecisionCount > 0 ? (
+                    <p className="mt-1 text-caption text-secondary">
+                      {sr.blockingDecisionCount} blocking decision
+                      {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
+                    </p>
+                  ) : null}
                   {nextActionLabel ? (
                     <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
                   ) : null}
@@ -515,6 +566,10 @@ export function SliceDetailModal({
               className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
             >
               <p className="section-kicker">Status &amp; Context</p>
+              <p className="text-caption text-secondary">
+                {canonicalProjection.sentence}
+                {canonicalProjection.nextAction ? ` Next: ${canonicalProjection.nextAction}.` : ''}
+              </p>
               <div className="flex flex-wrap items-center gap-2 text-caption text-primary">
                 <span className="flex items-center gap-1.5">
                   <span

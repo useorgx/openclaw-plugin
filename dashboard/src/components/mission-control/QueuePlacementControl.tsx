@@ -7,6 +7,7 @@ interface QueuePlacementControlProps {
   defaultPlacement?: QueuePlacement;
   size?: 'sm' | 'md';
   align?: 'left' | 'right';
+  menuDirection?: 'up' | 'down';
   disabled?: boolean;
   busy?: boolean;
   className?: string;
@@ -26,6 +27,7 @@ export function QueuePlacementControl({
   defaultPlacement = 'bottom',
   size = 'sm',
   align = 'right',
+  menuDirection = 'up',
   disabled = false,
   busy = false,
   className = '',
@@ -42,6 +44,7 @@ export function QueuePlacementControl({
   const mainPaddingClass = size === 'md' ? 'px-3' : 'px-2.5';
   const menuButtonSizeClass = size === 'md' ? 'h-8 w-8' : 'h-7 w-7';
   const menuAlignClass = align === 'left' ? 'left-0' : 'right-0';
+  const menuVerticalClass = menuDirection === 'up' ? 'bottom-[calc(100%+6px)]' : 'top-[calc(100%+6px)]';
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -132,7 +135,7 @@ export function QueuePlacementControl({
         <div
           id={menuId.current}
           role="menu"
-          className={`absolute ${menuAlignClass} top-[calc(100%+6px)] z-[260] min-w-[172px] rounded-lg border border-strong bg-[#0B0F16]/95 p-1 shadow-[0_16px_32px_rgba(0,0,0,0.38)] backdrop-blur ${menuClassName}`}
+          className={`absolute ${menuAlignClass} ${menuVerticalClass} z-[260] min-w-[172px] rounded-lg border border-strong bg-[#0B0F16]/95 p-1 shadow-[0_16px_32px_rgba(0,0,0,0.38)] backdrop-blur ${menuClassName}`}
         >
           {(['top', 'bottom'] as const).map((placement) => (
             <button

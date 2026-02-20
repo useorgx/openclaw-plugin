@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import posthog from 'posthog-js';
+import { identifyTelemetry } from '@/lib/telemetry';
 
 import type { OnboardingState } from '@/types';
 
@@ -254,7 +254,7 @@ function maybeIdentify(installationId: string | null | undefined) {
   if (!installationId) return;
   try {
     // Keep dashboard + plugin runtime events correlated on the same distinct_id.
-    posthog.identify(installationId);
+    identifyTelemetry(installationId);
   } catch {
     // best effort
   }

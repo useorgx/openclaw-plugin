@@ -131,6 +131,16 @@
     font-weight: 500;
   }
 
+  .chip-avatar {
+    padding-left: 3px;
+    gap: 6px;
+  }
+
+  .chip-avatar [data-agent-avatar='true'] {
+    width: 20px;
+    height: 20px;
+  }
+
   .surface-tier-1 {
     border: 1px solid var(--orgx-border-subtle);
     background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),

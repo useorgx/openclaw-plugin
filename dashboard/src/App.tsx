@@ -25,24 +25,20 @@ import { Badge } from '@/components/shared/Badge';
 import { Modal } from '@/components/shared/Modal';
 import { MobileTabBar } from '@/components/shared/MobileTabBar';
 import type { MobileTab } from '@/components/shared/MobileTabBar';
-import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
-import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
-import { DecisionQueue } from '@/components/decisions/DecisionQueue';
-import { InProgressPanel, type InProgressRow } from '@/components/mission-control/InProgressPanel';
-import { NeedsInputPanel } from '@/components/mission-control/NeedsInputPanel';
-import { NextUpPanel } from '@/components/mission-control/NextUpPanel';
-import { SliceDetailModal, type SliceDetailTarget } from '@/components/mission-control/SliceDetailModal';
+import {
+  InProgressPanel,
+  selectInProgressRows,
+  type InProgressRow,
+} from '@/components/mission-control/InProgressPanel';
+import { NeedsInputPanel, selectNeedsInputRows } from '@/components/mission-control/NeedsInputPanel';
+import type { SliceDetailTarget } from '@/components/mission-control/SliceDetailModal';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useLiveInitiatives } from '@/hooks/useLiveInitiatives';
-import { SettingsModal, type SettingsTab } from '@/components/settings/SettingsModal';
-import { BulkSessionsModal, type BulkSessionsMode } from '@/components/bulk/BulkSessionsModal';
-import { BulkDecisionsModal } from '@/components/bulk/BulkDecisionsModal';
-import { BulkOutboxModal } from '@/components/bulk/BulkOutboxModal';
-import { BulkHandoffsModal } from '@/components/bulk/BulkHandoffsModal';
-import { ArtifactViewerProvider } from '@/components/artifacts/ArtifactViewerContext';
-import { ArtifactViewerModal } from '@/components/artifacts/ArtifactViewerModal';
+import type { SettingsTab } from '@/components/settings/SettingsModal';
+import type { BulkSessionsMode } from '@/components/bulk/BulkSessionsModal';
+import { ArtifactViewerProvider, useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { ContextualStatus } from '@/components/shared/ContextualStatus';
 import orgxLogo from '@/assets/orgx-logo.png';
 
@@ -57,6 +53,61 @@ const LazyMissionControlView = lazy(async () => {
 const LazySessionInspector = lazy(async () => {
   const mod = await import('@/components/sessions/SessionInspector');
   return { default: mod.SessionInspector };
+});
+
+const LazyAgentsChatsPanel = lazy(async () => {
+  const mod = await import('@/components/sessions/AgentsChatsPanel');
+  return { default: mod.AgentsChatsPanel };
+});
+
+const LazyActivityTimeline = lazy(async () => {
+  const mod = await import('@/components/activity/ActivityTimeline');
+  return { default: mod.ActivityTimeline };
+});
+
+const LazyDecisionQueue = lazy(async () => {
+  const mod = await import('@/components/decisions/DecisionQueue');
+  return { default: mod.DecisionQueue };
+});
+
+const LazyNextUpPanel = lazy(async () => {
+  const mod = await import('@/components/mission-control/NextUpPanel');
+  return { default: mod.NextUpPanel };
+});
+
+const LazySettingsModal = lazy(async () => {
+  const mod = await import('@/components/settings/SettingsModal');
+  return { default: mod.SettingsModal };
+});
+
+const LazyBulkSessionsModal = lazy(async () => {
+  const mod = await import('@/components/bulk/BulkSessionsModal');
+  return { default: mod.BulkSessionsModal };
+});
+
+const LazyBulkDecisionsModal = lazy(async () => {
+  const mod = await import('@/components/bulk/BulkDecisionsModal');
+  return { default: mod.BulkDecisionsModal };
+});
+
+const LazyBulkOutboxModal = lazy(async () => {
+  const mod = await import('@/components/bulk/BulkOutboxModal');
+  return { default: mod.BulkOutboxModal };
+});
+
+const LazyBulkHandoffsModal = lazy(async () => {
+  const mod = await import('@/components/bulk/BulkHandoffsModal');
+  return { default: mod.BulkHandoffsModal };
+});
+
+const LazyArtifactViewerModal = lazy(async () => {
+  const mod = await import('@/components/artifacts/ArtifactViewerModal');
+  return { default: mod.ArtifactViewerModal };
+});
+
+const LazySliceDetailModal = lazy(async () => {
+  const mod = await import('@/components/mission-control/SliceDetailModal');
+  return { default: mod.SliceDetailModal };
 });
 
 const CONNECTION_LABEL: Record<string, string> = {
@@ -291,6 +342,16 @@ function OrgXLogo() {
   );
 }
 
+function DeferredArtifactViewerModal() {
+  const { state } = useArtifactViewer();
+  if (!state.artifactId) return null;
+  return (
+    <Suspense fallback={null}>
+      <LazyArtifactViewerModal />
+    </Suspense>
+  );
+}
+
 type EntityModalState = {
   type: 'initiative' | 'workstream';
   initiativeId?: string | null;
@@ -443,50 +504,24 @@ function DashboardShell({
     'next_up'
   );
   const [inProgressSubFilter, setInProgressSubFilter] = useState<'all' | 'needs_attention'>('all');
-  const inProgressCount = useMemo(() => {
-    if (typeof data.runningWorkSlices === 'number' && Number.isFinite(data.runningWorkSlices)) {
-      return Math.max(0, Math.floor(data.runningWorkSlices));
-    }
-    if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
-      return data.sliceRuns.filter(
-        (slice) => slice.status === 'running' || slice.status === 'dispatching'
-      ).length;
-    }
-
-    const inProgressStatuses = new Set([
-      'running',
-      'active',
-      'in_progress',
-      'working',
-      'planning',
-      'dispatching',
-    ]);
-
-    let count = 0;
-    for (const session of sessionNodesInScope) {
-      const status = normalizeStatus(session.status ?? '');
-      if (status === 'queued' || status === 'pending' || status === 'blocked') continue;
-      if (inProgressStatuses.has(status) || Boolean(session.lastHeartbeatAt)) count += 1;
-    }
-    return count;
-  }, [data.sliceRuns, sessionNodesInScope]);
-
-  const needsInputCount = useMemo(() => {
-    if (typeof data.needsInputTotal === 'number' && Number.isFinite(data.needsInputTotal)) {
-      return Math.max(0, Math.floor(data.needsInputTotal));
-    }
-    if (!Array.isArray(data.sliceRuns) || data.sliceRuns.length === 0) {
-      return 0;
-    }
-    return data.sliceRuns.filter((slice) =>
-      slice.status === 'awaiting_input' || slice.status === 'needs_review' || slice.status === 'failed'
-    ).length;
-  }, [data.sliceRuns]);
-
   const actionableSliceRuns = useMemo<SliceRunProjection[]>(
     () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
     [data.sliceRuns]
   );
+  const inProgressRows = useMemo(
+    () =>
+      selectInProgressRows({
+        sessions: sessionNodesInScope,
+        sliceRuns: actionableSliceRuns,
+      }),
+    [actionableSliceRuns, sessionNodesInScope]
+  );
+  const inProgressCount = inProgressRows.length;
+  const needsInputRows = useMemo(
+    () => selectNeedsInputRows(actionableSliceRuns),
+    [actionableSliceRuns]
+  );
+  const needsInputCount = needsInputRows.length;
 
   const [sliceDetailTarget, setSliceDetailTarget] = useState<SliceDetailTarget | null>(null);
 
@@ -861,21 +896,8 @@ function DashboardShell({
 
   const blockedCount = useMemo(
     () => {
-      if (
-        typeof data.needsInputTotal === 'number' &&
-        typeof data.failedActionableTotal === 'number' &&
-        Number.isFinite(data.needsInputTotal) &&
-        Number.isFinite(data.failedActionableTotal)
-      ) {
-        return Math.max(0, Math.floor(data.needsInputTotal + data.failedActionableTotal));
-      }
-      if (Array.isArray(data.sliceRuns) && data.sliceRuns.length > 0) {
-        return data.sliceRuns.filter(
-          (slice) =>
-            slice.status === 'awaiting_input' ||
-            slice.status === 'needs_review' ||
-            slice.status === 'failed'
-        ).length;
+      if (actionableSliceRuns.length > 0) {
+        return needsInputRows.length;
       }
       return sessionNodesInScope.filter((node) => {
         const status = normalizeStatus(node.status);
@@ -894,7 +916,7 @@ function DashboardShell({
         return node.blockers.length > 0;
       }).length;
     },
-    [data.sliceRuns, sessionNodesInScope]
+    [actionableSliceRuns.length, needsInputRows.length, sessionNodesInScope]
   );
 
   const failedCount = useMemo(
@@ -2388,40 +2410,52 @@ function DashboardShell({
 	      ) : (
       <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
-	          <AgentsChatsPanel
-	            sessions={data.sessions}
-	            activity={activityInScope}
-            runtimeInstances={data.runtimeInstances ?? []}
-            showSyntheticEntities={demoMode || showSyntheticEntities}
-	            selectedSessionId={selectedSessionId}
-	            onSelectSession={handleSelectSession}
-	            onAgentFilter={setAgentFilter}
-            agentFilter={agentFilter}
-            timeFilterId={activityTimeFilterId}
-            onReconnect={handleReconnect}
-            connectionStatus={data.connection}
-	          />
-	        </section>
+          <Suspense
+            fallback={
+              <PremiumCard className="h-full p-4 text-body text-secondary">Loading agents…</PremiumCard>
+            }
+          >
+            <LazyAgentsChatsPanel
+              sessions={data.sessions}
+              activity={activityInScope}
+              runtimeInstances={data.runtimeInstances ?? []}
+              showSyntheticEntities={demoMode || showSyntheticEntities}
+              selectedSessionId={selectedSessionId}
+              onSelectSession={handleSelectSession}
+              onAgentFilter={setAgentFilter}
+              agentFilter={agentFilter}
+              timeFilterId={activityTimeFilterId}
+              onReconnect={handleReconnect}
+              connectionStatus={data.connection}
+            />
+          </Suspense>
+        </section>
 
         <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
-	          <ActivityTimeline
-	            activity={activityFeed.items}
-	            sessions={sessionNodesInScope}
-	            initiatives={initiatives}
-	            timelineNarrative={data.timelineNarrative ?? []}
-	            selectedRunIds={selectedActivityRunIds}
-	            selectedSessionLabel={selectedActivitySessionLabel}
+          <Suspense
+            fallback={
+              <PremiumCard className="h-full p-4 text-body text-secondary">Loading activity…</PremiumCard>
+            }
+          >
+            <LazyActivityTimeline
+              activity={activityFeed.items}
+              sessions={sessionNodesInScope}
+              sliceRuns={actionableSliceRuns}
+              initiatives={initiatives}
+              timelineNarrative={data.timelineNarrative ?? []}
+              selectedRunIds={selectedActivityRunIds}
+              selectedSessionLabel={selectedActivitySessionLabel}
               selectedWorkstreamId={activityFilterWorkstreamId}
               selectedWorkstreamLabel={activityFilterWorkstreamLabel}
-	            agentFilter={agentFilter}
+              agentFilter={agentFilter}
               timeFilterId={activityTimeFilterId}
               onTimeFilterChange={handleActivityTimeFilterChange}
               hasMore={activityFeed.hasMore}
               isLoadingMore={activityFeed.isLoadingMore}
-	            onLoadMore={activityFeed.loadMore}
-	            onClearSelection={clearActivitySessionFilter}
-	            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
-	            onClearAgentFilter={clearAgentFilter}
+              onLoadMore={activityFeed.loadMore}
+              onClearSelection={clearActivitySessionFilter}
+              onClearWorkstreamFilter={clearActivityWorkstreamFilter}
+              onClearAgentFilter={clearAgentFilter}
               onFocusRunId={focusActivityRunId}
               onOpenDecision={openDecisionsFromActivity}
               requestedActivityItemId={requestedActivityItemId}
@@ -2433,8 +2467,9 @@ function DashboardShell({
               onOpenMissionControl={() => switchDashboardView('mission-control')}
               onOpenSettings={() => openSettings('orgx')}
               isLoading={isLoading}
-	          />
-	        </section>
+            />
+          </Suspense>
+        </section>
 
         <section className={`flex min-h-0 flex-col gap-3 lg:col-span-3 lg:gap-3 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
@@ -2581,17 +2616,23 @@ function DashboardShell({
                       />
                     )
                   ) : (
-                    <NextUpPanel
-                      title="Next Up"
-                      showHeader={false}
-                      panelStyle="flat"
-                      className="h-full"
-                      compact={false}
-                      selectionEnabled
-                      showQueueSettings
-                      onOpenInitiative={openInitiativeFromNextUp}
-                      onOpenSliceDetail={openSliceDetailFromQueue}
-                    />
+                    <Suspense
+                      fallback={
+                        <div className="p-4 text-body text-secondary">Loading queue…</div>
+                      }
+                    >
+                      <LazyNextUpPanel
+                        title="Next Up"
+                        showHeader={false}
+                        panelStyle="flat"
+                        className="h-full"
+                        compact={false}
+                        selectionEnabled
+                        showQueueSettings
+                        onOpenInitiative={openInitiativeFromNextUp}
+                        onOpenSliceDetail={openSliceDetailFromQueue}
+                      />
+                    </Suspense>
                   )}
                 </div>
               </PremiumCard>
@@ -2616,15 +2657,23 @@ function DashboardShell({
           <div className={`min-h-0 ${expandedRightPanel === 'decisions' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
             {expandedRightPanel === 'decisions' ? (
               decisionsVisible ? (
-                <DecisionQueue
-                  decisions={data.decisions}
-                  focusDecisionId={requestedDecisionId}
-                  onFocusDecisionHandled={() => setRequestedDecisionId(null)}
-                  onApproveDecision={approveDecision}
-                  onRejectDecision={rejectDecision}
-                  onApproveAll={approveAllDecisions}
-                  onBulkDecisionAction={bulkDecisionAction}
-                />
+                <Suspense
+                  fallback={
+                    <PremiumCard className="h-full min-h-[220px] p-4 text-body text-secondary">
+                      Loading decisions…
+                    </PremiumCard>
+                  }
+                >
+                  <LazyDecisionQueue
+                    decisions={data.decisions}
+                    focusDecisionId={requestedDecisionId}
+                    onFocusDecisionHandled={() => setRequestedDecisionId(null)}
+                    onApproveDecision={approveDecision}
+                    onRejectDecision={rejectDecision}
+                    onApproveAll={approveAllDecisions}
+                    onBulkDecisionAction={bulkDecisionAction}
+                  />
+                </Suspense>
               ) : (
                 <PremiumCard className="flex h-full min-h-[220px] flex-col card-enter">
                   <div className="space-y-2 border-b border-subtle px-4 py-3.5">
@@ -2795,90 +2844,115 @@ function DashboardShell({
         </div>
       </Modal>
 
-      <SettingsModal
-        open={settingsState.open}
-        onClose={() =>
-          setSettingsState((previous) => ({ ...previous, open: false, focusAgentDomain: null }))
-        }
-        activeTab={settingsState.tab}
-        onChangeTab={(tab) => setSettingsState((previous) => ({ ...previous, tab }))}
-        agentBehaviorInitialDomain={settingsState.focusAgentDomain}
-        demoMode={demoMode}
-        onToggleDemoMode={(next) => {
-          setDemoModeEnabled(next);
-          if (!next) {
-            handleReconnect();
-          }
-        }}
-        devMode={devMode}
-        onToggleDevMode={setDevMode}
-        showSyntheticEntities={showSyntheticEntities}
-        onToggleShowSyntheticEntities={setShowSyntheticEntities}
-        onboarding={onboarding}
-        authToken={null}
-        embedMode={false}
-      />
+      {settingsState.open && (
+        <Suspense fallback={null}>
+          <LazySettingsModal
+            open={settingsState.open}
+            onClose={() =>
+              setSettingsState((previous) => ({ ...previous, open: false, focusAgentDomain: null }))
+            }
+            activeTab={settingsState.tab}
+            onChangeTab={(tab) => setSettingsState((previous) => ({ ...previous, tab }))}
+            agentBehaviorInitialDomain={settingsState.focusAgentDomain}
+            demoMode={demoMode}
+            onToggleDemoMode={(next) => {
+              setDemoModeEnabled(next);
+              if (!next) {
+                handleReconnect();
+              }
+            }}
+            devMode={devMode}
+            onToggleDevMode={setDevMode}
+            showSyntheticEntities={showSyntheticEntities}
+            onToggleShowSyntheticEntities={setShowSyntheticEntities}
+            onboarding={onboarding}
+            authToken={null}
+            embedMode={false}
+          />
+        </Suspense>
+      )}
 
-      <BulkSessionsModal
-        open={
-          bulkModal === 'sessions' ||
-          bulkModal === 'active' ||
-          bulkModal === 'blocked' ||
-          bulkModal === 'failed'
-        }
-        onClose={() => setBulkModal(null)}
-        mode={
-          bulkModal === 'active' || bulkModal === 'blocked' || bulkModal === 'failed'
-            ? bulkModal
-            : 'sessions'
-        }
-        sessions={sessionNodesInScope}
-        onOpenSession={(session) => {
-          handleSelectSession(session.id);
-          setBulkModal(null);
-        }}
-        onRunAction={async (session, action) => {
-          await runControlAction(session, action, { reason: `bulk_${action}_from_header` });
-        }}
-        onRefetch={async () => refetch()}
-        onSetNotice={(message) => setOpsNotice(message)}
-      />
+      {(bulkModal === 'sessions' ||
+        bulkModal === 'active' ||
+        bulkModal === 'blocked' ||
+        bulkModal === 'failed') && (
+        <Suspense fallback={null}>
+          <LazyBulkSessionsModal
+            open={
+              bulkModal === 'sessions' ||
+              bulkModal === 'active' ||
+              bulkModal === 'blocked' ||
+              bulkModal === 'failed'
+            }
+            onClose={() => setBulkModal(null)}
+            mode={
+              bulkModal === 'active' || bulkModal === 'blocked' || bulkModal === 'failed'
+                ? bulkModal
+                : 'sessions'
+            }
+            sessions={sessionNodesInScope}
+            onOpenSession={(session) => {
+              handleSelectSession(session.id);
+              setBulkModal(null);
+            }}
+            onRunAction={async (session, action) => {
+              await runControlAction(session, action, { reason: `bulk_${action}_from_header` });
+            }}
+            onRefetch={async () => refetch()}
+            onSetNotice={(message) => setOpsNotice(message)}
+          />
+        </Suspense>
+      )}
 
-      <BulkDecisionsModal
-        open={bulkModal === 'decisions'}
-        onClose={() => setBulkModal(null)}
-        decisions={decisionsVisible ? data.decisions : []}
-        onApproveDecision={approveDecision}
-        onRejectDecision={rejectDecision}
-        onApproveAll={approveAllDecisions}
-        onBulkDecisionAction={bulkDecisionAction}
-      />
+      {bulkModal === 'decisions' && (
+        <Suspense fallback={null}>
+          <LazyBulkDecisionsModal
+            open={bulkModal === 'decisions'}
+            onClose={() => setBulkModal(null)}
+            decisions={decisionsVisible ? data.decisions : []}
+            onApproveDecision={approveDecision}
+            onRejectDecision={rejectDecision}
+            onApproveAll={approveAllDecisions}
+            onBulkDecisionAction={bulkDecisionAction}
+          />
+        </Suspense>
+      )}
 
-      <BulkOutboxModal
-        open={bulkModal === 'outbox'}
-        onClose={() => setBulkModal(null)}
-        outbox={data.outbox}
-        onOpenSettings={() => {
-          setBulkModal(null);
-          openSettings('orgx');
-        }}
-        onRefresh={() => {
-          void refetch();
-        }}
-      />
+      {bulkModal === 'outbox' && (
+        <Suspense fallback={null}>
+          <LazyBulkOutboxModal
+            open={bulkModal === 'outbox'}
+            onClose={() => setBulkModal(null)}
+            outbox={data.outbox}
+            onOpenSettings={() => {
+              setBulkModal(null);
+              openSettings('orgx');
+            }}
+            onRefresh={() => {
+              void refetch();
+            }}
+          />
+        </Suspense>
+      )}
 
-      <BulkHandoffsModal
-        open={bulkModal === 'handoffs'}
-        onClose={() => setBulkModal(null)}
-        handoffs={data.handoffs}
-      />
+      {bulkModal === 'handoffs' && (
+        <Suspense fallback={null}>
+          <LazyBulkHandoffsModal
+            open={bulkModal === 'handoffs'}
+            onClose={() => setBulkModal(null)}
+            handoffs={data.handoffs}
+          />
+        </Suspense>
+      )}
 
-      <ArtifactViewerModal />
+      <DeferredArtifactViewerModal />
 
-      <SliceDetailModal
-        target={sliceDetailTarget}
-        onClose={() => setSliceDetailTarget(null)}
-        onPlayWorkstream={async (initiativeId, workstreamId, agentId) => {
+      {sliceDetailTarget && (
+        <Suspense fallback={null}>
+          <LazySliceDetailModal
+            target={sliceDetailTarget}
+            onClose={() => setSliceDetailTarget(null)}
+            onPlayWorkstream={async (initiativeId, workstreamId, agentId) => {
           const response = await fetch('/orgx/api/mission-control/next-up/play', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2935,7 +3009,7 @@ function DashboardShell({
           setOpsNotice(`Moved workstream to ${placement}.`);
           void refetch();
         }}
-        onRemoveFromQueue={async (initiativeId, workstreamId) => {
+            onRemoveFromQueue={async (initiativeId, workstreamId) => {
           const response = await fetch('/orgx/api/mission-control/next-up/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2949,12 +3023,14 @@ function DashboardShell({
           setOpsNotice(`Removed workstream from queue.`);
           void refetch();
         }}
-        onOpenSession={handleSelectSession}
-        onFocusRunId={focusActivityRunId}
-        onOpenInitiative={openInitiativeFromNextUp}
-        onReviewActivity={openReviewActivityForSlice}
-        onOpenDecisions={() => openDecisionsFromActivity()}
-      />
+            onOpenSession={handleSelectSession}
+            onFocusRunId={focusActivityRunId}
+            onOpenInitiative={openInitiativeFromNextUp}
+            onReviewActivity={openReviewActivityForSlice}
+            onOpenDecisions={() => openDecisionsFromActivity()}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

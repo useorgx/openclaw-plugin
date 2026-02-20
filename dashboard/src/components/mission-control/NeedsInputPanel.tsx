@@ -17,6 +17,43 @@ interface NeedsInputPanelProps {
 
 const NEEDS_INPUT_STATES = new Set(['awaiting_input', 'needs_review', 'failed']);
 
+export interface NeedsInputRow {
+  item: SliceRunProjection;
+  duplicateCount: number;
+}
+
+function toEpoch(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dedupeKey(item: SliceRunProjection): string {
+  const initiativeId = item.initiativeId ?? item.initiativeIds?.[0] ?? 'none';
+  const workstreamId = item.workstreamId ?? item.workstreamIds?.[0] ?? 'none';
+  const explainer = (item.statusExplainer ?? '').trim().toLowerCase();
+  return [initiativeId, workstreamId, item.status, item.primaryAction, explainer].join('|');
+}
+
+export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInputRow[] {
+  const filtered = sliceRuns
+    .filter((item) => NEEDS_INPUT_STATES.has(item.status))
+    .sort((a, b) => toEpoch(b.updatedAt ?? b.lastEventAt ?? '') - toEpoch(a.updatedAt ?? a.lastEventAt ?? ''));
+
+  const grouped = new Map<string, NeedsInputRow>();
+  for (const item of filtered) {
+    const key = dedupeKey(item);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { item, duplicateCount: 1 });
+      continue;
+    }
+    existing.duplicateCount += 1;
+  }
+
+  return Array.from(grouped.values());
+}
+
 function statusTone(status: SliceRunProjection['status']): string {
   if (status === 'failed') return 'border-red-400/30 bg-red-500/[0.10] text-red-100';
   if (status === 'needs_review') return 'border-amber-300/30 bg-amber-300/[0.10] text-amber-100';
@@ -62,16 +99,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   onReviewActivity,
   onOpenSliceDetail,
 }: NeedsInputPanelProps) {
-  const rows = useMemo(() => {
-    const filtered = sliceRuns.filter((item) => NEEDS_INPUT_STATES.has(item.status));
-    return filtered.sort((a, b) => {
-      const aEpoch = Date.parse(a.updatedAt ?? a.lastEventAt ?? '');
-      const bEpoch = Date.parse(b.updatedAt ?? b.lastEventAt ?? '');
-      const safeA = Number.isFinite(aEpoch) ? aEpoch : 0;
-      const safeB = Number.isFinite(bEpoch) ? bEpoch : 0;
-      return safeB - safeA;
-    });
-  }, [sliceRuns]);
+  const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
 
   const runPrimaryAction = (item: SliceRunProjection) => {
     if (item.primaryAction === 'resolve_decision') {
@@ -122,7 +150,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
         </div>
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
-          {rows.map((item) => {
+          {rows.map(({ item, duplicateCount }) => {
             const primaryWorkstreamId =
               (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
                 ? item.workstreamIds[0]
@@ -166,6 +194,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
+                  {duplicateCount > 1 && (
+                    <span className="chip text-micro">
+                      {duplicateCount} similar updates
+                    </span>
+                  )}
                   {typeof item.decisionCount === 'number' && item.decisionCount > 0 && (
                     <span className="chip text-micro">{item.decisionCount} decision{item.decisionCount === 1 ? '' : 's'}</span>
                   )}

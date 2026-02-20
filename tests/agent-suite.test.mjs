@@ -122,3 +122,37 @@ test("applyOrgxAgentSuitePlan writes managed + composite files and appends local
   assert.ok(composite.includes("# === ORGX LOCAL OVERRIDES"), "expected local overrides header in composite");
   assert.ok(composite.includes("Local note: keep commits small."), "expected local override appended to composite");
 });
+
+test("SKILL.md includes Team Awareness section for all suite agents", async () => {
+  const mod = await importFreshModule();
+
+  const openclawDir = mkdtempSync(join(tmpdir(), "orgx-openclaw-suite-"));
+  const workspacesDir = join(openclawDir, "workspaces");
+  mkdirSync(workspacesDir, { recursive: true });
+
+  const openclawConfigPath = join(openclawDir, "openclaw.json");
+  writeJson(openclawConfigPath, {
+    agents: {
+      list: [
+        { id: "orgx", name: "OrgX", workspace: join(workspacesDir, "orgx") },
+      ],
+    },
+  });
+
+  const plan = mod.computeOrgxAgentSuitePlan({ packVersion: "3.0.0", openclawDir });
+  mod.applyOrgxAgentSuitePlan({ plan, dryRun: false, openclawDir });
+
+  for (const agent of plan.agents) {
+    const skillPath = join(agent.workspace, "SKILL.md");
+    assert.ok(existsSync(skillPath), `expected SKILL.md for ${agent.id}`);
+    const content = readFileSync(skillPath, "utf8");
+    assert.ok(
+      content.includes("## Team Awareness"),
+      `expected Team Awareness section in ${agent.id} SKILL.md`
+    );
+    assert.ok(
+      content.includes("Do not duplicate work another agent has completed"),
+      `expected team awareness guidance in ${agent.id} SKILL.md`
+    );
+  }
+});

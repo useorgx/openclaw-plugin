@@ -33,6 +33,8 @@ export default defineConfig(({ command }) => {
           manualChunks(id) {
             if (!id.includes('node_modules')) return;
             // Keep high-churn app code separate from low-churn vendor for better caching.
+            if (id.includes('posthog-js')) return 'telemetry';
+            if (id.includes('react-markdown') || id.includes('remark-gfm')) return 'markdown';
             if (id.includes('react-dom')) return 'react-vendor';
             if (id.includes('react')) return 'react-vendor';
             if (id.includes('@tanstack')) return 'tanstack';

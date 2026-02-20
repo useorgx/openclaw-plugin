@@ -178,12 +178,15 @@ export function useAgentSuite({
         | null;
       if (!response.ok) {
         const raw = (body as any)?.error;
+        const normalizedRaw = typeof raw === 'string' ? raw.trim() : '';
+        const rawLooksHtml =
+          normalizedRaw.includes('<!DOCTYPE') || normalizedRaw.includes('<html');
         const message =
-          typeof raw === 'string' && raw.length > 0 && !raw.startsWith('<')
-            ? raw
-            : response.status === 404
+          response.status === 404
             ? 'Agent runtime settings endpoint is not available in this plugin build.'
-            : `Failed to load agent runtime settings (${response.status})`;
+            : normalizedRaw.length > 0 && !rawLooksHtml
+              ? normalizedRaw
+              : `Failed to load agent runtime settings (${response.status})`;
         throw new Error(message);
       }
       return normalizeRuntimeSettingsResponse(
