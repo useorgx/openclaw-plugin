@@ -4199,6 +4199,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       }}
                       aria-haspopup="menu"
                       aria-expanded={viewMenuOpen}
+                      aria-label="Activity filters"
+                      title="Activity filters"
                       className={cn(
                         'inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-caption font-semibold transition-colors',
                         viewMenuOpen
