@@ -3,6 +3,7 @@ export const queryKeys = {
     authToken?: string | null;
     embedMode?: boolean;
     useMock?: boolean;
+    projectId?: string | null;
   }) =>
     [
       'live-data',
@@ -10,6 +11,7 @@ export const queryKeys = {
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
         useMock: params.useMock ?? false,
+        projectId: params.projectId ?? null,
       },
     ] as const,
   sessions: (params: {
@@ -44,6 +46,7 @@ export const queryKeys = {
     type: string;
     authToken?: string | null;
     embedMode?: boolean;
+    projectId?: string | null;
   }) =>
     [
       'entities',
@@ -51,6 +54,7 @@ export const queryKeys = {
         type: params.type,
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
+        projectId: params.projectId ?? null,
       },
     ] as const,
   missionControlGraph: (params: {
@@ -70,6 +74,7 @@ export const queryKeys = {
     initiativeId?: string | null;
     authToken?: string | null;
     embedMode?: boolean;
+    projectId?: string | null;
   }) =>
     [
       'mission-control-next-up',
@@ -77,6 +82,7 @@ export const queryKeys = {
         initiativeId: params.initiativeId ?? null,
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
+        projectId: params.projectId ?? null,
       },
     ] as const,
   autoContinueStatus: (params: {
@@ -92,11 +98,12 @@ export const queryKeys = {
         embedMode: params.embedMode ?? false,
       },
     ] as const,
-  liveInitiatives: (params?: { limit?: number }) =>
+  liveInitiatives: (params?: { limit?: number; projectId?: string | null }) =>
     [
       'live-initiatives',
       {
         limit: params?.limit ?? 300,
+        projectId: params?.projectId ?? null,
       },
     ] as const,
   artifactsByEntity: (params: {

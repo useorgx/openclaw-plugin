@@ -8,6 +8,7 @@ import type {
   AgentSuitePlan,
 } from '@/types';
 import { buildOrgxHeaders } from '@/lib/http';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 export type AgentSuiteStatusResponse =
   | { ok: true; data: AgentSuitePlan }
@@ -149,6 +150,7 @@ export function useAgentSuite({
   enabled = true,
 }: UseAgentSuiteOptions = {}) {
   const queryClient = useQueryClient();
+  const demoMode = isDemoModeEnabled();
 
   const statusQueryKey = useMemo(
     () => ['agent-suite', { authToken, embedMode }] as const,
@@ -163,6 +165,12 @@ export function useAgentSuite({
     queryKey: statusQueryKey,
     enabled,
     queryFn: async () => {
+      if (demoMode) {
+        return {
+          ok: false,
+          error: 'Agent suite controls are unavailable in demo mode.',
+        };
+      }
       const response = await fetch('/orgx/api/agent-suite/status', {
         headers: buildOrgxHeaders({ authToken, embedMode }),
       });
@@ -178,6 +186,9 @@ export function useAgentSuite({
     queryKey: runtimeSettingsQueryKey,
     enabled,
     queryFn: async () => {
+      if (demoMode) {
+        return { projectId: null, agents: [] };
+      }
       const response = await fetch('/orgx/api/agent-suite/runtime-settings', {
         headers: buildOrgxHeaders({ authToken, embedMode }),
       });
@@ -211,6 +222,12 @@ export function useAgentSuite({
     { dryRun?: boolean; forceSkillPack?: boolean }
   >({
     mutationFn: async ({ dryRun, forceSkillPack } = {}) => {
+      if (demoMode) {
+        return {
+          ok: false,
+          error: 'Agent suite install is unavailable in demo mode.',
+        };
+      }
       const response = await fetch('/orgx/api/agent-suite/install', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -235,6 +252,9 @@ export function useAgentSuite({
     AgentRuntimeSettingsSaveInput
   >({
     mutationFn: async (input) => {
+      if (demoMode) {
+        return { projectId: null, agents: [] };
+      }
       const projectId = normalizeUuid(input.projectId ?? null);
       const response = await fetch('/orgx/api/agent-suite/runtime-settings', {
         method: 'PATCH',

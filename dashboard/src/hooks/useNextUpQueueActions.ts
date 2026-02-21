@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
@@ -26,6 +27,7 @@ function normalizeErrorMessage(response: Response, body: any | null, fallback: s
 export function useNextUpQueueActions(input: { authToken?: string | null; embedMode?: boolean }) {
   const authToken = input.authToken ?? null;
   const embedMode = input.embedMode ?? false;
+  const demoMode = isDemoModeEnabled();
   const queryClient = useQueryClient();
 
   const invalidate = async () => {
@@ -39,6 +41,16 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     workstreamId: string;
     placement?: 'top' | 'bottom';
   }) => {
+    if (demoMode) {
+      return {
+        ok: true,
+        demo: true,
+        initiativeId: payload.initiativeId,
+        workstreamId: payload.workstreamId,
+        placement: payload.placement ?? 'top',
+      } as const;
+    }
+
     const response = await fetch('/orgx/api/mission-control/next-up/move', {
       method: 'POST',
       headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -106,6 +118,15 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
   };
 
   const removeQueueItem = async (payload: { initiativeId: string; workstreamId: string }) => {
+    if (demoMode) {
+      return {
+        ok: true,
+        demo: true,
+        initiativeId: payload.initiativeId,
+        workstreamId: payload.workstreamId,
+      } as const;
+    }
+
     const response = await fetch('/orgx/api/mission-control/next-up/remove', {
       method: 'POST',
       headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -143,6 +164,8 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       taskId?: string | null;
       milestoneId?: string | null;
     }) => {
+      if (demoMode) return { ok: true, demo: true } as const;
+
       const response = await fetch('/orgx/api/mission-control/next-up/pin', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -160,6 +183,8 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
 
   const unpin = useMutation({
     mutationFn: async (payload: { initiativeId: string; workstreamId: string }) => {
+      if (demoMode) return { ok: true, demo: true } as const;
+
       const response = await fetch('/orgx/api/mission-control/next-up/unpin', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -177,6 +202,14 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
 
   const reorder = useMutation({
     mutationFn: async (payload: { order: Array<{ initiativeId: string; workstreamId: string }> }) => {
+      if (demoMode) {
+        return {
+          ok: true,
+          demo: true,
+          updated: payload.order.length,
+        } as const;
+      }
+
       const response = await fetch('/orgx/api/mission-control/next-up/reorder', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -206,6 +239,15 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       placement?: 'top' | 'bottom';
       resetToTodo?: boolean;
     }) => {
+      if (demoMode) {
+        return {
+          ok: true,
+          demo: true,
+          initiativeId: payload.initiativeId,
+          workstreamId: payload.workstreamId,
+        } as const;
+      }
+
       const response = await fetch('/orgx/api/mission-control/next-up/triage/stop', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -256,6 +298,14 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       states?: Array<'running' | 'blocked'>;
       placement?: 'top' | 'bottom';
     }) => {
+      if (demoMode) {
+        return {
+          ok: true,
+          demo: true,
+          cleared: true,
+        } as const;
+      }
+
       const response = await fetch('/orgx/api/mission-control/next-up/clear', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -297,6 +347,17 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
       action: 'move_top' | 'move_bottom' | 'remove';
       items: Array<{ initiativeId: string; workstreamId: string }>;
     }) => {
+      if (demoMode) {
+        return {
+          ok: true,
+          demo: true,
+          updated: payload.items.length,
+          failed: 0,
+          errors: [],
+          fallback: 'demo',
+        } as const;
+      }
+
       const response = await fetch('/orgx/api/mission-control/next-up/bulk', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),

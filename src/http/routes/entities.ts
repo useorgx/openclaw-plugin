@@ -23,6 +23,8 @@ type EntityClientLike = {
     input: {
       status?: string;
       initiative_id?: string;
+      project_id?: string;
+      command_center_id?: string;
       limit?: number;
     }
   ) => Promise<unknown>;
@@ -349,25 +351,45 @@ export function registerEntitiesRoutes<TReq, TRes>(
 
     const status = query.get("status") ?? undefined;
     const initiativeId = query.get("initiative_id") ?? undefined;
+    const projectId = query.get("project_id") ?? undefined;
+    const commandCenterId = query.get("command_center_id") ?? undefined;
     const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
 
     try {
       const data = await deps.client.listEntities(type, {
         status,
         initiative_id: initiativeId,
+        project_id: projectId,
+        command_center_id: commandCenterId,
         limit: Number.isFinite(limit) ? limit : undefined,
       });
       if (type.trim().toLowerCase() === "initiative") {
         const payload = data as Record<string, unknown>;
-        const rows = Array.isArray(payload.data)
+        const rawRows = Array.isArray(payload.data)
           ? payload.data.filter(
               (row): row is Record<string, unknown> =>
                 Boolean(row && typeof row === "object")
             )
           : [];
+        const workspaceScope = (commandCenterId ?? "").trim();
+        const rows =
+          workspaceScope.length > 0
+            ? rawRows.filter((row) => {
+                const rowScope =
+                  deps.pickString(row, ["command_center_id", "commandCenterId"]) ?? "";
+                return rowScope.trim() === workspaceScope;
+              })
+            : rawRows;
         deps.sendJson(res, 200, {
           ...payload,
           data: deps.applyLocalInitiativeOverrides(rows),
+          pagination:
+            payload.pagination && typeof payload.pagination === "object"
+              ? {
+                  ...(payload.pagination as Record<string, unknown>),
+                  total: rows.length,
+                }
+              : payload.pagination,
         });
         return;
       }

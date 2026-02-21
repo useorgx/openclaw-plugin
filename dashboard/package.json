@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.20",
+    "date-fns": "^4.1.0",
     "framer-motion": "^11.15.0",
     "posthog-js": "^1.345.5",
     "react": "^18.3.1",
+    "react-datepicker": "^7.6.0",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0"

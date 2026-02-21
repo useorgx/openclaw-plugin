@@ -56,13 +56,16 @@ type RouteResLike = {
 type RegisterLiveLegacyRoutesDeps<TRes extends RouteResLike> = {
   getLiveSessions: (input: {
     initiative: string | null;
+    projectId: string | null;
     limit: number | undefined;
   }) => Promise<LiveSessionsResponse>;
   getLiveActivity: (input: {
     run: string | null;
     since: string | null;
+    projectId: string | null;
     limit: number | undefined;
   }) => Promise<LiveActivityResponse>;
+  listInitiativeIdsForProject: (input: { projectId: string }) => Promise<string[]>;
   listRuntimeInstances: (input: { limit: number }) => RuntimeInstanceRecord[];
   injectRuntimeInstancesAsSessions: (
     input: SessionTreeResponse,
@@ -144,6 +147,41 @@ function toContextBundle(value: AgentContextBundle): {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function pickString(input: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!input) return null;
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function resolveInitiativeIdFromActivity(item: LiveActivityItem): string | null {
+  if (item.initiativeId && item.initiativeId.trim().length > 0) {
+    return item.initiativeId.trim();
+  }
+  const metadata = asRecord(item.metadata);
+  return pickString(metadata, ["initiative_id", "initiativeId"]);
+}
+
+function filterActivitiesByInitiativeSet(
+  items: LiveActivityItem[],
+  initiativeIds: Set<string>
+): LiveActivityItem[] {
+  if (initiativeIds.size === 0) return [];
+  return items.filter((item) => {
+    const initiativeId = resolveInitiativeIdFromActivity(item);
+    return initiativeId ? initiativeIds.has(initiativeId) : false;
+  });
+}
+
 export function registerLiveLegacyRoutes<
   TReq extends RouteReqLike,
   TRes extends RouteResLike,
@@ -151,42 +189,80 @@ export function registerLiveLegacyRoutes<
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterLiveLegacyRoutesDeps<TRes>
 ): void {
+  async function resolveProjectInitiativeSet(
+    projectIdRaw: string | null
+  ): Promise<Set<string> | null> {
+    const projectId = projectIdRaw?.trim() ?? "";
+    if (!projectId) return null;
+    const ids = await deps.listInitiativeIdsForProject({ projectId });
+    return new Set(ids);
+  }
+
   async function renderLiveSessions(query: URLSearchParams, res: TRes): Promise<void> {
     try {
       const initiative = query.get("initiative");
+      const projectId = query.get("project_id") ?? query.get("projectId");
       const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
       let data = await deps.getLiveSessions({
         initiative,
+        projectId,
         limit: Number.isFinite(limit) ? limit : undefined,
       });
+      const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+      if (projectInitiatives) {
+        const filteredNodes = data.nodes.filter((node) => {
+          const initiativeId = node.initiativeId?.trim() ?? "";
+          return initiativeId.length > 0 && projectInitiatives.has(initiativeId);
+        });
+        const filteredNodeIds = new Set(filteredNodes.map((node) => node.id));
+        const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+        data = {
+          nodes: filteredNodes,
+          edges: data.edges.filter(
+            (edge) => filteredNodeIds.has(edge.parentId) && filteredNodeIds.has(edge.childId)
+          ),
+          groups: data.groups.filter((group) => filteredGroupIds.has(group.id)),
+        };
+      }
       const runtimeInstances =
         initiative && initiative.trim().length > 0
           ? deps
               .listRuntimeInstances({ limit: 320 })
               .filter((instance) => instance.initiativeId === initiative)
           : deps.listRuntimeInstances({ limit: 320 });
-      data = deps.injectRuntimeInstancesAsSessions(data, runtimeInstances);
-      data = deps.enrichSessionsWithRuntime(data, runtimeInstances);
+      const scopedRuntimeInstances = projectInitiatives
+        ? runtimeInstances.filter((instance) => {
+            const initiativeId = instance.initiativeId?.trim() ?? "";
+            return initiativeId.length > 0 && projectInitiatives.has(initiativeId);
+          })
+        : runtimeInstances;
+      data = deps.injectRuntimeInstancesAsSessions(data, scopedRuntimeInstances);
+      data = deps.enrichSessionsWithRuntime(data, scopedRuntimeInstances);
       const contextBundle = toContextBundle(deps.readAgentContexts());
-      const activityForClassification = deps.applyAgentContextsToActivity(
-        deps.listActivityPage({
+      let activityForClassification = deps.listActivityPage({
           limit: 1200,
           runId: null,
           since: null,
           until: null,
           cursor: null,
-        }).activities,
-        contextBundle
-      );
+        }).activities;
+      if (projectInitiatives) {
+        activityForClassification = filterActivitiesByInitiativeSet(
+          activityForClassification,
+          projectInitiatives
+        );
+      }
+      activityForClassification = deps.applyAgentContextsToActivity(activityForClassification, contextBundle);
       data = normalizeReportingBlockedSessions({
         sessions: data,
         activity: activityForClassification,
-        runtimeInstances,
+        runtimeInstances: scopedRuntimeInstances,
       });
       deps.sendJson(res, 200, data);
     } catch (err: unknown) {
       try {
         const initiative = query.get("initiative");
+        const projectId = query.get("project_id") ?? query.get("projectId");
         const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
         const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
 
@@ -213,25 +289,52 @@ export function registerLiveLegacyRoutes<
           };
         }
 
+        const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+        if (projectInitiatives) {
+          const filteredNodes = local.nodes.filter((node) => {
+            const initiativeId = node.initiativeId?.trim() ?? "";
+            return initiativeId.length > 0 && projectInitiatives.has(initiativeId);
+          });
+          const filteredIds = new Set(filteredNodes.map((node) => node.id));
+          const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+          local = {
+            nodes: filteredNodes,
+            edges: local.edges.filter(
+              (edge) => filteredIds.has(edge.parentId) && filteredIds.has(edge.childId)
+            ),
+            groups: local.groups.filter((group) => filteredGroupIds.has(group.id)),
+          };
+        }
+
         const runtimeInstances =
           initiative && initiative.trim().length > 0
             ? deps
                 .listRuntimeInstances({ limit: 320 })
                 .filter((instance) => instance.initiativeId === initiative)
             : deps.listRuntimeInstances({ limit: 320 });
+        const scopedRuntimeInstances = projectInitiatives
+          ? runtimeInstances.filter((instance) => {
+              const initiativeId = instance.initiativeId?.trim() ?? "";
+              return initiativeId.length > 0 && projectInitiatives.has(initiativeId);
+            })
+          : runtimeInstances;
+        let localActivityForClassification = deps.listActivityPage({
+          limit: 1200,
+          runId: null,
+          since: null,
+          until: null,
+          cursor: null,
+        }).activities;
+        if (projectInitiatives) {
+          localActivityForClassification = filterActivitiesByInitiativeSet(
+            localActivityForClassification,
+            projectInitiatives
+          );
+        }
         local = normalizeReportingBlockedSessions({
           sessions: local,
-          activity: deps.applyAgentContextsToActivity(
-            deps.listActivityPage({
-              limit: 1200,
-              runId: null,
-              since: null,
-              until: null,
-              cursor: null,
-            }).activities,
-            contextBundle
-          ),
-          runtimeInstances,
+          activity: deps.applyAgentContextsToActivity(localActivityForClassification, contextBundle),
+          runtimeInstances: scopedRuntimeInstances,
         });
 
         deps.sendJson(res, 200, local);
@@ -261,6 +364,7 @@ export function registerLiveLegacyRoutes<
     const run = query.get("run");
     const since = query.get("since");
     const until = query.get("until");
+    const projectId = query.get("project_id") ?? query.get("projectId");
     const cursor = query.get("cursor");
     const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
     const limit = Number.isFinite(limitRaw)
@@ -274,6 +378,13 @@ export function registerLiveLegacyRoutes<
       until,
       cursor,
     });
+    const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+    if (projectInitiatives) {
+      page = {
+        ...page,
+        activities: filterActivitiesByInitiativeSet(page.activities, projectInitiatives),
+      };
+    }
     {
       const ctx = toContextBundle(deps.readAgentContexts());
       page = {
@@ -295,12 +406,16 @@ export function registerLiveLegacyRoutes<
         const data = await deps.getLiveActivity({
           run,
           since,
+          projectId,
           limit: warmLimit,
         });
         const remote = Array.isArray(data.activities) ? data.activities : [];
         {
           const ctx = toContextBundle(deps.readAgentContexts());
-          const withContexts = deps.applyAgentContextsToActivity(remote, ctx);
+          const scopedRemote = projectInitiatives
+            ? filterActivitiesByInitiativeSet(remote, projectInitiatives)
+            : remote;
+          const withContexts = deps.applyAgentContextsToActivity(scopedRemote, ctx);
           deps.appendActivityItems(withContexts);
         }
         page = deps.listActivityPage({
@@ -310,6 +425,12 @@ export function registerLiveLegacyRoutes<
           until,
           cursor,
         });
+        if (projectInitiatives) {
+          page = {
+            ...page,
+            activities: filterActivitiesByInitiativeSet(page.activities, projectInitiatives),
+          };
+        }
         {
           const ctx = toContextBundle(deps.readAgentContexts());
           page = {
@@ -341,14 +462,20 @@ export function registerLiveLegacyRoutes<
   async function renderLiveActivity(query: URLSearchParams, res: TRes): Promise<void> {
     try {
       const run = query.get("run");
+      const projectId = query.get("project_id") ?? query.get("projectId");
       const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
       const since = query.get("since");
+      const projectInitiatives = await resolveProjectInitiativeSet(projectId);
       const data = await deps.getLiveActivity({
         run,
         since,
+        projectId,
         limit: Number.isFinite(limit) ? limit : undefined,
       });
       let activities = Array.isArray(data.activities) ? data.activities : [];
+      if (projectInitiatives) {
+        activities = filterActivitiesByInitiativeSet(activities, projectInitiatives);
+      }
       let total =
         typeof data.total === "number" && Number.isFinite(data.total)
           ? Number(data.total)
@@ -357,7 +484,10 @@ export function registerLiveLegacyRoutes<
       try {
         const buffered = await deps.outboxReadAllItems();
         if (buffered.length > 0) {
-          let merged = [...activities, ...buffered];
+          const scopedBuffered = projectInitiatives
+            ? filterActivitiesByInitiativeSet(buffered, projectInitiatives)
+            : buffered;
+          let merged = [...activities, ...scopedBuffered];
 
           if (run && run.trim().length > 0) {
             merged = merged.filter((item) => item.runId === run);
@@ -401,8 +531,10 @@ export function registerLiveLegacyRoutes<
     } catch (err: unknown) {
       try {
         const run = query.get("run");
+        const projectId = query.get("project_id") ?? query.get("projectId");
         const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
         const since = query.get("since");
+        const projectInitiatives = await resolveProjectInitiativeSet(projectId);
         const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 240;
 
         const localSnapshot = await deps.loadLocalOpenClawSnapshot(Math.max(limit, 240));
@@ -427,6 +559,16 @@ export function registerLiveLegacyRoutes<
             };
           }
         }
+        if (projectInitiatives) {
+          const projectFiltered = filterActivitiesByInitiativeSet(
+            local.activities,
+            projectInitiatives
+          );
+          local = {
+            activities: projectFiltered,
+            total: projectFiltered.length,
+          };
+        }
 
         const ctx = toContextBundle(deps.readAgentContexts());
         const activitiesWithContexts = deps.applyAgentContextsToActivity(local.activities, ctx);
@@ -434,8 +576,11 @@ export function registerLiveLegacyRoutes<
         try {
           const buffered = await deps.outboxReadAllItems();
           if (buffered.length > 0) {
+            const scopedBuffered = projectInitiatives
+              ? filterActivitiesByInitiativeSet(buffered, projectInitiatives)
+              : buffered;
             const byId = new Map<string, LiveActivityItem>();
-            for (const item of [...merged, ...buffered]) {
+            for (const item of [...merged, ...scopedBuffered]) {
               if (!item || typeof item.id !== "string") continue;
               byId.set(item.id, item);
             }

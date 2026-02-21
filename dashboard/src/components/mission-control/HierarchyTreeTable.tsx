@@ -1050,8 +1050,8 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      {/* overflowX: clip prevents creating a scroll container so position:sticky on thead works relative to outer scroll host */}
-      <div className="min-w-0 max-w-full rounded-xl border border-white/[0.07] bg-black/[0.14] p-2" style={{ overflowX: 'clip', overflowY: 'visible' }}>
+      {/* Mobile needs horizontal access to row actions; keep clip only on larger breakpoints. */}
+      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2 lg:overflow-x-clip">
         <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
           <thead className="sticky z-20" style={{ top: tableHeaderStickyTop }}>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Initiative } from '@/types';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 interface RawLiveInitiative {
   id: string;
@@ -13,6 +14,8 @@ interface RawLiveInitiative {
   targetDate?: string | null;
   dueDate?: string | null;
   etaEndAt?: string | null;
+  command_center_id?: string | null;
+  commandCenterId?: string | null;
 }
 
 function mapStatus(raw: string | null | undefined): Initiative['status'] {
@@ -47,16 +50,34 @@ function toInitiative(item: RawLiveInitiative): Initiative {
   };
 }
 
-export function useLiveInitiatives(enabled: boolean) {
+export function useLiveInitiatives(enabled: boolean, projectId: string | null = null) {
   return useQuery<Initiative[]>({
-    queryKey: queryKeys.liveInitiatives({ limit: 300 }),
+    queryKey: queryKeys.liveInitiatives({ limit: 300, projectId }),
     queryFn: async () => {
-      const response = await fetch('/orgx/api/live/initiatives?limit=300');
+      if (isDemoModeEnabled()) return [];
+      const params = new URLSearchParams({ limit: '300' });
+      if (projectId && projectId.trim().length > 0) {
+        params.set('project_id', projectId.trim());
+      }
+      const response = await fetch(`/orgx/api/live/initiatives?${params.toString()}`);
       if (!response.ok) return [];
       const json = (await response.json()) as {
         initiatives?: RawLiveInitiative[];
       };
-      return (json.initiatives ?? [])
+      const initiatives = json.initiatives ?? [];
+      const workspaceScopeId = projectId?.trim() ?? '';
+      const hasWorkspaceDimension =
+        workspaceScopeId.length > 0 &&
+        initiatives.some((initiative) => {
+          const commandCenterId = (initiative.command_center_id ?? initiative.commandCenterId ?? '').trim();
+          return commandCenterId.length > 0;
+        });
+      return initiatives
+        .filter((initiative) => {
+          if (!workspaceScopeId || !hasWorkspaceDimension) return true;
+          const commandCenterId = (initiative.command_center_id ?? initiative.commandCenterId ?? '').trim();
+          return commandCenterId === workspaceScopeId;
+        })
         .filter((initiative) => isVisibleStatus(initiative.status))
         .map(toInitiative);
     },

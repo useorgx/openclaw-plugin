@@ -125,6 +125,7 @@ const CONNECTION_COLOR: Record<string, string> = {
 const DEMO_MODE_KEY = 'orgx.demo_mode';
 const DEV_MODE_KEY = 'orgx.dev_mode';
 const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
+const SELECTED_WORKSPACE_ID_KEY = 'orgx.selected_workspace_id';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -157,6 +158,14 @@ type HeaderNotification = {
   message: string;
   actionLabel?: string;
   onAction?: () => void;
+};
+
+type WorkspaceOption = {
+  id: string;
+  title: string;
+  status: string | null;
+  isDefault: boolean;
+  createdAt: string | null;
 };
 
 function toEpoch(value: string | null | undefined): number {
@@ -229,6 +238,13 @@ function readActivityMetadataString(
   return null;
 }
 
+function resolveActivityInitiativeId(item: LiveActivityItem): string | null {
+  const direct = typeof item.initiativeId === 'string' ? item.initiativeId.trim() : '';
+  if (direct.length > 0) return direct;
+  const metadata = resolveActivityMetadata(item);
+  return readActivityMetadataString(metadata, ['initiative_id', 'initiativeId']);
+}
+
 function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number {
   const aPriority = SESSION_PRIORITY[a.status] ?? 99;
   const bPriority = SESSION_PRIORITY[b.status] ?? 99;
@@ -274,6 +290,80 @@ function isMockActivityItem(item: LiveActivityItem): boolean {
 
 function isConfigureEngineeringAgentIntent(value: string): boolean {
   return CONFIGURE_ENGINEERING_AGENT_INTENT_RE.test(value);
+}
+
+function pickString(input: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized.length > 0) return normalized;
+  }
+  return null;
+}
+
+function isVisibleProjectStatus(rawStatus: string | null | undefined): boolean {
+  const normalized = (rawStatus ?? '').trim().toLowerCase();
+  if (!normalized) return true;
+  return !['deleted', 'archived', 'cancelled'].includes(normalized);
+}
+
+function normalizeWorkspaceTitle(input: { title: string; isDefault: boolean }): string {
+  const title = input.title.trim();
+  if (title.length > 0) return title;
+  return input.isDefault ? 'Default workspace' : 'Untitled workspace';
+}
+
+function readWorkspaceScopeParam(params: URLSearchParams): string | null {
+  const value =
+    params.get('workspace_id') ??
+    params.get('workspaceId') ??
+    params.get('command_center_id') ??
+    params.get('commandCenterId') ??
+    params.get('project_id') ??
+    params.get('projectId') ??
+    params.get('center');
+  if (!value || value.trim().length === 0) return null;
+  return value.trim();
+}
+
+function setWorkspaceScopeParams(params: URLSearchParams, workspaceId: string): void {
+  const normalized = workspaceId.trim();
+  if (!normalized) return;
+  params.set('workspace_id', normalized);
+  params.set('command_center_id', normalized);
+  params.set('project_id', normalized);
+  params.set('center', normalized);
+}
+
+function clearWorkspaceScopeParams(params: URLSearchParams): void {
+  params.delete('workspace_id');
+  params.delete('workspaceId');
+  params.delete('command_center_id');
+  params.delete('commandCenterId');
+  params.delete('project_id');
+  params.delete('projectId');
+  params.delete('center');
+}
+
+function parseWorkspaceIdFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const workspaceId = readWorkspaceScopeParam(params);
+    if (workspaceId) return workspaceId;
+  } catch {
+    // ignore
+  }
+  try {
+    const stored = window.localStorage.getItem(SELECTED_WORKSPACE_ID_KEY);
+    if (stored && stored.trim().length > 0) {
+      return stored.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export function App() {
@@ -400,6 +490,9 @@ function DashboardShell({
     }
     return 'activity';
   });
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(() =>
+    parseWorkspaceIdFromLocation()
+  );
 
   const switchDashboardView = useCallback((v: DashboardView) => {
     setDashboardView(v);
@@ -409,6 +502,58 @@ function DashboardShell({
       // ignore
     }
   }, []);
+
+  const { data: workspaceOptions = [] } = useQuery<WorkspaceOption[]>({
+    queryKey: ['workspace-options', demoMode ? 'demo' : 'live'],
+    queryFn: async () => {
+      if (demoMode) return [];
+      const response = await fetch('/orgx/api/entities?type=command_center&limit=50');
+      if (!response.ok) return [];
+      const json = (await response.json().catch(() => null)) as {
+        data?: Array<Record<string, unknown>>;
+      } | null;
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      const options: WorkspaceOption[] = [];
+      for (const row of rows) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+        const id = pickString(row, ['id']);
+        if (!id) continue;
+        const status = pickString(row, ['status', 'priority']);
+        if (!isVisibleProjectStatus(status)) continue;
+        const rawTitle =
+          pickString(row, ['title', 'name']) ??
+          (id.length > 10 ? `${id.slice(0, 8)}…` : id);
+        const isDefault = row.is_default === true;
+        const title = normalizeWorkspaceTitle({ title: rawTitle, isDefault });
+        const createdAt = pickString(row, ['created_at']);
+        options.push({ id, title, status, isDefault, createdAt });
+      }
+      options.sort((a, b) => {
+        if (a.isDefault !== b.isDefault) {
+          return a.isDefault ? -1 : 1;
+        }
+        const createdDelta = toEpoch(a.createdAt) - toEpoch(b.createdAt);
+        if (createdDelta !== 0) return createdDelta;
+        return a.title.localeCompare(b.title);
+      });
+      return options;
+    },
+    staleTime: 60_000,
+  });
+
+  const selectedWorkspaceLabel = useMemo(() => {
+    if (!selectedWorkspaceId) return 'All workspaces';
+    return (
+      workspaceOptions.find((option) => option.id === selectedWorkspaceId)?.title ??
+      `Workspace ${selectedWorkspaceId.slice(0, 8)}`
+    );
+  }, [selectedWorkspaceId, workspaceOptions]);
+  useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    if (workspaceOptions.length === 0) return;
+    if (workspaceOptions.some((option) => option.id === selectedWorkspaceId)) return;
+    setSelectedWorkspaceId(null);
+  }, [selectedWorkspaceId, workspaceOptions]);
 
   const shouldAttemptDecisions =
     demoMode || (onboarding.state.hasApiKey && onboarding.state.connectionVerified);
@@ -445,6 +590,7 @@ function DashboardShell({
     useMock: demoMode,
     enabled: true,
     enableDecisions: shouldAttemptDecisions,
+    projectId: selectedWorkspaceId,
     ...liveDataOptions,
   });
   const includeSyntheticEntities = demoMode || showSyntheticEntities;
@@ -476,6 +622,13 @@ function DashboardShell({
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
     useState<ActivityTimeFilterId>('live');
+  const [activityCustomTimeRange, setActivityCustomTimeRange] = useState<{
+    startIso: string | null;
+    endIso: string | null;
+  }>({
+    startIso: null,
+    endIso: null,
+  });
   const autoResolvedActivityFilterScopesRef = useRef<Set<string>>(new Set());
   const [requestedActivityItemId, setRequestedActivityItemId] = useState<string | null>(null);
   const [requestedDecisionId, setRequestedDecisionId] = useState<string | null>(null);
@@ -503,6 +656,17 @@ function DashboardShell({
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
   );
+  const handleMobileTabChange = useCallback((tab: MobileTab) => {
+    setMobileTab(tab);
+    if (tab === 'initiatives') {
+      setExpandedRightPanel('initiatives');
+      setInitiativesSidebarTab('next_up');
+      return;
+    }
+    if (tab === 'decisions') {
+      setExpandedRightPanel('decisions');
+    }
+  }, []);
   const [inProgressSubFilter, setInProgressSubFilter] = useState<'all' | 'needs_attention'>('all');
   const actionableSliceRuns = useMemo<SliceRunProjection[]>(
     () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
@@ -550,7 +714,7 @@ function DashboardShell({
   }, []);
 
   const activityNextUpQueue = useNextUpQueue({
-    initiativeId: null,
+    projectId: selectedWorkspaceId,
     authToken: null,
     embedMode: false,
     enabled: true,
@@ -607,6 +771,33 @@ function DashboardShell({
     }
   }, [devMode]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (selectedWorkspaceId) {
+        window.localStorage.setItem(SELECTED_WORKSPACE_ID_KEY, selectedWorkspaceId);
+      } else {
+        window.localStorage.removeItem(SELECTED_WORKSPACE_ID_KEY);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const url = new URL(window.location.href);
+      if (selectedWorkspaceId) {
+        setWorkspaceScopeParams(url.searchParams, selectedWorkspaceId);
+      } else {
+        clearWorkspaceScopeParams(url.searchParams);
+      }
+      url.searchParams.delete('initiative');
+      url.searchParams.delete('initiative_id');
+      url.searchParams.delete('project');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // ignore
+    }
+  }, [selectedWorkspaceId]);
+
   const openSettings = useCallback((tab?: SettingsTab, opts?: { focusAgentDomain?: AgentSuiteDomain | null }) => {
     setSettingsState((previous) => ({
       open: true,
@@ -640,8 +831,14 @@ function DashboardShell({
   }, []);
 
   // Fetch entity-based initiatives for Mission Control (only when view is active)
-  const { data: entityInitiatives } = useEntityInitiatives(dashboardView === 'mission-control');
-  const { data: liveInitiatives } = useLiveInitiatives(dashboardView === 'mission-control');
+  const { data: entityInitiatives } = useEntityInitiatives(
+    dashboardView === 'mission-control',
+    selectedWorkspaceId
+  );
+  const { data: liveInitiatives } = useLiveInitiatives(
+    dashboardView === 'mission-control',
+    selectedWorkspaceId
+  );
   const { data: initiativeTombstones = [] } = useQuery<string[]>({
     queryKey: ['initiative-tombstones'],
     queryFn: async () => [],
@@ -879,8 +1076,14 @@ function DashboardShell({
   const activityFeed = useActivityFeed({
     seed: activityInScope,
     timeFilterId: activityTimeFilterId,
+    customSinceIso:
+      activityTimeFilterId === 'custom' ? activityCustomTimeRange.startIso : null,
+    customUntilIso:
+      activityTimeFilterId === 'custom' ? activityCustomTimeRange.endIso : null,
     runId: selectedActivitySession?.runId ?? null,
+    projectId: selectedWorkspaceId,
     pageSize: 50,
+    demoMode,
   });
 
   const selectedSession = useMemo(
@@ -1038,6 +1241,9 @@ function DashboardShell({
       ),
     [dismissedNotificationIds, headerNotifications]
   );
+  const notificationDecisionCount = decisionsVisible ? data.decisions.length : 0;
+  const notificationAttentionCount =
+    activeSessionCount + blockedCount + notificationDecisionCount;
 
   const dismissNotification = useCallback((id: string) => {
     setDismissedNotificationIds((previous) =>
@@ -1268,7 +1474,13 @@ function DashboardShell({
 
       return a.name.localeCompare(b.name);
     });
-  }, [initiatives, entityInitiatives, includeSyntheticEntities, liveInitiatives, initiativeTombstones]);
+  }, [
+    initiatives,
+    entityInitiatives,
+    includeSyntheticEntities,
+    liveInitiatives,
+    initiativeTombstones,
+  ]);
 
   const selectedActivitySessionLabel = useMemo(() => {
     if (!selectedActivitySession) return null;
@@ -1380,7 +1592,15 @@ function DashboardShell({
   );
 
   const fetchNextUpCandidate = useCallback(async (): Promise<NextUpQueueItem | null> => {
-    const response = await fetch('/orgx/api/mission-control/next-up');
+    const query = new URLSearchParams();
+    if (selectedWorkspaceId && selectedWorkspaceId.trim().length > 0) {
+      setWorkspaceScopeParams(query, selectedWorkspaceId);
+    }
+    const response = await fetch(
+      query.toString().length > 0
+        ? `/orgx/api/mission-control/next-up?${query.toString()}`
+        : '/orgx/api/mission-control/next-up'
+    );
     const body = (await response.json().catch(() => null)) as
       | { ok?: boolean; items?: NextUpQueueItem[]; error?: string; message?: string }
       | null;
@@ -1403,7 +1623,7 @@ function DashboardShell({
       items.find((item) => item.queueState !== 'blocked') ??
       null
     );
-  }, []);
+  }, [selectedWorkspaceId]);
 
   const playNextUpFromActivity = useCallback(async () => {
     const candidate = await fetchNextUpCandidate();
@@ -2098,7 +2318,7 @@ function DashboardShell({
             <h1 className="text-title font-semibold tracking-tight text-white sm:text-[17px]">
               OrgX<span className="ml-1.5 text-secondary">Live</span>
             </h1>
-            <Badge
+                <Badge
               color={CONNECTION_COLOR[data.connection]}
               pulse={data.connection === 'connected'}
               title={[
@@ -2123,7 +2343,11 @@ function DashboardShell({
                 blocked={blockedCount}
                 decisionsCount={decisionsVisible ? data.decisions.length : 0}
                 completedToday={completedToday}
-                onDecisionsClick={() => setExpandedRightPanel('decisions')}
+                onDecisionsClick={() => {
+                  switchDashboardView('activity');
+                  setExpandedRightPanel('decisions');
+                  setMobileTab('decisions');
+                }}
                 onBlockedClick={() => setBulkModal('blocked')}
                 onNewInitiative={startInitiative}
               />
@@ -2166,6 +2390,39 @@ function DashboardShell({
           </div>
 
           <div className="relative isolate flex items-center justify-end gap-1.5 sm:gap-2">
+            <div className="relative hidden md:block">
+              <label htmlFor="workspace-switcher" className="sr-only">
+                Workspace scope
+              </label>
+              <select
+                id="workspace-switcher"
+                value={selectedWorkspaceId ?? '__all__'}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setSelectedWorkspaceId(next === '__all__' ? null : next);
+                }}
+                className="control-pill h-8 min-w-[170px] appearance-none justify-start bg-white/[0.03] pl-3 pr-8 text-caption font-semibold text-primary"
+                title={`Workspace scope: ${selectedWorkspaceLabel}`}
+              >
+                <option value="__all__">All workspaces</option>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.title}
+                  </option>
+                ))}
+              </select>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-secondary"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </div>
             {data.lastActivity && (
               <span className="hidden text-body text-secondary xl:inline">
                 Last activity: {data.lastActivity}
@@ -2275,9 +2532,11 @@ function DashboardShell({
                     className="max-w-full overflow-hidden"
                     running={activeSessionCount}
                     blocked={blockedCount}
-                    decisionsCount={decisionsVisible ? data.decisions.length : 0}
+                    decisionsCount={notificationDecisionCount}
                     completedToday={completedToday}
                     onDecisionsClick={() => {
+                      switchDashboardView('activity');
+                      setMobileTab('decisions');
                       setExpandedRightPanel('decisions');
                       setNotificationTrayOpen(false);
                     }}
@@ -2290,7 +2549,9 @@ function DashboardShell({
 
                 {visibleNotifications.length === 0 ? (
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-body text-secondary">
-                    Everything looks clear.
+                    {notificationAttentionCount > 0
+                      ? 'No new notification banners. Active work is summarized above.'
+                      : 'Everything looks clear.'}
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -2341,9 +2602,44 @@ function DashboardShell({
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-center lg:hidden">
+        <div className="mt-2 flex items-center justify-center gap-2 lg:hidden">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="workspace-switcher-mobile" className="sr-only">
+              Workspace scope
+            </label>
+            <div className="relative">
+              <select
+                id="workspace-switcher-mobile"
+                value={selectedWorkspaceId ?? '__all__'}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setSelectedWorkspaceId(next === '__all__' ? null : next);
+                }}
+                className="control-pill h-8 w-full appearance-none justify-start bg-white/[0.03] pl-3 pr-8 text-caption font-semibold text-primary"
+                title={`Workspace scope: ${selectedWorkspaceLabel}`}
+              >
+                <option value="__all__">All workspaces</option>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.title}
+                  </option>
+                ))}
+              </select>
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-secondary"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </div>
+          </div>
           <div
-            className="flex w-full max-w-[340px] rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
+            className="flex w-full max-w-[248px] rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
             role="group"
             aria-label="Dashboard view"
           >
@@ -2392,6 +2688,7 @@ function DashboardShell({
 	              activities={activityInScope}
 	              agents={missionControlAgents}
               runtimeInstances={data.runtimeInstances ?? []}
+	              workspaceInitiativeId={selectedWorkspaceId}
 	              isLoading={isLoading}
 	              authToken={null}
 	              embedMode={false}
@@ -2426,6 +2723,7 @@ function DashboardShell({
               agentFilter={agentFilter}
               timeFilterId={activityTimeFilterId}
               onReconnect={handleReconnect}
+              onLaunched={refetch}
               connectionStatus={data.connection}
             />
           </Suspense>
@@ -2450,6 +2748,8 @@ function DashboardShell({
               agentFilter={agentFilter}
               timeFilterId={activityTimeFilterId}
               onTimeFilterChange={handleActivityTimeFilterChange}
+              customTimeRange={activityCustomTimeRange}
+              onCustomTimeRangeChange={setActivityCustomTimeRange}
               hasMore={activityFeed.hasMore}
               isLoadingMore={activityFeed.isLoadingMore}
               onLoadMore={activityFeed.loadMore}
@@ -2622,6 +2922,7 @@ function DashboardShell({
                       }
                     >
                       <LazyNextUpPanel
+                        projectId={selectedWorkspaceId}
                         title="Next Up"
                         showHeader={false}
                         panelStyle="flat"
@@ -2731,7 +3032,7 @@ function DashboardShell({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm hidden lg:block"
+              className="fixed bottom-0 left-0 right-0 top-[64px] z-[240] hidden bg-black/40 backdrop-blur-sm lg:block"
               onClick={() => setSessionDrawerOpen(false)}
             />
             <motion.div
@@ -2740,7 +3041,7 @@ function DashboardShell({
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              className="fixed inset-y-0 right-0 z-[210] hidden w-[480px] flex-col lg:flex"
+              className="fixed bottom-0 right-0 top-[64px] z-[250] hidden w-[480px] flex-col lg:flex"
               style={{ backgroundColor: colors.cardBg }}
             >
               <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
@@ -2787,11 +3088,13 @@ function DashboardShell({
         )}
       </AnimatePresence>
 
-      <MobileTabBar
-        activeTab={mobileTab}
-        onTabChange={setMobileTab}
-        pendingDecisionCount={decisionsVisible ? data.decisions.length : 0}
-      />
+      {dashboardView === 'activity' ? (
+        <MobileTabBar
+          activeTab={mobileTab}
+          onTabChange={handleMobileTabChange}
+          pendingDecisionCount={decisionsVisible ? data.decisions.length : 0}
+        />
+      ) : null}
 
       <Modal
         open={entityModal !== null}

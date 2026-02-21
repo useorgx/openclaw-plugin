@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { identifyTelemetry } from '@/lib/telemetry';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 import type { OnboardingState } from '@/types';
 
@@ -226,6 +227,19 @@ const DEFAULT_STATE: OnboardingState = {
   pollIntervalMs: null,
 };
 
+function buildDemoOnboardingState(): OnboardingState {
+  return {
+    ...DEFAULT_STATE,
+    status: 'connected',
+    hasApiKey: true,
+    connectionVerified: true,
+    workspaceName: 'Demo Workspace',
+    nextAction: 'open_dashboard',
+    keySource: 'legacy-dev',
+    lastError: null,
+  };
+}
+
 interface ApiResponse<T> {
   ok?: boolean;
   data?: T;
@@ -261,8 +275,10 @@ function maybeIdentify(installationId: string | null | undefined) {
 }
 
 export function useOnboarding() {
-  const [state, setState] = useState<OnboardingState>(DEFAULT_STATE);
-  const [isLoading, setIsLoading] = useState(true);
+  const [state, setState] = useState<OnboardingState>(() =>
+    isDemoModeEnabled() ? buildDemoOnboardingState() : DEFAULT_STATE
+  );
+  const [isLoading, setIsLoading] = useState(() => !isDemoModeEnabled());
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const pairingWindowRef = useRef<Window | null>(null);
@@ -272,6 +288,12 @@ export function useOnboarding() {
   });
 
   const refreshStatus = useCallback(async (): Promise<OnboardingState> => {
+    if (isDemoModeEnabled()) {
+      const demoState = buildDemoOnboardingState();
+      setState(demoState);
+      return demoState;
+    }
+
     const payload = await readJson<OnboardingState>(
       fetch('/orgx/api/onboarding/status', { method: 'GET' })
     );
@@ -294,6 +316,12 @@ export function useOnboarding() {
   }, []);
 
   useEffect(() => {
+    if (isDemoModeEnabled()) {
+      setState(buildDemoOnboardingState());
+      setIsLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
 
     void (async () => {
@@ -357,6 +385,12 @@ export function useOnboarding() {
   }, []);
 
   const startPairing = useCallback(async () => {
+    if (isDemoModeEnabled()) {
+      const demoState = buildDemoOnboardingState();
+      setState(demoState);
+      return;
+    }
+
     const pairingWindow = openPairingWindow();
     pairingWindowRef.current = pairingWindow;
 
@@ -438,6 +472,12 @@ export function useOnboarding() {
 
   const submitManualKey = useCallback(
     async (apiKey: string) => {
+      if (isDemoModeEnabled()) {
+        const demoState = buildDemoOnboardingState();
+        setState(demoState);
+        return demoState;
+      }
+
       setIsSubmittingManual(true);
       try {
         const trimmedInput = apiKey.trim();
@@ -493,6 +533,12 @@ export function useOnboarding() {
   );
 
   const disconnect = useCallback(async () => {
+    if (isDemoModeEnabled()) {
+      const demoState = buildDemoOnboardingState();
+      setState(demoState);
+      return demoState;
+    }
+
     const payload = await readJson<OnboardingState>(
       fetch('/orgx/api/onboarding/disconnect', {
         method: 'POST',
@@ -527,6 +573,7 @@ export function useOnboarding() {
   }, []);
 
   const showGate = useMemo(() => {
+    if (isDemoModeEnabled()) return false;
     if (isGateSkipped) return false;
     return !(state.hasApiKey && state.connectionVerified && state.status === 'connected');
   }, [isGateSkipped, state.connectionVerified, state.hasApiKey, state.status]);

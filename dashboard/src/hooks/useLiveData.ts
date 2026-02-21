@@ -23,6 +23,8 @@ interface UseLiveDataOptions {
   pollInterval?: number;
   useMock?: boolean;
   enableDecisions?: boolean;
+  initiativeId?: string | null;
+  projectId?: string | null;
   maxSessions?: number;
   maxActivityItems?: number;
   maxHandoffs?: number;
@@ -1335,12 +1337,22 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     pollInterval = DEFAULT_POLL_INTERVAL,
     useMock = false,
     enableDecisions = true,
+    initiativeId = null,
+    projectId = null,
     maxSessions = DEFAULT_MAX_SESSIONS,
     maxActivityItems = DEFAULT_MAX_ACTIVITY_ITEMS,
     maxHandoffs = DEFAULT_MAX_HANDOFFS,
     maxDecisions = DEFAULT_MAX_DECISIONS,
     batchWindowMs = DEFAULT_BATCH_WINDOW_MS,
   } = options;
+  const normalizedInitiativeId =
+    typeof initiativeId === 'string' && initiativeId.trim().length > 0
+      ? initiativeId.trim()
+      : null;
+  const normalizedProjectId =
+    typeof projectId === 'string' && projectId.trim().length > 0
+      ? projectId.trim()
+      : null;
 
   const [data, setData] = useState<LiveData>(createMockData());
   const [isLoading, setIsLoading] = useState(!useMock);
@@ -1350,6 +1362,19 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   const [pollingEnabled, setPollingEnabled] = useState(false);
   const lastSuccessAtRef = useRef<number>(0);
   const authBlockedRef = useRef<boolean>(false);
+  const scopeKeyRef = useRef<string>(
+    `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`
+  );
+  const resetScopeOnNextSnapshotRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const scopeKey = `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`;
+    if (scopeKeyRef.current === scopeKey) return;
+    scopeKeyRef.current = scopeKey;
+    resetScopeOnNextSnapshotRef.current = true;
+    setIsLoading(true);
+    setError(null);
+  }, [normalizedInitiativeId, normalizedProjectId]);
 
   const applySnapshot = useCallback(
     (
@@ -1379,35 +1404,57 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       const handoffs = trimHandoffs(handoffInput, maxHandoffs);
 
       setData((prev) => {
+        const resetScope = resetScopeOnNextSnapshotRef.current;
+        if (resetScope) {
+          resetScopeOnNextSnapshotRef.current = false;
+        }
         const sessions = trimSessions(
-          mergeSessionSnapshots(prev.sessions, trimSessions(sessionsInput, maxSessions)),
+          resetScope
+            ? trimSessions(sessionsInput, maxSessions)
+            : mergeSessionSnapshots(prev.sessions, trimSessions(sessionsInput, maxSessions)),
           maxSessions
         );
         const decisions =
           decisionInput === null
-            ? prev.decisions
+            ? resetScope
+              ? []
+              : prev.decisions
             : normalizeDecisions(decisionInput, maxDecisions);
         const sliceRuns =
           sliceRunsInput === null
-            ? prev.sliceRuns
+            ? resetScope
+              ? []
+              : prev.sliceRuns
             : normalizeSliceRuns(sliceRunsInput);
         const outbox =
-          outboxInput === null ? prev.outbox : normalizeOutboxStatus(outboxInput);
+          outboxInput === null
+            ? resetScope
+              ? EMPTY_OUTBOX_STATUS
+              : prev.outbox
+            : normalizeOutboxStatus(outboxInput);
         const runtimeInstances =
           runtimeInstancesInput === null
-            ? prev.runtimeInstances ?? []
+            ? resetScope
+              ? []
+              : prev.runtimeInstances ?? []
             : normalizeRuntimeInstances(runtimeInstancesInput);
         const workSliceProjections =
           v2Input?.workSliceProjections == null
-            ? prev.workSliceProjections ?? []
+            ? resetScope
+              ? []
+              : prev.workSliceProjections ?? []
             : normalizeWorkSliceProjections(v2Input.workSliceProjections);
         const timelineNarrative =
           v2Input?.timelineNarrative == null
-            ? prev.timelineNarrative ?? []
+            ? resetScope
+              ? []
+              : prev.timelineNarrative ?? []
             : normalizeTimelineNarrative(v2Input.timelineNarrative);
         const nextUpByInitiative =
           v2Input?.nextUpByInitiative == null
-            ? prev.nextUpByInitiative ?? []
+            ? resetScope
+              ? []
+              : prev.nextUpByInitiative ?? []
             : normalizeNextUpByInitiative(v2Input.nextUpByInitiative);
         const runningWorkSlices =
           typeof v2Input?.runningWorkSlices === 'number' && Number.isFinite(v2Input.runningWorkSlices)
@@ -1515,6 +1562,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           decisionsLimit: String(maxDecisions),
           include_idle: 'true',
         });
+        if (normalizedProjectId) {
+          query.set('project_id', normalizedProjectId);
+        }
+        if (normalizedInitiativeId) {
+          query.set('initiative', normalizedInitiativeId);
+        }
         const endpoints = [
           { label: 'live/snapshot-v2', url: `/orgx/api/live/snapshot-v2?${query.toString()}` },
           { label: 'dashboard-bundle', url: `/orgx/api/dashboard-bundle?${query.toString()}` },
@@ -1663,6 +1716,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     maxDecisions,
     maxHandoffs,
     maxSessions,
+    normalizedProjectId,
+    normalizedInitiativeId,
     useMock,
   ]);
 
@@ -1889,7 +1944,17 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     fetchSnapshot();
 
-    const eventSource = new EventSource('/orgx/api/live/stream');
+    const streamQuery = new URLSearchParams();
+    if (normalizedProjectId) {
+      streamQuery.set('project_id', normalizedProjectId);
+    }
+    if (normalizedInitiativeId) {
+      streamQuery.set('initiative', normalizedInitiativeId);
+    }
+    const streamUrl = streamQuery.toString()
+      ? `/orgx/api/live/stream?${streamQuery.toString()}`
+      : '/orgx/api/live/stream';
+    const eventSource = new EventSource(streamUrl);
 
     // Local runtime telemetry (Codex/Claude/OpenClaw hooks) streams independently from cloud SSE.
     const runtimeEventSource = new EventSource('/orgx/api/hooks/runtime/stream');
@@ -2214,6 +2279,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     maxDecisions,
     maxHandoffs,
     maxSessions,
+    normalizedInitiativeId,
+    normalizedProjectId,
     useMock,
   ]);
 

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MissionControlGraphResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
-import { canQueryInitiativeEntities } from '@/lib/initiativeIds';
+import { canQueryInitiativeEntities, isDemoModeEnabled } from '@/lib/initiativeIds';
 
 interface UseMissionControlGraphOptions {
   initiativeId: string | null;
@@ -26,12 +26,117 @@ function fallbackGraph(initiativeId: string): MissionControlGraphResponse {
   };
 }
 
+function buildDemoGraph(initiativeId: string): MissionControlGraphResponse {
+  const nowIso = new Date().toISOString();
+  const initiativeTitle = initiativeId === 'init-2' ? 'Black Friday Email' : 'Q4 Feature Ship';
+
+  const workstreamId = `${initiativeId}:ws:design`;
+  const milestoneId = `${initiativeId}:ms:polish`;
+  const taskAId = `${initiativeId}:task:tokens`;
+  const taskBId = `${initiativeId}:task:qa`;
+
+  return {
+    initiative: {
+      id: initiativeId,
+      title: initiativeTitle,
+      status: 'active',
+      summary: 'Demo mode graph from local fixture data.',
+      assignedAgents: [{ id: 'dana', name: 'Dana', domain: 'design' }],
+    },
+    nodes: [
+      {
+        id: workstreamId,
+        type: 'workstream',
+        title: 'Dashboard UI pass',
+        status: 'active',
+        parentId: initiativeId,
+        initiativeId,
+        workstreamId,
+        milestoneId: null,
+        priorityNum: 1,
+        priorityLabel: 'P1',
+        dependencyIds: [],
+        dueDate: null,
+        etaEndAt: null,
+        expectedDurationHours: 8,
+        expectedBudgetUsd: 1500,
+        assignedAgents: [{ id: 'dana', name: 'Dana', domain: 'design' }],
+        updatedAt: nowIso,
+      },
+      {
+        id: milestoneId,
+        type: 'milestone',
+        title: 'Polish pass',
+        status: 'active',
+        parentId: workstreamId,
+        initiativeId,
+        workstreamId,
+        milestoneId,
+        priorityNum: 1,
+        priorityLabel: 'P1',
+        dependencyIds: [workstreamId],
+        dueDate: null,
+        etaEndAt: null,
+        expectedDurationHours: 4,
+        expectedBudgetUsd: 900,
+        assignedAgents: [{ id: 'dana', name: 'Dana', domain: 'design' }],
+        updatedAt: nowIso,
+      },
+      {
+        id: taskAId,
+        type: 'task',
+        title: 'Refine queue action ergonomics',
+        status: 'todo',
+        parentId: milestoneId,
+        initiativeId,
+        workstreamId,
+        milestoneId,
+        priorityNum: 1,
+        priorityLabel: 'P1',
+        dependencyIds: [milestoneId],
+        dueDate: null,
+        etaEndAt: null,
+        expectedDurationHours: 2,
+        expectedBudgetUsd: 450,
+        assignedAgents: [{ id: 'dana', name: 'Dana', domain: 'design' }],
+        updatedAt: nowIso,
+      },
+      {
+        id: taskBId,
+        type: 'task',
+        title: 'Mobile QA sweep',
+        status: 'active',
+        parentId: milestoneId,
+        initiativeId,
+        workstreamId,
+        milestoneId,
+        priorityNum: 2,
+        priorityLabel: 'P2',
+        dependencyIds: [taskAId],
+        dueDate: null,
+        etaEndAt: null,
+        expectedDurationHours: 2,
+        expectedBudgetUsd: 420,
+        assignedAgents: [{ id: 'mark', name: 'Mark', domain: 'engineering' }],
+        updatedAt: nowIso,
+      },
+    ],
+    edges: [
+      { from: workstreamId, to: milestoneId, kind: 'depends_on' },
+      { from: milestoneId, to: taskAId, kind: 'depends_on' },
+      { from: taskAId, to: taskBId, kind: 'depends_on' },
+    ],
+    recentTodos: [taskAId, taskBId],
+  };
+}
+
 export function useMissionControlGraph({
   initiativeId,
   authToken = null,
   embedMode = false,
   enabled = true,
 }: UseMissionControlGraphOptions) {
+  const demoMode = isDemoModeEnabled();
   const canQuery = canQueryInitiativeEntities(initiativeId);
   const queryKey = useMemo(
     () => queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
@@ -44,6 +149,9 @@ export function useMissionControlGraph({
     queryFn: async () => {
       if (!initiativeId) {
         throw new Error('initiativeId is required');
+      }
+      if (demoMode) {
+        return buildDemoGraph(initiativeId);
       }
       if (!canQuery) {
         return fallbackGraph(initiativeId);

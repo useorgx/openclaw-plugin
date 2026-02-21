@@ -614,6 +614,10 @@ export class OrgXClient {
     if (filters?.status) params.set("status", filters.status);
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
+    if (filters?.project_id) params.set("project_id", String(filters.project_id));
+    if (filters?.command_center_id) {
+      params.set("command_center_id", String(filters.command_center_id));
+    }
     return this.get(`/api/entities?${params.toString()}`);
   }
 
@@ -726,35 +730,56 @@ export class OrgXClient {
   // Live Sessions + Activity + Handoffs
   // ===========================================================================
 
-  async getLiveSessions(params?: { limit?: number; initiative?: string | null }): Promise<SessionTreeResponse> {
+  async getLiveSessions(params?: {
+    limit?: number;
+    initiative?: string | null;
+    projectId?: string | null;
+  }): Promise<SessionTreeResponse> {
     const query = this.buildQuery({
       limit: params?.limit,
       initiative: params?.initiative ?? null,
+      project_id: params?.projectId ?? null,
     });
     return this.get(`/api/client/live/sessions${query}`);
   }
 
-  async getLiveActivity(params?: { limit?: number; run?: string | null; since?: string | null }): Promise<{ activities: LiveActivityItem[]; total: number }> {
+  async getLiveActivity(params?: {
+    limit?: number;
+    run?: string | null;
+    since?: string | null;
+    projectId?: string | null;
+  }): Promise<{ activities: LiveActivityItem[]; total: number }> {
     const query = this.buildQuery({
       limit: params?.limit,
       run: params?.run ?? null,
       since: params?.since ?? null,
+      project_id: params?.projectId ?? null,
     });
     return this.get(`/api/client/live/activity${query}`);
   }
 
-  async getLiveAgents(params?: { initiative?: string | null; includeIdle?: boolean }): Promise<{ agents: unknown[]; summary: Record<string, number> }> {
+  async getLiveAgents(params?: {
+    initiative?: string | null;
+    includeIdle?: boolean;
+    projectId?: string | null;
+  }): Promise<{ agents: unknown[]; summary: Record<string, number> }> {
     const query = this.buildQuery({
       initiative: params?.initiative ?? null,
       include_idle: params?.includeIdle ?? undefined,
+      project_id: params?.projectId ?? null,
     });
     return this.get(`/api/client/live/agents${query}`);
   }
 
-  async getLiveInitiatives(params?: { id?: string | null; limit?: number }): Promise<{ initiatives: unknown[]; total: number }> {
+  async getLiveInitiatives(params?: {
+    id?: string | null;
+    limit?: number;
+    projectId?: string | null;
+  }): Promise<{ initiatives: unknown[]; total: number }> {
     const query = this.buildQuery({
       id: params?.id ?? null,
       limit: params?.limit ?? null,
+      project_id: params?.projectId ?? null,
     });
     return this.get(`/api/client/live/initiatives${query}`);
   }
@@ -819,10 +844,15 @@ export class OrgXClient {
     );
   }
 
-  async getLiveDecisions(params?: { status?: string; limit?: number }): Promise<{ decisions: Entity[]; total: number }> {
+  async getLiveDecisions(params?: {
+    status?: string;
+    limit?: number;
+    projectId?: string | null;
+  }): Promise<{ decisions: Entity[]; total: number }> {
     const response = await this.listEntities("decision", {
       status: params?.status,
       limit: params?.limit,
+      project_id: params?.projectId ?? undefined,
     });
     const decisions = Array.isArray(response.data) ? response.data : [];
     return {

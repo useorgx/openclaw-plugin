@@ -209,17 +209,26 @@ export function SettingsModal({
                 onUseManualKey={onboarding.setManualMode}
                 onDisconnect={onboarding.disconnect}
               />
-              <AgentSuitePanel authToken={authToken} embedMode={embedMode} enabled={open} devMode={devMode} />
+              <AgentSuitePanel
+                authToken={authToken}
+                embedMode={embedMode}
+                enabled={open && !demoMode}
+                devMode={devMode}
+              />
             </div>
           ) : activeTab === 'agents' ? (
             <AgentBehaviorPanel
               authToken={authToken}
               embedMode={embedMode}
-              enabled={open}
+              enabled={open && !demoMode}
               initialDomain={agentBehaviorInitialDomain}
             />
           ) : (
-            <ByokSettingsPanel authToken={authToken} embedMode={embedMode} enabled={open} />
+            <ByokSettingsPanel
+              authToken={authToken}
+              embedMode={embedMode}
+              enabled={open && !demoMode}
+            />
           )}
         </div>
         <div className="w-full border-t border-subtle px-5 py-2.5 sm:px-6">

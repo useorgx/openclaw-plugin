@@ -475,6 +475,50 @@ test("mission-control next-up move reorders queue to top/bottom", async () => {
   );
 });
 
+test("mission-control next-up honors workspace scope aliases and never falls back to global queue", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-project-scope-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler();
+      const baseline = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up",
+        headers: {},
+      });
+      assert.equal(baseline.status, 200);
+      const baselineBody = JSON.parse(baseline.body);
+      assert.equal(baselineBody.ok, true);
+      assert.ok(Array.isArray(baselineBody.items));
+      assert.ok(baselineBody.items.length > 0);
+
+      const scopedQueries = [
+        "project_id=workspace-crane",
+        "workspace_id=workspace-crane",
+        "command_center_id=workspace-crane",
+        "center=workspace-crane",
+      ];
+
+      for (const query of scopedQueries) {
+        const scoped = await call(handler, {
+          method: "GET",
+          url: `/orgx/api/mission-control/next-up?${query}`,
+          headers: {},
+        });
+        assert.equal(scoped.status, 200);
+        const scopedBody = JSON.parse(scoped.body);
+        assert.equal(scopedBody.ok, true);
+        assert.equal(scopedBody.total, 0);
+        assert.deepEqual(scopedBody.items, []);
+      }
+    }
+  );
+});
+
 test("mission-control next-up bulk reorders and removes queue entries", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-bulk-"));
   await withEnv(

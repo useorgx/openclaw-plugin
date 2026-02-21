@@ -313,12 +313,30 @@ export function ByokSettingsPanel({
                 </div>
               </div>
 
-              <div className="mt-3">
-                <label className="block">
+              <form
+                className="mt-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveProvider(provider.id);
+                }}
+              >
+                <input
+                  type="text"
+                  name={`provider-user-${provider.id}`}
+                  autoComplete="username"
+                  value={`${provider.id}-key`}
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  className="sr-only"
+                />
+                <label className="block" htmlFor={`provider-key-${provider.id}`}>
                   <span className="mb-1.5 block text-caption font-medium uppercase tracking-[0.14em] text-muted">
                     API key (stored locally)
                   </span>
                   <input
+                    id={`provider-key-${provider.id}`}
+                    name={`provider-key-${provider.id}`}
                     value={values[provider.id]}
                     onChange={(event) => {
                       setValues((prev) => ({ ...prev, [provider.id]: event.target.value }));
@@ -326,6 +344,8 @@ export function ByokSettingsPanel({
                       if (localError) setLocalError(null);
                     }}
                     type={revealed[provider.id] ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    spellCheck={false}
                     placeholder={`Paste ${provider.label} key`}
                     className="w-full rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2.5 font-mono text-body text-primary placeholder:text-faint focus:border-[#BFFF00]/40 focus:outline-none"
                   />
@@ -333,8 +353,7 @@ export function ByokSettingsPanel({
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
-                    type="button"
-                    onClick={() => void saveProvider(provider.id)}
+                    type="submit"
                     disabled={!canSave}
                     className="rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -352,7 +371,7 @@ export function ByokSettingsPanel({
                     {dirty[provider.id] ? 'Unsaved changes' : ' '}
                   </span>
                 </div>
-              </div>
+              </form>
             </div>
           );
         })}

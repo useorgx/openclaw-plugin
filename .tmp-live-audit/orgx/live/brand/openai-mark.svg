@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80" fill="none">
+  <defs>
+    <linearGradient id="openai-grad" x1="12" y1="10" x2="70" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#16A34A"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="72" height="72" rx="18" fill="#07140D" stroke="#1E3A2D"/>
+  <path d="M23 39.8c0-9.4 7.6-17 17-17 4.8 0 8.9 1.9 12 5.2m5.7 11.8c0 9.4-7.6 17-17 17-4.8 0-8.9-1.9-12-5.2m3.9-18.5l7.1-4.1 7.1 4.1v8.2l-7.1 4.1-7.1-4.1v-8.2z" stroke="url(#openai-grad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

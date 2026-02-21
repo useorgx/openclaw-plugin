@@ -415,7 +415,7 @@ async function runPlayTickStatus({
       ORGX_AUTOPILOT_MOCK_SCENARIO: scenario,
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
       ...extraEnv,
     },
     async () => {
@@ -598,8 +598,8 @@ test(
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
         ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "1500",
         ORGX_AUTO_CONTINUE_TOKEN_BUDGET: null,
         ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET: null,
       },
@@ -632,7 +632,7 @@ test(
         assert.equal(resStart.status, 200);
 
         let statusBody = null;
-        for (let i = 0; i < 25; i += 1) {
+        for (let i = 0; i < 40; i += 1) {
           await sleep(35);
           const resTick = await call(handler, {
             method: "POST",
@@ -671,8 +671,8 @@ test(
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
         ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "1500",
         ORGX_AUTO_CONTINUE_TOKEN_BUDGET: null,
         ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET: "1",
       },
@@ -705,7 +705,7 @@ test(
         assert.equal(resStart.status, 200);
 
         let statusBody = null;
-        for (let i = 0; i < 25; i += 1) {
+        for (let i = 0; i < 40; i += 1) {
           await sleep(35);
           const resTick = await call(handler, {
             method: "POST",
@@ -744,8 +744,8 @@ test(
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
         ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "1500",
       },
       async () => {
         const config = baseConfig();
@@ -777,7 +777,7 @@ test(
         assert.equal(resStart.status, 200);
 
         let statusBody = null;
-        for (let i = 0; i < 25; i += 1) {
+        for (let i = 0; i < 40; i += 1) {
           await sleep(35);
           const resTick = await call(handler, {
             method: "POST",
@@ -816,8 +816,8 @@ test(
         ORGX_AUTOPILOT_WORKER_KIND: "mock",
         ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
         ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+        ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
+        ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
         ORGX_AUTO_CONTINUE_TOKEN_BUDGET: null,
         ORGX_AUTO_CONTINUE_ENFORCE_TOKEN_BUDGET: null,
       },

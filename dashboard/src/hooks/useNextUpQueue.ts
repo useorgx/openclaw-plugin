@@ -3,11 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NextUpQueueItem, NextUpQueueResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
-import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
+import {
+  isDemoModeEnabled,
+  isSyntheticInitiativeId,
+  shouldIncludeSyntheticEntities,
+} from '@/lib/initiativeIds';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 
 interface UseNextUpQueueOptions {
   initiativeId?: string | null;
+  projectId?: string | null;
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
@@ -39,6 +44,15 @@ interface NextUpPlayResponse {
   code?: string;
 }
 
+function appendWorkspaceScopeParams(params: URLSearchParams, projectId: string): void {
+  const normalized = projectId.trim();
+  if (!normalized) return;
+  params.set('project_id', normalized);
+  params.set('workspace_id', normalized);
+  params.set('command_center_id', normalized);
+  params.set('center', normalized);
+}
+
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
 }
@@ -65,19 +79,73 @@ function normalizeErrorMessage(
   );
 }
 
-function shouldIncludeSyntheticEntities(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('demo') === '1') return true;
-  } catch {
-    // ignore
-  }
-  try {
-    return window.localStorage.getItem('orgx.show_synthetic_entities') === '1';
-  } catch {
-    return false;
-  }
+function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueResponse {
+  const nowIso = new Date().toISOString();
+  const items: NextUpQueueItem[] = [
+    {
+      initiativeId: 'init-1',
+      initiativeTitle: 'Q4 Feature Ship',
+      initiativeStatus: 'active',
+      workstreamId: 'ws-4',
+      workstreamTitle: 'Dashboard UI pass',
+      workstreamStatus: 'active',
+      nextTaskId: 'task-1',
+      nextTaskTitle: 'Polish timeline controls',
+      nextTaskPriority: 1,
+      nextTaskDueAt: null,
+      runnerAgentId: 'dana',
+      runnerAgentName: 'Dana',
+      runnerSource: 'assigned',
+      queueState: 'running',
+      blockReason: null,
+      queueOrigin: 'system',
+      autoContinue: {
+        status: 'running',
+        activeTaskId: 'task-1',
+        activeRunId: 'run-2',
+        stopReason: null,
+        updatedAt: nowIso,
+      },
+    },
+    {
+      initiativeId: 'init-2',
+      initiativeTitle: 'Black Friday Email',
+      initiativeStatus: 'active',
+      workstreamId: 'ws-9',
+      workstreamTitle: 'Email campaign generation',
+      workstreamStatus: 'queued',
+      nextTaskId: 'task-2',
+      nextTaskTitle: 'Draft launch variants',
+      nextTaskPriority: 2,
+      nextTaskDueAt: null,
+      runnerAgentId: 'mark',
+      runnerAgentName: 'Mark',
+      runnerSource: 'assigned',
+      queueState: 'queued',
+      blockReason: null,
+      queueOrigin: 'system',
+      autoContinue: {
+        status: 'stopped',
+        activeTaskId: null,
+        activeRunId: null,
+        stopReason: null,
+        updatedAt: nowIso,
+      },
+    },
+  ];
+
+  const scopedItems =
+    typeof initiativeId === 'string' && initiativeId.trim().length > 0
+      ? items.filter((item) => item.initiativeId === initiativeId.trim())
+      : items;
+
+  return normalizeQueueResponse({
+    ok: true,
+    generatedAt: nowIso,
+    total: scopedItems.length,
+    items: scopedItems,
+    degraded: ['Demo mode: queue is rendered from local fixture data.'],
+  });
 }
 
 function resolveAutoRuntimeState(item: NextUpQueueItem): NextUpQueueItem['autoRuntimeState'] {
@@ -120,15 +188,17 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
 
 export function useNextUpQueue({
   initiativeId = null,
+  projectId = null,
   authToken = null,
   embedMode = false,
   enabled = true,
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
+  const demoMode = isDemoModeEnabled();
 
   const queryKey = useMemo(
-    () => queryKeys.nextUpQueue({ initiativeId, authToken, embedMode }),
-    [initiativeId, authToken, embedMode]
+    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
+    [initiativeId, projectId, authToken, embedMode]
   );
 
   const invalidate = async () => {
@@ -140,7 +210,7 @@ export function useNextUpQueue({
       queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
     });
     await queryClient.invalidateQueries({
-      queryKey: queryKeys.liveData({ authToken, embedMode }),
+      queryKey: queryKeys.liveData({ authToken, embedMode, projectId }),
     });
   };
 
@@ -148,8 +218,15 @@ export function useNextUpQueue({
     queryKey,
     enabled,
     queryFn: async () => {
+      if (demoMode) {
+        return buildDemoQueueResponse(initiativeId);
+      }
+
       const params = new URLSearchParams();
       if (initiativeId) params.set('initiative_id', initiativeId);
+      if (projectId && projectId.trim().length > 0) {
+        appendWorkspaceScopeParams(params, projectId);
+      }
       const response = await fetch(`/orgx/api/mission-control/next-up?${params.toString()}`, {
         headers: buildOrgxHeaders({ authToken, embedMode }),
       });
@@ -196,6 +273,15 @@ export function useNextUpQueue({
 
   const playMutation = useMutation({
     mutationFn: async (input: NextUpActionInput) => {
+      if (demoMode) {
+        return {
+          ok: true,
+          initiativeId: input.initiativeId,
+          workstreamId: input.workstreamId,
+          dispatchMode: 'slice',
+          sessionId: null,
+        } satisfies NextUpPlayResponse;
+      }
       const response = await fetch('/orgx/api/mission-control/next-up/play', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
@@ -248,6 +334,7 @@ export function useNextUpQueue({
 
   const startAutoContinueMutation = useMutation({
     mutationFn: async (input: StartAutoContinueInput) => {
+      if (demoMode) return;
       const payload: Record<string, unknown> = {
         initiativeId: input.initiativeId,
         agentId: input.agentId ?? undefined,
@@ -287,6 +374,7 @@ export function useNextUpQueue({
 
   const stopAutoContinueMutation = useMutation({
     mutationFn: async (input: { initiativeId: string }) => {
+      if (demoMode) return;
       const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),

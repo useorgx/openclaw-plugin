@@ -53,10 +53,10 @@ export function InlineToast({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.985 }}
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className={className ?? ''}
+          className={`pointer-events-none ${className ?? ''}`}
         >
           <div
-            className={`min-w-[220px] max-w-[420px] rounded-xl border px-3 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur ${toneClasses(tone)}`}
+            className={`pointer-events-none min-w-[220px] max-w-[420px] rounded-xl border px-3 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur ${toneClasses(tone)}`}
           >
             <div className="flex items-start gap-2.5">
               <div className="min-w-0 flex-1">
@@ -69,7 +69,7 @@ export function InlineToast({
                 <button
                   type="button"
                   onClick={onDismiss}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-current/70 transition-colors hover:bg-white/[0.08] hover:text-current"
+                  className="pointer-events-auto inline-flex h-6 w-6 items-center justify-center rounded-md text-current/70 transition-colors hover:bg-white/[0.08] hover:text-current"
                   aria-label="Dismiss toast"
                   title="Dismiss"
                 >
@@ -95,7 +95,7 @@ export function InlineToast({
                   <button
                     type="button"
                     onClick={secondaryAction.onClick}
-                    className="h-7 rounded-md border border-strong bg-white/[0.06] px-2.5 text-micro font-semibold text-current transition-colors hover:bg-white/[0.12]"
+                    className="pointer-events-auto h-7 rounded-md border border-strong bg-white/[0.06] px-2.5 text-micro font-semibold text-current transition-colors hover:bg-white/[0.12]"
                   >
                     {secondaryAction.label}
                   </button>
@@ -104,7 +104,7 @@ export function InlineToast({
                   <button
                     type="button"
                     onClick={primaryAction.onClick}
-                    className="h-7 rounded-md border border-white/25 bg-white/[0.14] px-2.5 text-micro font-semibold text-current transition-colors hover:bg-white/[0.2]"
+                    className="pointer-events-auto h-7 rounded-md border border-white/25 bg-white/[0.14] px-2.5 text-micro font-semibold text-current transition-colors hover:bg-white/[0.2]"
                   >
                     {primaryAction.label}
                   </button>

@@ -80,22 +80,27 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
 
   getLiveSessions: (input: {
     initiative: string | null;
+    projectId: string | null;
     limit: number;
   }) => Promise<SessionTreeResponse>;
   getLiveActivity: (input: {
     run: string | null;
     since: string | null;
+    projectId: string | null;
     limit: number;
   }) => Promise<{ activities: LiveActivityItem[] }>;
   getHandoffs: () => Promise<{ handoffs: HandoffSummary[] }>;
   getLiveDecisions: (input: {
     status: string;
+    projectId: string | null;
     limit: number;
   }) => Promise<{ decisions: unknown[] }>;
   getLiveAgents: (input: {
     initiative: string | null;
+    projectId: string | null;
     includeIdle: boolean | undefined;
   }) => Promise<{ agents?: unknown[] }>;
+  listInitiativeIdsForProject: (input: { projectId: string }) => Promise<string[]>;
 
   mapDecisionEntity: (
     entry: unknown
@@ -146,6 +151,7 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
   parseJsonRequest?: (req: TReq) => Promise<Record<string, unknown>>;
   buildNextUpQueue?: (input: {
     initiativeId?: string | null;
+    projectId?: string | null;
   }) => Promise<{ items: Array<Record<string, unknown>>; degraded: string[] }>;
   bulkDecideDecisions?: (
     ids: string[],
@@ -171,6 +177,7 @@ type LegacySnapshotPayload = {
   runtimeInstances: RuntimeInstanceRecord[];
   outbox: Record<string, unknown>;
   generatedAt: string;
+  projectId?: string | null;
   degraded?: string[];
 };
 
@@ -246,6 +253,32 @@ function maybeFilterActivity(
   return filtered;
 }
 
+function filterSessionsByInitiativeSet(
+  sessions: SessionTreeResponse,
+  initiativeIds: Set<string>
+): SessionTreeResponse {
+  if (initiativeIds.size === 0) {
+    return {
+      nodes: [],
+      edges: [],
+      groups: [],
+    };
+  }
+  const filteredNodes = sessions.nodes.filter((node) => {
+    const initiativeId = node.initiativeId?.trim() ?? "";
+    return initiativeId.length > 0 && initiativeIds.has(initiativeId);
+  });
+  const filteredNodeIds = new Set(filteredNodes.map((node) => node.id));
+  const filteredGroupIds = new Set(filteredNodes.map((node) => node.groupId));
+  return {
+    nodes: filteredNodes,
+    edges: sessions.edges.filter(
+      (edge) => filteredNodeIds.has(edge.parentId) && filteredNodeIds.has(edge.childId)
+    ),
+    groups: sessions.groups.filter((group) => filteredGroupIds.has(group.id)),
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -307,6 +340,73 @@ function resolveDecisionIdsForSlice(
   return matched;
 }
 
+function resolveInitiativeIdFromActivity(item: LiveActivityItem): string | null {
+  if (item.initiativeId && item.initiativeId.trim().length > 0) {
+    return item.initiativeId.trim();
+  }
+  const metadata = asRecord(item.metadata);
+  return pickString(metadata, ["initiative_id", "initiativeId"]);
+}
+
+function filterActivityByInitiativeSet(
+  items: LiveActivityItem[],
+  initiativeIds: Set<string>
+): LiveActivityItem[] {
+  if (initiativeIds.size === 0) return [];
+  return items.filter((item) => {
+    const initiativeId = resolveInitiativeIdFromActivity(item);
+    return initiativeId ? initiativeIds.has(initiativeId) : false;
+  });
+}
+
+function resolveInitiativeIdFromRecord(entry: Record<string, unknown>): string | null {
+  const direct = pickString(entry, ["initiative_id", "initiativeId", "initiative"]);
+  if (direct) return direct;
+  const metadata = asRecord(entry.metadata);
+  return pickString(metadata, ["initiative_id", "initiativeId"]);
+}
+
+function filterRecordsByInitiativeSet(
+  rows: Array<Record<string, unknown>>,
+  initiativeIds: Set<string>
+): Array<Record<string, unknown>> {
+  if (initiativeIds.size === 0) return [];
+  return rows.filter((row) => {
+    const initiativeId = resolveInitiativeIdFromRecord(row);
+    return initiativeId ? initiativeIds.has(initiativeId) : false;
+  });
+}
+
+function filterRuntimeInstancesByInitiativeSet(
+  rows: RuntimeInstanceRecord[],
+  initiativeIds: Set<string>
+): RuntimeInstanceRecord[] {
+  if (initiativeIds.size === 0) return [];
+  return rows.filter((row) => {
+    const initiativeId = row.initiativeId?.trim() ?? "";
+    return initiativeId.length > 0 && initiativeIds.has(initiativeId);
+  });
+}
+
+function filterHandoffsByInitiativeSet(
+  rows: HandoffSummary[],
+  initiativeIds: Set<string>
+): HandoffSummary[] {
+  if (initiativeIds.size === 0) return [];
+  return rows.filter((entry) => {
+    const record = asRecord(entry);
+    const initiativeId = pickString(record, [
+      "initiative_id",
+      "initiativeId",
+      "initiative",
+    ]);
+    if (initiativeId && initiativeIds.has(initiativeId)) return true;
+    const metadata = asRecord(record?.metadata);
+    const metadataInitiativeId = pickString(metadata, ["initiative_id", "initiativeId"]);
+    return metadataInitiativeId ? initiativeIds.has(metadataInitiativeId) : false;
+  });
+}
+
 export function registerLiveSnapshotRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: LiveSnapshotRoutesDeps<TReq, TRes>
@@ -316,6 +416,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     activityLimit: number;
     decisionsLimit: number;
     initiative: string | null;
+    projectId: string | null;
     run: string | null;
     since: string | null;
     decisionStatus: string;
@@ -336,6 +437,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       120
     );
     const initiative = query.get("initiative");
+    const projectId = query.get("project_id") ?? query.get("projectId");
     const run = query.get("run");
     const since = query.get("since");
     const decisionStatus = query.get("status") ?? "pending";
@@ -346,6 +448,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       activityLimit,
       decisionsLimit,
       initiative,
+      projectId,
       run,
       since,
       decisionStatus,
@@ -360,6 +463,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       activityLimit,
       decisionsLimit,
       initiative,
+      projectId,
       run,
       since,
       decisionStatus,
@@ -371,6 +475,10 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     const agentContexts = contextStore.agents;
     const runContexts = contextStore.runs ?? {};
     const scopedAgentIds = deps.getScopedAgentIds(agentContexts);
+    const scopedProjectInitiativeIds =
+      projectId && projectId.trim().length > 0
+        ? new Set(await deps.listInitiativeIdsForProject({ projectId: projectId.trim() }))
+        : null;
 
     let outboxStatus: Record<string, unknown>;
     try {
@@ -397,6 +505,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       withSoftTimeout(
         deps.getLiveSessions({
           initiative,
+          projectId,
           limit: sessionsLimit,
         }),
         LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
@@ -406,6 +515,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
         deps.getLiveActivity({
           run,
           since,
+          projectId,
           limit: activityLimit,
         }),
         LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
@@ -419,6 +529,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       withSoftTimeout(
         deps.getLiveDecisions({
           status: decisionStatus,
+          projectId,
           limit: decisionsLimit,
         }),
         LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
@@ -427,6 +538,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       withSoftTimeout(
         deps.getLiveAgents({
           initiative,
+          projectId,
           includeIdle,
         }),
         LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS,
@@ -590,6 +702,17 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
         (instance) => instance.runId === run || instance.correlationId === run
       );
     }
+    if (scopedProjectInitiativeIds) {
+      sessions = filterSessionsByInitiativeSet(sessions, scopedProjectInitiativeIds);
+      activity = filterActivityByInitiativeSet(activity, scopedProjectInitiativeIds);
+      decisions = filterRecordsByInitiativeSet(decisions, scopedProjectInitiativeIds);
+      agents = filterRecordsByInitiativeSet(agents, scopedProjectInitiativeIds);
+      handoffs = filterHandoffsByInitiativeSet(handoffs, scopedProjectInitiativeIds);
+      runtimeInstances = filterRuntimeInstancesByInitiativeSet(
+        runtimeInstances,
+        scopedProjectInitiativeIds
+      );
+    }
     sessions = deps.injectRuntimeInstancesAsSessions(sessions, runtimeInstances);
     sessions = deps.enrichSessionsWithRuntime(sessions, runtimeInstances);
     activity = deps.enrichActivityWithRuntime(activity, runtimeInstances);
@@ -637,13 +760,14 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       runtimeInstances,
       outbox: outboxStatus,
       generatedAt: new Date().toISOString(),
+      projectId,
       degraded: degraded.length > 0 ? degraded : undefined,
     } as LegacySnapshotPayload;
 
     let nextUpItems: Array<Record<string, unknown>> = [];
     if (typeof deps.buildNextUpQueue === "function") {
       try {
-        const nextUp = await deps.buildNextUpQueue({ initiativeId: initiative });
+        const nextUp = await deps.buildNextUpQueue({ initiativeId: initiative, projectId });
         nextUpItems = Array.isArray(nextUp.items)
           ? nextUp.items.filter((item): item is Record<string, unknown> => Boolean(item))
           : [];

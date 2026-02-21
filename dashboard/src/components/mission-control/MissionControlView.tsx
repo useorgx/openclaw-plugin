@@ -33,6 +33,7 @@ interface MissionControlViewProps {
   activities: Array<ActivityItem | LiveActivityItem>;
   agents: Agent[];
   runtimeInstances?: RuntimeInstance[];
+  workspaceInitiativeId?: string | null;
   isLoading: boolean;
   authToken: string | null;
   embedMode: boolean;
@@ -219,6 +220,7 @@ export function MissionControlView({
   activities,
   agents,
   runtimeInstances = [],
+  workspaceInitiativeId = null,
   isLoading,
   authToken,
   embedMode,
@@ -244,6 +246,7 @@ export function MissionControlView({
       <MissionControlInner
         initiatives={initiatives}
         runtimeInstances={runtimeInstances}
+        workspaceInitiativeId={workspaceInitiativeId}
         isLoading={isLoading}
         initialInitiativeId={initialInitiativeId}
         connection={connection}
@@ -274,6 +277,7 @@ function formatLocalTimestamp(value: string | null | undefined): string {
 function MissionControlInner({
   initiatives,
   runtimeInstances,
+  workspaceInitiativeId = null,
   isLoading,
   initialInitiativeId,
   connection,
@@ -288,6 +292,7 @@ function MissionControlInner({
 }: {
   initiatives: Initiative[];
   runtimeInstances: RuntimeInstance[];
+  workspaceInitiativeId?: string | null;
   isLoading: boolean;
   initialInitiativeId?: string | null;
   connection?: ConnectionStatus;
@@ -634,7 +639,7 @@ function MissionControlInner({
     [sortedInitiatives]
   );
   const nextActionQueue = useNextUpQueue({
-    initiativeId: null,
+    projectId: workspaceInitiativeId,
     authToken,
     embedMode,
     enabled: initiatives.length > 0,
@@ -1103,13 +1108,26 @@ function MissionControlInner({
     }
   }, [nextActionInitiative, openInitiativeFromNextUp]);
   const toggleNextUpSurface = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth >= 1280) {
+    if (typeof window === 'undefined') return;
+    if (window.innerWidth >= 1280) {
+      const next = !nextUpRailOpen;
       setNextUpDrawerOpen(false);
-      setNextUpRailOpen((previous) => !previous);
+      setNextUpRailOpen(next);
+      setNextActionNotice({
+        tone: 'success',
+        message: next ? 'Opened queue rail.' : 'Closed queue rail.',
+      });
       return;
     }
-    setNextUpDrawerOpen(true);
-  }, []);
+
+    const next = !nextUpDrawerOpen;
+    setNextUpRailOpen(false);
+    setNextUpDrawerOpen(next);
+    setNextActionNotice({
+      tone: 'success',
+      message: next ? 'Opened queue panel.' : 'Closed queue panel.',
+    });
+  }, [nextUpDrawerOpen, nextUpRailOpen]);
 
   const nextActionStatusKey = toStatusKey(
     nextActionInitiative?.rawStatus ?? nextActionInitiative?.status ?? null
@@ -1341,7 +1359,6 @@ function MissionControlInner({
                   tone={hintTone === 'critical' ? 'error' : 'warning'}
                   title={hintLabel}
                   message={hintDetail}
-                  className="pointer-events-auto"
                   onDismiss={() => setConnectivityToastDismissed(true)}
                   primaryAction={
                     onRefresh
@@ -1405,9 +1422,19 @@ function MissionControlInner({
                         return;
                       }
 
-                      const action = autopilot.isRunning ? autopilot.stop : autopilot.start;
+                      const stopRequested = autopilot.isRunning;
+                      const action = stopRequested ? autopilot.stop : autopilot.start;
                       void action()
-                        .then(() => setAutopilotUpgradeGate(null))
+                        .then(() => {
+                          setAutopilotUpgradeGate(null);
+                          const initiativeLabel = nextActionInitiative?.name ?? 'selected initiative';
+                          setNextActionNotice({
+                            tone: 'success',
+                            message: stopRequested
+                              ? `Stopped Autopilot for ${initiativeLabel}.`
+                              : `Started Autopilot for ${initiativeLabel}.`,
+                          });
+                        })
                         .catch((err) => {
                           if (err instanceof UpgradeRequiredError) {
                             setAutopilotUpgradeGate(err);
@@ -1694,9 +1721,9 @@ function MissionControlInner({
                         duration: 0.2,
                         ease: [0.22, 1, 0.36, 1],
                       }}
-                      className="flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
+                      className="flex w-full min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] sm:flex-row sm:items-center xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
                     >
-                      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      <div className="flex min-w-0 w-full flex-1 items-center gap-2.5">
                         {nextActionQueue.isLoading ? (
                           <Skeleton className="h-6 w-6 rounded-full" />
                         ) : railFocusItem ? (
@@ -1738,7 +1765,7 @@ function MissionControlInner({
                                 {nowWorkingInitiativeLabel}
                                 {nowWorkingSubline ? ` · ${nowWorkingSubline}` : ''}
                               </p>
-                              <p className="truncate text-micro leading-snug text-secondary/85" title={nextQueuedHeadline}>
+                              <p className="hidden truncate text-micro leading-snug text-secondary/85 sm:block" title={nextQueuedHeadline}>
                                 Up next: {nextQueuedHeadline}
                                 {nextQueuedSubline ? ` · ${nextQueuedSubline}` : ''}
                               </p>
@@ -1746,7 +1773,7 @@ function MissionControlInner({
                           )}
                         </div>
                       </div>
-                      <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                         <button
                           type="button"
                           onClick={() => {
@@ -1780,7 +1807,7 @@ function MissionControlInner({
                           type="button"
                           onClick={() => void deferNowWorking()}
                           disabled={!nowWorkingItem || railActionKey === 'defer' || nextActionBusy}
-                          className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
+                          className="control-pill hidden h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45 sm:inline-flex"
                           title="Send current workstream to the bottom of queue"
                         >
                           Defer
@@ -1802,7 +1829,7 @@ function MissionControlInner({
                           className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold"
                           title="Open queue"
                         >
-                          Queue
+                          Open queue
                         </button>
                       </div>
                     </motion.div>
@@ -2078,6 +2105,7 @@ function MissionControlInner({
                             panelStyle="flat"
                             className="!bg-transparent !shadow-none !border-transparent"
                             disableEnterAnimation
+                            projectId={workspaceInitiativeId}
                             authToken={authToken}
                             embedMode={embedMode}
                             onOpenInitiative={openInitiativeFromNextUp}
@@ -2104,7 +2132,7 @@ function MissionControlInner({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed bottom-0 left-0 right-0 top-[64px] z-[220] hidden bg-black/45 lg:block xl:hidden"
+                    className="fixed bottom-0 left-0 right-0 top-[64px] z-[240] bg-black/45 xl:hidden"
                   />
                   <motion.aside
                     key="next-up-drawer"
@@ -2112,13 +2140,13 @@ function MissionControlInner({
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '100%', opacity: 0.9 }}
                     transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-                    className="fixed bottom-0 right-0 top-[64px] z-[230] hidden w-[360px] max-w-[94vw] p-3 lg:block xl:hidden"
+                    className="fixed inset-x-0 bottom-0 top-[60vh] z-[250] p-2 sm:top-[64px] sm:left-auto sm:right-0 sm:w-[min(84vw,360px)] sm:p-3 lg:w-[360px] lg:max-w-[94vw] xl:hidden"
                   >
                     <div className="relative flex h-full flex-col">
                       <button
                         type="button"
                         onClick={() => setNextUpDrawerOpen(false)}
-                        className="absolute right-2 top-16 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
+                        className="absolute right-2 top-3 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-[#080d14]/85 text-white/72 transition-colors hover:text-white"
                         aria-label="Close next up drawer"
                       >
                         ✕
@@ -2136,6 +2164,7 @@ function MissionControlInner({
                             panelStyle="flat"
                             className="!bg-transparent !shadow-none !border-transparent"
                             disableEnterAnimation
+                            projectId={workspaceInitiativeId}
                             authToken={authToken}
                             embedMode={embedMode}
                             onOpenInitiative={(initiativeId, initiativeTitle) => {

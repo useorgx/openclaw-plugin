@@ -241,7 +241,7 @@ export function MissionControlFilters({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.97 }}
             transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-            className="surface-tier-2 absolute right-0 top-12 z-30 w-[360px] max-w-[94vw] rounded-xl p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+            className="surface-tier-2 fixed left-3 right-3 top-[calc(env(safe-area-inset-top)+72px)] z-[340] max-h-[calc(100dvh-104px)] overflow-y-auto overscroll-contain rounded-xl p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:absolute sm:left-auto sm:right-0 sm:top-12 sm:z-30 sm:w-[360px] sm:max-w-[94vw] sm:max-h-[min(78vh,680px)]"
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="space-y-0.5">

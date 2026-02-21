@@ -4,6 +4,7 @@ import { colors } from '@/lib/tokens';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { useArtifactViewer } from './ArtifactViewerContext';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 interface ArtifactSummary {
   id: string;
@@ -42,6 +43,55 @@ const statusColors: Record<string, string> = {
   archived: colors.textMuted,
 };
 
+function buildDemoArtifactsByEntity(entityType: string, entityId: string): ArtifactSummary[] {
+  const now = new Date().toISOString();
+
+  if (entityType === 'initiative' && entityId === 'init-1') {
+    return [
+      {
+        id: 'artifact-demo-init-1-brief',
+        name: 'Q4 dashboard polish brief',
+        description: 'Summary of final polish checklist and open items.',
+        artifact_url: '#',
+        artifact_type: 'shared.project_handbook',
+        status: 'approved',
+        metadata: { source: 'demo' },
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: 'artifact-demo-init-1-copy',
+        name: 'Launch copy variants',
+        description: 'Three launch-ready copy variants for review.',
+        artifact_url: '#',
+        artifact_type: 'document',
+        status: 'in_review',
+        metadata: { source: 'demo' },
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  if (entityType === 'initiative' && entityId === 'init-2') {
+    return [
+      {
+        id: 'artifact-demo-init-2-subjects',
+        name: 'Subject line variants',
+        description: 'Email subject line candidates with performance notes.',
+        artifact_url: '#',
+        artifact_type: 'document',
+        status: 'approved',
+        metadata: { source: 'demo' },
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+  }
+
+  return [];
+}
+
 function ArtifactListIcon() {
   return (
     <svg
@@ -66,6 +116,9 @@ async function fetchArtifactsByEntity(
   entityId: string,
   opts: { authToken?: string | null; embedMode?: boolean }
 ): Promise<ArtifactSummary[]> {
+  if (isDemoModeEnabled()) {
+    return buildDemoArtifactsByEntity(entityType, entityId);
+  }
   try {
     const headers = buildOrgxHeaders(opts);
     const params = new URLSearchParams({
