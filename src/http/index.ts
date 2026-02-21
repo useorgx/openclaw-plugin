@@ -2088,8 +2088,111 @@ export function createHttpHandler(
     Promise<{ items: NextUpQueueItem[]; degraded: string[] }>
   >();
 
-  const nextUpQueueCacheKeyFor = (initiativeId: string | null): string =>
-    initiativeId?.trim() || "__all__";
+  const PROJECT_INITIATIVE_IDS_CACHE_TTL_MS = 20_000;
+  const projectInitiativeIdsCache = new Map<
+    string,
+    { expiresAt: number; ids: string[] }
+  >();
+
+  const nextUpQueueCacheKeyFor = (
+    initiativeId: string | null,
+    projectId?: string | null
+  ): string => {
+    const normalizedInitiative = initiativeId?.trim() || "__all__";
+    const normalizedProject = projectId?.trim() || "__all__";
+    return `${normalizedProject}::${normalizedInitiative}`;
+  };
+
+  async function listInitiativeIdsForProject(input: {
+    projectId: string;
+  }): Promise<string[]> {
+    const projectId = input.projectId.trim();
+    if (!projectId) return [];
+    const cached = projectInitiativeIdsCache.get(projectId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return [...cached.ids];
+    }
+
+    const mapInitiativeIds = (
+      rows: unknown[],
+      opts?: { projectId?: string | null; commandCenterId?: string | null }
+    ): string[] => {
+      const projectScopeId = opts?.projectId?.trim() ?? "";
+      const commandCenterId = opts?.commandCenterId?.trim() ?? "";
+      return rows
+        .map((entry) => {
+          const record = entry as Record<string, unknown>;
+          if (projectScopeId) {
+            const rowProjectId = pickString(record, ["project_id", "projectId"]) ?? "";
+            if (rowProjectId !== projectScopeId) return null;
+          }
+          if (commandCenterId) {
+            const rowCommandCenterId =
+              pickString(record, ["command_center_id", "commandCenterId"]) ?? "";
+            if (rowCommandCenterId !== commandCenterId) return null;
+          }
+          return pickString(record, ["id"]);
+        })
+        .filter((id): id is string => Boolean(id && id.trim().length > 0));
+    };
+
+    try {
+      const byProject = await client.listEntities("initiative", {
+        project_id: projectId,
+        limit: 1000,
+      });
+      const byProjectIds = mapInitiativeIds(
+        Array.isArray(byProject.data) ? byProject.data : [],
+        { projectId }
+      );
+      if (byProjectIds.length > 0) {
+        projectInitiativeIdsCache.set(projectId, {
+          expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
+          ids: byProjectIds,
+        });
+        return byProjectIds;
+      }
+    } catch {
+      // continue to command-center fallback
+    }
+
+    try {
+      const byCommandCenter = await client.listEntities("initiative", {
+        command_center_id: projectId,
+        limit: 1000,
+      });
+      const byCommandCenterIds = mapInitiativeIds(
+        Array.isArray(byCommandCenter.data) ? byCommandCenter.data : [],
+        { commandCenterId: projectId }
+      );
+      if (byCommandCenterIds.length > 0) {
+        projectInitiativeIdsCache.set(projectId, {
+          expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
+          ids: byCommandCenterIds,
+        });
+        return byCommandCenterIds;
+      }
+    } catch {
+      // continue to unfiltered fallback
+    }
+
+    try {
+      const allInitiatives = await client.listEntities("initiative", {
+        limit: 1000,
+      });
+      const fallbackIds = mapInitiativeIds(
+        Array.isArray(allInitiatives.data) ? allInitiatives.data : [],
+        { commandCenterId: projectId }
+      );
+      projectInitiativeIdsCache.set(projectId, {
+        expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
+        ids: fallbackIds,
+      });
+      return fallbackIds;
+    } catch {
+      return [];
+    }
+  }
 
   const readNextUpQueueCache = (
     key: string,
@@ -2134,17 +2237,29 @@ export function createHttpHandler(
       nextUpQueueInFlight.clear();
       return;
     }
-    nextUpQueueCache.delete(nextUpQueueCacheKeyFor(normalized));
-    nextUpQueueCache.delete(nextUpQueueCacheKeyFor(null));
-    nextUpQueueInFlight.delete(nextUpQueueCacheKeyFor(normalized));
-    nextUpQueueInFlight.delete(nextUpQueueCacheKeyFor(null));
+    for (const key of Array.from(nextUpQueueCache.keys())) {
+      if (key.endsWith(`::${normalized}`) || key.endsWith("::__all__")) {
+        nextUpQueueCache.delete(key);
+      }
+    }
+    for (const key of Array.from(nextUpQueueInFlight.keys())) {
+      if (key.endsWith(`::${normalized}`) || key.endsWith("::__all__")) {
+        nextUpQueueInFlight.delete(key);
+      }
+    }
   };
 
   async function buildNextUpQueueUncached(input?: {
     initiativeId?: string | null;
+    projectId?: string | null;
   }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
     const degraded: string[] = [];
     const requestedInitiativeId = input?.initiativeId?.trim() || null;
+    const requestedProjectId = input?.projectId?.trim() || null;
+    const allowedInitiativeIds =
+      requestedProjectId && requestedProjectId.length > 0
+        ? new Set(await listInitiativeIdsForProject({ projectId: requestedProjectId }))
+        : null;
 
     const pinnedQueue = readNextUpQueuePins();
     const pinnedRankByKey = new Map<string, number>();
@@ -2252,6 +2367,7 @@ export function createHttpHandler(
       try {
         sessionTree = await client.getLiveSessions({
           initiative: requestedInitiativeId,
+          projectId: requestedProjectId,
           limit: 500,
         });
       } catch (err: unknown) {
@@ -2300,6 +2416,7 @@ export function createHttpHandler(
         const workstreamId = (node.workstreamId ?? "").trim();
         if (!initiativeId || !workstreamId) continue;
         if (requestedInitiativeId && initiativeId !== requestedInitiativeId) continue;
+        if (allowedInitiativeIds && !allowedInitiativeIds.has(initiativeId)) continue;
         const initiativeStatus = initiativeStatusById.get(initiativeId) ?? "active";
         if (!isInitiativeActiveStatus(initiativeStatus)) continue;
 
@@ -2405,6 +2522,7 @@ export function createHttpHandler(
       const id = pickString(record, ["id"]);
       if (!id) return false;
       if (requestedInitiativeId && id !== requestedInitiativeId) return false;
+      if (allowedInitiativeIds && !allowedInitiativeIds.has(id)) return false;
       const status = pickString(record, ["status"]);
       return isInitiativeActiveStatus(status);
     });
@@ -2437,6 +2555,7 @@ export function createHttpHandler(
         NEXT_UP_LIVE_AGENTS_TIMEOUT_MS,
         client.getLiveAgents({
           initiative: requestedInitiativeId,
+          projectId: requestedProjectId,
           includeIdle: true,
         })
       );
@@ -2838,8 +2957,12 @@ export function createHttpHandler(
 
   async function buildNextUpQueue(input?: {
     initiativeId?: string | null;
+    projectId?: string | null;
   }): Promise<{ items: NextUpQueueItem[]; degraded: string[] }> {
-    const key = nextUpQueueCacheKeyFor(input?.initiativeId?.trim() || null);
+    const key = nextUpQueueCacheKeyFor(
+      input?.initiativeId?.trim() || null,
+      input?.projectId?.trim() || null
+    );
     const fresh = readNextUpQueueCache(key, { allowStale: false });
     if (fresh) return fresh;
 
@@ -2979,6 +3102,8 @@ export function createHttpHandler(
           nodes: MissionControlNode[];
         }
       ),
+    listInitiativeIdsForProject: ({ projectId }) =>
+      listInitiativeIdsForProject({ projectId }),
     buildNextUpQueue,
     sendJson,
     safeErrorMessage,
@@ -3257,11 +3382,15 @@ export function createHttpHandler(
     parseJsonRequest,
     pickString,
     summarizeActivityHeadline,
-    getLiveAgents: ({ initiative, includeIdle }) =>
-      client.getLiveAgents({ initiative, includeIdle }),
-    getLiveInitiatives: ({ id, limit }) => client.getLiveInitiatives({ id, limit }),
-    getLiveDecisions: ({ status, limit }) => client.getLiveDecisions({ status, limit }),
+    getLiveAgents: ({ initiative, projectId, includeIdle }) =>
+      client.getLiveAgents({ initiative, projectId, includeIdle }),
+    getLiveInitiatives: ({ id, projectId, limit }) =>
+      client.getLiveInitiatives({ id, projectId, limit }),
+    getLiveDecisions: ({ status, projectId, limit }) =>
+      client.getLiveDecisions({ status, projectId, limit }),
     getHandoffs: () => client.getHandoffs(),
+    listInitiativeIdsForProject: ({ projectId }) =>
+      listInitiativeIdsForProject({ projectId }),
     loadLocalOpenClawSnapshot,
     toLocalLiveAgents,
     toLocalLiveInitiatives,
@@ -3271,8 +3400,12 @@ export function createHttpHandler(
     safeErrorMessage,
   });
   registerLiveLegacyRoutes(apiRouter, {
-    getLiveSessions: ({ initiative, limit }) => client.getLiveSessions({ initiative, limit }),
-    getLiveActivity: ({ run, since, limit }) => client.getLiveActivity({ run, since, limit }),
+    getLiveSessions: ({ initiative, projectId, limit }) =>
+      client.getLiveSessions({ initiative, projectId, limit }),
+    getLiveActivity: ({ run, since, projectId, limit }) =>
+      client.getLiveActivity({ run, since, projectId, limit }),
+    listInitiativeIdsForProject: ({ projectId }) =>
+      listInitiativeIdsForProject({ projectId }),
     listRuntimeInstances,
     injectRuntimeInstancesAsSessions,
     enrichSessionsWithRuntime,
@@ -3331,12 +3464,17 @@ export function createHttpHandler(
     toLocalSessionTree,
     toLocalLiveActivity,
     toLocalLiveAgents,
-    getLiveSessions: ({ initiative, limit }) => client.getLiveSessions({ initiative, limit }),
-    getLiveActivity: ({ run, since, limit }) => client.getLiveActivity({ run, since, limit }),
+    getLiveSessions: ({ initiative, projectId, limit }) =>
+      client.getLiveSessions({ initiative, projectId, limit }),
+    getLiveActivity: ({ run, since, projectId, limit }) =>
+      client.getLiveActivity({ run, since, projectId, limit }),
     getHandoffs: () => client.getHandoffs(),
-    getLiveDecisions: ({ status, limit }) => client.getLiveDecisions({ status, limit }),
-    getLiveAgents: ({ initiative, includeIdle }) =>
-      client.getLiveAgents({ initiative, includeIdle }),
+    getLiveDecisions: ({ status, projectId, limit }) =>
+      client.getLiveDecisions({ status, projectId, limit }),
+    getLiveAgents: ({ initiative, projectId, includeIdle }) =>
+      client.getLiveAgents({ initiative, projectId, includeIdle }),
+    listInitiativeIdsForProject: ({ projectId }) =>
+      listInitiativeIdsForProject({ projectId }),
     mapDecisionEntity: (entry) => mapDecisionEntity(entry as Entity),
     applyAgentContextsToSessionTree,
     applyAgentContextsToActivity,
@@ -3358,7 +3496,8 @@ export function createHttpHandler(
       lastSnapshotActivityPersistAt = state.lastPersistAt;
     },
     parseJsonRequest,
-    buildNextUpQueue: ({ initiativeId }) => buildNextUpQueue({ initiativeId }),
+    buildNextUpQueue: ({ initiativeId, projectId }) =>
+      buildNextUpQueue({ initiativeId, projectId }),
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
     runAction: (runId, action, input) => client.runAction(runId, action, input),

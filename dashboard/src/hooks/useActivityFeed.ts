@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveActivityItem } from '@/types';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { cutoffEpochForActivityFilter, sinceIsoForActivityFilter } from '@/lib/activityTimeFilters';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 type ActivityPageResponse = {
   activities: LiveActivityItem[];
@@ -22,33 +23,46 @@ function compareActivity(a: LiveActivityItem, b: LiveActivityItem): number {
   return String(b.id).localeCompare(String(a.id));
 }
 
-function encodeCursor(beforeEpoch: number, beforeId: string): string {
-  const json = JSON.stringify({ beforeEpoch, beforeId });
-  const base64 = btoa(unescape(encodeURIComponent(json)));
-  // Avoid String.prototype.replaceAll (tsconfig lib may not include ES2021).
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+/g, '');
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
-function seedCursor(items: LiveActivityItem[]): string | null {
-  if (!items || items.length === 0) return null;
-  const last = items[items.length - 1];
-  const epoch = toEpoch(last.timestamp);
-  if (!epoch) return null;
-  return encodeCursor(epoch, String(last.id));
+function readMetadataString(metadata: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized.length > 0) return normalized;
+  }
+  return null;
+}
+
+function resolveInitiativeId(item: LiveActivityItem): string | null {
+  const direct = typeof item.initiativeId === 'string' ? item.initiativeId.trim() : '';
+  if (direct.length > 0) return direct;
+  const metadata = asRecord(item.metadata);
+  return readMetadataString(metadata, ['initiative_id', 'initiativeId']);
 }
 
 function normalizeSeed(
   items: LiveActivityItem[],
-  cutoffEpoch: number | null,
-  runId: string | null
+  bounds: { sinceEpoch: number | null; untilEpoch: number | null },
+  runId: string | null,
+  initiativeId: string | null
 ): LiveActivityItem[] {
   const byId = new Map<string, LiveActivityItem>();
+  const sinceEpoch = bounds.sinceEpoch;
+  const untilEpoch = bounds.untilEpoch;
   for (const item of items ?? []) {
     if (!item || typeof item.id !== 'string') continue;
     if (runId && item.runId !== runId) continue;
+    if (initiativeId && resolveInitiativeId(item) !== initiativeId) continue;
     const epoch = toEpoch(item.timestamp);
     if (!epoch) continue;
-    if (cutoffEpoch !== null && epoch < cutoffEpoch) continue;
+    if (sinceEpoch !== null && epoch < sinceEpoch) continue;
+    if (untilEpoch !== null && epoch > untilEpoch) continue;
     byId.set(item.id, item);
   }
   return Array.from(byId.values()).sort(compareActivity);
@@ -85,32 +99,92 @@ function mergeById(current: LiveActivityItem[], incoming: LiveActivityItem[]): L
 export function useActivityFeed(options: {
   seed: LiveActivityItem[];
   timeFilterId: ActivityTimeFilterId;
+  customSinceIso?: string | null;
+  customUntilIso?: string | null;
   runId?: string | null;
+  initiativeId?: string | null;
+  projectId?: string | null;
   pageSize?: number;
+  demoMode?: boolean;
 }) {
-  const { seed, timeFilterId, runId = null, pageSize = 50 } = options;
+  const {
+    seed,
+    timeFilterId,
+    customSinceIso = null,
+    customUntilIso = null,
+    runId = null,
+    initiativeId = null,
+    projectId = null,
+    pageSize = 50,
+    demoMode = isDemoModeEnabled(),
+  } = options;
 
-  const cutoffEpoch = useMemo(() => cutoffEpochForActivityFilter(timeFilterId), [timeFilterId]);
-  const sinceIso = useMemo(() => sinceIsoForActivityFilter(timeFilterId), [timeFilterId]);
-  const normalizedSeed = useMemo(
-    () => normalizeSeed(seed, cutoffEpoch, runId),
-    [seed, cutoffEpoch, runId]
+  const presetCutoffEpoch = useMemo(
+    () => cutoffEpochForActivityFilter(timeFilterId),
+    [timeFilterId]
   );
+  const presetSinceIso = useMemo(
+    () => sinceIsoForActivityFilter(timeFilterId),
+    [timeFilterId]
+  );
+  const sinceIso = useMemo(() => {
+    if (timeFilterId === 'custom') {
+      const trimmed = customSinceIso?.trim() ?? '';
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    return presetSinceIso;
+  }, [customSinceIso, presetSinceIso, timeFilterId]);
+  const untilIso = useMemo(() => {
+    if (timeFilterId !== 'custom') return null;
+    const trimmed = customUntilIso?.trim() ?? '';
+    return trimmed.length > 0 ? trimmed : null;
+  }, [customUntilIso, timeFilterId]);
+  const sinceEpoch = useMemo(() => {
+    if (sinceIso) {
+      const parsed = Date.parse(sinceIso);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return presetCutoffEpoch;
+  }, [presetCutoffEpoch, sinceIso]);
+  const untilEpoch = useMemo(() => {
+    if (!untilIso) return null;
+    const parsed = Date.parse(untilIso);
+    if (!Number.isFinite(parsed)) return null;
+    return parsed;
+  }, [untilIso]);
+  const normalizedSeed = useMemo(
+    () =>
+      normalizeSeed(
+        seed,
+        {
+          sinceEpoch,
+          untilEpoch,
+        },
+        runId,
+        initiativeId
+      ),
+    [seed, sinceEpoch, untilEpoch, runId, initiativeId]
+  );
+  // Always bootstrap one page fetch on filter/run changes so wider windows
+  // (e.g. Last hour -> Today) populate immediately without requiring scroll.
+  const initialCursor: string | null = demoMode ? null : '';
 
   const [items, setItems] = useState<LiveActivityItem[]>(normalizedSeed);
-  const [cursor, setCursor] = useState<string | null>(() => seedCursor(normalizedSeed));
+  const [cursor, setCursor] = useState<string | null>(() => initialCursor);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [storeUpdatedAt, setStoreUpdatedAt] = useState<string | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const bootstrapAttemptedRef = useRef(false);
 
   // Reset when filter/run changes.
   useEffect(() => {
     setItems(normalizedSeed);
-    setCursor(seedCursor(normalizedSeed));
+    setCursor(initialCursor);
     setError(null);
     setStoreUpdatedAt(null);
-  }, [normalizedSeed, timeFilterId, runId]);
+    bootstrapAttemptedRef.current = false;
+  }, [initialCursor, initiativeId, normalizedSeed, projectId, runId, sinceIso, timeFilterId, untilIso]);
 
   // Merge in new seed items (SSE tail) without disturbing the paging cursor.
   useEffect(() => {
@@ -118,7 +192,12 @@ export function useActivityFeed(options: {
   }, [normalizedSeed]);
 
   const loadMore = useCallback(async () => {
-    if (!cursor) return;
+    if (demoMode) {
+      setCursor(null);
+      setError(null);
+      return;
+    }
+    if (cursor === null) return;
     if (inFlightRef.current) return inFlightRef.current;
     setIsLoadingMore(true);
 
@@ -126,9 +205,16 @@ export function useActivityFeed(options: {
       try {
         const search = new URLSearchParams();
         search.set('limit', String(Math.max(1, Math.min(500, pageSize))));
-        search.set('cursor', cursor);
+        if (cursor.trim().length > 0) search.set('cursor', cursor);
         if (sinceIso) search.set('since', sinceIso);
+        if (untilIso) search.set('until', untilIso);
         if (runId && runId.trim().length > 0) search.set('run', runId.trim());
+        if (initiativeId && initiativeId.trim().length > 0) {
+          search.set('initiative', initiativeId.trim());
+        }
+        if (projectId && projectId.trim().length > 0) {
+          search.set('project_id', projectId.trim());
+        }
 
         const resp = await fetch(`/orgx/api/live/activity/page?${search.toString()}`);
         const payload = (await resp.json().catch(() => null)) as ActivityPageResponse | null;
@@ -136,13 +222,17 @@ export function useActivityFeed(options: {
           throw new Error(`Activity paging failed (${resp.status})`);
         }
 
-        const nextItems = Array.isArray(payload.activities) ? payload.activities : [];
+        const nextItems = (Array.isArray(payload.activities) ? payload.activities : []).filter(
+          (item) => !initiativeId || resolveInitiativeId(item) === initiativeId
+        );
         setItems((prev) => mergeById(prev, nextItems));
         setCursor(payload.nextCursor ?? null);
         setStoreUpdatedAt(payload.storeUpdatedAt ?? null);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Activity paging failed');
+        // Prevent repeated bootstrap retries on hard failures.
+        setCursor((prev) => (prev === '' ? null : prev));
       } finally {
         setIsLoadingMore(false);
         inFlightRef.current = null;
@@ -151,7 +241,14 @@ export function useActivityFeed(options: {
 
     inFlightRef.current = request;
     return request;
-  }, [cursor, pageSize, runId, sinceIso]);
+  }, [cursor, demoMode, initiativeId, pageSize, projectId, runId, sinceIso, untilIso]);
+
+  useEffect(() => {
+    if (cursor !== '') return;
+    if (bootstrapAttemptedRef.current) return;
+    bootstrapAttemptedRef.current = true;
+    void loadMore();
+  }, [cursor, loadMore]);
 
   const hasMore = cursor !== null;
 
@@ -162,7 +259,8 @@ export function useActivityFeed(options: {
     error,
     storeUpdatedAt,
     loadMore,
-    cutoffEpoch,
+    cutoffEpoch: sinceEpoch,
     sinceIso,
+    untilIso,
   };
 }

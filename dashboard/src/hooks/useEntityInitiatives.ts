@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Initiative } from '@/types';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 interface RawEntityInitiative {
   id: string;
@@ -13,6 +14,8 @@ interface RawEntityInitiative {
   target_date?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  command_center_id?: string | null;
+  commandCenterId?: string | null;
 }
 
 function mapStatus(raw: string): Initiative['status'] {
@@ -53,14 +56,72 @@ function isVisibleStatus(rawStatus: string): boolean {
   return !['deleted', 'archived', 'cancelled'].includes(status);
 }
 
-export function useEntityInitiatives(enabled: boolean) {
+function buildDemoEntityInitiatives(): Initiative[] {
+  const now = new Date();
+  const day = 86_400_000;
+  return [
+    {
+      id: 'init-1',
+      name: 'Q4 Feature Ship',
+      status: 'active',
+      rawStatus: 'active',
+      priority: 'high',
+      health: 38,
+      daysRemaining: 16,
+      targetDate: new Date(now.getTime() + 16 * day).toISOString(),
+      createdAt: new Date(now.getTime() - 18 * day).toISOString(),
+      updatedAt: new Date(now.getTime() - 5 * 60_000).toISOString(),
+      activeAgents: 2,
+      totalAgents: 3,
+      description: 'Finalize launch readiness for the Q4 initiative.',
+    },
+    {
+      id: 'init-2',
+      name: 'Black Friday Email',
+      status: 'active',
+      rawStatus: 'active',
+      priority: 'medium',
+      health: 55,
+      daysRemaining: 10,
+      targetDate: new Date(now.getTime() + 10 * day).toISOString(),
+      createdAt: new Date(now.getTime() - 22 * day).toISOString(),
+      updatedAt: new Date(now.getTime() - 15 * 60_000).toISOString(),
+      activeAgents: 1,
+      totalAgents: 2,
+      description: 'Generate and validate campaign assets for holiday launch.',
+    },
+  ];
+}
+
+export function useEntityInitiatives(enabled: boolean, projectId: string | null = null) {
   return useQuery<Initiative[]>({
-    queryKey: queryKeys.entities({ type: 'initiative' }),
+    queryKey: queryKeys.entities({ type: 'initiative', projectId }),
     queryFn: async () => {
-      const res = await fetch('/orgx/api/entities?type=initiative&limit=300');
+      if (isDemoModeEnabled()) return buildDemoEntityInitiatives();
+      const params = new URLSearchParams({
+        type: 'initiative',
+        limit: '300',
+      });
+      if (projectId && projectId.trim().length > 0) {
+        params.set('command_center_id', projectId.trim());
+      }
+      const res = await fetch(`/orgx/api/entities?${params.toString()}`);
       if (!res.ok) return [];
       const json = await res.json() as { data?: RawEntityInitiative[] };
-      return (json.data ?? [])
+      const rows = json.data ?? [];
+      const workspaceScopeId = projectId?.trim() ?? '';
+      const hasWorkspaceDimension =
+        workspaceScopeId.length > 0 &&
+        rows.some((item) => {
+          const commandCenterId = (item.command_center_id ?? item.commandCenterId ?? '').trim();
+          return commandCenterId.length > 0;
+        });
+      return rows
+        .filter((item) => {
+          if (!workspaceScopeId || !hasWorkspaceDimension) return true;
+          const commandCenterId = (item.command_center_id ?? item.commandCenterId ?? '').trim();
+          return commandCenterId === workspaceScopeId;
+        })
         .filter((item) => isVisibleStatus(item.status ?? ''))
         .sort((a, b) => {
           const aEpoch = Date.parse(a.updated_at ?? a.created_at ?? '') || 0;

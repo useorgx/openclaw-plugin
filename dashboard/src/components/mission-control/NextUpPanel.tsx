@@ -15,6 +15,7 @@ import type { NextUpQueueBulkAction } from '@/types';
 
 interface NextUpPanelProps {
   initiativeId?: string | null;
+  projectId?: string | null;
   authToken?: string | null;
   embedMode?: boolean;
   title?: string;
@@ -262,6 +263,7 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
 
 export function NextUpPanel({
   initiativeId = null,
+  projectId = null,
   authToken = null,
   embedMode = false,
   title = 'Next Up',
@@ -308,6 +310,7 @@ export function NextUpPanel({
     startWorkstreamAutoContinue,
   } = useNextUpQueue({
     initiativeId,
+    projectId,
     authToken,
     embedMode,
     enabled: true,
@@ -599,7 +602,8 @@ export function NextUpPanel({
         : null;
 
   const showStatusBanner = statusTone !== null;
-  const showSignalToast = degraded.length > 0 && !signalToastHidden;
+  const showSignalToast =
+    degraded.length > 0 && !signalToastHidden && menuKey === null && !queueSettingsOpen;
   const selectedCount = visibleSelection.length;
   const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
 
@@ -1019,7 +1023,7 @@ export function NextUpPanel({
                         </span>
                       </button>
                       {menuKey === key && (
-                        <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[178px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
+                        <div className="absolute right-0 top-[calc(100%+6px)] z-[320] min-w-[178px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
                           <button
                             type="button"
                             onClick={() => {
@@ -1165,7 +1169,6 @@ export function NextUpPanel({
           tone="warning"
           title="Limited signal"
           message={degraded[0] ?? null}
-          className="pointer-events-auto"
           autoDismissMs={6000}
           onDismiss={() => setSignalToastHidden(true)}
         />
@@ -1448,7 +1451,7 @@ function NextUpReorderRow({
               </span>
             </button>
             {menuKey === key && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[198px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-[320] min-w-[198px] rounded-xl border border-white/[0.1] bg-[#080d14]/95 p-1.5 shadow-[0_16px_36px_rgba(0,0,0,0.42)] backdrop-blur">
                 <button
                   type="button"
                   onClick={() => {

@@ -533,6 +533,9 @@ export interface EntityUpdatePayload {
 export interface EntityListFilters {
   status?: string;
   limit?: number;
+  initiative_id?: string;
+  project_id?: string;
+  command_center_id?: string;
   [key: string]: unknown;
 }
 

@@ -122,7 +122,7 @@ export function Modal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[120] flex items-stretch justify-center p-0 sm:items-center sm:p-6"
+          className="fixed inset-0 z-[420] flex items-stretch justify-center p-0 sm:items-center sm:p-6"
           onClick={() => {
             if (closeOnBackdropClick) onClose();
           }}

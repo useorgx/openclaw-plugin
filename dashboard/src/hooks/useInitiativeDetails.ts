@@ -7,7 +7,7 @@ import type {
   InitiativeWorkstream,
 } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
-import { canQueryInitiativeEntities } from '@/lib/initiativeIds';
+import { canQueryInitiativeEntities, isDemoModeEnabled } from '@/lib/initiativeIds';
 
 type WorkstreamApiItem = {
   id: string;
@@ -104,6 +104,115 @@ const mapTask = (item: TaskApiItem, fallbackInitiativeId: string): InitiativeTas
   createdAt: item.created_at ?? null,
 });
 
+function buildDemoInitiativeDetails(initiativeId: string): InitiativeDetails {
+  const nowIso = new Date().toISOString();
+  if (initiativeId === 'init-1') {
+    return {
+      initiativeId,
+      workstreams: [
+        {
+          id: 'ws-4',
+          name: 'Dashboard UI pass',
+          summary: 'Polish interaction details and close accessibility feedback.',
+          status: 'active',
+          progress: 70,
+          initiativeId,
+          createdAt: nowIso,
+        },
+        {
+          id: 'ws-5',
+          name: 'Usage tracking instrumentation',
+          summary: 'Waiting on events table access.',
+          status: 'blocked',
+          progress: 25,
+          initiativeId,
+          createdAt: nowIso,
+        },
+      ],
+      milestones: [
+        {
+          id: 'ms-1',
+          title: 'UX polish complete',
+          description: 'All blocking review comments resolved.',
+          status: 'active',
+          dueDate: null,
+          initiativeId,
+          workstreamId: 'ws-4',
+          createdAt: nowIso,
+        },
+      ],
+      tasks: [
+        {
+          id: 'task-1',
+          title: 'Polish timeline controls',
+          description: null,
+          status: 'in_progress',
+          priority: 'high',
+          dueDate: null,
+          initiativeId,
+          milestoneId: 'ms-1',
+          workstreamId: 'ws-4',
+          createdAt: nowIso,
+        },
+        {
+          id: 'task-2',
+          title: 'Validate mobile overlays',
+          description: null,
+          status: 'todo',
+          priority: 'medium',
+          dueDate: null,
+          initiativeId,
+          milestoneId: 'ms-1',
+          workstreamId: 'ws-4',
+          createdAt: nowIso,
+        },
+        {
+          id: 'task-3',
+          title: 'Grant data pipeline access',
+          description: null,
+          status: 'blocked',
+          priority: 'high',
+          dueDate: null,
+          initiativeId,
+          milestoneId: null,
+          workstreamId: 'ws-5',
+          createdAt: nowIso,
+        },
+      ],
+    };
+  }
+
+  return {
+    initiativeId,
+    workstreams: [
+      {
+        id: 'ws-9',
+        name: 'Email campaign generation',
+        summary: 'Final review of subject line variants.',
+        status: 'active',
+        progress: 55,
+        initiativeId,
+        createdAt: nowIso,
+      },
+    ],
+    milestones: [],
+    tasks: [
+      {
+        id: 'task-9',
+        title: 'Prepare launch variants',
+        description: null,
+        status: 'in_progress',
+        priority: 'medium',
+        dueDate: null,
+        initiativeId,
+        milestoneId: null,
+        workstreamId: 'ws-9',
+        createdAt: nowIso,
+      },
+    ],
+  };
+}
+
 export function useInitiativeDetails({
   initiativeId,
   authToken = null,
@@ -121,6 +230,9 @@ export function useInitiativeDetails({
     enabled: enabled && Boolean(initiativeId) && canQuery,
     queryFn: async () => {
       if (!initiativeId) return EMPTY_DETAILS;
+      if (isDemoModeEnabled()) {
+        return buildDemoInitiativeDetails(initiativeId);
+      }
       if (!canQuery) {
         return { ...EMPTY_DETAILS, initiativeId };
       }

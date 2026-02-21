@@ -3,6 +3,8 @@ const SYNTHETIC_INITIATIVE_IDS = new Set([
   'unscoped',
   'unknown',
 ]);
+export const DEMO_MODE_STORAGE_KEY = 'orgx.demo_mode';
+export const SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY = 'orgx.show_synthetic_entities';
 
 export function isSyntheticInitiativeId(value: string | null | undefined): boolean {
   const normalized = (value ?? '').trim().toLowerCase();
@@ -13,7 +15,7 @@ export function isSyntheticInitiativeId(value: string | null | undefined): boole
   return false;
 }
 
-function isDemoModeEnabled(): boolean {
+export function isDemoModeEnabled(): boolean {
   // Demo mode is a purely client-side concern; avoid introducing hard dependencies
   // on browser globals for SSR/build-time evaluation.
   if (typeof window === 'undefined') return false;
@@ -25,7 +27,17 @@ function isDemoModeEnabled(): boolean {
   }
   try {
     // Keep in sync with dashboard/src/App.tsx
-    return window.localStorage.getItem('orgx.demo_mode') === '1';
+    return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function shouldIncludeSyntheticEntities(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (isDemoModeEnabled()) return true;
+  try {
+    return window.localStorage.getItem(SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY) === '1';
   } catch {
     return false;
   }

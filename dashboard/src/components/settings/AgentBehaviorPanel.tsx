@@ -434,6 +434,7 @@ export function AgentBehaviorPanel({
             {agents.map((agent) => {
               const selected = agent.id === activeAgent.id;
               const isDirty = dirtySet.has(agent.id);
+              const linked = isUuid(agent.id);
               return (
                 <button
                   key={agent.id}
@@ -448,7 +449,14 @@ export function AgentBehaviorPanel({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-body font-semibold text-primary">{agent.name}</p>
-                    {agent.configStatus ? <HealthPill status={agent.configStatus} /> : null}
+                    <div className="flex items-center gap-1.5">
+                      {!linked ? (
+                        <span className="rounded-full border border-amber-300/25 bg-amber-400/[0.16] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-amber-100">
+                          Not linked
+                        </span>
+                      ) : null}
+                      {agent.configStatus ? <HealthPill status={agent.configStatus} /> : null}
+                    </div>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <p className="truncate text-caption text-secondary">
@@ -472,6 +480,11 @@ export function AgentBehaviorPanel({
               <div>
                 <p className="text-caption uppercase tracking-[0.08em] text-secondary">{domainLabel}</p>
                 <h4 className="mt-1 text-heading font-semibold text-white">{activeAgent.name}</h4>
+                {!isUuid(activeAgent.id) ? (
+                  <p className="mt-1 text-caption text-amber-100/85">
+                    This agent is not linked to a runtime UUID yet. Apply Agent Suite sync before saving.
+                  </p>
+                ) : null}
               </div>
               {!runtimeSettingsUnavailable && (
                 <div className="flex flex-wrap items-center gap-2">

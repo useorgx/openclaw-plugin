@@ -28,7 +28,11 @@ type RegisterMissionControlReadRoutesDeps<TRes> = {
   autoContinueTickMs: number;
   buildMissionControlGraph: (initiativeId: string) => Promise<unknown>;
   applyLocalInitiativeOverrideToGraph: (graph: unknown) => unknown;
-  buildNextUpQueue: (input: { initiativeId: string | null }) => Promise<NextUpQueue>;
+  listInitiativeIdsForProject: (input: { projectId: string }) => Promise<string[]>;
+  buildNextUpQueue: (input: {
+    initiativeId: string | null;
+    projectId?: string | null;
+  }) => Promise<NextUpQueue>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 };
@@ -54,6 +58,20 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
 
   const sendRouteException = (res: TRes, location: string, err: unknown) => {
     sendRouteError(res, 500, location, deps.safeErrorMessage(err));
+  };
+
+  const resolveWorkspaceScopeFromQuery = (query: URLSearchParams): string | null => {
+    const value =
+      query.get("project_id") ??
+      query.get("projectId") ??
+      query.get("workspace_id") ??
+      query.get("workspaceId") ??
+      query.get("command_center_id") ??
+      query.get("commandCenterId") ??
+      query.get("center");
+    if (!value) return null;
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
   };
 
   async function renderAutoContinueStatus(query: URLSearchParams, res: TRes): Promise<void> {
@@ -113,14 +131,19 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
   async function renderNextUpQueue(query: URLSearchParams, res: TRes): Promise<void> {
     const initiativeIdRaw = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
     const initiativeId = initiativeIdRaw.trim() || null;
+    const projectId = resolveWorkspaceScopeFromQuery(query);
 
     try {
-      const queue = await deps.buildNextUpQueue({ initiativeId });
+      const queue = await deps.buildNextUpQueue({
+        initiativeId,
+        projectId,
+      });
+      const items = Array.isArray(queue.items) ? queue.items : [];
       deps.sendJson(res, 200, {
         ok: true,
         generatedAt: new Date().toISOString(),
-        total: queue.items.length,
-        items: queue.items,
+        total: items.length,
+        items,
         degraded: queue.degraded,
       });
     } catch (err: unknown) {

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
@@ -27,6 +28,8 @@ import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext'
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 import { ActivityTimelineItem } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import 'react-datepicker/dist/react-datepicker.css';
 
 interface ActivityTimelineProps {
   activity: LiveActivityItem[];
@@ -41,6 +44,11 @@ interface ActivityTimelineProps {
   agentFilter?: string | null;
   timeFilterId?: ActivityTimeFilterId;
   onTimeFilterChange?: (next: ActivityTimeFilterId) => void;
+  customTimeRange?: {
+    startIso: string | null;
+    endIso: string | null;
+  };
+  onCustomTimeRangeChange?: (next: { startIso: string | null; endIso: string | null }) => void;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
@@ -123,6 +131,37 @@ function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseIsoDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed);
+}
+
+function formatRangeLabel(value: Date | null): string {
+  if (!value) return '—';
+  return value.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function toDateTimeLocalValue(value: Date | null): string {
+  if (!value) return '';
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function parseDateTimeLocalValue(value: string): Date | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed);
 }
 
 function asMetadataRecord(value: unknown): Record<string, unknown> | undefined {
@@ -2404,6 +2443,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   agentFilter = null,
   timeFilterId = 'live',
   onTimeFilterChange,
+  customTimeRange = { startIso: null, endIso: null },
+  onCustomTimeRangeChange,
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
@@ -2432,6 +2473,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [clusterVisibleCounts, setClusterVisibleCounts] = useState<Record<string, number>>({});
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [timeRangeMenuOpen, setTimeRangeMenuOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
@@ -2450,11 +2492,54 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [awayVisible, setAwayVisible] = useState(false);
   const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
+  const timeRangeMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const handledRequestedItemIdRef = useRef<string | null>(null);
+  const [customDraftStartAt, setCustomDraftStartAt] = useState<Date | null>(() =>
+    parseIsoDate(customTimeRange.startIso)
+  );
+  const [customDraftEndAt, setCustomDraftEndAt] = useState<Date | null>(() =>
+    parseIsoDate(customTimeRange.endIso)
+  );
+  const [isMobileDatePickerViewport, setIsMobileDatePickerViewport] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 640;
+  });
 
   const timeWindow = useMemo(() => resolveActivityTimeFilter(timeFilterId), [timeFilterId]);
+  const customAppliedStartAt = useMemo(
+    () => parseIsoDate(customTimeRange.startIso),
+    [customTimeRange.startIso]
+  );
+  const customAppliedEndAt = useMemo(
+    () => parseIsoDate(customTimeRange.endIso),
+    [customTimeRange.endIso]
+  );
+  const customRangeValid = useMemo(() => {
+    if (!customDraftStartAt || !customDraftEndAt) return false;
+    return customDraftEndAt.getTime() >= customDraftStartAt.getTime();
+  }, [customDraftEndAt, customDraftStartAt]);
+  const selectedTimeLabel = useMemo(() => {
+    if (timeFilterId !== 'custom') return timeWindow.label;
+    if (customAppliedStartAt && customAppliedEndAt) {
+      return `${formatRangeLabel(customAppliedStartAt)} - ${formatRangeLabel(customAppliedEndAt)}`;
+    }
+    return 'Custom range';
+  }, [customAppliedEndAt, customAppliedStartAt, timeFilterId, timeWindow.label]);
+
+  useEffect(() => {
+    setCustomDraftStartAt(customAppliedStartAt);
+    setCustomDraftEndAt(customAppliedEndAt);
+  }, [customAppliedEndAt, customAppliedStartAt]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const syncViewport = () => setIsMobileDatePickerViewport(window.innerWidth <= 640);
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
 
   // "While you were away" — track inactivity and show summary on return
   useEffect(() => {
@@ -2710,7 +2795,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const emptyTimeFilters = useMemo(
     () =>
       ACTIVITY_TIME_FILTERS.filter((option) =>
-        ['30m', 'live', '24h', '7d', 'all'].includes(option.id)
+        ['live', '24h', '7d', 'all'].includes(option.id)
       ),
     []
   );
@@ -2934,6 +3019,32 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
   }, []);
 
+  const applyCustomTimeRange = useCallback(() => {
+    if (!onCustomTimeRangeChange || !onTimeFilterChange) return;
+    if (!customDraftStartAt || !customDraftEndAt) return;
+    if (customDraftEndAt.getTime() < customDraftStartAt.getTime()) return;
+    onCustomTimeRangeChange({
+      startIso: customDraftStartAt.toISOString(),
+      endIso: customDraftEndAt.toISOString(),
+    });
+    onTimeFilterChange('custom');
+    setTimeRangeMenuOpen(false);
+  }, [
+    customDraftEndAt,
+    customDraftStartAt,
+    onCustomTimeRangeChange,
+    onTimeFilterChange,
+  ]);
+
+  const clearCustomTimeRange = useCallback(() => {
+    setCustomDraftStartAt(null);
+    setCustomDraftEndAt(null);
+    onCustomTimeRangeChange?.({ startIso: null, endIso: null });
+    if (timeFilterId === 'custom') {
+      onTimeFilterChange?.('live');
+    }
+  }, [onCustomTimeRangeChange, onTimeFilterChange, timeFilterId]);
+
   const renderableTotal = useMemo(
     () => Math.min(MAX_RENDER_COUNT, Math.min(MAX_FILTER_POOL, filteredTotal)),
     [filteredTotal]
@@ -2977,6 +3088,30 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [viewMenuOpen]);
+
+  useEffect(() => {
+    if (!timeRangeMenuOpen) return undefined;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (timeRangeMenuRef.current?.contains(target)) return;
+      setTimeRangeMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setTimeRangeMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [timeRangeMenuOpen]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -3483,6 +3618,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
     const reference = getLocalTurnReference(activeDecorated?.item ?? null);
     if (!reference) return;
+    if (isDemoModeEnabled()) return;
 
     const query = new URLSearchParams({ turnId: reference.turnId });
     if (reference.sessionKey) query.set('sessionKey', reference.sessionKey);
@@ -3537,6 +3673,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ''
     ).trim();
     if (!headlineInputText) return;
+    if (isDemoModeEnabled()) return;
 
     const controller = new AbortController();
 
@@ -3683,6 +3820,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
     return (
       <ActivityTimelineItem
+        key={renderKey}
         renderKey={renderKey}
         displayTitle={displayTitle}
         headline={headline}
@@ -3754,11 +3892,182 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       Sync visible
                     </button>
                   )}
-                  {timeWindow.id !== 'all' && (
-                    <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-micro text-secondary">
-                      {timeWindow.label}
-                    </span>
-                  )}
+                  <div className="relative" ref={timeRangeMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTimeRangeMenuOpen((previous) => !previous);
+                        setViewMenuOpen(false);
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={timeRangeMenuOpen}
+                      className={cn(
+                        'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors',
+                        timeRangeMenuOpen
+                          ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
+                          : 'border-white/[0.14] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                      )}
+                    >
+                      <span className="max-w-[240px] truncate">{selectedTimeLabel}</span>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className={cn('transition-transform duration-200', timeRangeMenuOpen && 'rotate-180')}
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </button>
+
+                    <AnimatePresence>
+                      {timeRangeMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          className="absolute left-0 z-30 mt-2 w-[min(92vw,380px)] rounded-xl border border-white/[0.12] bg-[#0A0D14]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+                          role="menu"
+                          aria-label="Activity time range"
+                        >
+                          <div className="space-y-3">
+                            <div>
+                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Presets
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {ACTIVITY_TIME_FILTERS.filter((option) => option.id !== 'custom').map((option) => {
+                                  const active = timeFilterId === option.id;
+                                  return (
+                                    <button
+                                      key={option.id}
+                                      type="button"
+                                      onClick={() => {
+                                        onTimeFilterChange?.(option.id);
+                                        setTimeRangeMenuOpen(false);
+                                      }}
+                                      className={cn(
+                                        'rounded-full border px-2.5 py-1 text-micro font-semibold transition-colors',
+                                        active
+                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                          : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
+                                      )}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-2.5">
+                              <p className="mb-2 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Custom range
+                              </p>
+                              <div className="space-y-2">
+                                <label className="block text-micro uppercase tracking-[0.06em] text-secondary">
+                                  Start
+                                </label>
+                                {isMobileDatePickerViewport ? (
+                                  <input
+                                    type="datetime-local"
+                                    step={300}
+                                    value={toDateTimeLocalValue(customDraftStartAt)}
+                                    onChange={(event) =>
+                                      setCustomDraftStartAt(
+                                        parseDateTimeLocalValue(event.target.value)
+                                      )
+                                    }
+                                    className="orgx-datepicker-input w-full rounded-lg border border-white/[0.12] bg-black/30 px-2.5 py-1.5 text-caption text-primary outline-none transition-colors focus:border-lime/35"
+                                  />
+                                ) : (
+                                  <DatePicker
+                                    selected={customDraftStartAt}
+                                    onChange={(date) =>
+                                      setCustomDraftStartAt(date instanceof Date ? date : null)
+                                    }
+                                    selectsStart
+                                    startDate={customDraftStartAt}
+                                    endDate={customDraftEndAt}
+                                    showTimeSelect
+                                    timeIntervals={5}
+                                    dateFormat="MMM d, yyyy h:mm aa"
+                                    className="orgx-datepicker-input w-full rounded-lg border border-white/[0.12] bg-black/30 px-2.5 py-1.5 text-caption text-primary outline-none transition-colors focus:border-lime/35"
+                                    calendarClassName="orgx-datepicker"
+                                    popperClassName="orgx-datepicker-popper"
+                                    popperPlacement="bottom-start"
+                                    showPopperArrow={false}
+                                  />
+                                )}
+
+                                <label className="block text-micro uppercase tracking-[0.06em] text-secondary">
+                                  End
+                                </label>
+                                {isMobileDatePickerViewport ? (
+                                  <input
+                                    type="datetime-local"
+                                    step={300}
+                                    min={toDateTimeLocalValue(customDraftStartAt)}
+                                    value={toDateTimeLocalValue(customDraftEndAt)}
+                                    onChange={(event) =>
+                                      setCustomDraftEndAt(parseDateTimeLocalValue(event.target.value))
+                                    }
+                                    className="orgx-datepicker-input w-full rounded-lg border border-white/[0.12] bg-black/30 px-2.5 py-1.5 text-caption text-primary outline-none transition-colors focus:border-lime/35"
+                                  />
+                                ) : (
+                                  <DatePicker
+                                    selected={customDraftEndAt}
+                                    onChange={(date) =>
+                                      setCustomDraftEndAt(date instanceof Date ? date : null)
+                                    }
+                                    selectsEnd
+                                    minDate={customDraftStartAt ?? undefined}
+                                    startDate={customDraftStartAt}
+                                    endDate={customDraftEndAt}
+                                    showTimeSelect
+                                    timeIntervals={5}
+                                    dateFormat="MMM d, yyyy h:mm aa"
+                                    className="orgx-datepicker-input w-full rounded-lg border border-white/[0.12] bg-black/30 px-2.5 py-1.5 text-caption text-primary outline-none transition-colors focus:border-lime/35"
+                                    calendarClassName="orgx-datepicker"
+                                    popperClassName="orgx-datepicker-popper"
+                                    popperPlacement="bottom-start"
+                                    showPopperArrow={false}
+                                  />
+                                )}
+                              </div>
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <p className="text-micro text-secondary">
+                                  {customRangeValid
+                                    ? `${formatRangeLabel(customDraftStartAt)} - ${formatRangeLabel(customDraftEndAt)}`
+                                    : 'Pick start and end to apply'}
+                                </p>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={clearCustomTimeRange}
+                                    className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
+                                  >
+                                    Clear
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={applyCustomTimeRange}
+                                    disabled={!customRangeValid}
+                                    className="rounded-full border border-lime/30 bg-lime/[0.14] px-2.5 py-1 text-micro font-semibold text-[#E1FFB2] transition-colors hover:bg-lime/[0.2] disabled:opacity-45"
+                                  >
+                                    Apply
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                   <span
                     className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
                     style={{ backgroundColor: colors.lime }}
@@ -3767,9 +4076,78 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   />
                 </div>
 
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+              </div>
+
+              {/* Now Working card removed — status is in the top header */}
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+                    <>
+                      {hasSessionFilter && (
+                        <button
+                          onClick={onClearSelection}
+                          className="chip chip-avatar inline-flex min-w-0 items-center"
+                          aria-label="Clear session filter"
+                        >
+                          {shouldUseProviderLogo(filteredSessionProvider.id) ? (
+                            <ProviderLogo provider={filteredSessionProvider.id} size="xs" />
+                          ) : (
+                            <AgentAvatar
+                              name={filteredSession?.agentName ?? 'OrgX'}
+                              hint={selectedSessionLabel ?? null}
+                              size="xs"
+                            />
+                          )}
+                          <span className="min-w-0 truncate">
+                            Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
+                          </span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                      {selectedWorkstreamId && (
+                        <button
+                          onClick={onClearWorkstreamFilter}
+                          className="chip inline-flex min-w-0 items-center gap-2"
+                          style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
+                          aria-label="Clear workstream filter"
+                        >
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro">
+                            ↳
+                          </span>
+                          <span className="min-w-0 truncate">
+                            Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
+                          </span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                      {agentFilter && (
+                        <button
+                          onClick={onClearAgentFilter}
+                          className="chip chip-avatar inline-flex min-w-0 items-center"
+                          style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
+                          aria-label="Clear agent filter"
+                        >
+                          {shouldUseProviderLogo(agentFilterProvider.id) ? (
+                            <ProviderLogo provider={agentFilterProvider.id} size="xs" />
+                          ) : (
+                            <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
+                          )}
+                          <span className="min-w-0 truncate">Agent: {agentFilter}</span>
+                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
+                            ×
+                          </span>
+                        </button>
+                      )}
+                    </>
+                  )}
+
                   <div
-                    className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
+                    className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.02] p-0.5"
                     role="group"
                     aria-label="Activity status filters"
                   >
@@ -3798,7 +4176,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     type="button"
                     onClick={() => setCollapsed((prev) => !prev)}
                     className={cn(
-                      'inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white/[0.03] text-muted transition-colors hover:bg-white/[0.08] hover:text-primary',
+                      'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border bg-white/[0.03] text-muted transition-colors hover:bg-white/[0.08] hover:text-primary',
                       collapsed ? 'border-lime/30 text-lime' : 'border-white/[0.1]'
                     )}
                     aria-pressed={collapsed}
@@ -3812,10 +4190,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </svg>
                   </button>
 
-                  <div className="relative" ref={controlsMenuRef}>
+                  <div className="relative flex-shrink-0" ref={controlsMenuRef}>
                     <button
                       type="button"
-                      onClick={() => setViewMenuOpen((prev) => !prev)}
+                      onClick={() => {
+                        setViewMenuOpen((prev) => !prev);
+                        setTimeRangeMenuOpen(false);
+                      }}
                       aria-haspopup="menu"
                       aria-expanded={viewMenuOpen}
                       className={cn(
@@ -3885,33 +4266,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               </div>
                             </div>
 
-                            <div>
-                              <p className="mb-1 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
-                                Date range
+                            <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-2.5 py-2">
+                              <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                Time window
                               </p>
-                              <div className="flex flex-wrap gap-1">
-                                {ACTIVITY_TIME_FILTERS.map((option) => {
-                                  const active = timeFilterId === option.id;
-                                  return (
-                                    <button
-                                      key={option.id}
-                                      type="button"
-                                      onClick={() => {
-                                        onTimeFilterChange?.(option.id);
-                                        setViewMenuOpen(false);
-                                      }}
-                                      className={cn(
-                                        'rounded-full border px-2.5 py-1 text-micro font-semibold transition-colors',
-                                        active
-                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
-                                          : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
-                                      )}
-                                    >
-                                      {option.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                              <p className="mt-1 text-caption text-secondary">
+                                Use the time dropdown beside Activity count for presets and custom date/time ranges.
+                              </p>
                             </div>
 
                             <div>
@@ -3971,79 +4332,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </AnimatePresence>
                   </div>
                 </div>
-              </div>
 
-              {/* Now Working card removed — status is in the top header */}
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2.5">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
-                    <>
-                      {hasSessionFilter && (
-                        <button
-                          onClick={onClearSelection}
-                          className="chip chip-avatar inline-flex min-w-0 items-center"
-                          aria-label="Clear session filter"
-                        >
-                          {shouldUseProviderLogo(filteredSessionProvider.id) ? (
-                            <ProviderLogo provider={filteredSessionProvider.id} size="xs" />
-                          ) : (
-                            <AgentAvatar
-                              name={filteredSession?.agentName ?? 'OrgX'}
-                              hint={selectedSessionLabel ?? null}
-                              size="xs"
-                            />
-                          )}
-                          <span className="min-w-0 truncate">
-                            Session{selectedSessionLabel ? `: ${selectedSessionLabel}` : ''}
-                          </span>
-                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                            ×
-                          </span>
-                        </button>
-                      )}
-                      {selectedWorkstreamId && (
-                        <button
-                          onClick={onClearWorkstreamFilter}
-                          className="chip inline-flex min-w-0 items-center gap-2"
-                          style={{ borderColor: 'rgba(191,255,0,0.28)', color: '#D8FFA1' }}
-                          aria-label="Clear workstream filter"
-                        >
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro">
-                            ↳
-                          </span>
-                          <span className="min-w-0 truncate">
-                            Workstream{selectedWorkstreamLabel ? `: ${selectedWorkstreamLabel}` : ''}
-                          </span>
-                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                            ×
-                          </span>
-                        </button>
-                      )}
-                      {agentFilter && (
-                        <button
-                          onClick={onClearAgentFilter}
-                          className="chip chip-avatar inline-flex min-w-0 items-center"
-                          style={{ borderColor: 'rgba(10,212,196,0.3)', color: '#0AD4C4' }}
-                          aria-label="Clear agent filter"
-                        >
-                          {shouldUseProviderLogo(agentFilterProvider.id) ? (
-                            <ProviderLogo provider={agentFilterProvider.id} size="xs" />
-                          ) : (
-                            <AgentAvatar name={agentFilter} hint={agentFilter} size="xs" />
-                          )}
-                          <span className="min-w-0 truncate">Agent: {agentFilter}</span>
-                          <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-strong bg-white/[0.04] text-micro text-secondary">
-                            ×
-                          </span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className="flex min-w-0 flex-1 items-center gap-2 sm:justify-end">
-                  <div className="relative min-w-0 flex-1 sm:max-w-[360px]">
+                <div className="flex w-[260px] flex-shrink-0 items-center gap-2 sm:w-[320px]">
+                  <div className="relative min-w-0 flex-1">
                     <svg
                       width="14"
                       height="14"
@@ -4101,7 +4392,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   <p className="mt-1 text-caption leading-relaxed text-secondary">
                     {isLoading
                       ? 'Live updates usually appear within a few seconds after dispatch.'
-                      : `Try widening the time window (${timeWindow.label}), changing filters, or launch the next workstream.`}
+                      : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`}
                   </p>
                 </div>
               </div>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { InitiativeDetails, InitiativeTask, InitiativeWorkstream } from '@/types';
 import { Modal } from '@/components/shared/Modal';
@@ -7,51 +6,8 @@ import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { useEntityInitiatives } from '@/hooks/useEntityInitiatives';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
-
-type AgentContext = {
-  agentId: string;
-  initiativeId: string | null;
-  initiativeTitle: string | null;
-  workstreamId: string | null;
-  taskId: string | null;
-  updatedAt: string;
-};
-
-type AgentRunRecord = {
-  runId: string;
-  agentId: string;
-  pid: number | null;
-  message: string | null;
-  provider: string | null;
-  model: string | null;
-  initiativeId: string | null;
-  initiativeTitle: string | null;
-  workstreamId: string | null;
-  taskId: string | null;
-  startedAt: string;
-  stoppedAt: string | null;
-  status: 'running' | 'stopped';
-};
-
-type OpenClawCatalogAgent = {
-  id: string;
-  name: string;
-  workspace: string | null;
-  model: string | null;
-  isDefault: boolean;
-  status: string | null;
-  currentTask: string | null;
-  runId: string | null;
-  startedAt: string | null;
-  blockers: string[];
-  context: AgentContext | null;
-  run?: AgentRunRecord | null;
-};
-
-type AgentCatalogResponse = {
-  generatedAt: string;
-  agents: OpenClawCatalogAgent[];
-};
+import { useAgentCatalog } from '@/hooks/useAgentCatalog';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 type UpgradeActions = {
   checkout?: string;
@@ -96,16 +52,7 @@ export function AgentLaunchModal({
   onClose: () => void;
   onLaunched?: () => void;
 }) {
-  const catalogQuery = useQuery<AgentCatalogResponse>({
-    queryKey: ['openclaw-agent-catalog'],
-    queryFn: async () => {
-      const res = await fetch('/orgx/api/agents/catalog');
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(text || `Agent catalog failed (${res.status})`);
-      }
-      return (await res.json()) as AgentCatalogResponse;
-    },
+  const catalogQuery = useAgentCatalog({
     enabled: open,
     staleTime: 2_000,
     refetchInterval: open ? 3_000 : false,
@@ -124,6 +71,7 @@ export function AgentLaunchModal({
   const [requiredPlan, setRequiredPlan] = useState<string>('starter');
   const [isLaunching, setIsLaunching] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const demoMode = isDemoModeEnabled();
 
   const selectedInitiative = useMemo(() => {
     const id = selectedInitiativeId.trim();
@@ -248,6 +196,11 @@ export function AgentLaunchModal({
 
   const launch = async () => {
     if (!canLaunch || isLaunching) return;
+    if (demoMode) {
+      onClose();
+      onLaunched?.();
+      return;
+    }
     setLaunchError(null);
     setUpgradeActions(null);
     setIsLaunching(true);
@@ -296,6 +249,9 @@ export function AgentLaunchModal({
 
   const stopRun = async () => {
     if (!selectedAgent?.run?.runId || !canControlRun || isLaunching) return;
+    if (demoMode) {
+      return;
+    }
     setLaunchError(null);
     setIsLaunching(true);
     try {
@@ -316,6 +272,11 @@ export function AgentLaunchModal({
 
   const restartRun = async () => {
     if (!selectedAgent?.run?.runId || isLaunching) return;
+    if (demoMode) {
+      onClose();
+      onLaunched?.();
+      return;
+    }
     setLaunchError(null);
     setIsLaunching(true);
     try {

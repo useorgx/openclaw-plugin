@@ -32,6 +32,7 @@ interface AgentsChatsPanelProps {
   onAgentFilter?: (agentName: string | null) => void;
   agentFilter?: string | null;
   onReconnect?: () => void;
+  onLaunched?: () => void | Promise<void>;
   connectionStatus?: ConnectionStatus;
   runtimeInstances?: RuntimeInstance[];
   showSyntheticEntities?: boolean;
@@ -470,6 +471,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   onAgentFilter,
   agentFilter,
   onReconnect,
+  onLaunched,
   connectionStatus,
   runtimeInstances = [],
   showSyntheticEntities = false,
@@ -1123,7 +1125,10 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       <AgentLaunchModal
         open={launchModalOpen}
         onClose={() => setLaunchModalOpen(false)}
-        onLaunched={() => onReconnect?.()}
+        onLaunched={() => {
+          void catalogQuery.refetch();
+          void onLaunched?.();
+        }}
       />
       <AgentDetailModal
         open={detailAgentKey !== null}

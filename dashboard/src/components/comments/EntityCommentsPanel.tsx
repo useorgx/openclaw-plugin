@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildOrgxHeaders } from '@/lib/http';
 import { formatAbsoluteTime } from '@/lib/time';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision';
 
@@ -74,6 +75,7 @@ export function EntityCommentsPanel(props: {
   const [error, setError] = useState<string | null>(null);
   const [comments, setComments] = useState<EntityComment[]>([]);
   const [body, setBody] = useState('');
+  const demoMode = isDemoModeEnabled();
 
   const endpoint = useMemo(() => {
     const type = encodeURIComponent(entityType);
@@ -82,6 +84,12 @@ export function EntityCommentsPanel(props: {
   }, [entityType, entityId]);
 
   const load = useCallback(async () => {
+    if (demoMode) {
+      setComments([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -95,13 +103,17 @@ export function EntityCommentsPanel(props: {
     } finally {
       setLoading(false);
     }
-  }, [authToken, embedMode, endpoint]);
+  }, [authToken, demoMode, embedMode, endpoint]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const onSubmit = useCallback(async () => {
+    if (demoMode) {
+      setBody('');
+      return;
+    }
     const trimmed = body.trim();
     if (!trimmed) return;
     setSaving(true);
@@ -128,7 +140,7 @@ export function EntityCommentsPanel(props: {
     } finally {
       setSaving(false);
     }
-  }, [authToken, body, embedMode, endpoint, load]);
+  }, [authToken, body, demoMode, embedMode, endpoint, load]);
 
   const onTextareaKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -174,7 +186,9 @@ export function EntityCommentsPanel(props: {
       {loading ? (
         <div className="mt-3 text-body text-muted">Loading notes…</div>
       ) : comments.length === 0 ? (
-        <div className="mt-3 text-body text-muted">No notes yet.</div>
+        <div className="mt-3 text-body text-muted">
+          {demoMode ? 'Notes are unavailable in demo mode.' : 'No notes yet.'}
+        </div>
       ) : (
         <div className="mt-3 space-y-3">
           {comments.map((comment) => {

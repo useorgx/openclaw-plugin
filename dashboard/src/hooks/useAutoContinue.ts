@@ -4,6 +4,7 @@ import type { AutoContinueStatusResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
+import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
 interface UseAutoContinueOptions {
   initiativeId?: string | null;
@@ -26,6 +27,7 @@ export function useAutoContinue({
   enabled = true,
 }: UseAutoContinueOptions) {
   const queryClient = useQueryClient();
+  const demoMode = isDemoModeEnabled();
 
   const statusQueryKey = useMemo(
     () => queryKeys.autoContinueStatus({ initiativeId: initiativeId ?? '__global__', authToken, embedMode }),
@@ -36,6 +38,15 @@ export function useAutoContinue({
     queryKey: statusQueryKey,
     enabled: enabled && (Boolean(initiativeId) || initiativeId === null),
     queryFn: async () => {
+      if (demoMode) {
+        return {
+          ok: true,
+          initiativeId,
+          run: null,
+          defaults: { tokenBudget: null, tickMs: 0 },
+        } satisfies AutoContinueStatusResponse;
+      }
+
       const params = new URLSearchParams();
       if (initiativeId) {
         params.set('initiative_id', initiativeId);
@@ -95,6 +106,16 @@ export function useAutoContinue({
 
   const startMutation = useMutation<AutoContinueStatusResponse, Error, AutoContinueStartInput | void>({
     mutationFn: async (input) => {
+      if (demoMode) {
+        const status = statusQuery.data ?? null;
+        return {
+          ok: true,
+          initiativeId,
+          run: status?.run ?? null,
+          defaults: status?.defaults ?? { tokenBudget: null, tickMs: 0 },
+        };
+      }
+
       const payload: Record<string, unknown> = {};
       if (initiativeId) {
         payload.initiativeId = initiativeId;
@@ -157,6 +178,16 @@ export function useAutoContinue({
 
   const stopMutation = useMutation<AutoContinueStatusResponse, Error, void>({
     mutationFn: async () => {
+      if (demoMode) {
+        const status = statusQuery.data ?? null;
+        return {
+          ok: true,
+          initiativeId,
+          run: null,
+          defaults: status?.defaults ?? { tokenBudget: null, tickMs: 0 },
+        };
+      }
+
       const payload: Record<string, unknown> = {};
       if (initiativeId) {
         payload.initiativeId = initiativeId;
