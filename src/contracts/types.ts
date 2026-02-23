@@ -533,6 +533,10 @@ export interface EntityUpdatePayload {
 export interface EntityListFilters {
   status?: string;
   limit?: number;
+  offset?: number;
+  search?: string;
+  id?: string;
+  ids?: string[] | string;
   initiative_id?: string;
   project_id?: string;
   command_center_id?: string;

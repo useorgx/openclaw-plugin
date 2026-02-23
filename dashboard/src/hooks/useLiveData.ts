@@ -1359,6 +1359,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const inFlightSnapshotRef = useRef<Promise<void> | null>(null);
+  const inFlightScopeKeyRef = useRef<string | null>(null);
   const [pollingEnabled, setPollingEnabled] = useState(false);
   const lastSuccessAtRef = useRef<number>(0);
   const authBlockedRef = useRef<boolean>(false);
@@ -1372,6 +1373,25 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     if (scopeKeyRef.current === scopeKey) return;
     scopeKeyRef.current = scopeKey;
     resetScopeOnNextSnapshotRef.current = true;
+    setData((prev) => ({
+      ...prev,
+      sessions: { nodes: [], edges: [], groups: [] },
+      activity: [],
+      handoffs: [],
+      decisions: [],
+      sliceRuns: [],
+      runtimeInstances: [],
+      workSliceProjections: [],
+      timelineNarrative: [],
+      nextUpByInitiative: [],
+      runningWorkSlices: 0,
+      needsInputTotal: 0,
+      failedActionableTotal: 0,
+      completedTodayTotal: 0,
+      consistencyFlags: [],
+      lastActivity: null,
+      lastSnapshotAt: null,
+    }));
     setIsLoading(true);
     setError(null);
   }, [normalizedInitiativeId, normalizedProjectId]);
@@ -1544,7 +1564,11 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       return;
     }
 
-    if (inFlightSnapshotRef.current) {
+    const requestScopeKey = `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`;
+    if (
+      inFlightSnapshotRef.current &&
+      inFlightScopeKeyRef.current === requestScopeKey
+    ) {
       return inFlightSnapshotRef.current;
     }
 
@@ -1598,6 +1622,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             throw authErr;
           }
           throw new Error(errors.length > 0 ? errors.join(' | ') : 'Snapshot endpoint unavailable');
+        }
+        if (scopeKeyRef.current !== requestScopeKey) {
+          return;
         }
         const activity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
         const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
@@ -1676,6 +1703,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           );
         }
       } catch (err) {
+        if (scopeKeyRef.current !== requestScopeKey) {
+          return;
+        }
         const message = err instanceof Error ? err.message : 'Unknown error';
         const isAuthBlocked =
           Boolean(err && typeof err === 'object' && 'code' in err && (err as any).code === 'ORGX_AUTH');
@@ -1702,11 +1732,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         }
         setIsLoading(false);
       } finally {
-        inFlightSnapshotRef.current = null;
+        if (inFlightScopeKeyRef.current === requestScopeKey) {
+          inFlightSnapshotRef.current = null;
+          inFlightScopeKeyRef.current = null;
+        }
       }
     })();
 
     inFlightSnapshotRef.current = request;
+    inFlightScopeKeyRef.current = requestScopeKey;
     return request;
   }, [
     applySnapshot,
@@ -1943,6 +1977,14 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     }
 
     fetchSnapshot();
+
+    // Workspace-scoped dashboards prioritize strict scope correctness over upstream SSE speed.
+    // Upstream live stream payloads are not guaranteed to be workspace-filtered, so we force
+    // snapshot polling for scoped views to prevent cross-workspace leakage.
+    if (normalizedProjectId) {
+      setPollingEnabled(true);
+      return undefined;
+    }
 
     const streamQuery = new URLSearchParams();
     if (normalizedProjectId) {
@@ -2288,14 +2330,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     if (!enabled) return undefined;
     if (useMock) return undefined;
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (!pollingEnabled) return undefined;
+    const forcePollingForScopedWorkspace = Boolean(normalizedProjectId);
+    if (!pollingEnabled && !forcePollingForScopedWorkspace) return undefined;
 
     intervalRef.current = setInterval(fetchSnapshot, pollInterval);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [enabled, fetchSnapshot, pollInterval, pollingEnabled, useMock]);
+  }, [enabled, fetchSnapshot, normalizedProjectId, pollInterval, pollingEnabled, useMock]);
 
   return {
     data,

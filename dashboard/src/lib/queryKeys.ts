@@ -106,6 +106,14 @@ export const queryKeys = {
         projectId: params?.projectId ?? null,
       },
     ] as const,
+  initiativeSearch: (params: { query: string; projectId?: string | null }) =>
+    [
+      'initiative-search',
+      {
+        query: params.query.trim().toLowerCase(),
+        projectId: params.projectId ?? null,
+      },
+    ] as const,
   artifactsByEntity: (params: {
     entityType: string;
     entityId: string;

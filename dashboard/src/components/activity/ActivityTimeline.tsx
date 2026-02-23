@@ -4076,6 +4076,30 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   />
                 </div>
 
+                <div className="flex w-full items-center gap-2 md:w-[320px]">
+                  <div className="relative min-w-0 flex-1">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.5-3.5" />
+                    </svg>
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search activity..."
+                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
+                      aria-label="Search activity"
+                    />
+                  </div>
+                </div>
+
               </div>
 
               {/* Now Working card removed — status is in the top header */}
@@ -4335,29 +4359,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   </div>
                 </div>
 
-                <div className="flex w-[260px] flex-shrink-0 items-center gap-2 sm:w-[320px]">
-                  <div className="relative min-w-0 flex-1">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m20 20-3.5-3.5" />
-                    </svg>
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search activity..."
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
-                      aria-label="Search activity"
-                    />
-                  </div>
-                </div>
               </div>
             </div>
           </div>
