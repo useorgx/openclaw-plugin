@@ -6,6 +6,7 @@ interface InitiativeOrbitProps {
   initiatives: Initiative[];
   selectedInitiativeIds?: Set<string>;
   onToggleInitiativeSelection?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
+  isSquished?: boolean;
   runtimeActivityByInitiativeId?: ReadonlyMap<
     string,
     { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
@@ -34,6 +35,7 @@ export function InitiativeOrbit({
   initiatives,
   selectedInitiativeIds,
   onToggleInitiativeSelection,
+  isSquished = false,
   runtimeActivityByInitiativeId,
 }: InitiativeOrbitProps) {
   return (
@@ -54,6 +56,7 @@ export function InitiativeOrbit({
             initiative={initiative}
             selected={selectedInitiativeIds?.has(initiative.id) ?? false}
             onSelectionChange={onToggleInitiativeSelection}
+            isSquished={isSquished}
             runtimeActivity={runtimeActivityByInitiativeId?.get(initiative.id) ?? null}
           />
         </motion.div>

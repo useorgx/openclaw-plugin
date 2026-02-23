@@ -27,6 +27,7 @@ type EntityClientLike = {
       status?: string;
       initiative_id?: string;
       project_id?: string;
+      workspace_id?: string;
       command_center_id?: string;
       limit?: number;
       offset?: number;
@@ -116,6 +117,40 @@ function toObjectArray(input: unknown): Array<Record<string, unknown>> {
   return input.filter(
     (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object"
   );
+}
+
+function normalizeScopeId(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveWorkspaceScopeFromQuery(
+  query: URLSearchParams
+): { workspaceId: string | null; error?: string } {
+  const workspaceId = normalizeScopeId(
+    query.get("workspace_id") ?? query.get("workspaceId")
+  );
+  const commandCenterId = normalizeScopeId(
+    query.get("command_center_id") ??
+      query.get("commandCenterId") ??
+      query.get("center")
+  );
+  const projectScope = normalizeScopeId(
+    query.get("project_id") ?? query.get("projectId")
+  );
+
+  if (workspaceId && commandCenterId && workspaceId !== commandCenterId) {
+    return {
+      workspaceId: null,
+      error:
+        "workspace_id and command_center_id must match when both are provided",
+    };
+  }
+
+  return {
+    workspaceId: workspaceId ?? commandCenterId ?? projectScope ?? null,
+  };
 }
 
 export function registerEntitiesRoutes<TReq, TRes>(
@@ -353,6 +388,12 @@ export function registerEntitiesRoutes<TReq, TRes>(
       return;
     }
 
+    const workspaceScope = resolveWorkspaceScopeFromQuery(query);
+    if (workspaceScope.error) {
+      deps.sendJson(res, 400, { error: workspaceScope.error });
+      return;
+    }
+
     const status = query.get("status") ?? undefined;
     const id = query.get("id") ?? undefined;
     const ids = query
@@ -363,7 +404,7 @@ export function registerEntitiesRoutes<TReq, TRes>(
     const search = query.get("search")?.trim() || undefined;
     const initiativeId = query.get("initiative_id") ?? undefined;
     const projectId = query.get("project_id") ?? undefined;
-    const commandCenterId = query.get("command_center_id") ?? undefined;
+    const workspaceId = workspaceScope.workspaceId ?? undefined;
     const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
     const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
 
@@ -375,7 +416,8 @@ export function registerEntitiesRoutes<TReq, TRes>(
         status,
         initiative_id: initiativeId,
         project_id: projectId,
-        command_center_id: commandCenterId,
+        workspace_id: workspaceId,
+        command_center_id: workspaceId,
         limit: Number.isFinite(limit) ? limit : undefined,
         offset: Number.isFinite(offset) ? offset : undefined,
       });
@@ -419,13 +461,18 @@ export function registerEntitiesRoutes<TReq, TRes>(
                 return searchTokens.every((token) => haystack.includes(token));
               })
             : filteredById;
-        const workspaceScope = (commandCenterId ?? "").trim();
+        const workspaceScopeId = (workspaceId ?? "").trim();
         const rows =
-          workspaceScope.length > 0
+          workspaceScopeId.length > 0
             ? searchedRows.filter((row) => {
                 const rowScope =
-                  deps.pickString(row, ["command_center_id", "commandCenterId"]) ?? "";
-                return rowScope.trim() === workspaceScope;
+                  deps.pickString(row, [
+                    "workspace_id",
+                    "workspaceId",
+                    "command_center_id",
+                    "commandCenterId",
+                  ]) ?? "";
+                return rowScope.trim() === workspaceScopeId;
               })
             : searchedRows;
         deps.sendJson(res, 200, {

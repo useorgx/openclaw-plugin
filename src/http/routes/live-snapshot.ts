@@ -1,6 +1,7 @@
 import type { HandoffSummary, LiveActivityItem, SessionTreeResponse } from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { OutboxSummary } from "../../outbox.js";
+import type { ChatThreadSummary } from "../../chat-store.js";
 import { normalizeReportingBlockedSessions } from "../helpers/session-classification.js";
 import { buildSliceRunProjections } from "../helpers/slice-run-projections.js";
 import {
@@ -163,8 +164,24 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
     action: "pause" | "resume" | "cancel" | "rollback",
     input?: { checkpointId?: string; reason?: string }
   ) => Promise<unknown>;
+  listChatThreads?: (input: {
+    commandCenterId?: string | null;
+    initiativeId?: string | null;
+    limit?: number;
+    offset?: number;
+  }) => {
+    threads: ChatThreadSummary[];
+    total: number;
+    updatedAt: string;
+  };
 
   sendJson: (res: TRes, status: number, payload: unknown) => void;
+};
+
+type ChatSnapshotPayload = {
+  threads: ChatThreadSummary[];
+  total: number;
+  updatedAt: string;
 };
 
 type LegacySnapshotPayload = {
@@ -176,6 +193,7 @@ type LegacySnapshotPayload = {
   agents: Array<Record<string, unknown>>;
   runtimeInstances: RuntimeInstanceRecord[];
   outbox: Record<string, unknown>;
+  chat?: ChatSnapshotPayload;
   generatedAt: string;
   projectId?: string | null;
   degraded?: string[];
@@ -437,7 +455,14 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       120
     );
     const initiative = query.get("initiative");
-    const projectId = query.get("project_id") ?? query.get("projectId");
+    const projectId =
+      query.get("project_id") ??
+      query.get("projectId") ??
+      query.get("workspace_id") ??
+      query.get("workspaceId") ??
+      query.get("command_center_id") ??
+      query.get("commandCenterId") ??
+      query.get("center");
     const run = query.get("run");
     const since = query.get("since");
     const decisionStatus = query.get("status") ?? "pending";
@@ -764,6 +789,24 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       degraded: degraded.length > 0 ? degraded : undefined,
     } as LegacySnapshotPayload;
 
+    if (typeof deps.listChatThreads === "function") {
+      try {
+        const listed = deps.listChatThreads({
+          commandCenterId: projectId,
+          initiativeId: initiative,
+          limit: 120,
+          offset: 0,
+        });
+        payload.chat = {
+          threads: listed.threads,
+          total: listed.total,
+          updatedAt: listed.updatedAt,
+        };
+      } catch (err: unknown) {
+        degraded.push(`chat unavailable (${deps.safeErrorMessage(err)})`);
+      }
+    }
+
     let nextUpItems: Array<Record<string, unknown>> = [];
     if (typeof deps.buildNextUpQueue === "function") {
       try {
@@ -830,6 +873,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       agents: bundle.payload.agents,
       runtimeInstances: bundle.payload.runtimeInstances,
       outbox: bundle.payload.outbox,
+      chat: bundle.payload.chat,
       degraded: bundle.payload.degraded,
     } as Record<string, unknown>;
     deps.writeSnapshotResponseCache(snapshotCacheKey, payload);

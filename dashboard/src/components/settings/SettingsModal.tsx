@@ -5,6 +5,7 @@ import { OrgxConnectionPanel } from '@/components/settings/OrgxConnectionPanel';
 import { AgentSuitePanel } from '@/components/settings/AgentSuitePanel';
 import { ByokSettingsPanel } from '@/components/settings/ByokSettingsPanel';
 import { AgentBehaviorPanel } from '@/components/settings/AgentBehaviorPanel';
+import { UsageControlPlanePanel } from '@/components/settings/UsageControlPlanePanel';
 import { LegalLinks } from '@/components/shared/LegalLinks';
 import type { AgentSuiteDomain } from '@/types';
 
@@ -214,6 +215,11 @@ export function SettingsModal({
                 embedMode={embedMode}
                 enabled={open && !demoMode}
                 devMode={devMode}
+              />
+              <UsageControlPlanePanel
+                authToken={authToken}
+                embedMode={embedMode}
+                enabled={open && !demoMode}
               />
             </div>
           ) : activeTab === 'agents' ? (

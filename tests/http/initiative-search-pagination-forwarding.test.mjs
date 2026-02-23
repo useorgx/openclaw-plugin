@@ -134,6 +134,63 @@ test("GET /orgx/api/entities forwards search + ids + offset for initiative list"
   }
 });
 
+test("GET /orgx/api/entities accepts workspace_id alias, forwards canonical scope, and filters rows", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-entities-workspace-scope-"));
+  const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const calls = [];
+    const client = {
+      getBaseUrl: () => "https://www.useorgx.com",
+      listEntities: async (type, filters = {}) => {
+        calls.push({ type, filters });
+        return {
+          data: [
+            {
+              id: "init-a",
+              title: "Workspace A Initiative",
+              summary: "Scoped to workspace A",
+              status: "active",
+              workspace_id: "workspace-a",
+            },
+            {
+              id: "init-b",
+              title: "Workspace B Initiative",
+              summary: "Scoped to workspace B",
+              status: "active",
+              command_center_id: "workspace-b",
+            },
+          ],
+          pagination: { total: 2, has_more: false },
+        };
+      },
+      rawRequest: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(baseConfig(), client, () => null, createNoopOnboarding());
+    const res = await call(handler, {
+      method: "GET",
+      url: "/orgx/api/entities?type=initiative&workspace_id=workspace-a&limit=10",
+      headers: {},
+    });
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.deepEqual(payload.data.map((row) => row.id), ["init-a"]);
+
+    const initiativeCall = calls.find((entry) => entry.type === "initiative");
+    assert.ok(initiativeCall, "expected listEntities initiative call");
+    assert.equal(initiativeCall.filters.workspace_id, "workspace-a");
+    assert.equal(initiativeCall.filters.command_center_id, "workspace-a");
+  } finally {
+    if (previousDir == null) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
+  }
+});
+
 test("GET /orgx/api/live/initiatives forwards offset and returns pagination envelope", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-live-initiatives-pagination-"));
   const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;

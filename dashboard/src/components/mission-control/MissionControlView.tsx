@@ -216,6 +216,8 @@ function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'start
   return 'border-strong bg-white/[0.04] text-white/68';
 }
 
+const PAGE_SIZE_OPTIONS = [12, 24, 36, 48, 72] as const;
+
 export function MissionControlView({
   initiatives,
   activities,
@@ -373,6 +375,8 @@ function MissionControlInner({
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(24);
   const normalizedSearchQuery = searchQuery.trim();
   const initiativeSearch = useInitiativeSearch(
     normalizedSearchQuery,
@@ -522,18 +526,33 @@ function MissionControlInner({
     });
   }, [filteredInitiatives, sortBy]);
 
-  const visibleInitiativeIds = useMemo(
+  const totalFilteredCount = sortedInitiatives.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const currentPageIndex = totalFilteredCount === 0 ? 0 : Math.min(pageIndex, totalPages - 1);
+  const pageSliceStart = currentPageIndex * pageSize;
+  const pageSliceEnd = Math.min(totalFilteredCount, pageSliceStart + pageSize);
+  const pageRangeStart = totalFilteredCount === 0 ? 0 : pageSliceStart + 1;
+  const pageRangeEnd = totalFilteredCount === 0 ? 0 : pageSliceEnd;
+  const pagedInitiatives = useMemo(
+    () => sortedInitiatives.slice(pageSliceStart, pageSliceEnd),
+    [pageSliceEnd, pageSliceStart, sortedInitiatives]
+  );
+  const filteredInitiativeIds = useMemo(
     () => new Set(sortedInitiatives.map((initiative) => initiative.id)),
     [sortedInitiatives]
   );
-
-  const selectedVisibleInitiatives = useMemo(
+  const selectedFilteredInitiatives = useMemo(
     () => sortedInitiatives.filter((initiative) => selectedInitiativeIds.has(initiative.id)),
     [selectedInitiativeIds, sortedInitiatives]
   );
-  const selectedInitiativeCount = selectedVisibleInitiatives.length;
+  const selectedVisibleInitiatives = useMemo(
+    () => pagedInitiatives.filter((initiative) => selectedInitiativeIds.has(initiative.id)),
+    [pagedInitiatives, selectedInitiativeIds]
+  );
+  const selectedInitiativeCount = selectedFilteredInitiatives.length;
+  const selectedVisibleCount = selectedVisibleInitiatives.length;
   const allVisibleSelected =
-    sortedInitiatives.length > 0 && selectedInitiativeCount === sortedInitiatives.length;
+    pagedInitiatives.length > 0 && selectedVisibleCount === pagedInitiatives.length;
   const isBulkInitiativeMutating = mutations.bulkEntityMutation.isPending;
   const runtimeActivityByInitiativeId = useMemo(() => {
     const map = new Map<
@@ -587,8 +606,8 @@ function MissionControlInner({
   }, [runtimeInstances]);
 
   const groups = useMemo(
-    () => (groupBy !== 'none' ? groupInitiatives(sortedInitiatives, groupBy) : null),
-    [sortedInitiatives, groupBy],
+    () => (groupBy !== 'none' ? groupInitiatives(pagedInitiatives, groupBy) : null),
+    [groupBy, pagedInitiatives],
   );
 
   const groupIds = useMemo(
@@ -598,7 +617,7 @@ function MissionControlInner({
   );
 
   const flatVisibleInitiativeIds = useMemo(() => {
-    if (!groups) return sortedInitiatives.map((i) => i.id);
+    if (!groups) return pagedInitiatives.map((initiative) => initiative.id);
     const ids: string[] = [];
     for (const group of groups) {
       const disclosureId = groupDisclosureId(groupBy, group.key);
@@ -609,7 +628,7 @@ function MissionControlInner({
       }
     }
     return ids;
-  }, [groups, sortedInitiatives, groupBy, expandedGroupIds]);
+  }, [expandedGroupIds, groupBy, groups, pagedInitiatives]);
 
   const { handleSelect: handleInitiativeRangeSelect } = useRangeSelection(flatVisibleInitiativeIds);
 
@@ -644,13 +663,17 @@ function MissionControlInner({
   useEffect(() => {
     setSelectedInitiativeIds((previous) => {
       if (previous.size === 0) return previous;
-      const next = new Set(Array.from(previous).filter((id) => visibleInitiativeIds.has(id)));
+      const next = new Set(Array.from(previous).filter((id) => filteredInitiativeIds.has(id)));
       return isSameSet(next, previous) ? previous : next;
     });
-  }, [visibleInitiativeIds]);
+  }, [filteredInitiativeIds]);
 
   useEffect(() => {
     if (initialInitiativeId && !didAutoExpand.current && !isLoading && initiatives.length > 0) {
+      const targetIndex = sortedInitiatives.findIndex((initiative) => initiative.id === initialInitiativeId);
+      if (targetIndex >= 0) {
+        setPageIndex(Math.floor(targetIndex / pageSize));
+      }
       expandInitiative(initialInitiativeId);
       if (groups) {
         const matchingGroup = groups.find((group) =>
@@ -672,7 +695,16 @@ function MissionControlInner({
         el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
-  }, [initialInitiativeId, isLoading, initiatives.length, expandInitiative, groupBy, groups]);
+  }, [
+    initialInitiativeId,
+    isLoading,
+    initiatives.length,
+    expandInitiative,
+    pageSize,
+    groupBy,
+    groups,
+    sortedInitiatives,
+  ]);
 
   useEffect(() => {
     if (selectedInitiativeCount === 0 && confirmBulkInitiativeDelete) {
@@ -680,7 +712,17 @@ function MissionControlInner({
     }
   }, [confirmBulkInitiativeDelete, selectedInitiativeCount]);
 
-  const allExpanded = sortedInitiatives.length > 0 && expandedInitiatives.size >= sortedInitiatives.length;
+  useEffect(() => {
+    setPageIndex((previous) => Math.min(previous, Math.max(totalPages - 1, 0)));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [searchQuery, statusFilters, dateField, datePreset, dateStart, dateEnd, groupBy, sortBy, pageSize]);
+
+  const allExpanded =
+    pagedInitiatives.length > 0 &&
+    pagedInitiatives.every((initiative) => expandedInitiatives.has(initiative.id));
   const fallbackNextActionInitiative = useMemo(
     () =>
       sortedInitiatives.find((initiative) => initiative.status !== 'completed') ??
@@ -741,26 +783,61 @@ function MissionControlInner({
     setBulkInitiativeNotice(null);
     setConfirmBulkInitiativeDelete(false);
     setSelectedInitiativeIds((previous) => {
-      if (sortedInitiatives.length === 0) return previous;
-      if (allVisibleSelected) return new Set();
-      return new Set(sortedInitiatives.map((initiative) => initiative.id));
+      if (pagedInitiatives.length === 0) return previous;
+      const next = new Set(previous);
+      if (allVisibleSelected) {
+        for (const initiative of pagedInitiatives) {
+          next.delete(initiative.id);
+        }
+      } else {
+        for (const initiative of pagedInitiatives) {
+          next.add(initiative.id);
+        }
+      }
+      return next;
     });
-  }, [allVisibleSelected, sortedInitiatives]);
+  }, [allVisibleSelected, pagedInitiatives]);
 
   const clearInitiativeSelection = useCallback(() => {
     setConfirmBulkInitiativeDelete(false);
     setSelectedInitiativeIds(new Set());
   }, []);
 
+  const canPageBackward = currentPageIndex > 0;
+  const canPageForward = currentPageIndex < totalPages - 1;
+
+  const jumpToPage = useCallback(
+    (nextIndex: number) => {
+      setPageIndex(Math.max(0, Math.min(nextIndex, totalPages - 1)));
+    },
+    [totalPages]
+  );
+
+  const goToFirstPage = useCallback(() => {
+    jumpToPage(0);
+  }, [jumpToPage]);
+
+  const goToPreviousPage = useCallback(() => {
+    jumpToPage(currentPageIndex - 1);
+  }, [currentPageIndex, jumpToPage]);
+
+  const goToNextPage = useCallback(() => {
+    jumpToPage(currentPageIndex + 1);
+  }, [currentPageIndex, jumpToPage]);
+
+  const goToLastPage = useCallback(() => {
+    jumpToPage(totalPages - 1);
+  }, [jumpToPage, totalPages]);
+
   const runBulkInitiativeStatusUpdate = useCallback(
     async (status: Initiative['status']) => {
-      if (selectedVisibleInitiatives.length === 0) return;
+      if (selectedFilteredInitiatives.length === 0) return;
       setConfirmBulkInitiativeDelete(false);
       setBulkInitiativeNotice(null);
 
       try {
         const result = await mutations.bulkEntityMutation.mutateAsync({
-          items: selectedVisibleInitiatives.map((initiative) => ({
+          items: selectedFilteredInitiatives.map((initiative) => ({
             type: 'initiative',
             id: initiative.id,
           })),
@@ -786,16 +863,16 @@ function MissionControlInner({
         });
       }
     },
-    [mutations.bulkEntityMutation, selectedVisibleInitiatives]
+    [mutations.bulkEntityMutation, selectedFilteredInitiatives]
   );
 
   const runBulkInitiativeDelete = useCallback(async () => {
-    if (selectedVisibleInitiatives.length === 0) return;
+    if (selectedFilteredInitiatives.length === 0) return;
     setBulkInitiativeNotice(null);
 
     try {
       const result = await mutations.bulkEntityMutation.mutateAsync({
-        items: selectedVisibleInitiatives.map((initiative) => ({
+        items: selectedFilteredInitiatives.map((initiative) => ({
           type: 'initiative',
           id: initiative.id,
         })),
@@ -821,7 +898,7 @@ function MissionControlInner({
         message: error instanceof Error ? error.message : 'Bulk initiative delete failed.',
       });
     }
-  }, [mutations.bulkEntityMutation, selectedVisibleInitiatives]);
+  }, [mutations.bulkEntityMutation, selectedFilteredInitiatives]);
 
   const cancelExpandWave = useCallback(() => {
     expandWaveTokenRef.current += 1;
@@ -957,8 +1034,11 @@ function MissionControlInner({
 
       setNextActionNotice(null);
 
-      const targetVisible = visibleInitiativeIds.has(initiativeId);
-      const shouldResetFilters = !targetVisible;
+      const targetSortedIndex = sortedInitiatives.findIndex((initiative) => initiative.id === initiativeId);
+      const shouldResetFilters = targetSortedIndex < 0;
+      if (targetSortedIndex >= 0) {
+        setPageIndex(Math.floor(targetSortedIndex / pageSize));
+      }
       if (shouldResetFilters) {
         // Reveal hidden initiatives before scrolling so "Open initiative" always resolves.
         setSearchQuery('');
@@ -972,7 +1052,7 @@ function MissionControlInner({
       expandInitiative(initiativeId);
 
       if (groupBy !== 'none') {
-        const groupedSource = targetVisible ? sortedInitiatives : initiatives;
+        const groupedSource = targetSortedIndex >= 0 ? sortedInitiatives : initiatives;
         const grouped = groupInitiatives(groupedSource, groupBy);
         const containingGroup = grouped.find((group) =>
           group.initiatives.some((initiative) => initiative.id === initiativeId),
@@ -1019,8 +1099,9 @@ function MissionControlInner({
     },
     [
       initiatives,
-      visibleInitiativeIds,
+      pageSize,
       setNextActionNotice,
+      setPageIndex,
       setSearchQuery,
       setStatusFilters,
       setDateField,
@@ -1599,7 +1680,7 @@ function MissionControlInner({
                       <span>Install OrgX</span>
                     </a>
                   )}
-                  {sortedInitiatives.length > 0 && (
+                  {pagedInitiatives.length > 0 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1608,7 +1689,7 @@ function MissionControlInner({
                           collapseAll();
                           if (groups && groupIds.length > 0) setExpandedGroupIds(new Set());
                         } else {
-                          expandAllProgressive(sortedInitiatives.map((i) => i.id));
+                          expandAllProgressive(pagedInitiatives.map((initiative) => initiative.id));
                           if (groups && groupIds.length > 0) setExpandedGroupIds(new Set(groupIds));
                         }
                       }}
@@ -1663,12 +1744,14 @@ function MissionControlInner({
                       onChange={toggleSelectAllVisibleInitiatives}
                       className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
                     />
-                    Select visible
+                    Select page
                   </label>
                   <span className="flex-shrink-0 text-caption text-white/58">
                     {selectedInitiativeCount > 0
                       ? `${selectedInitiativeCount} selected`
-                      : `${sortedInitiatives.length} visible`}
+                      : totalFilteredCount === 0
+                        ? '0 visible'
+                        : `${pageRangeStart}-${pageRangeEnd} of ${totalFilteredCount}`}
                   </span>
                   {selectedInitiativeCount > 0 && (
                     <div className="flex flex-wrap items-center gap-2">
@@ -1887,6 +1970,79 @@ function MissionControlInner({
                 </AnimatePresence>
               </div>
             )}
+            {sortedInitiatives.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption text-white/70">
+                  <span className="font-medium text-white/80">
+                    Showing {pageRangeStart}-{pageRangeEnd}
+                  </span>
+                  <span className="text-white/50">of</span>
+                  <span className="font-medium text-white/80">{totalFilteredCount}</span>
+                  <span className="text-white/50">initiatives</span>
+                </div>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-black/25 px-2 py-1 text-micro text-white/68">
+                    <span>Per page</span>
+                    <select
+                      value={pageSize}
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10);
+                        if (!Number.isFinite(parsed)) return;
+                        setPageSize(parsed);
+                      }}
+                      className="h-6 rounded-md border border-transparent bg-transparent px-1 text-caption text-white/90 outline-none"
+                    >
+                      {PAGE_SIZE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/25 p-1">
+                    <button
+                      type="button"
+                      onClick={goToFirstPage}
+                      disabled={!canPageBackward}
+                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                      title="First page"
+                    >
+                      «
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToPreviousPage}
+                      disabled={!canPageBackward}
+                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                      title="Previous page"
+                    >
+                      ‹
+                    </button>
+                    <span className="px-1.5 text-micro text-white/64">
+                      Page {currentPageIndex + 1} / {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={goToNextPage}
+                      disabled={!canPageForward}
+                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                      title="Next page"
+                    >
+                      ›
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToLastPage}
+                      disabled={!canPageForward}
+                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                      title="Last page"
+                    >
+                      »
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {bulkInitiativeNotice && (
               <div
                 role="status"
@@ -2101,6 +2257,7 @@ function MissionControlInner({
                                     initiatives={group.initiatives}
                                     selectedInitiativeIds={selectedInitiativeIds}
                                     onToggleInitiativeSelection={setInitiativeSelected}
+                                    isSquished={nextUpRailOpen}
                                     runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
                                   />
                                 </div>
@@ -2114,9 +2271,10 @@ function MissionControlInner({
                 ) : (
                   <div className="pb-8">
                     <InitiativeOrbit
-                      initiatives={sortedInitiatives}
+                      initiatives={pagedInitiatives}
                       selectedInitiativeIds={selectedInitiativeIds}
                       onToggleInitiativeSelection={setInitiativeSelected}
+                      isSquished={nextUpRailOpen}
                       runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
                     />
                   </div>

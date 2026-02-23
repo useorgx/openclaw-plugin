@@ -33,6 +33,7 @@ import type {
   BillingStatus,
   BillingCheckoutRequest,
   BillingUrlResult,
+  UsageControlPlaneSummary,
   KickoffContextRequest,
   KickoffContextResponse,
   SkillPack,
@@ -631,8 +632,26 @@ export class OrgXClient {
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
     if (filters?.project_id) params.set("project_id", String(filters.project_id));
-    if (filters?.command_center_id) {
-      params.set("command_center_id", String(filters.command_center_id));
+    const workspaceIdRaw =
+      filters?.workspace_id != null ? String(filters.workspace_id) : null;
+    const commandCenterIdRaw =
+      filters?.command_center_id != null
+        ? String(filters.command_center_id)
+        : null;
+    if (
+      workspaceIdRaw &&
+      commandCenterIdRaw &&
+      workspaceIdRaw.trim() !== commandCenterIdRaw.trim()
+    ) {
+      throw new Error(
+        "workspace_id and command_center_id must match when both are provided"
+      );
+    }
+    const workspaceId = workspaceIdRaw ?? commandCenterIdRaw;
+    if (workspaceId) {
+      // Canonical scope param. Keep legacy alias for backward compatibility.
+      params.set("workspace_id", workspaceId);
+      params.set("command_center_id", workspaceId);
     }
     return this.get(`/api/entities?${params.toString()}`);
   }
@@ -669,6 +688,32 @@ export class OrgXClient {
       return response.data as BillingUrlResult;
     }
     return response as BillingUrlResult;
+  }
+
+  // ===========================================================================
+  // Usage (Control Plane + Forecast)
+  // ===========================================================================
+
+  async getUsageControlPlaneSummary(): Promise<UsageControlPlaneSummary> {
+    return this.get<UsageControlPlaneSummary>("/api/usage/control-plane/summary");
+  }
+
+  async getUsageUnified(): Promise<UsageControlPlaneSummary> {
+    return this.get<UsageControlPlaneSummary>("/api/usage/unified");
+  }
+
+  async getUsageForecast(): Promise<
+    Pick<
+      UsageControlPlaneSummary,
+      "generatedAt" | "period" | "predicted" | "risk" | "headroom" | "utilization"
+    >
+  > {
+    return this.get<
+      Pick<
+        UsageControlPlaneSummary,
+        "generatedAt" | "period" | "predicted" | "risk" | "headroom" | "utilization"
+      >
+    >("/api/usage/forecast");
   }
 
   // ===========================================================================

@@ -50,6 +50,7 @@ export interface LiveData {
   decisions: LiveDecision[];
   sliceRuns: SliceRunProjection[];
   outbox: OutboxStatus;
+  chat?: LiveChatSnapshot;
   runtimeInstances?: RuntimeInstance[];
   agentSuite?: AgentSuitePlan;
   workSliceProjections?: WorkSliceProjectionV2[];
@@ -61,6 +62,86 @@ export interface LiveData {
   completedTodayTotal?: number;
   consistencyFlags?: string[];
   dataHealth?: SliceDataHealthSummary;
+}
+
+export type UsageRiskLevel = 'safe' | 'watch' | 'at_risk' | 'over_limit';
+
+export interface UsageBreakdownBucket {
+  key: string;
+  label: string;
+  runs: number;
+  tokens: number;
+  minutes: number;
+  costCents: number;
+}
+
+export interface UsagePrediction {
+  agentRuns: number;
+  agentMinutes: number;
+  tokens: number;
+  costCents: number;
+  confidence: number;
+  method: string;
+  remainingAgentRuns: number;
+  remainingAgentMinutes: number;
+  remainingTokens: number;
+  remainingCostCents: number;
+}
+
+export interface UsageControlPlaneSummary {
+  generatedAt: string;
+  period: {
+    start: string;
+    end: string;
+    daysTotal: number;
+    daysElapsed: number;
+    daysRemaining: number;
+  };
+  plan: {
+    id: string;
+    name: string;
+    allowsOverage: boolean;
+    includedBudgetCents: number;
+    overageBudgetCents: number;
+    agentRunsLimit: number;
+    agentMinutesLimit: number;
+    scaffoldsLimit: number;
+  };
+  actual: {
+    agentRuns: number;
+    agentMinutes: number;
+    tokens: number;
+    costCents: number;
+    scaffoldsUsed: number;
+    scaffoldsRemaining: number;
+  };
+  predicted: UsagePrediction;
+  utilization: {
+    runsPct: number | null;
+    minutesPct: number | null;
+    budgetPct: number | null;
+  };
+  headroom: {
+    agentRunsRemaining: number;
+    agentMinutesRemaining: number;
+    budgetRemainingCents: number;
+  };
+  risk: UsageRiskLevel;
+  breakdown: {
+    provider: UsageBreakdownBucket[];
+    executionTarget: UsageBreakdownBucket[];
+    sourceClient: UsageBreakdownBucket[];
+    model: UsageBreakdownBucket[];
+  };
+  velocity: {
+    windowDays: number;
+    dailyAvgRuns: number;
+    dailyAvgMinutes: number;
+    dailyAvgTokens: number;
+    dailyAvgCostCents: number;
+  };
+  source?: 'cloud' | 'local_estimate';
+  warnings?: string[];
 }
 
 export interface OutboxStatus {
@@ -307,6 +388,7 @@ export interface LiveSnapshotResponse {
   agents: LiveSnapshotAgent[];
   runtimeInstances?: RuntimeInstance[];
   outbox?: OutboxStatus;
+  chat?: LiveChatSnapshot;
   generatedAt: string;
   degraded?: string[];
   projections?: WorkSliceProjectionV2[];
@@ -321,6 +403,98 @@ export interface LiveSnapshotResponse {
   completedToday?: number;
   consistencyFlags?: string[];
   dataHealth?: SliceDataHealthSummary;
+}
+
+export type ChatAttachmentState = 'preparing' | 'indexing' | 'ready' | 'failed';
+export type ChatLaunchStatus =
+  | 'requested'
+  | 'queued'
+  | 'running'
+  | 'blocked'
+  | 'completed'
+  | 'failed';
+export type ChatThreadStatus =
+  | 'message_only'
+  | 'queued'
+  | 'running'
+  | 'blocked'
+  | 'completed'
+  | 'failed';
+
+export interface ChatAttachmentSummary {
+  id: string;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  status: ChatAttachmentState;
+  error: string | null;
+  masked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessageSummary {
+  id: string;
+  threadId: string;
+  role: 'user' | 'agent' | 'system';
+  body: string;
+  senderId: string | null;
+  senderName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  attachments: ChatAttachmentSummary[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ChatLaunchSummary {
+  id: string;
+  threadId: string;
+  messageId: string;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  watcherIds: string[];
+  watcherNames: string[];
+  executionMode: 'local_queue' | 'cloud' | 'hybrid';
+  provider: string | null;
+  runId: string | null;
+  status: ChatLaunchStatus;
+  blockedReason: string | null;
+  warnings: string[];
+  requestedAt: string;
+  updatedAt: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ChatThreadSummary {
+  id: string;
+  commandCenterId: string | null;
+  initiativeId: string | null;
+  initiativeTitle: string | null;
+  workstreamId: string | null;
+  taskId: string | null;
+  title: string;
+  summary: string | null;
+  status: ChatThreadStatus;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  watcherIds: string[];
+  watcherNames: string[];
+  messageCount: number;
+  launchCount: number;
+  lastMessageAt: string | null;
+  lastLaunchAt: string | null;
+  lastActivityAt: string;
+  lastSnippet: string | null;
+  createdAt: string;
+  updatedAt: string;
+  latestMessage: ChatMessageSummary | null;
+  latestLaunch: ChatLaunchSummary | null;
+}
+
+export interface LiveChatSnapshot {
+  threads: ChatThreadSummary[];
+  total: number;
+  updatedAt: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -560,6 +734,16 @@ export type NextUpPlaybackState = 'queued' | 'running' | 'blocked' | 'paused' | 
 export type NextUpAutoRuntimeState = 'idle' | 'running' | 'stopping' | 'error';
 export type NextUpQueueOrigin = 'hierarchy' | 'initiative_modal' | 'timeline' | 'system';
 
+export interface NextUpExecutionPolicy {
+  domain: string;
+  requiredSkills: string[];
+  profile?: string | null;
+  sliceScopePreference?: 'adaptive' | 'task' | 'milestone' | 'workstream' | null;
+  maxSliceTasks?: number | null;
+  maxParallelAgents?: number | null;
+  dependencyMode?: 'strict' | 'relaxed' | null;
+}
+
 export interface NextUpQueueItem {
   initiativeId: string;
   initiativeTitle: string;
@@ -582,6 +766,11 @@ export interface NextUpQueueItem {
   autoIntentEnabled?: boolean;
   autoRuntimeState?: NextUpAutoRuntimeState;
   queueOrigin?: NextUpQueueOrigin;
+  sliceScope?: 'task' | 'milestone' | 'workstream' | null;
+  sliceTaskIds?: string[];
+  sliceTaskCount?: number | null;
+  sliceMilestoneId?: string | null;
+  executionPolicy?: NextUpExecutionPolicy | null;
   autoContinue: {
     status: AutoContinueStatus;
     activeTaskId: string | null;

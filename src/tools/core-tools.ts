@@ -590,9 +590,13 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Parent workstream ID (for tasks)",
           },
+          workspace_id: {
+            type: "string",
+            description: "Workspace ID (canonical; preferred for new callers)",
+          },
           command_center_id: {
             type: "string",
-            description: "Command center ID (for initiatives)",
+            description: "Deprecated alias for workspace_id",
           },
         },
         required: ["type", "title"],

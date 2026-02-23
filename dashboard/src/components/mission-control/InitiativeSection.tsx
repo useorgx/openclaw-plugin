@@ -30,6 +30,7 @@ interface InitiativeSectionProps {
   initiative: Initiative;
   selected?: boolean;
   onSelectionChange?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
+  isSquished?: boolean;
   runtimeActivity?: {
     activeCount: number;
     totalCount: number;
@@ -320,6 +321,7 @@ export function InitiativeSection({
   initiative,
   selected = false,
   onSelectionChange,
+  isSquished = false,
   runtimeActivity = null,
 }: InitiativeSectionProps) {
   const {
@@ -514,6 +516,22 @@ export function InitiativeSection({
   const milestoneNodes = nodes.filter((node) => node.type === 'milestone');
   const workstreamNodes = nodes.filter((node) => node.type === 'workstream');
   const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
+  const startableStatus = (initiative.rawStatus ?? initiative.status ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const canStartInitiative = new Set([
+    'paused',
+    'draft',
+    'planned',
+    'todo',
+    'backlog',
+    'queued',
+  ]).has(startableStatus);
+  const startActionLabel = startableStatus === 'paused' ? 'Resume' : 'Start';
+  const showQueueControl = !isSquished;
+  const showQueueStartRail = showQueueControl || canStartInitiative;
+  const showRadialProgress = isSquished;
   const queueTargets = useMemo(
     () =>
       workstreamNodes
@@ -654,6 +672,15 @@ export function InitiativeSection({
     });
   };
 
+  const startInitiative = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    mutations.updateEntity.mutate({
+      type: 'initiative',
+      id: initiative.id,
+      status: 'active',
+    });
+  };
+
   return (
     <div
       id={`initiative-${initiative.id}`}
@@ -730,7 +757,7 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
-        <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-2 sm:pr-3">
+        <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-1.5 sm:pr-2">
           <button
             type="button"
             onClick={(event) => {
@@ -744,16 +771,27 @@ export function InitiativeSection({
           </button>
         </div>
 
-        <div className="ml-1 flex w-[90px] min-w-[90px] flex-shrink-0 justify-start sm:w-[102px] sm:min-w-[102px]">
+        <div
+          className={`ml-1 flex flex-shrink-0 justify-start ${
+            isSquished
+              ? 'w-[80px] min-w-[80px]'
+              : 'w-[90px] min-w-[90px] sm:w-[102px] sm:min-w-[102px]'
+          }`}
+        >
           <span
-            className={`w-full truncate text-center text-micro px-2 py-0.5 rounded-full border uppercase tracking-[0.08em] leading-none whitespace-nowrap ${initiativeStatusToneClass}`}
+            className={`w-full truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
+              isSquished ? 'px-1.5' : 'px-2'
+            } ${initiativeStatusToneClass}`}
           >
             {initiativeStatusLabel}
           </span>
         </div>
 
         {/* Radial progress — compact, shown below lg */}
-        <div className="ml-1.5 flex-shrink-0 lg:hidden" title={`${progress}% complete`}>
+        <div
+          className={`ml-1.5 flex-shrink-0 ${showRadialProgress ? 'flex' : 'lg:hidden'}`}
+          title={`${progress}% complete`}
+        >
           <svg viewBox="0 0 36 36" className="h-9 w-9" aria-label={`${progress}% complete`}>
             <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
             <motion.circle
@@ -785,7 +823,11 @@ export function InitiativeSection({
         </div>
 
         {/* Linear progress — full width, shown at lg+ */}
-        <div className="ml-1.5 hidden w-[148px] min-w-[148px] flex-shrink-0 items-center justify-end gap-2.5 pr-0.5 lg:flex xl:w-[182px] xl:min-w-[182px] xl:pr-1 2xl:w-[206px] 2xl:min-w-[206px]">
+        <div
+          className={`ml-1.5 hidden w-[148px] min-w-[148px] flex-shrink-0 items-center justify-end gap-2.5 pr-0.5 xl:w-[182px] xl:min-w-[182px] xl:pr-1 2xl:w-[206px] 2xl:min-w-[206px] ${
+            showRadialProgress ? 'hidden' : 'lg:flex'
+          }`}
+        >
           <div className="min-w-[88px] flex-1 xl:min-w-[112px] 2xl:min-w-[140px]">
             <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
               <motion.div
@@ -809,20 +851,49 @@ export function InitiativeSection({
         </div>
 
         {/* Queue button — hidden below lg */}
-        <div className="ml-1 hidden w-[132px] min-w-[132px] flex-shrink-0 justify-end lg:flex">
-          <QueuePlacementControl
-            label="Queue"
-            size="sm"
-            busy={queueActionBusy}
-            disabled={queueTargets.length === 0}
-            stopPropagation
-            title={`Queue initiative: ${initiative.name}`}
-            onSelectPlacement={queueInitiative}
-          />
-        </div>
+        {showQueueStartRail && (
+          <div
+            className={`ml-1 hidden flex-shrink-0 items-center justify-end gap-1.5 lg:flex ${
+              isSquished ? 'w-[40px] min-w-[40px]' : 'w-[180px] min-w-[180px]'
+            }`}
+          >
+            {showQueueControl && (
+              <QueuePlacementControl
+                label="Queue"
+                size="sm"
+                busy={queueActionBusy}
+                disabled={queueTargets.length === 0}
+                stopPropagation
+                title={`Queue initiative: ${initiative.name}`}
+                onSelectPlacement={queueInitiative}
+              />
+            )}
+            {canStartInitiative && (
+              <button
+                type="button"
+                onClick={startInitiative}
+                disabled={mutations.updateEntity.isPending}
+                title={`${startActionLabel} initiative`}
+                className={`control-pill inline-flex items-center justify-center gap-1.5 text-micro font-semibold text-[#D8FFA1] disabled:opacity-45 ${
+                  isSquished ? 'h-8 w-8 px-0' : 'h-8 px-2.5'
+                }`}
+                data-state="active"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                {!isSquished && <span>{startActionLabel}</span>}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Live/agents section — hidden below md */}
-        <div className="ml-2 hidden w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 md:flex lg:w-[116px] lg:min-w-[116px] lg:pl-2.5 xl:w-[132px] xl:min-w-[132px]">
+        <div
+          className={`ml-2 w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 lg:w-[116px] lg:min-w-[116px] lg:pl-2.5 xl:w-[132px] xl:min-w-[132px] ${
+            isSquished ? 'hidden' : 'hidden md:flex'
+          }`}
+        >
           {runtimeActiveCount > 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />

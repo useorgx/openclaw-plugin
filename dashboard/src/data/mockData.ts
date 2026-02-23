@@ -269,5 +269,10 @@ export const createMockData = (): LiveData => {
       lastReplayFailureAt: null,
       lastReplayError: null,
     },
+    chat: {
+      threads: [],
+      total: 0,
+      updatedAt: now.toISOString(),
+    },
   };
 };

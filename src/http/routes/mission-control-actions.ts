@@ -22,6 +22,19 @@ type NextUpQueue = {
     workstreamTitle?: string | null;
     nextTaskId?: string | null;
     nextTaskTitle?: string | null;
+    sliceScope?: "task" | "milestone" | "workstream" | null;
+    sliceTaskIds?: string[];
+    sliceTaskCount?: number | null;
+    sliceMilestoneId?: string | null;
+    executionPolicy?: {
+      domain?: string;
+      requiredSkills?: string[];
+      profile?: string | null;
+      sliceScopePreference?: "adaptive" | "task" | "milestone" | "workstream" | null;
+      maxSliceTasks?: number | null;
+      maxParallelAgents?: number | null;
+      dependencyMode?: "strict" | "relaxed" | null;
+    } | null;
     autoContinue?: {
       status?: string | null;
       stopReason?: string | null;
@@ -154,6 +167,36 @@ function normalizePlacement(
   if (normalized === "top") return "top";
   if (normalized === "bottom") return "bottom";
   return fallback;
+}
+
+function normalizeScope(value: unknown): "task" | "milestone" | "workstream" | null {
+  if (value === "task" || value === "milestone" || value === "workstream") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "task" || normalized === "milestone" || normalized === "workstream") {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function normalizeParallelMode(value: unknown): "iwmt" {
+  if (typeof value === "string" && value.trim().toLowerCase() === "iwmt") {
+    return "iwmt";
+  }
+  return "iwmt";
+}
+
+function normalizeMaxParallelSlices(value: unknown, fallback: number): number {
+  const normalizeValue = (input: number): number => Math.max(1, Math.min(5, Math.floor(input)));
+  if (typeof value === "number" && Number.isFinite(value)) return normalizeValue(value);
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return normalizeValue(parsed);
+  }
+  return normalizeValue(fallback);
 }
 
 function parseQueueOrder(input: unknown, deps: Pick<RegisterMissionControlActionsRoutesDeps<any, any>, "pickString">): Array<{
@@ -394,14 +437,33 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                   : null
               );
 
-        const scopeRaw =
+        const requestedScopeRaw =
           deps.pickString(payload, ["scope", "sliceScope", "slice_scope"]) ??
           query.get("scope") ??
           query.get("sliceScope") ??
           query.get("slice_scope") ??
           null;
-        const scope =
-          scopeRaw === "milestone" || scopeRaw === "workstream" ? scopeRaw : "task";
+        const queueScope = normalizeScope(matchedQueueItem?.sliceScope ?? null);
+        const scope = normalizeScope(requestedScopeRaw) ?? queueScope ?? "task";
+        const requestedParallelModeRaw =
+          deps.pickString(payload, ["parallelMode", "parallel_mode"]) ??
+          query.get("parallelMode") ??
+          query.get("parallel_mode") ??
+          null;
+        const requestedMaxParallelSlicesRaw =
+          deps.pickNumber(payload, ["maxParallelSlices", "max_parallel_slices"]) ??
+          query.get("maxParallelSlices") ??
+          query.get("max_parallel_slices") ??
+          null;
+        const queuePreferredParallel =
+          typeof matchedQueueItem?.executionPolicy?.maxParallelAgents === "number"
+            ? matchedQueueItem.executionPolicy.maxParallelAgents
+            : null;
+        const maxParallelSlices = normalizeMaxParallelSlices(
+          requestedMaxParallelSlicesRaw,
+          queuePreferredParallel ?? 1
+        );
+        const parallelMode = normalizeParallelMode(requestedParallelModeRaw);
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         const existingActiveRunIds = Array.isArray(existingRun?.activeSliceRunIds)
@@ -442,8 +504,8 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           tokenBudget,
           includeVerification,
           allowedWorkstreamIds: [workstreamId],
-          maxParallelSlices: 1,
-          parallelMode: "iwmt",
+          maxParallelSlices,
+          parallelMode,
           stopAfterSlice: true,
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
           scope,
@@ -522,6 +584,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                 agentId,
                 dispatchMode: "pending",
                 sessionId: null,
+                slice: {
+                  scope,
+                  taskIds: matchedQueueItem?.sliceTaskIds ?? [],
+                  taskCount:
+                    typeof matchedQueueItem?.sliceTaskCount === "number"
+                      ? matchedQueueItem.sliceTaskCount
+                      : Array.isArray(matchedQueueItem?.sliceTaskIds)
+                        ? matchedQueueItem.sliceTaskIds.length
+                        : 0,
+                  primaryTaskId: matchedQueueItem?.nextTaskId ?? null,
+                },
+                executionPolicy: matchedQueueItem?.executionPolicy ?? null,
               });
               return;
             }
@@ -558,6 +632,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             agentId,
             dispatchMode: finalizedDispatchMode,
             sessionId: run.lastRunId,
+            slice: {
+              scope,
+              taskIds: matchedQueueItem?.sliceTaskIds ?? [],
+              taskCount:
+                typeof matchedQueueItem?.sliceTaskCount === "number"
+                  ? matchedQueueItem.sliceTaskCount
+                  : Array.isArray(matchedQueueItem?.sliceTaskIds)
+                    ? matchedQueueItem.sliceTaskIds.length
+                    : 0,
+              primaryTaskId: matchedQueueItem?.nextTaskId ?? null,
+            },
+            executionPolicy: matchedQueueItem?.executionPolicy ?? null,
           });
           return;
         }
@@ -570,6 +656,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             agentId,
             dispatchMode: "pending",
             sessionId: null,
+            slice: {
+              scope,
+              taskIds: matchedQueueItem?.sliceTaskIds ?? [],
+              taskCount:
+                typeof matchedQueueItem?.sliceTaskCount === "number"
+                  ? matchedQueueItem.sliceTaskCount
+                  : Array.isArray(matchedQueueItem?.sliceTaskIds)
+                    ? matchedQueueItem.sliceTaskIds.length
+                    : 0,
+              primaryTaskId: matchedQueueItem?.nextTaskId ?? null,
+            },
+            executionPolicy: matchedQueueItem?.executionPolicy ?? null,
           });
           return;
         }
@@ -608,6 +706,18 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           agentId,
           dispatchMode,
           sessionId: run.activeRunId ?? fallbackDispatch?.sessionId ?? null,
+          slice: {
+            scope,
+            taskIds: matchedQueueItem?.sliceTaskIds ?? [],
+            taskCount:
+              typeof matchedQueueItem?.sliceTaskCount === "number"
+                ? matchedQueueItem.sliceTaskCount
+                : Array.isArray(matchedQueueItem?.sliceTaskIds)
+                  ? matchedQueueItem.sliceTaskIds.length
+                  : 0,
+            primaryTaskId: matchedQueueItem?.nextTaskId ?? null,
+          },
+          executionPolicy: matchedQueueItem?.executionPolicy ?? null,
         });
       } catch (err: unknown) {
         sendRouteException(res, "mission-control.next-up.play.handler", err);
