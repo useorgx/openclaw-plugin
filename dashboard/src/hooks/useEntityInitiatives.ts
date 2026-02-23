@@ -2,58 +2,25 @@ import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Initiative } from '@/types';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import {
+  isVisibleInitiativeStatus,
+  toInitiative,
+  type RawEntityInitiative,
+} from '@/hooks/initiativeEntityMapper';
 
-interface RawEntityInitiative {
-  id: string;
-  title: string;
-  summary?: string | null;
-  status: string;
-  priority?: string | null;
-  progress_pct?: number | null;
-  start_date?: string | null;
-  target_date?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  command_center_id?: string | null;
-  commandCenterId?: string | null;
-}
-
-function mapStatus(raw: string): Initiative['status'] {
-  const s = raw.toLowerCase();
-  if (s === 'completed' || s === 'done') return 'completed';
-  if (s === 'blocked' || s === 'at_risk') return 'blocked';
-  if (s === 'paused' || s === 'hold') return 'paused';
-  return 'active';
-}
-
-function daysUntil(dateStr: string | null | undefined): number {
-  if (!dateStr) return 0;
-  const target = new Date(dateStr);
-  const now = new Date();
-  return Math.max(0, Math.ceil((target.getTime() - now.getTime()) / 86_400_000));
-}
-
-function toInitiative(raw: RawEntityInitiative): Initiative {
-  return {
-    id: raw.id,
-    name: raw.title,
-    status: mapStatus(raw.status),
-    rawStatus: raw.status ?? null,
-    priority: raw.priority ?? null,
-    health: raw.progress_pct ?? 0,
-    daysRemaining: daysUntil(raw.target_date),
-    targetDate: raw.target_date ?? null,
-    createdAt: raw.created_at ?? null,
-    updatedAt: raw.updated_at ?? raw.created_at ?? null,
-    activeAgents: 0,
-    totalAgents: 0,
-    description: raw.summary ?? undefined,
+type EntityListResponse = {
+  data?: RawEntityInitiative[];
+  pagination?: {
+    has_more?: boolean;
   };
-}
+};
 
-function isVisibleStatus(rawStatus: string): boolean {
-  const status = rawStatus.toLowerCase();
-  return !['deleted', 'archived', 'cancelled'].includes(status);
+const PAGE_SIZE = 150;
+const MAX_PAGES = 12;
+
+function toEpoch(value: string | null | undefined): number {
+  const parsed = Date.parse(value ?? '');
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function buildDemoEntityInitiatives(): Initiative[] {
@@ -98,31 +65,57 @@ export function useEntityInitiatives(enabled: boolean, projectId: string | null 
     queryKey: queryKeys.entities({ type: 'initiative', projectId }),
     queryFn: async () => {
       if (isDemoModeEnabled()) return buildDemoEntityInitiatives();
-      const params = new URLSearchParams({
-        type: 'initiative',
-        limit: '300',
-      });
-      if (projectId && projectId.trim().length > 0) {
-        params.set('command_center_id', projectId.trim());
-      }
-      const res = await fetch(`/orgx/api/entities?${params.toString()}`);
-      if (!res.ok) return [];
-      const json = await res.json() as { data?: RawEntityInitiative[] };
-      const rows = json.data ?? [];
+      const rows: RawEntityInitiative[] = [];
       const workspaceScopeId = projectId?.trim() ?? '';
+      let offset = 0;
+
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const params = new URLSearchParams({
+          type: 'initiative',
+          limit: String(PAGE_SIZE),
+          offset: String(offset),
+        });
+        if (workspaceScopeId) {
+          params.set('command_center_id', workspaceScopeId);
+        }
+
+        const response = await fetch(`/orgx/api/entities?${params.toString()}`);
+        if (!response.ok) break;
+        const json = (await response.json()) as EntityListResponse;
+        const pageRows = json.data ?? [];
+        rows.push(...pageRows);
+
+        const hasMore = Boolean(json.pagination?.has_more);
+        if (!hasMore || pageRows.length === 0) break;
+        offset += PAGE_SIZE;
+      }
+
       const hasWorkspaceDimension =
         workspaceScopeId.length > 0 &&
         rows.some((item) => {
           const commandCenterId = (item.command_center_id ?? item.commandCenterId ?? '').trim();
           return commandCenterId.length > 0;
         });
-      return rows
+
+      const deduped = new Map<string, RawEntityInitiative>();
+      for (const row of rows) {
+        const current = deduped.get(row.id);
+        if (!current) {
+          deduped.set(row.id, row);
+          continue;
+        }
+        if (toEpoch(row.updated_at ?? row.created_at) > toEpoch(current.updated_at ?? current.created_at)) {
+          deduped.set(row.id, row);
+        }
+      }
+
+      return Array.from(deduped.values())
         .filter((item) => {
           if (!workspaceScopeId || !hasWorkspaceDimension) return true;
           const commandCenterId = (item.command_center_id ?? item.commandCenterId ?? '').trim();
           return commandCenterId === workspaceScopeId;
         })
-        .filter((item) => isVisibleStatus(item.status ?? ''))
+        .filter((item) => isVisibleInitiativeStatus(item.status))
         .sort((a, b) => {
           const aEpoch = Date.parse(a.updated_at ?? a.created_at ?? '') || 0;
           const bEpoch = Date.parse(b.updated_at ?? b.created_at ?? '') || 0;

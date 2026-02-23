@@ -6,6 +6,11 @@ type JsonRecord = Record<string, unknown>;
 type LiveInitiativesResponse = {
   initiatives: unknown[];
   total?: number;
+  pagination?: {
+    limit?: number;
+    offset?: number;
+    has_more?: boolean;
+  };
 };
 
 type LiveDecisionsResponse = {
@@ -38,6 +43,7 @@ type RegisterLiveMiscRoutesDeps<TReq, TRes> = {
     id: string | null;
     projectId: string | null;
     limit: number | undefined;
+    offset: number | undefined;
   }) => Promise<LiveInitiativesResponse>;
   getLiveDecisions: (input: {
     status: string;
@@ -245,12 +251,15 @@ export function registerLiveMiscRoutes<TReq, TRes>(
       const projectId = query.get("project_id") ?? query.get("projectId");
       const projectInitiatives = await resolveProjectInitiativeSet(projectId);
       const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
+      const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
       const data = await deps.getLiveInitiatives({
         id,
         projectId,
         limit: Number.isFinite(limit) ? limit : undefined,
+        offset: Number.isFinite(offset) ? offset : undefined,
       });
       const payload = data as Record<string, unknown>;
+      const rawInitiatives = Array.isArray(payload.initiatives) ? payload.initiatives : [];
       const initiatives = Array.isArray(payload.initiatives)
         ? payload.initiatives
             .filter((entry) => {
@@ -277,10 +286,32 @@ export function registerLiveMiscRoutes<TReq, TRes>(
             };
           })
         : payload.initiatives;
+      const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(Number(limit))) : null;
+      const requestedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(Number(offset))) : 0;
+      const remotePagination = asRecord(payload.pagination);
+      const remoteHasMore = typeof remotePagination?.has_more === "boolean"
+        ? (remotePagination.has_more as boolean)
+        : typeof payload.total === "number"
+          ? requestedOffset + rawInitiatives.length < (payload.total as number)
+          : requestedLimit !== null
+            ? rawInitiatives.length >= requestedLimit
+            : false;
       deps.sendJson(res, 200, {
         ...payload,
         initiatives,
         total: Array.isArray(initiatives) ? initiatives.length : 0,
+        pagination: {
+          ...(remotePagination ?? {}),
+          limit:
+            typeof remotePagination?.limit === "number"
+              ? remotePagination.limit
+              : (requestedLimit ?? rawInitiatives.length),
+          offset:
+            typeof remotePagination?.offset === "number"
+              ? remotePagination.offset
+              : requestedOffset,
+          has_more: remoteHasMore,
+        },
       });
     } catch (err: unknown) {
       try {
@@ -288,7 +319,9 @@ export function registerLiveMiscRoutes<TReq, TRes>(
         const projectId = query.get("project_id") ?? query.get("projectId");
         const projectInitiatives = await resolveProjectInitiativeSet(projectId);
         const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
+        const offsetRaw = query.get("offset") ? Number(query.get("offset")) : undefined;
         const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
+        const offset = Number.isFinite(offsetRaw) ? Math.max(0, Number(offsetRaw)) : 0;
 
         const local = deps.toLocalLiveInitiatives(await deps.loadLocalOpenClawSnapshot(240));
         let initiatives = local.initiatives;
@@ -343,9 +376,16 @@ export function registerLiveMiscRoutes<TReq, TRes>(
           }
         }
 
+        const total = initiatives.length;
+        const page = initiatives.slice(offset, offset + limit);
         deps.sendJson(res, 200, {
-          initiatives: initiatives.slice(0, limit),
-          total: initiatives.length,
+          initiatives: page,
+          total,
+          pagination: {
+            limit,
+            offset,
+            has_more: offset + page.length < total,
+          },
           localFallback: true,
           warning: deps.safeErrorMessage(err),
         });

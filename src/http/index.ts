@@ -2093,6 +2093,10 @@ export function createHttpHandler(
     string,
     { expiresAt: number; ids: string[] }
   >();
+  const commandCenterScopeCache = new Map<
+    string,
+    { expiresAt: number; exists: boolean }
+  >();
 
   const nextUpQueueCacheKeyFor = (
     initiativeId: string | null,
@@ -2136,59 +2140,119 @@ export function createHttpHandler(
         .filter((id): id is string => Boolean(id && id.trim().length > 0));
     };
 
-    try {
-      const byProject = await client.listEntities("initiative", {
-        project_id: projectId,
-        limit: 1000,
-      });
-      const byProjectIds = mapInitiativeIds(
-        Array.isArray(byProject.data) ? byProject.data : [],
-        { projectId }
-      );
-      if (byProjectIds.length > 0) {
-        projectInitiativeIdsCache.set(projectId, {
-          expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
-          ids: byProjectIds,
-        });
-        return byProjectIds;
-      }
-    } catch {
-      // continue to command-center fallback
-    }
-
-    try {
-      const byCommandCenter = await client.listEntities("initiative", {
-        command_center_id: projectId,
-        limit: 1000,
-      });
-      const byCommandCenterIds = mapInitiativeIds(
-        Array.isArray(byCommandCenter.data) ? byCommandCenter.data : [],
-        { commandCenterId: projectId }
-      );
-      if (byCommandCenterIds.length > 0) {
-        projectInitiativeIdsCache.set(projectId, {
-          expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
-          ids: byCommandCenterIds,
-        });
-        return byCommandCenterIds;
-      }
-    } catch {
-      // continue to unfiltered fallback
-    }
-
-    try {
-      const allInitiatives = await client.listEntities("initiative", {
-        limit: 1000,
-      });
-      const fallbackIds = mapInitiativeIds(
-        Array.isArray(allInitiatives.data) ? allInitiatives.data : [],
-        { commandCenterId: projectId }
-      );
+    const cacheAndReturn = (ids: string[]): string[] => {
       projectInitiativeIdsCache.set(projectId, {
         expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
-        ids: fallbackIds,
+        ids,
       });
-      return fallbackIds;
+      return ids;
+    };
+
+    const isKnownCommandCenterScope = async (): Promise<boolean> => {
+      const cachedScope = commandCenterScopeCache.get(projectId);
+      if (cachedScope && cachedScope.expiresAt > Date.now()) {
+        return cachedScope.exists;
+      }
+
+      const cacheScope = (exists: boolean): boolean => {
+        commandCenterScopeCache.set(projectId, {
+          expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
+          exists,
+        });
+        return exists;
+      };
+
+      const hasId = (rows: unknown[]): boolean =>
+        rows.some((entry) => {
+          const record = entry as Record<string, unknown>;
+          const id = pickString(record, ["id"]) ?? "";
+          return id === projectId;
+        });
+
+      try {
+        const byId = await client.listEntities("command_center", {
+          id: projectId,
+          limit: 1,
+        });
+        const byIdRows = Array.isArray(byId.data) ? byId.data : [];
+        if (hasId(byIdRows)) return cacheScope(true);
+      } catch {
+        // continue to all-command-center fallback
+      }
+
+      try {
+        const all = await client.listEntities("command_center", {
+          limit: 1000,
+        });
+        const allRows = Array.isArray(all.data) ? all.data : [];
+        return cacheScope(hasId(allRows));
+      } catch {
+        return cacheScope(false);
+      }
+    };
+
+    const listInitiativesWithFilters = async (
+      filters: Record<string, unknown>
+    ): Promise<unknown[]> => {
+      const result = await client.listEntities("initiative", {
+        ...filters,
+        limit: 1000,
+      });
+      return Array.isArray(result.data) ? result.data : [];
+    };
+
+    let allInitiativeRows: unknown[] | null = null;
+    const getAllInitiativeRows = async (): Promise<unknown[]> => {
+      if (allInitiativeRows) return allInitiativeRows;
+      allInitiativeRows = await listInitiativesWithFilters({});
+      return allInitiativeRows;
+    };
+
+    try {
+      // Workspace selection in the plugin uses command-center IDs.
+      // Resolve that scope first so broad project queries never leak cross-workspace items.
+      const byCommandCenterIds = mapInitiativeIds(
+        await listInitiativesWithFilters({ command_center_id: projectId }),
+        { commandCenterId: projectId }
+      );
+      if (byCommandCenterIds.length > 0) return cacheAndReturn(byCommandCenterIds);
+    } catch {
+      // continue to command-center all-rows fallback
+    }
+
+    try {
+      const byCommandCenterIdsFromAll = mapInitiativeIds(
+        await getAllInitiativeRows(),
+        { commandCenterId: projectId }
+      );
+      if (byCommandCenterIdsFromAll.length > 0) return cacheAndReturn(byCommandCenterIdsFromAll);
+    } catch {
+      // continue to project-id fallback
+    }
+
+    try {
+      if (await isKnownCommandCenterScope()) {
+        return cacheAndReturn([]);
+      }
+    } catch {
+      // continue to project-id fallback
+    }
+
+    try {
+      const byProjectIds = mapInitiativeIds(
+        await listInitiativesWithFilters({ project_id: projectId }),
+        { projectId }
+      );
+      if (byProjectIds.length > 0) return cacheAndReturn(byProjectIds);
+    } catch {
+      // continue to all-rows project-id fallback
+    }
+
+    try {
+      const fallbackProjectIds = mapInitiativeIds(await getAllInitiativeRows(), {
+        projectId,
+      });
+      return cacheAndReturn(fallbackProjectIds);
     } catch {
       return [];
     }
@@ -3384,8 +3448,8 @@ export function createHttpHandler(
     summarizeActivityHeadline,
     getLiveAgents: ({ initiative, projectId, includeIdle }) =>
       client.getLiveAgents({ initiative, projectId, includeIdle }),
-    getLiveInitiatives: ({ id, projectId, limit }) =>
-      client.getLiveInitiatives({ id, projectId, limit }),
+    getLiveInitiatives: ({ id, projectId, limit, offset }) =>
+      client.getLiveInitiatives({ id, projectId, limit, offset }),
     getLiveDecisions: ({ status, projectId, limit }) =>
       client.getLiveDecisions({ status, projectId, limit }),
     getHandoffs: () => client.getHandoffs(),

@@ -21,11 +21,15 @@ type EntityClientLike = {
   listEntities: (
     type: string,
     input: {
+      id?: string;
+      ids?: string[] | string;
+      search?: string;
       status?: string;
       initiative_id?: string;
       project_id?: string;
       command_center_id?: string;
       limit?: number;
+      offset?: number;
     }
   ) => Promise<unknown>;
 };
@@ -350,18 +354,30 @@ export function registerEntitiesRoutes<TReq, TRes>(
     }
 
     const status = query.get("status") ?? undefined;
+    const id = query.get("id") ?? undefined;
+    const ids = query
+      .get("ids")
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    const search = query.get("search")?.trim() || undefined;
     const initiativeId = query.get("initiative_id") ?? undefined;
     const projectId = query.get("project_id") ?? undefined;
     const commandCenterId = query.get("command_center_id") ?? undefined;
     const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
+    const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
 
     try {
       const data = await deps.client.listEntities(type, {
+        id,
+        ids,
+        search,
         status,
         initiative_id: initiativeId,
         project_id: projectId,
         command_center_id: commandCenterId,
         limit: Number.isFinite(limit) ? limit : undefined,
+        offset: Number.isFinite(offset) ? offset : undefined,
       });
       if (type.trim().toLowerCase() === "initiative") {
         const payload = data as Record<string, unknown>;
@@ -371,15 +387,47 @@ export function registerEntitiesRoutes<TReq, TRes>(
                 Boolean(row && typeof row === "object")
             )
           : [];
+        const filteredById = rawRows.filter((row) => {
+          const rowId = deps.pickString(row, ["id"])?.trim();
+          if (!rowId) return false;
+          if (id && rowId !== id.trim()) return false;
+          if (ids && ids.length > 0 && !ids.includes(rowId)) return false;
+          return true;
+        });
+        const searchTokens =
+          typeof search === "string" && search.length > 0
+            ? Array.from(
+                new Set(
+                  search
+                    .toLowerCase()
+                    .split(/\s+/)
+                    .map((token) => token.trim())
+                    .filter((token) => token.length > 0)
+                )
+              )
+            : [];
+        const searchedRows =
+          searchTokens.length > 0
+            ? filteredById.filter((row) => {
+                const haystack = [
+                  deps.pickString(row, ["title", "name"]) ?? "",
+                  deps.pickString(row, ["summary", "description"]) ?? "",
+                  deps.pickString(row, ["status"]) ?? "",
+                ]
+                  .join(" ")
+                  .toLowerCase();
+                return searchTokens.every((token) => haystack.includes(token));
+              })
+            : filteredById;
         const workspaceScope = (commandCenterId ?? "").trim();
         const rows =
           workspaceScope.length > 0
-            ? rawRows.filter((row) => {
+            ? searchedRows.filter((row) => {
                 const rowScope =
                   deps.pickString(row, ["command_center_id", "commandCenterId"]) ?? "";
                 return rowScope.trim() === workspaceScope;
               })
-            : rawRows;
+            : searchedRows;
         deps.sendJson(res, 200, {
           ...payload,
           data: deps.applyLocalInitiativeOverrides(rows),
@@ -408,7 +456,22 @@ export function registerEntitiesRoutes<TReq, TRes>(
             created_at: null,
             updated_at: null,
           }))
-          .filter((item) => (initiativeId ? item.id === initiativeId : true));
+          .filter((item) => (initiativeId ? item.id === initiativeId : true))
+          .filter((item) => (id ? item.id === id : true))
+          .filter((item) =>
+            ids && ids.length > 0 ? ids.includes(item.id) : true
+          )
+          .filter((item) => {
+            if (!search) return true;
+            const searchTokens = search
+              .toLowerCase()
+              .split(/\s+/)
+              .map((token) => token.trim())
+              .filter((token) => token.length > 0);
+            if (searchTokens.length === 0) return true;
+            const haystack = `${item.title} ${item.summary ?? ""} ${item.status ?? ""}`.toLowerCase();
+            return searchTokens.every((token) => haystack.includes(token));
+          });
         deps.sendJson(res, 200, {
           data: deps.applyLocalInitiativeOverrides(snapshotInitiatives),
           localFallback: true,

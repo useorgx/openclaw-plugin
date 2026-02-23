@@ -612,6 +612,22 @@ export class OrgXClient {
   ): Promise<{ data: Entity[]; pagination: { total: number; has_more: boolean } }> {
     const params = new URLSearchParams({ type });
     if (filters?.status) params.set("status", filters.status);
+    if (typeof filters?.offset === "number" && Number.isFinite(filters.offset)) {
+      params.set("offset", String(Math.max(0, Math.floor(filters.offset))));
+    }
+    if (filters?.search) params.set("search", String(filters.search));
+    if (filters?.id) params.set("id", String(filters.id));
+    if (filters?.ids) {
+      const values = Array.isArray(filters.ids)
+        ? filters.ids
+        : String(filters.ids)
+            .split(",")
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0);
+      if (values.length > 0) {
+        params.set("ids", values.join(","));
+      }
+    }
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
     if (filters?.project_id) params.set("project_id", String(filters.project_id));
@@ -774,11 +790,17 @@ export class OrgXClient {
   async getLiveInitiatives(params?: {
     id?: string | null;
     limit?: number;
+    offset?: number;
     projectId?: string | null;
-  }): Promise<{ initiatives: unknown[]; total: number }> {
+  }): Promise<{
+    initiatives: unknown[];
+    total: number;
+    pagination?: { limit?: number; offset?: number; has_more?: boolean };
+  }> {
     const query = this.buildQuery({
       id: params?.id ?? null,
       limit: params?.limit ?? null,
+      offset: params?.offset ?? null,
       project_id: params?.projectId ?? null,
     });
     return this.get(`/api/client/live/initiatives${query}`);

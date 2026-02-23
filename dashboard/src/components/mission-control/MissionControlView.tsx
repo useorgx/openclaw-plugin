@@ -13,6 +13,7 @@ import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { useNextUpQueue } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
+import { useInitiativeSearch } from '@/hooks/useInitiativeSearch';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { captureTelemetry } from '@/lib/telemetry';
@@ -274,6 +275,24 @@ function formatLocalTimestamp(value: string | null | undefined): string {
   }
 }
 
+function mergeInitiativeForSearch(existing: Initiative, incoming: Initiative): Initiative {
+  return {
+    ...incoming,
+    ...existing,
+    rawStatus: existing.rawStatus ?? incoming.rawStatus ?? null,
+    priority: existing.priority ?? incoming.priority ?? null,
+    targetDate: existing.targetDate ?? incoming.targetDate ?? null,
+    createdAt: existing.createdAt ?? incoming.createdAt ?? null,
+    updatedAt: existing.updatedAt ?? incoming.updatedAt ?? null,
+    description: existing.description ?? incoming.description,
+    activeAgents: Math.max(existing.activeAgents, incoming.activeAgents),
+    totalAgents: Math.max(existing.totalAgents, incoming.totalAgents),
+    avatars: existing.avatars?.length ? existing.avatars : incoming.avatars,
+    workstreams: existing.workstreams?.length ? existing.workstreams : incoming.workstreams,
+    health: existing.health > 0 ? existing.health : incoming.health,
+  };
+}
+
 function MissionControlInner({
   initiatives,
   runtimeInstances,
@@ -354,6 +373,35 @@ function MissionControlInner({
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
+  const normalizedSearchQuery = searchQuery.trim();
+  const initiativeSearch = useInitiativeSearch(
+    normalizedSearchQuery,
+    normalizedSearchQuery.length >= 2,
+    workspaceInitiativeId
+  );
+
+  const searchableInitiatives = useMemo(() => {
+    if (normalizedSearchQuery.length < 2 || !initiativeSearch.data?.length) {
+      return initiatives;
+    }
+
+    const merged = new Map<string, Initiative>();
+    for (const initiative of initiatives) {
+      merged.set(initiative.id, initiative);
+    }
+    for (const initiative of initiativeSearch.data) {
+      const existing = merged.get(initiative.id);
+      merged.set(
+        initiative.id,
+        existing ? mergeInitiativeForSearch(existing, initiative) : initiative
+      );
+    }
+    return Array.from(merged.values());
+  }, [initiativeSearch.data, initiatives, normalizedSearchQuery.length]);
+  const searchResultIds = useMemo(
+    () => new Set((initiativeSearch.data ?? []).map((initiative) => initiative.id)),
+    [initiativeSearch.data]
+  );
 
   useEffect(() => {
     if (!bulkInitiativeNotice) return;
@@ -372,7 +420,7 @@ function MissionControlInner({
       .split(/\s+/)
       .filter(Boolean);
 
-    return initiatives.filter((initiative) => {
+    return searchableInitiatives.filter((initiative) => {
       if (statusFilters.length > 0) {
         const statusCandidates = [
           toStatusKey(initiative.status),
@@ -415,6 +463,7 @@ function MissionControlInner({
       }
 
       if (queryTokens.length === 0) return true;
+      if (searchResultIds.has(initiative.id)) return true;
       const haystack = [
         initiative.name,
         initiative.description ?? '',
@@ -428,8 +477,9 @@ function MissionControlInner({
       return queryTokens.every((token) => haystack.includes(token));
     });
   }, [
-    initiatives,
+    searchableInitiatives,
     searchQuery,
+    searchResultIds,
     statusFilters,
     dateField,
     datePreset,
