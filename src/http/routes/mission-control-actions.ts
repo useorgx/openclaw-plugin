@@ -992,7 +992,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           const taskResult = await deps.client.listEntities("task", {
             initiative_id: initiativeId,
             workstream_id: workstreamId,
-            limit: 1000,
+            limit: 100,
           });
           const tasks = Array.isArray(taskResult?.data) ? taskResult.data : [];
           const statesToReset = new Set(["running", "blocked"]);
@@ -1272,7 +1272,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             const response = await deps.client.listEntities("task", {
               initiative_id: item.initiativeId,
               workstream_id: item.workstreamId,
-              limit: 1000,
+              limit: 100,
             });
             taskRows = Array.isArray(response?.data) ? response.data : [];
           } catch {

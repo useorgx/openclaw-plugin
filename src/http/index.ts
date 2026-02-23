@@ -216,8 +216,25 @@ async function resolveSkillPackOverrides(input: {
 }
 
 function safeErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
+  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const normalized = raw.trim().toLowerCase();
+  if (normalized.length > 0) {
+    if (
+      normalized.includes("signal is aborted") ||
+      normalized.includes("aborterror") ||
+      normalized.includes("request cancelled") ||
+      normalized.includes("request canceled")
+    ) {
+      return "request timed out before upstream completed";
+    }
+    if (normalized.includes("timed out") || normalized.includes("timeout")) {
+      return "request timed out before upstream completed";
+    }
+    if (normalized.includes("failed to fetch") || normalized.includes("network")) {
+      return "network request failed";
+    }
+    return raw;
+  }
   return "Unexpected error";
 }
 
@@ -339,6 +356,16 @@ const NEXT_UP_AGENT_CATALOG_TIMEOUT_MS = readPositiveIntEnv(
   "ORGX_NEXT_UP_AGENT_CATALOG_TIMEOUT_MS",
   900,
   { min: 100, max: 20_000 }
+);
+const NEXT_UP_LIVE_SESSIONS_TIMEOUT_MS = readPositiveIntEnv(
+  "ORGX_NEXT_UP_LIVE_SESSIONS_TIMEOUT_MS",
+  2_500,
+  { min: 250, max: 30_000 }
+);
+const PROJECT_SCOPE_LOOKUP_TIMEOUT_MS = readPositiveIntEnv(
+  "ORGX_PROJECT_SCOPE_LOOKUP_TIMEOUT_MS",
+  2_500,
+  { min: 250, max: 20_000 }
 );
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
@@ -2188,10 +2215,14 @@ export function createHttpHandler(
         });
 
       try {
-        const byId = await client.listEntities("command_center", {
-          id: projectId,
-          limit: 1,
-        });
+        const byId = await withSoftTimeout(
+          "command center scope lookup",
+          PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
+          client.listEntities("command_center", {
+            id: projectId,
+            limit: 1,
+          })
+        );
         const byIdRows = Array.isArray(byId.data) ? byId.data : [];
         if (hasId(byIdRows)) return cacheScope(true);
       } catch {
@@ -2199,9 +2230,13 @@ export function createHttpHandler(
       }
 
       try {
-        const all = await client.listEntities("command_center", {
-          limit: 1000,
-        });
+        const all = await withSoftTimeout(
+          "command center catalog lookup",
+          PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
+          client.listEntities("command_center", {
+            limit: 100,
+          })
+        );
         const allRows = Array.isArray(all.data) ? all.data : [];
         return cacheScope(hasId(allRows));
       } catch {
@@ -2212,10 +2247,14 @@ export function createHttpHandler(
     const listInitiativesWithFilters = async (
       filters: Record<string, unknown>
     ): Promise<unknown[]> => {
-      const result = await client.listEntities("initiative", {
-        ...filters,
-        limit: 1000,
-      });
+      const result = await withSoftTimeout(
+        "initiative scope lookup",
+        PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
+        client.listEntities("initiative", {
+          ...filters,
+          limit: 100,
+        })
+      );
       return Array.isArray(result.data) ? result.data : [];
     };
 
@@ -2252,9 +2291,10 @@ export function createHttpHandler(
     }
 
     try {
-      if (await isKnownCommandCenterScope()) {
-        return cacheAndReturn([]);
-      }
+      // Do not hard-return empty for known command-center scopes here.
+      // Some tenants only populate project_id links, so we continue through
+      // project-id fallbacks before concluding the scope is empty.
+      await isKnownCommandCenterScope();
     } catch {
       // continue to project-id fallback
     }
@@ -2381,7 +2421,14 @@ export function createHttpHandler(
       initiativeStatusById.set(id, initiative.status || "active");
     }
 
-    const initiativeResult = await listEntitiesSafe(client, "initiative", { limit: 500 });
+    const initiativeResult = await withSoftTimeout(
+      "initiative list",
+      PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
+      listEntitiesSafe(client, "initiative", { limit: 500 })
+    ).catch((err: unknown) => ({
+      items: [] as Entity[],
+      warning: `initiative unavailable (${safeErrorMessage(err)})`,
+    }));
     if (initiativeResult.warning) degraded.push(initiativeResult.warning);
     const initiatives = initiativeResult.items;
     for (const entity of initiatives) {
@@ -2450,11 +2497,15 @@ export function createHttpHandler(
     const buildSessionFallbackQueue = async (): Promise<NextUpQueueItem[]> => {
       let sessionTree: SessionTreeResponse | null = null;
       try {
-        sessionTree = await client.getLiveSessions({
-          initiative: requestedInitiativeId,
-          projectId: requestedProjectId,
-          limit: 500,
-        });
+        sessionTree = await withSoftTimeout(
+          "live sessions",
+          NEXT_UP_LIVE_SESSIONS_TIMEOUT_MS,
+          client.getLiveSessions({
+            initiative: requestedInitiativeId,
+            projectId: requestedProjectId,
+            limit: 500,
+          })
+        );
       } catch (err: unknown) {
         degraded.push(`live sessions fallback unavailable (${safeErrorMessage(err)})`);
       }

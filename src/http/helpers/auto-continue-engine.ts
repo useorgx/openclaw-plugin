@@ -3390,7 +3390,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         const taskResult = await client.listEntities("task", {
           initiative_id: initiativeId,
           workstream_id: workstreamId,
-          limit: 1000,
+          limit: 100,
         });
         const taskRows = Array.isArray(taskResult?.data) ? taskResult.data : [];
         if (taskRows.length === 0) {
