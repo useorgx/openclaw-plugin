@@ -1,6 +1,9 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+
+const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
 
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
@@ -29,11 +32,34 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
   const embedMode = input.embedMode ?? false;
   const demoMode = isDemoModeEnabled();
   const queryClient = useQueryClient();
+  const liveDataInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (liveDataInvalidateTimerRef.current) {
+        clearTimeout(liveDataInvalidateTimerRef.current);
+        liveDataInvalidateTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const scheduleLiveDataInvalidate = () => {
+    if (liveDataInvalidateTimerRef.current) {
+      clearTimeout(liveDataInvalidateTimerRef.current);
+      liveDataInvalidateTimerRef.current = null;
+    }
+    liveDataInvalidateTimerRef.current = setTimeout(() => {
+      liveDataInvalidateTimerRef.current = null;
+      void queryClient.invalidateQueries({ queryKey: ['live-data'] });
+    }, LIVE_DATA_INVALIDATE_DEBOUNCE_MS);
+  };
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['mission-control-next-up'] });
-    await queryClient.invalidateQueries({ queryKey: ['mission-control-graph'] });
-    await queryClient.invalidateQueries({ queryKey: ['live-data'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['mission-control-next-up'] }),
+      queryClient.invalidateQueries({ queryKey: ['mission-control-graph'] }),
+    ]);
+    scheduleLiveDataInvalidate();
   };
 
   const moveQueueItem = async (payload: {
@@ -368,26 +394,32 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
         if (!isUnknownApiEndpointError(response, body)) {
           throw new Error(normalizeErrorMessage(response, body, 'Failed to apply bulk queue action'));
         }
-        let updated = 0;
-        let failed = 0;
-        const errors: string[] = [];
-        for (const item of payload.items) {
-          try {
-            if (payload.action === 'remove') {
-              await removeQueueItem(item);
-            } else {
-              await moveQueueItem({
-                initiativeId: item.initiativeId,
-                workstreamId: item.workstreamId,
-                placement: payload.action === 'move_top' ? 'top' : 'bottom',
-              });
+        const settled = await Promise.all(
+          payload.items.map(async (item) => {
+            try {
+              if (payload.action === 'remove') {
+                await removeQueueItem(item);
+              } else {
+                await moveQueueItem({
+                  initiativeId: item.initiativeId,
+                  workstreamId: item.workstreamId,
+                  placement: payload.action === 'move_top' ? 'top' : 'bottom',
+                });
+              }
+              return { ok: true as const, error: null };
+            } catch (err) {
+              return {
+                ok: false as const,
+                error: err instanceof Error ? err.message : 'Queue action failed',
+              };
             }
-            updated += 1;
-          } catch (err) {
-            failed += 1;
-            errors.push(err instanceof Error ? err.message : 'Queue action failed');
-          }
-        }
+          })
+        );
+        const updated = settled.filter((entry) => entry.ok).length;
+        const failed = settled.length - updated;
+        const errors = settled
+          .filter((entry) => !entry.ok && entry.error)
+          .map((entry) => entry.error as string);
         return {
           ok: failed === 0,
           updated,

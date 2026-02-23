@@ -5,6 +5,8 @@ import type {
   LiveDecision,
   LiveSnapshotResponse,
   LiveSnapshotAgent,
+  LiveChatSnapshot,
+  ChatThreadSummary,
   RuntimeInstance,
   SessionTreeResponse,
   HandoffSummary,
@@ -39,6 +41,10 @@ interface JsonFetchResult<T> {
   error: string | null;
 }
 
+interface FetchJsonOptions {
+  timeoutMs?: number;
+}
+
 interface DecisionMutationResult {
   id: string;
   ok: boolean;
@@ -70,6 +76,8 @@ const DEFAULT_MAX_HANDOFFS = 80;
 const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
+const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 3_000;
+const SNAPSHOT_FALLBACK_STAGGER_MS = 180;
 const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   pendingTotal: 0,
   pendingByQueue: {},
@@ -80,6 +88,11 @@ const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   lastReplaySuccessAt: null,
   lastReplayFailureAt: null,
   lastReplayError: null,
+};
+const EMPTY_CHAT_SNAPSHOT: LiveChatSnapshot = {
+  threads: [],
+  total: 0,
+  updatedAt: null,
 };
 
 const SESSION_STATUS_PRIORITY: Record<string, number> = {
@@ -854,9 +867,35 @@ function deriveSessionsFromFallbacks(
   };
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<JsonFetchResult<T>> {
+async function fetchJson<T>(
+  url: string,
+  init?: RequestInit,
+  options?: FetchJsonOptions
+): Promise<JsonFetchResult<T>> {
+  const timeoutMs =
+    typeof options?.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
+      ? Math.max(100, Math.floor(options.timeoutMs))
+      : 0;
+  const timeoutController = timeoutMs > 0 ? new AbortController() : null;
+  const upstreamSignal = init?.signal;
+  const signal = timeoutController?.signal ?? upstreamSignal;
+  const requestInit: RequestInit = signal ? { ...(init ?? {}), signal } : (init ?? {});
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let detachAbortListener: (() => void) | null = null;
+
+  if (timeoutController) {
+    if (upstreamSignal?.aborted) {
+      timeoutController.abort();
+    } else if (upstreamSignal) {
+      const onAbort = () => timeoutController.abort();
+      upstreamSignal.addEventListener('abort', onAbort, { once: true });
+      detachAbortListener = () => upstreamSignal.removeEventListener('abort', onAbort);
+    }
+    timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
+  }
+
   try {
-    const response = await fetch(url, init);
+    const response = await fetch(url, requestInit);
     const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
     const isJson = contentType.includes('application/json');
 
@@ -911,6 +950,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<JsonFetchR
       data: null,
       error: err instanceof Error ? err.message : 'Network error',
     };
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (detachAbortListener) detachAbortListener();
   }
 }
 
@@ -923,6 +965,7 @@ function buildLiveData(
   outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
   generatedAt: string | null = null,
   runtimeInstances: RuntimeInstance[] = [],
+  chat: LiveChatSnapshot = EMPTY_CHAT_SNAPSHOT,
   extra?: {
     workSliceProjections?: WorkSliceProjectionV2[];
     timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
@@ -952,6 +995,7 @@ function buildLiveData(
     decisions,
     sliceRuns,
     outbox: normalizeOutboxStatus(outbox),
+    chat: normalizeChatSnapshot(chat),
     runtimeInstances,
     workSliceProjections: extra?.workSliceProjections ?? [],
     timelineNarrative: extra?.timelineNarrative ?? [],
@@ -993,6 +1037,80 @@ function sameRuntimeInstancesShape(
       a[i].lastEventAt !== b[i].lastEventAt ||
       a[i].runId !== b[i].runId ||
       a[i].progressPct !== b[i].progressPct
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeChatThreads(input: ChatThreadSummary[] | null | undefined): ChatThreadSummary[] {
+  if (!Array.isArray(input) || input.length === 0) return [];
+  const byId = new Map<string, ChatThreadSummary>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object' || typeof item.id !== 'string') continue;
+    const id = item.id.trim();
+    if (!id) continue;
+    byId.set(id, {
+      ...item,
+      id,
+      watcherIds: Array.isArray(item.watcherIds) ? item.watcherIds.filter(Boolean) : [],
+      watcherNames: Array.isArray(item.watcherNames) ? item.watcherNames.filter(Boolean) : [],
+      latestLaunch:
+        item.latestLaunch && typeof item.latestLaunch === 'object'
+          ? {
+              ...item.latestLaunch,
+              watcherIds: Array.isArray(item.latestLaunch.watcherIds)
+                ? item.latestLaunch.watcherIds.filter(Boolean)
+                : [],
+              watcherNames: Array.isArray(item.latestLaunch.watcherNames)
+                ? item.latestLaunch.watcherNames.filter(Boolean)
+                : [],
+              warnings: Array.isArray(item.latestLaunch.warnings)
+                ? item.latestLaunch.warnings.filter(Boolean)
+                : [],
+            }
+          : null,
+    });
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => toEpoch(b.lastActivityAt ?? b.updatedAt) - toEpoch(a.lastActivityAt ?? a.updatedAt)
+  );
+}
+
+function normalizeChatSnapshot(input: LiveChatSnapshot | null | undefined): LiveChatSnapshot {
+  if (!input || typeof input !== 'object') return EMPTY_CHAT_SNAPSHOT;
+  const threads = normalizeChatThreads(Array.isArray(input.threads) ? input.threads : []);
+  const total =
+    typeof input.total === 'number' && Number.isFinite(input.total)
+      ? Math.max(threads.length, Math.floor(input.total))
+      : threads.length;
+  return {
+    threads,
+    total,
+    updatedAt: typeof input.updatedAt === 'string' ? input.updatedAt : null,
+  };
+}
+
+function sameChatSnapshotShape(
+  left: LiveChatSnapshot | undefined,
+  right: LiveChatSnapshot | undefined
+): boolean {
+  const a = left ?? EMPTY_CHAT_SNAPSHOT;
+  const b = right ?? EMPTY_CHAT_SNAPSHOT;
+  if (a.total !== b.total || a.updatedAt !== b.updatedAt) return false;
+  if (a.threads.length !== b.threads.length) return false;
+  for (let i = 0; i < a.threads.length; i += 1) {
+    const l = a.threads[i];
+    const r = b.threads[i];
+    if (
+      l.id !== r.id ||
+      l.status !== r.status ||
+      l.lastActivityAt !== r.lastActivityAt ||
+      l.lastSnippet !== r.lastSnippet ||
+      l.assigneeId !== r.assigneeId ||
+      l.launchCount !== r.launchCount ||
+      l.messageCount !== r.messageCount
     ) {
       return false;
     }
@@ -1380,6 +1498,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       handoffs: [],
       decisions: [],
       sliceRuns: [],
+      chat: EMPTY_CHAT_SNAPSHOT,
       runtimeInstances: [],
       workSliceProjections: [],
       timelineNarrative: [],
@@ -1406,6 +1525,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       outboxInput: OutboxStatus | null = null,
       generatedAtInput: string | null = null,
       runtimeInstancesInput: RuntimeInstance[] | null = null,
+      chatInput: LiveChatSnapshot | null = null,
       v2Input: {
         workSliceProjections?: WorkSliceProjectionV2[] | null;
         timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
@@ -1458,6 +1578,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
               ? []
               : prev.runtimeInstances ?? []
             : normalizeRuntimeInstances(runtimeInstancesInput);
+        const chat =
+          chatInput === null
+            ? resetScope
+              ? EMPTY_CHAT_SNAPSHOT
+              : prev.chat ?? EMPTY_CHAT_SNAPSHOT
+            : normalizeChatSnapshot(chatInput);
         const workSliceProjections =
           v2Input?.workSliceProjections == null
             ? resetScope
@@ -1510,6 +1636,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameDecisionShape(prev.decisions, decisions) &&
           sameSliceRunsShape(prev.sliceRuns, sliceRuns) &&
           sameOutboxShape(prev.outbox, outbox) &&
+          sameChatSnapshotShape(prev.chat, chat) &&
           sameRuntimeInstancesShape(prev.runtimeInstances, runtimeInstances) &&
           sameWorkSliceProjectionShape(prev.workSliceProjections ?? [], workSliceProjections) &&
           sameTimelineNarrativeShape(prev.timelineNarrative ?? [], timelineNarrative) &&
@@ -1535,6 +1662,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           outbox,
           generatedAtInput,
           runtimeInstances,
+          chat,
           {
             workSliceProjections,
             timelineNarrative,
@@ -1598,19 +1726,87 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           { label: 'live/snapshot', url: `/orgx/api/live/snapshot?${query.toString()}` },
         ];
         const errors: string[] = [];
+        const controllers = endpoints.map(() => new AbortController());
         let snapshot: LiveSnapshotResponse | null = null;
         let sawAuthFailure = false;
+        const snapshotAttempts = endpoints.map((endpoint, index) =>
+          (async () => {
+            if (index > 0) {
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, index * SNAPSHOT_FALLBACK_STAGGER_MS);
+              });
+            }
+            const snapshotRes = await fetchJson<LiveSnapshotResponse>(
+              endpoint.url,
+              { signal: controllers[index].signal },
+              { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
+            );
+            if (snapshotRes.ok && snapshotRes.data) {
+              return {
+                snapshot: snapshotRes.data,
+                index,
+              };
+            }
+            const failure = new Error(
+              `${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`
+            ) as Error & { status?: number };
+            failure.status = snapshotRes.status;
+            throw failure;
+          })()
+        );
 
-        for (const endpoint of endpoints) {
-          const snapshotRes = await fetchJson<LiveSnapshotResponse>(endpoint.url);
-          if (snapshotRes.ok && snapshotRes.data) {
-            snapshot = snapshotRes.data;
-            break;
+        try {
+          const winner = await new Promise<{
+            snapshot: LiveSnapshotResponse;
+            index: number;
+          }>((resolve, reject) => {
+            if (snapshotAttempts.length === 0) {
+              reject([new Error('No snapshot endpoints configured')]);
+              return;
+            }
+            let settled = false;
+            let remaining = snapshotAttempts.length;
+            const failures: unknown[] = [];
+            snapshotAttempts.forEach((attempt) => {
+              attempt
+                .then((value) => {
+                  if (settled) return;
+                  settled = true;
+                  resolve(value);
+                })
+                .catch((error) => {
+                  failures.push(error);
+                  remaining -= 1;
+                  if (!settled && remaining === 0) {
+                    reject(failures);
+                  }
+                });
+            });
+          });
+          snapshot = winner.snapshot;
+          controllers.forEach((controller, idx) => {
+            if (idx !== winner.index) controller.abort();
+          });
+        } catch (err) {
+          const attemptErrors: unknown[] = Array.isArray(err) ? err : [err];
+          for (const entry of attemptErrors) {
+            const message =
+              entry instanceof Error
+                ? entry.message
+                : typeof entry === 'string'
+                ? entry
+                : 'Snapshot endpoint unavailable';
+            errors.push(message);
+            const statusCandidate =
+              entry && typeof entry === 'object' && 'status' in entry
+                ? Number((entry as { status?: unknown }).status)
+                : NaN;
+            if (statusCandidate === 401 || statusCandidate === 403) {
+              sawAuthFailure = true;
+            }
           }
-          if (snapshotRes.status === 401 || snapshotRes.status === 403) {
-            sawAuthFailure = true;
-          }
-          errors.push(`${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`);
+        } finally {
+          controllers.forEach((controller) => controller.abort());
         }
 
         if (!snapshot) {
@@ -1634,6 +1830,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         const workSliceProjections = normalizeWorkSliceProjections(
           Array.isArray(snapshot.projections) ? snapshot.projections : []
         );
+        const chat = normalizeChatSnapshot(snapshot.chat ?? null);
         const timelineNarrative = normalizeTimelineNarrative(
           Array.isArray(snapshot.timelineNarrative) ? snapshot.timelineNarrative : []
         );
@@ -1661,6 +1858,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           snapshot.outbox ?? null,
           snapshot.generatedAt ?? null,
           snapshot.runtimeInstances ?? null,
+          chat,
           {
             workSliceProjections,
             timelineNarrative,
@@ -2011,6 +2209,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           outbox: OutboxStatus | null;
           generatedAt: string;
           runtimeInstances: RuntimeInstance[] | null;
+          chat: LiveChatSnapshot | null;
           v2: {
             workSliceProjections?: WorkSliceProjectionV2[] | null;
             timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
@@ -2053,6 +2252,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           snapshot.outbox,
           snapshot.generatedAt,
           snapshot.runtimeInstances,
+          snapshot.chat,
           snapshot.v2
         );
         return;
@@ -2199,6 +2399,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           outbox?: OutboxStatus;
           generatedAt?: string;
           runtimeInstances?: RuntimeInstance[];
+          chat?: LiveChatSnapshot;
         };
 
         const generatedAt =
@@ -2221,6 +2422,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           runtimeInstances: Array.isArray(payload.runtimeInstances)
             ? payload.runtimeInstances
             : null,
+          chat: normalizeChatSnapshot(payload.chat ?? null),
           v2: {
             workSliceProjections: Array.isArray(payload.projections)
               ? normalizeWorkSliceProjections(payload.projections)

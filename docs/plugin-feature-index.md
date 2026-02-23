@@ -70,6 +70,7 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - Entity endpoints:
   - `GET /orgx/api/entities?type=...`
   - `POST /orgx/api/entities`
+  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `project_id` (legacy compatibility)
 - Live endpoints:
   - `GET /orgx/api/dashboard-bundle`
   - `GET /orgx/api/live/snapshot`
@@ -160,3 +161,29 @@ Ranking scale:
 - Added run control shortcuts in Session Detail:
   - pause / resume / cancel actions
   - create checkpoint + rollback to latest checkpoint
+
+## 10) Chat UX Reference Suite (New)
+
+- Execution index:
+  - `docs/ux/chat-reference-index.md`
+- Component and behavior references:
+  - `docs/ux/chat-architecture-principles.md`
+  - `docs/ux/chat-composer-component-spec.md`
+  - `docs/ux/chat-thread-card-spec.md`
+  - `docs/ux/chat-thread-panel-spec.md`
+  - `docs/ux/chat-launch-orchestration-spec.md`
+  - `docs/ux/chat-initiative-linking-spec.md`
+  - `docs/ux/chat-attachments-spec.md`
+  - `docs/ux/chat-agent-mentions-spec.md`
+  - `docs/ux/chat-mobile-375-spec.md`
+  - `docs/ux/chat-motion-interaction-spec.md`
+  - `docs/ux/chat-accessibility-spec.md`
+  - `docs/ux/chat-empty-error-loading-spec.md`
+  - `docs/ux/chat-qa-checklist.md`
+  - `docs/ux/chat-copy-tone-guidelines.md`
+  - `docs/ux/chat-design-audit-report.md`
+- Product rollout/measurement references:
+  - `docs/product/chat-phase-rollout-plan.md`
+  - `docs/product/chat-telemetry-kpis.md`
+- Cross-repo schema contract reference:
+  - `../orgx/orgx/docs/product/chat-orgx-schema-mapping.md`

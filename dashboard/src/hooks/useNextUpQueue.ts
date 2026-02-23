@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NextUpQueueItem, NextUpQueueResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
@@ -22,9 +22,15 @@ interface NextUpActionInput {
   initiativeId: string;
   workstreamId: string;
   agentId?: string | null;
+  scope?: 'task' | 'milestone' | 'workstream';
+  maxParallelSlices?: number;
+  parallelMode?: 'iwmt';
 }
 
-interface StartAutoContinueInput extends NextUpActionInput {
+interface StartAutoContinueInput {
+  initiativeId: string;
+  workstreamId: string;
+  agentId?: string | null;
   tokenBudgetTokens?: number;
   scope?: 'initiative' | 'workstream';
   maxParallelSlices?: number;
@@ -38,11 +44,25 @@ interface NextUpPlayResponse {
   agentId?: string;
   dispatchMode?: 'slice' | 'fallback' | 'none' | 'pending' | string;
   sessionId?: string | null;
+  slice?: {
+    scope?: 'task' | 'milestone' | 'workstream';
+    taskIds?: string[];
+    taskCount?: number;
+    primaryTaskId?: string | null;
+  } | null;
+  executionPolicy?: {
+    domain?: string;
+    requiredSkills?: string[];
+    maxParallelAgents?: number | null;
+    maxSliceTasks?: number | null;
+  } | null;
   run?: unknown;
   error?: string;
   message?: string;
   code?: string;
 }
+
+const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
 
 function appendWorkspaceScopeParams(params: URLSearchParams, projectId: string): void {
   const normalized = projectId.trim();
@@ -168,12 +188,30 @@ function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
 }
 
 function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
+  const normalizedSliceTaskIds =
+    Array.isArray(item.sliceTaskIds) && item.sliceTaskIds.length > 0
+      ? item.sliceTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : item.nextTaskId
+        ? [item.nextTaskId]
+        : [];
+  const normalizedScope =
+    item.sliceScope === 'workstream' || item.sliceScope === 'milestone' || item.sliceScope === 'task'
+      ? item.sliceScope
+      : null;
+
   return {
     ...item,
     playbackState: item.queueState,
     autoIntentEnabled: hasExplicitAutoIntent(item),
     autoRuntimeState: resolveAutoRuntimeState(item),
     queueOrigin: item.queueOrigin ?? 'system',
+    sliceScope: normalizedScope,
+    sliceTaskIds: normalizedSliceTaskIds,
+    sliceTaskCount:
+      typeof item.sliceTaskCount === 'number' && Number.isFinite(item.sliceTaskCount)
+        ? Math.max(0, Math.floor(item.sliceTaskCount))
+        : normalizedSliceTaskIds.length,
+    executionPolicy: item.executionPolicy ?? null,
   };
 }
 
@@ -195,23 +233,46 @@ export function useNextUpQueue({
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
   const demoMode = isDemoModeEnabled();
+  const liveDataInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (liveDataInvalidateTimerRef.current) {
+        clearTimeout(liveDataInvalidateTimerRef.current);
+        liveDataInvalidateTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const queryKey = useMemo(
     () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
     [initiativeId, projectId, authToken, embedMode]
   );
 
+  const scheduleLiveDataInvalidate = () => {
+    if (liveDataInvalidateTimerRef.current) {
+      clearTimeout(liveDataInvalidateTimerRef.current);
+      liveDataInvalidateTimerRef.current = null;
+    }
+    liveDataInvalidateTimerRef.current = setTimeout(() => {
+      liveDataInvalidateTimerRef.current = null;
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.liveData({ authToken, embedMode, projectId }),
+      });
+    }, LIVE_DATA_INVALIDATE_DEBOUNCE_MS);
+  };
+
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.autoContinueStatus({ initiativeId, authToken, embedMode }),
-    });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
-    });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.liveData({ authToken, embedMode, projectId }),
-    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.autoContinueStatus({ initiativeId, authToken, embedMode }),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
+      }),
+    ]);
+    scheduleLiveDataInvalidate();
   };
 
   const query = useQuery<NextUpQueueResponse, Error>({
@@ -289,6 +350,12 @@ export function useNextUpQueue({
           initiativeId: input.initiativeId,
           workstreamId: input.workstreamId,
           agentId: input.agentId ?? undefined,
+          scope: input.scope ?? undefined,
+          maxParallelSlices:
+            typeof input.maxParallelSlices === 'number' && Number.isFinite(input.maxParallelSlices)
+              ? Math.max(1, Math.floor(input.maxParallelSlices))
+              : undefined,
+          parallelMode: input.parallelMode === 'iwmt' ? 'iwmt' : undefined,
           fastAck: true,
           // Explicit user play action should bypass soft spawn-guard rate limits.
           ignoreSpawnGuardRateLimit: true,

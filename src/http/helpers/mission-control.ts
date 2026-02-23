@@ -36,6 +36,10 @@ export interface MissionControlNode {
   behaviorApprovalStatus?: string | null;
   behaviorApprovalDecisionId?: string | null;
   behaviorAutomationLevel?: "auto" | "supervised" | "manual" | null;
+  sliceScopePreference?: "adaptive" | "task" | "milestone" | "workstream" | null;
+  maxSliceTasks?: number | null;
+  maxParallelAgents?: number | null;
+  dependencyMode?: "strict" | "relaxed" | null;
   updatedAt: string | null;
 }
 
@@ -50,6 +54,17 @@ export interface MissionControlEdge {
 // ---------------------------------------------------------------------------
 
 export type SliceScope = "task" | "milestone" | "workstream";
+export type SliceScopePreference = "adaptive" | SliceScope;
+
+export interface MissionControlExecutionPolicy {
+  domain: string;
+  requiredSkills: string[];
+  profile?: string | null;
+  sliceScopePreference?: SliceScopePreference | null;
+  maxSliceTasks?: number | null;
+  maxParallelAgents?: number | null;
+  dependencyMode?: "strict" | "relaxed" | null;
+}
 
 export const SLICE_SCOPE_MAX_TASKS: Record<SliceScope, number> = {
   task: 6,
@@ -376,6 +391,40 @@ function normalizeDependencies(record: Record<string, unknown>): string[] {
   return dedupeStrings([...direct, ...nested]);
 }
 
+function toPositiveInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = Math.floor(value);
+    return normalized > 0 ? normalized : null;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    const normalized = Math.floor(parsed);
+    return normalized > 0 ? normalized : null;
+  }
+  return null;
+}
+
+function normalizeSliceScopePreference(value: unknown): SliceScopePreference | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (normalized === "adaptive" || normalized === "task" || normalized === "milestone" || normalized === "workstream") {
+    return normalized as SliceScopePreference;
+  }
+  return null;
+}
+
+function normalizeDependencyMode(value: unknown): "strict" | "relaxed" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) return null;
+  if (normalized === "strict" || normalized === "relaxed") {
+    return normalized as "strict" | "relaxed";
+  }
+  return null;
+}
+
 function normalizeAssignedAgents(
   record: Record<string, unknown>
 ): MissionControlAssignedAgent[] {
@@ -591,6 +640,59 @@ function toMissionControlNode(
     normalizeBehaviorAutomationLevel(
       pickString(metadata, ["automation_level", "automationLevel"])
     );
+  const sliceScopePreference =
+    normalizeSliceScopePreference(
+      pickString(record, [
+        "slice_scope_preference",
+        "sliceScopePreference",
+        "scope_preference",
+        "scopePreference",
+      ])
+    ) ??
+    normalizeSliceScopePreference(
+      pickString(metadata, [
+        "slice_scope_preference",
+        "sliceScopePreference",
+        "scope_preference",
+        "scopePreference",
+      ])
+    );
+  const maxSliceTasks =
+    toPositiveInteger(
+      pickNumber(record, ["max_slice_tasks", "maxSliceTasks", "slice_max_tasks", "sliceMaxTasks"])
+    ) ??
+    toPositiveInteger(
+      pickNumber(metadata, ["max_slice_tasks", "maxSliceTasks", "slice_max_tasks", "sliceMaxTasks"])
+    );
+  const maxParallelAgents =
+    toPositiveInteger(
+      pickNumber(record, [
+        "max_parallel_agents",
+        "maxParallelAgents",
+        "parallel_agents_max",
+        "parallelAgentsMax",
+      ])
+    ) ??
+    toPositiveInteger(
+      pickNumber(metadata, [
+        "max_parallel_agents",
+        "maxParallelAgents",
+        "parallel_agents_max",
+        "parallelAgentsMax",
+      ])
+    );
+  const dependencyMode =
+    normalizeDependencyMode(
+      pickString(record, ["dependency_mode", "dependencyMode", "slice_dependency_mode", "sliceDependencyMode"])
+    ) ??
+    normalizeDependencyMode(
+      pickString(metadata, [
+        "dependency_mode",
+        "dependencyMode",
+        "slice_dependency_mode",
+        "sliceDependencyMode",
+      ])
+    );
 
   return {
     id: String(record.id ?? ""),
@@ -622,6 +724,10 @@ function toMissionControlNode(
     behaviorApprovalStatus: behaviorApprovalStatus ?? null,
     behaviorApprovalDecisionId: behaviorApprovalDecisionId ?? null,
     behaviorAutomationLevel: behaviorAutomationLevel ?? null,
+    sliceScopePreference: sliceScopePreference ?? null,
+    maxSliceTasks: maxSliceTasks ?? null,
+    maxParallelAgents: maxParallelAgents ?? null,
+    dependencyMode: dependencyMode ?? null,
     updatedAt: toIsoString(
       pickString(record, [
         "updated_at",
@@ -1365,7 +1471,7 @@ export function evaluateScopeCompletion(input: {
 export function deriveExecutionPolicy(
   taskNode: MissionControlNode,
   workstreamNode: MissionControlNode | null
-): { domain: string; requiredSkills: string[] } {
+): MissionControlExecutionPolicy {
   const domainCandidate =
     taskNode.assignedAgents
       .map((agent) => normalizeExecutionDomain(agent.domain))
@@ -1379,7 +1485,35 @@ export function deriveExecutionPolicy(
 
   const domain = normalizeExecutionDomain(domainCandidate) ?? "engineering";
   const requiredSkill = ORGX_SKILL_BY_DOMAIN[domain] ?? ORGX_SKILL_BY_DOMAIN.engineering;
-  return { domain, requiredSkills: [requiredSkill] };
+  const profile =
+    taskNode.behaviorConfigId ??
+    workstreamNode?.behaviorConfigId ??
+    null;
+  const sliceScopePreference =
+    taskNode.sliceScopePreference ??
+    workstreamNode?.sliceScopePreference ??
+    null;
+  const maxSliceTasks =
+    taskNode.maxSliceTasks ??
+    workstreamNode?.maxSliceTasks ??
+    null;
+  const maxParallelAgents =
+    taskNode.maxParallelAgents ??
+    workstreamNode?.maxParallelAgents ??
+    null;
+  const dependencyMode =
+    taskNode.dependencyMode ??
+    workstreamNode?.dependencyMode ??
+    null;
+  return {
+    domain,
+    requiredSkills: [requiredSkill],
+    profile,
+    sliceScopePreference,
+    maxSliceTasks,
+    maxParallelAgents,
+    dependencyMode,
+  };
 }
 
 export function deriveBehaviorConfigContext(

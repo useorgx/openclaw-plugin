@@ -378,6 +378,186 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
       window.localStorage.setItem('orgx.onboarding.skip', '1');
       window.localStorage.setItem('orgx.first_run_guide.dismissed', '1');
     });
+
+    const chatState = {
+      hasThread: false,
+      threadId: 'qa-thread-1',
+      title: 'Untitled thread',
+      summary: null,
+      status: 'message_only',
+      commandCenterId: 'center-demo',
+      initiativeId: null,
+      initiativeTitle: null,
+      workstreamId: null,
+      taskId: null,
+      assigneeId: null,
+      assigneeName: null,
+      watcherIds: [],
+      watcherNames: [],
+      messages: [],
+      launches: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const normalizeStringArray = (value) =>
+      Array.isArray(value) ? value.filter((entry) => typeof entry === 'string' && entry.trim().length > 0) : [];
+
+    const summarizeThread = () => {
+      const latestMessage = chatState.messages.at(-1) ?? null;
+      const latestLaunch = chatState.launches.at(-1) ?? null;
+      const lastMessageAt = latestMessage?.createdAt ?? null;
+      const lastLaunchAt = latestLaunch?.requestedAt ?? null;
+      return {
+        id: chatState.threadId,
+        commandCenterId: chatState.commandCenterId,
+        initiativeId: chatState.initiativeId,
+        initiativeTitle: chatState.initiativeTitle,
+        workstreamId: chatState.workstreamId,
+        taskId: chatState.taskId,
+        title: chatState.title,
+        summary: chatState.summary,
+        status: chatState.status,
+        assigneeId: chatState.assigneeId,
+        assigneeName: chatState.assigneeName,
+        watcherIds: chatState.watcherIds,
+        watcherNames: chatState.watcherNames,
+        messageCount: chatState.messages.length,
+        launchCount: chatState.launches.length,
+        lastMessageAt,
+        lastLaunchAt,
+        lastActivityAt: chatState.updatedAt,
+        lastSnippet: latestMessage?.body ?? chatState.summary,
+        latestMessage,
+        latestLaunch,
+        createdAt: chatState.createdAt,
+        updatedAt: chatState.updatedAt,
+      };
+    };
+
+    const detailThread = () => ({
+      ...summarizeThread(),
+      messages: chatState.messages,
+      launches: chatState.launches,
+    });
+
+    await context.route('**/orgx/api/chat/messages', async (route) => {
+      const rawBody = route.request().postData() ?? '{}';
+      const payload = (() => {
+        try {
+          return JSON.parse(rawBody);
+        } catch {
+          return {};
+        }
+      })();
+      const now = new Date().toISOString();
+      const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
+      const title = body.length > 0 ? body.slice(0, 120) : 'Untitled thread';
+      const userMessageId = `msg-${Date.now()}-user`;
+      const systemMessageId = `msg-${Date.now()}-system`;
+      const attachments = Array.isArray(payload?.attachments)
+        ? payload.attachments
+            .map((entry, index) => {
+              if (!entry || typeof entry !== 'object') return null;
+              const row = entry;
+              const name = typeof row.name === 'string' ? row.name : `attachment-${index + 1}`;
+              const status = typeof row.status === 'string' ? row.status : 'ready';
+              return {
+                id: typeof row.id === 'string' ? row.id : `${userMessageId}-att-${index + 1}`,
+                name,
+                mimeType: typeof row.mimeType === 'string' ? row.mimeType : null,
+                sizeBytes: typeof row.sizeBytes === 'number' ? row.sizeBytes : null,
+                status,
+                error: typeof row.error === 'string' ? row.error : null,
+                masked: Boolean(row.masked),
+                createdAt: now,
+                updatedAt: now,
+              };
+            })
+            .filter(Boolean)
+        : [];
+
+      if (!chatState.hasThread) {
+        chatState.hasThread = true;
+      }
+      chatState.title = title;
+      chatState.summary = body || null;
+      chatState.initiativeId = typeof payload?.initiativeId === 'string' ? payload.initiativeId : null;
+      chatState.initiativeTitle =
+        typeof payload?.initiativeTitle === 'string' ? payload.initiativeTitle : null;
+      chatState.workstreamId = typeof payload?.workstreamId === 'string' ? payload.workstreamId : null;
+      chatState.taskId = typeof payload?.taskId === 'string' ? payload.taskId : null;
+      chatState.assigneeId = typeof payload?.assigneeId === 'string' ? payload.assigneeId : null;
+      chatState.assigneeName = typeof payload?.assigneeName === 'string' ? payload.assigneeName : null;
+      chatState.watcherIds = normalizeStringArray(payload?.watcherIds);
+      chatState.watcherNames = normalizeStringArray(payload?.watcherNames);
+      chatState.status = 'message_only';
+      chatState.updatedAt = now;
+
+      chatState.messages.push({
+        id: userMessageId,
+        threadId: chatState.threadId,
+        role: 'user',
+        body: body || 'Draft message',
+        senderId: chatState.assigneeId,
+        senderName: 'You',
+        createdAt: now,
+        updatedAt: now,
+        attachments,
+        metadata: {},
+      });
+      chatState.messages.push({
+        id: systemMessageId,
+        threadId: chatState.threadId,
+        role: 'agent',
+        body: `Captured: ${body || 'Draft message'}.`,
+        senderId: null,
+        senderName: 'OrgX Assistant',
+        createdAt: now,
+        updatedAt: now,
+        attachments: [],
+        metadata: { source: 'qa-mock' },
+      });
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          thread: summarizeThread(),
+          message: { id: userMessageId },
+          updatedAt: now,
+        }),
+      });
+    });
+
+    await context.route('**/orgx/api/chat/threads/*', async (route) => {
+      if (!chatState.hasThread) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Thread not found.' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          thread: detailThread(),
+        }),
+      });
+    });
+
+    await context.route('**/orgx/api/chat/usechat', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/plain; charset=utf-8',
+        body: 'Guidance captured.',
+      });
+    });
+
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     if (verbose) {
@@ -400,6 +580,39 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     }
     await disableAnimations(page);
     await page.screenshot({ path: path.join(desktopDir, 'desktop-01-baseline.png') });
+
+    // Regression guard: send creates a thread, increments thread count, and opens the matching panel.
+    const chatPrompt = 'QA thread persistence check';
+    const chatComposer = page.getByRole('textbox', { name: 'Chat composer' });
+    await chatComposer.waitFor({ state: 'visible' });
+    await chatComposer.fill(chatPrompt);
+    await page.locator('button[data-action="chat-send"]').click();
+    const threadPanel = page.locator('[data-testid="chat-thread-panel"]');
+    await threadPanel.waitFor({ state: 'visible' });
+
+    const threadCountText = (
+      (await page.locator('section[aria-label="Chat threads"] header span').first().textContent()) ?? '0'
+    ).trim();
+    const threadCount = Number.parseInt(threadCountText, 10);
+    if (!Number.isFinite(threadCount) || threadCount < 1) {
+      throw new Error(`Chat regression: expected thread count >= 1 after send, received "${threadCountText}".`);
+    }
+
+    await page
+      .locator('section[aria-label="Thread list"] button')
+      .filter({ hasText: chatPrompt })
+      .first()
+      .waitFor({ state: 'visible' });
+
+    const panelTitle = ((await threadPanel.locator('h4').first().textContent()) ?? '').trim();
+    if (panelTitle !== chatPrompt) {
+      throw new Error(
+        `Chat regression: expected panel title "${chatPrompt}" after send, received "${panelTitle || '(empty)'}".`
+      );
+    }
+    await page.screenshot({ path: path.join(desktopDir, 'desktop-01b-chat-regression.png') });
+    await page.getByRole('button', { name: 'Close thread panel' }).click();
+    await threadPanel.waitFor({ state: 'detached' });
 
     const detailButton = page.locator('button[aria-label^="Open activity details"]').first();
     await detailButton.click();

@@ -9,6 +9,7 @@ import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   Initiative,
+  LiveChatSnapshot,
   LiveActivityItem,
   LiveActivityType,
   SessionTreeNode,
@@ -28,6 +29,7 @@ import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext'
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 import { ActivityTimelineItem } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
+import { ChatSurface } from './chat/ChatSurface';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -65,6 +67,9 @@ interface ActivityTimelineProps {
   onCreateInitiative?: () => void;
   onOpenMissionControl?: () => void;
   onOpenSettings?: () => void;
+  workspaceId?: string | null;
+  chatSnapshot?: LiveChatSnapshot;
+  onRefreshData?: () => Promise<void> | void;
   isLoading?: boolean;
 }
 
@@ -2461,6 +2466,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onCreateInitiative,
   onOpenMissionControl,
   onOpenSettings,
+  workspaceId = null,
+  chatSnapshot,
+  onRefreshData,
   isLoading = false,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -4364,104 +4372,118 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3">
-        {filtered.length === 0 && (
-          <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
-            <div className="mx-auto max-w-2xl">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-secondary">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <p className="text-body font-semibold text-primary">
-                    {isLoading
-                      ? 'Syncing activity feed...'
-                      : hasSessionFilter
-                        ? 'No activity yet for this session'
-                        : selectedWorkstreamId
-                          ? 'No activity yet for this workstream'
-                          : 'No matching activity right now.'}
-                  </p>
-                  <p className="mt-1 text-caption leading-relaxed text-secondary">
-                    {isLoading
-                      ? 'Live updates usually appear within a few seconds after dispatch.'
-                      : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`}
-                  </p>
+            <div className="mb-3">
+              <ChatSurface
+                sessions={sessions}
+                initiatives={initiatives}
+                workspaceId={workspaceId}
+                query={query}
+                statusFilter={activeFilter}
+                sortOrder={sortOrder}
+                timeFilterId={timeFilterId}
+                customTimeRange={customTimeRange}
+                snapshot={chatSnapshot}
+                onRequestRefresh={onRefreshData}
+              />
+            </div>
+            {filtered.length === 0 && (
+              <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
+                <div className="mx-auto max-w-2xl">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-secondary">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-body font-semibold text-primary">
+                        {isLoading
+                          ? 'Syncing activity feed...'
+                          : hasSessionFilter
+                            ? 'No activity yet for this session'
+                            : selectedWorkstreamId
+                              ? 'No activity yet for this workstream'
+                              : 'No matching activity right now.'}
+                      </p>
+                      <p className="mt-1 text-caption leading-relaxed text-secondary">
+                        {isLoading
+                          ? 'Live updates usually appear within a few seconds after dispatch.'
+                          : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {emptyTimeFilters.map((option) => {
+                      const active = timeFilterId === option.id;
+                      return (
+                        <button
+                          key={`empty-time-${option.id}`}
+                          type="button"
+                          onClick={() => onTimeFilterChange?.(option.id)}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-caption font-semibold transition-colors',
+                            active
+                              ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                              : 'border-white/[0.1] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasSessionFilter) onClearSelection();
+                          if (selectedWorkstreamId) onClearWorkstreamFilter?.();
+                          if (agentFilter) onClearAgentFilter?.();
+                        }}
+                        className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                    {onPlayNextUp && (
+                      <button
+                        type="button"
+                        onClick={() => void runEmptyAction('play', onPlayNextUp)}
+                        disabled={emptyActionPending !== null}
+                        className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
+                      >
+                        {emptyActionPending === 'play' ? 'Starting...' : 'Start next session'}
+                      </button>
+                    )}
+                    {!onPlayNextUp && onOpenMissionControl && (
+                      <button
+                        type="button"
+                        onClick={onOpenMissionControl}
+                        className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
+                      >
+                        Browse initiatives
+                      </button>
+                    )}
+                  </div>
+
+                  {emptyActionError && (
+                    <p className="mt-2 text-caption text-amber-200/80">{emptyActionError}</p>
+                  )}
                 </div>
               </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                {emptyTimeFilters.map((option) => {
-                  const active = timeFilterId === option.id;
-                  return (
-                    <button
-                      key={`empty-time-${option.id}`}
-                      type="button"
-                      onClick={() => onTimeFilterChange?.(option.id)}
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-caption font-semibold transition-colors',
-                        active
-                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
-                          : 'border-white/[0.1] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (hasSessionFilter) onClearSelection();
-                      if (selectedWorkstreamId) onClearWorkstreamFilter?.();
-                      if (agentFilter) onClearAgentFilter?.();
-                    }}
-                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
-                  >
-                    Clear filters
-                  </button>
-                )}
-                {onPlayNextUp && (
-                  <button
-                    type="button"
-                    onClick={() => void runEmptyAction('play', onPlayNextUp)}
-                    disabled={emptyActionPending !== null}
-                    className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
-                  >
-                    {emptyActionPending === 'play' ? 'Starting...' : 'Start next session'}
-                  </button>
-                )}
-                {!onPlayNextUp && onOpenMissionControl && (
-                  <button
-                    type="button"
-                    onClick={onOpenMissionControl}
-                    className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
-                  >
-                    Browse initiatives
-                  </button>
-                )}
-              </div>
-
-              {emptyActionError && (
-                <p className="mt-2 text-caption text-amber-200/80">{emptyActionError}</p>
-              )}
-            </div>
-          </div>
-        )}
+            )}
 
         <WhileYouWereAway
           completedCount={awaySummary.completed}

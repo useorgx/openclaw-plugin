@@ -79,6 +79,7 @@ import {
   listEntityComments,
   mergeEntityComments,
 } from "../entity-comment-store.js";
+import { listChatThreads } from "../chat-store.js";
 import {
   appendActivityItems,
   listActivityPage,
@@ -123,6 +124,7 @@ import {
 import { createLocalArtifactDetailFallbackBuilder } from "./helpers/artifact-fallback.js";
 import {
   buildMissionControlGraph,
+  deriveExecutionPolicy,
   dedupeStrings,
   isDispatchableWorkstreamStatus,
   isDoneStatus,
@@ -132,8 +134,11 @@ import {
   normalizeEntityMutationPayload,
   pickStringArray,
   resolveAutoAssignments,
+  selectSliceTasksByScope,
+  type MissionControlExecutionPolicy,
   type MissionControlAssignedAgent,
   type MissionControlNode,
+  type SliceScope,
 } from "./helpers/mission-control.js";
 import {
   configureOpenClawProviderRouting,
@@ -168,6 +173,7 @@ import { registerDebugRoutes } from "./routes/debug.js";
 import { registerEntityDynamicRoutes } from "./routes/entity-dynamic.js";
 import { registerEntitiesRoutes } from "./routes/entities.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerChatRoutes } from "./routes/chat.js";
 import { registerLiveLegacyRoutes } from "./routes/live-legacy.js";
 import { registerLiveMiscRoutes } from "./routes/live-misc.js";
 import { registerLiveSnapshotRoutes } from "./routes/live-snapshot.js";
@@ -179,6 +185,7 @@ import { registerRuntimeHookRoutes } from "./routes/runtime-hooks.js";
 import { registerSentinelsCatalogRoutes } from "./routes/sentinels-catalog.js";
 import { registerSettingsByokRoutes } from "./routes/settings-byok.js";
 import { registerSummaryRoutes } from "./routes/summary.js";
+import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
 
 // =============================================================================
@@ -1980,6 +1987,7 @@ export function createHttpHandler(
   // - It only auto-marks tasks done when the OpenClaw session finishes without
   type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
   type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
+  type NextUpExecutionPolicy = MissionControlExecutionPolicy;
 
   type NextUpQueueItem = {
     initiativeId: string;
@@ -1999,6 +2007,11 @@ export function createHttpHandler(
     blockReason: string | null;
     isPinned: boolean;
     pinnedRank: number | null;
+    sliceScope?: SliceScope | null;
+    sliceTaskIds?: string[];
+    sliceTaskCount?: number | null;
+    sliceMilestoneId?: string | null;
+    executionPolicy?: NextUpExecutionPolicy | null;
     autoContinue: {
       status: "running" | "stopping" | "stopped";
       activeTaskId: string | null;
@@ -2132,7 +2145,12 @@ export function createHttpHandler(
           }
           if (commandCenterId) {
             const rowCommandCenterId =
-              pickString(record, ["command_center_id", "commandCenterId"]) ?? "";
+              pickString(record, [
+                "workspace_id",
+                "workspaceId",
+                "command_center_id",
+                "commandCenterId",
+              ]) ?? "";
             if (rowCommandCenterId !== commandCenterId) return null;
           }
           return pickString(record, ["id"]);
@@ -2212,7 +2230,10 @@ export function createHttpHandler(
       // Workspace selection in the plugin uses command-center IDs.
       // Resolve that scope first so broad project queries never leak cross-workspace items.
       const byCommandCenterIds = mapInitiativeIds(
-        await listInitiativesWithFilters({ command_center_id: projectId }),
+        await listInitiativesWithFilters({
+          workspace_id: projectId,
+          command_center_id: projectId,
+        }),
         { commandCenterId: projectId }
       );
       if (byCommandCenterIds.length > 0) return cacheAndReturn(byCommandCenterIds);
@@ -2687,6 +2708,52 @@ export function createHttpHandler(
           workstream?.status?.toLowerCase() === "blocked"
         );
       };
+      const normalizeSliceScope = (value: unknown): SliceScope | null => {
+        if (value === "task" || value === "milestone" || value === "workstream") {
+          return value;
+        }
+        return null;
+      };
+      const resolveExecutionPolicyFromActiveRuns = (
+        activeRunIds: string[],
+        workstreamId: string
+      ): NextUpExecutionPolicy | null => {
+        for (const runId of activeRunIds) {
+          const slice = autoContinueSliceRuns.get(runId) as
+            | {
+                domain?: string | null;
+                requiredSkills?: string[] | null;
+                behaviorConfigId?: string | null;
+                scope?: SliceScope | null;
+                workstreamId?: string | null;
+              }
+            | undefined;
+          if (!slice) continue;
+          if (typeof slice.workstreamId === "string" && slice.workstreamId.trim()) {
+            if (slice.workstreamId.trim() !== workstreamId) continue;
+          }
+          const domain = (slice.domain ?? "").trim();
+          const requiredSkills = Array.isArray(slice.requiredSkills)
+            ? slice.requiredSkills.filter(
+                (skill): skill is string => typeof skill === "string" && skill.trim().length > 0
+              )
+            : [];
+          if (!domain || requiredSkills.length === 0) continue;
+          const executionPolicy: NextUpExecutionPolicy = {
+            domain,
+            requiredSkills,
+          };
+          if (typeof slice.behaviorConfigId === "string" && slice.behaviorConfigId.trim()) {
+            executionPolicy.profile = slice.behaviorConfigId.trim();
+          }
+          const scope = normalizeSliceScope(slice.scope ?? null);
+          if (scope) {
+            executionPolicy.sliceScopePreference = scope;
+          }
+          return executionPolicy;
+        }
+        return null;
+      };
 
       for (const workstream of workstreamNodes) {
         const workstreamKey = `${initiativeId}:${workstream.id}`;
@@ -2752,6 +2819,67 @@ export function createHttpHandler(
           scopedAllowedWorkstreams.length === 1 &&
           scopedAllowedWorkstreams[0] === workstream.id &&
           autoContinueRun?.status === "running";
+        const activeRunIds = Array.isArray((autoContinueRun as any)?.activeSliceRunIds)
+          ? ((autoContinueRun as any).activeSliceRunIds as Array<unknown>)
+              .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+              .map((id) => id.trim())
+          : [];
+        const activeTaskId =
+          (autoContinueLane?.activeTaskIds?.[0]?.trim() ||
+            autoContinueRun?.activeTaskId?.trim() ||
+            null) ??
+          null;
+        const activeTaskNode = activeTaskId ? nodeById.get(activeTaskId) ?? null : null;
+        const policyTask =
+          candidateTask ??
+          activeTaskNode ??
+          todoTasks.find((task) => task.workstreamId === workstream.id) ??
+          null;
+        const derivedExecutionPolicy = policyTask
+          ? deriveExecutionPolicy(policyTask, workstream)
+          : null;
+        const activeExecutionPolicy = resolveExecutionPolicyFromActiveRuns(
+          activeRunIds,
+          workstream.id
+        );
+        const executionPolicy: NextUpExecutionPolicy | null =
+          derivedExecutionPolicy ?? activeExecutionPolicy;
+        const runScope = normalizeSliceScope((autoContinueRun as any)?.scope ?? null);
+        const preferredPolicyScope = normalizeSliceScope(
+          executionPolicy?.sliceScopePreference ?? null
+        );
+        const defaultScope: SliceScope =
+          runScope ??
+          (preferredPolicyScope && preferredPolicyScope !== "task"
+            ? preferredPolicyScope
+            : pin?.preferredMilestoneId
+              ? "milestone"
+              : "task");
+        const scopeSelection = selectSliceTasksByScope({
+          scope: defaultScope,
+          workstreamId: workstream.id,
+          milestoneId: pin?.preferredMilestoneId ?? null,
+          recentTodos: graph.recentTodos,
+          nodeById,
+          includeVerification: autoContinueRun?.includeVerification ?? false,
+        });
+        const cappedSliceTasks =
+          typeof executionPolicy?.maxSliceTasks === "number" &&
+          executionPolicy.maxSliceTasks > 0
+            ? scopeSelection.tasks.slice(0, executionPolicy.maxSliceTasks)
+            : scopeSelection.tasks;
+        const sliceTaskIds =
+          cappedSliceTasks.length > 0
+            ? cappedSliceTasks.map((task) => task.id)
+            : candidateTask?.id
+              ? [candidateTask.id]
+              : activeTaskId
+                ? [activeTaskId]
+                : [];
+        const sliceMilestoneId =
+          defaultScope === "milestone"
+            ? scopeSelection.milestoneIds[0] ?? pin?.preferredMilestoneId ?? null
+            : null;
         let queueState: NextUpQueueState =
           laneState === "running"
             ? "running"
@@ -2851,14 +2979,12 @@ export function createHttpHandler(
           workstreamStatus: workstream.status,
           nextTaskId:
             candidateTask?.id ??
-            (autoContinueLane?.activeTaskIds?.[0]?.trim() ||
-              autoContinueRun?.activeTaskId?.trim() ||
-              null),
+            activeTaskId,
           nextTaskTitle:
             candidateTask?.title ??
-            ((autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId)
+            ((activeTaskId)
               ? nodeById.get(
-                  (autoContinueLane?.activeTaskIds?.[0] ?? autoContinueRun?.activeTaskId) as string
+                  activeTaskId as string
                 )?.title ?? null
               : null),
           nextTaskPriority: candidateTask?.priorityNum ?? null,
@@ -2870,6 +2996,11 @@ export function createHttpHandler(
           blockReason,
           isPinned: Boolean(pin),
           pinnedRank: pin ? (pinnedRankByKey.get(pinKey) ?? null) : null,
+          sliceScope: defaultScope,
+          sliceTaskIds,
+          sliceTaskCount: sliceTaskIds.length,
+          sliceMilestoneId,
+          executionPolicy,
           autoContinue: autoContinueRun
             ? {
                 status: autoContinueRun.status,
@@ -2924,6 +3055,23 @@ export function createHttpHandler(
             continue;
           }
           const laneState = lane?.state ?? null;
+          const activeRunIds = Array.isArray((run as any).activeSliceRunIds)
+            ? ((run as any).activeSliceRunIds as Array<unknown>)
+                .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+                .map((id) => id.trim())
+            : [];
+          const activeTaskId = lane?.activeTaskIds?.[0] ?? run.activeTaskId;
+          const activeTaskNode = activeTaskId ? nodeById.get(activeTaskId) ?? null : null;
+          const executionPolicy =
+            (activeTaskNode ? deriveExecutionPolicy(activeTaskNode, workstream) : null) ??
+            resolveExecutionPolicyFromActiveRuns(activeRunIds, workstream.id);
+          const sliceScope = normalizeSliceScope((run as any).scope ?? null) ?? "task";
+          const sliceTaskIds =
+            lane?.activeTaskIds?.length
+              ? lane.activeTaskIds
+              : activeTaskId
+                ? [activeTaskId]
+                : [];
           const queueState: NextUpQueueState =
             laneState === "running"
               ? "running"
@@ -2942,15 +3090,11 @@ export function createHttpHandler(
             workstreamId: workstream.id,
             workstreamTitle: workstream.title,
             workstreamStatus: workstream.status,
-            nextTaskId:
-                lane?.activeTaskIds?.[0] ??
-                run.activeTaskId,
+            nextTaskId: activeTaskId ?? null,
             nextTaskTitle:
-                lane?.activeTaskIds?.[0]
-                  ? nodeById.get(lane.activeTaskIds[0])?.title ?? null
-                  : run.activeTaskId
-                    ? nodeById.get(run.activeTaskId)?.title ?? null
-                    : null,
+                activeTaskId
+                  ? nodeById.get(activeTaskId)?.title ?? null
+                  : null,
             nextTaskPriority: null,
             nextTaskDueAt: null,
             runnerAgentId: run.agentId,
@@ -2964,6 +3108,14 @@ export function createHttpHandler(
                   : null,
             isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),
             pinnedRank: pinnedRankByKey.get(`${initiativeId}:${workstream.id}`) ?? null,
+            sliceScope,
+            sliceTaskIds,
+            sliceTaskCount: sliceTaskIds.length,
+            sliceMilestoneId:
+              sliceScope === "milestone"
+                ? activeTaskNode?.milestoneId ?? null
+                : null,
+            executionPolicy,
             autoContinue: {
               status: run.status,
               activeTaskId: run.activeTaskId,
@@ -3113,6 +3265,13 @@ export function createHttpHandler(
     formatActivity,
     formatInitiatives,
     getOnboardingState: async () => getOnboardingState(await onboarding.getStatus()),
+  });
+  registerUsageRoutes(apiRouter, {
+    client,
+    listActivityPage: ({ limit, runId, since, until, cursor }) =>
+      listActivityPage({ limit, runId, since, until, cursor }),
+    sendJson,
+    safeErrorMessage,
   });
   registerAgentSuiteRoutes(apiRouter, {
     pluginVersion: config.pluginVersion,
@@ -3380,6 +3539,14 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  registerChatRoutes(apiRouter, {
+    parseJsonRequest,
+    pickString,
+    parsePositiveInt,
+    emitActivitySafe,
+    sendJson,
+    safeErrorMessage,
+  });
   registerMissionControlActionsRoutes(apiRouter, {
     parseJsonRequest,
     pickString,
@@ -3565,6 +3732,8 @@ export function createHttpHandler(
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
     runAction: (runId, action, input) => client.runAction(runId, action, input),
+    listChatThreads: ({ commandCenterId, initiativeId, limit, offset }) =>
+      listChatThreads({ commandCenterId, initiativeId, limit, offset }),
     sendJson,
   });
   registerRuntimeHookRoutes(apiRouter, {
@@ -3613,6 +3782,20 @@ export function createHttpHandler(
     const [path, queryString] = rawUrl.split("?", 2);
     const url = path;
     const searchParams = new URLSearchParams(queryString ?? "");
+
+    // Legacy deep-link compatibility:
+    // Older launch paths still point at /workspace-hub. Route those into
+    // the current dashboard entrypoint while preserving query params.
+    if (url === "/workspace-hub" || url === "/workspace-hub/") {
+      const suffix = queryString && queryString.trim().length > 0 ? `?${queryString}` : "";
+      res.writeHead(302, {
+        Location: `/orgx/live${suffix}`,
+        ...SECURITY_HEADERS,
+        ...CORS_HEADERS,
+      });
+      res.end();
+      return true;
+    }
 
     // Only handle /orgx paths — return false for everything else
     if (!url.startsWith("/orgx")) {

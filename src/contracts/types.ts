@@ -381,6 +381,88 @@ export interface BillingUrlResult {
 }
 
 // =============================================================================
+// Usage Control Plane (Actual vs Forecast)
+// =============================================================================
+
+export type UsageRiskLevel = "safe" | "watch" | "at_risk" | "over_limit";
+
+export type UsageBreakdownBucket = {
+  key: string;
+  label: string;
+  runs: number;
+  tokens: number;
+  minutes: number;
+  costCents: number;
+};
+
+export type UsagePrediction = {
+  agentRuns: number;
+  agentMinutes: number;
+  tokens: number;
+  costCents: number;
+  confidence: number;
+  method: string;
+  remainingAgentRuns: number;
+  remainingAgentMinutes: number;
+  remainingTokens: number;
+  remainingCostCents: number;
+};
+
+export type UsageControlPlaneSummary = {
+  generatedAt: string;
+  period: {
+    start: string;
+    end: string;
+    daysTotal: number;
+    daysElapsed: number;
+    daysRemaining: number;
+  };
+  plan: {
+    id: string;
+    name: string;
+    allowsOverage: boolean;
+    includedBudgetCents: number;
+    overageBudgetCents: number;
+    agentRunsLimit: number;
+    agentMinutesLimit: number;
+    scaffoldsLimit: number;
+  };
+  actual: {
+    agentRuns: number;
+    agentMinutes: number;
+    tokens: number;
+    costCents: number;
+    scaffoldsUsed: number;
+    scaffoldsRemaining: number;
+  };
+  predicted: UsagePrediction;
+  utilization: {
+    runsPct: number | null;
+    minutesPct: number | null;
+    budgetPct: number | null;
+  };
+  headroom: {
+    agentRunsRemaining: number;
+    agentMinutesRemaining: number;
+    budgetRemainingCents: number;
+  };
+  risk: UsageRiskLevel;
+  breakdown: {
+    provider: UsageBreakdownBucket[];
+    executionTarget: UsageBreakdownBucket[];
+    sourceClient: UsageBreakdownBucket[];
+    model: UsageBreakdownBucket[];
+  };
+  velocity: {
+    windowDays: number;
+    dailyAvgRuns: number;
+    dailyAvgMinutes: number;
+    dailyAvgTokens: number;
+    dailyAvgCostCents: number;
+  };
+};
+
+// =============================================================================
 // RUN PHASES + HANDOFF CONTINUITY
 // =============================================================================
 
@@ -539,6 +621,9 @@ export interface EntityListFilters {
   ids?: string[] | string;
   initiative_id?: string;
   project_id?: string;
+  /** Canonical workspace scope */
+  workspace_id?: string;
+  /** Legacy alias for workspace_id */
   command_center_id?: string;
   [key: string]: unknown;
 }

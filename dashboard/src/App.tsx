@@ -2741,6 +2741,8 @@ function DashboardShell({
               sliceRuns={actionableSliceRuns}
               initiatives={initiatives}
               timelineNarrative={data.timelineNarrative ?? []}
+              workspaceId={selectedWorkspaceId}
+              chatSnapshot={data.chat}
               selectedRunIds={selectedActivityRunIds}
               selectedSessionLabel={selectedActivitySessionLabel}
               selectedWorkstreamId={activityFilterWorkstreamId}
@@ -2766,6 +2768,7 @@ function DashboardShell({
               onCreateInitiative={startInitiative}
               onOpenMissionControl={() => switchDashboardView('mission-control')}
               onOpenSettings={() => openSettings('orgx')}
+              onRefreshData={refetch}
               isLoading={isLoading}
             />
           </Suspense>
