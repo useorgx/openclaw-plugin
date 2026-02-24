@@ -728,6 +728,93 @@ export interface MissionControlGraphResponse {
   degraded?: string[];
 }
 
+export type MissionControlSliceLevel =
+  | 'initiative'
+  | 'workstream'
+  | 'milestone'
+  | 'task';
+
+export type MissionControlSliceOrderMode = 'manual' | 'algorithmic';
+
+export interface MissionControlSliceFactor {
+  key?: string;
+  label?: string;
+  value?: number;
+  weight?: number;
+}
+
+export interface MissionControlSliceLineage {
+  initiativeIds?: string[];
+  workstreamIds?: string[];
+  milestoneIds?: string[];
+  taskIds?: string[];
+  iwmtIds?: string[];
+}
+
+export interface MissionControlSliceIwmts {
+  laneId?: string | null;
+  mixScore?: number | null;
+  factors?: MissionControlSliceFactor[];
+}
+
+export interface MissionControlSliceItem {
+  sliceId: string;
+  level: MissionControlSliceLevel;
+  title: string;
+  initiativeId: string | null;
+  initiativeTitle?: string | null;
+  workstreamId: string | null;
+  workstreamTitle?: string | null;
+  milestoneId: string | null;
+  milestoneTitle?: string | null;
+  taskId: string | null;
+  taskTitle?: string | null;
+  status: string;
+  priorityNum: number | null;
+  dueAt: string | null;
+  dependencyState?: string | null;
+  objectiveScore?: number | null;
+  roiPerToken?: number | null;
+  expectedTokens?: number | null;
+  expectedValueUsd?: number | null;
+  goalAlignment?: number | null;
+  riskPenalty?: number | null;
+  runnable?: boolean;
+  blockReason?: string | null;
+  suggestedScope?: 'initiative' | 'workstream' | 'milestone' | 'task' | null;
+  manualRank?: number | null;
+  algorithmRank?: number | null;
+  finalRank?: number | null;
+  iwmt?: MissionControlSliceIwmts | null;
+  lineage?: MissionControlSliceLineage | null;
+  sourceWorkstreamIds?: string[];
+  queueState?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface MissionControlSlicesPagination {
+  offset: number;
+  limit: number;
+  total: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface MissionControlSlicesResponse {
+  ok: boolean;
+  generatedAt: string;
+  workspaceId?: string | null;
+  initiativeId?: string | null;
+  level: MissionControlSliceLevel;
+  mixPolicy?: string;
+  orderMode: MissionControlSliceOrderMode;
+  total: number;
+  items: MissionControlSliceItem[];
+  degraded?: string[];
+  source?: 'canonical' | 'local' | 'local_fallback';
+  pagination?: MissionControlSlicesPagination;
+}
+
 export type NextUpRunnerSource = 'assigned' | 'inferred' | 'fallback';
 export type NextUpQueueState = 'queued' | 'running' | 'blocked' | 'idle';
 export type NextUpPlaybackState = 'queued' | 'running' | 'blocked' | 'paused' | 'idle';

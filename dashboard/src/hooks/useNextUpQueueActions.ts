@@ -58,6 +58,7 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['mission-control-next-up'] }),
       queryClient.invalidateQueries({ queryKey: ['mission-control-graph'] }),
+      queryClient.invalidateQueries({ queryKey: ['mission-control-slices'] }),
     ]);
     scheduleLiveDataInvalidate();
   };

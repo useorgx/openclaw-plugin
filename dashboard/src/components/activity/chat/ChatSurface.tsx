@@ -7,6 +7,7 @@ import { motion as motionTokens } from '@/lib/tokens';
 import { cutoffEpochForActivityFilter, type ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { formatRelativeTime } from '@/lib/time';
 import { captureTelemetry } from '@/lib/telemetry';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type {
   ChatAttachmentSummary,
   ChatLaunchSummary,
@@ -543,6 +544,10 @@ export function ChatSurface({
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>('');
   const [selectedWatcherIds, setSelectedWatcherIds] = useState<string[]>([]);
   const [selectedInitiativeId, setSelectedInitiativeId] = useState<string>('');
+  const [agentPickerMode, setAgentPickerMode] = useState<'assignee' | 'watcher' | null>(null);
+  const [agentPickerQuery, setAgentPickerQuery] = useState('');
+  const [scopePickerOpen, setScopePickerOpen] = useState(false);
+  const [scopePickerQuery, setScopePickerQuery] = useState('');
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<ChatThreadDetail | null>(null);
@@ -554,6 +559,7 @@ export function ChatSurface({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const panelHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const activeCardRef = useRef<HTMLElement | null>(null);
+  const composerShellRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!snapshot?.threads) return;
@@ -597,6 +603,25 @@ export function ChatSurface({
     return agentOptions.filter((agent) => selected.has(agent.id));
   }, [agentOptions, selectedWatcherIds]);
 
+  useEffect(() => {
+    if (!selectedAssigneeId) return;
+    setSelectedWatcherIds((previous) => previous.filter((entry) => entry !== selectedAssigneeId));
+  }, [selectedAssigneeId]);
+
+  const quickAssigneeOptions = useMemo(() => agentOptions.slice(0, 8), [agentOptions]);
+
+  const filteredAgentOptions = useMemo(() => {
+    const queryValue = agentPickerQuery.trim().toLowerCase();
+    if (!queryValue) return agentOptions;
+    return agentOptions.filter((agent) => agent.name.toLowerCase().includes(queryValue));
+  }, [agentOptions, agentPickerQuery]);
+
+  const filteredInitiativeOptions = useMemo(() => {
+    const queryValue = scopePickerQuery.trim().toLowerCase();
+    if (!queryValue) return initiativeOptions;
+    return initiativeOptions.filter((initiative) => initiative.name.toLowerCase().includes(queryValue));
+  }, [initiativeOptions, scopePickerQuery]);
+
   const filteredThreads = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const filtered = threads.filter((thread) => {
@@ -627,7 +652,6 @@ export function ChatSurface({
 
   const draftTrimmed = draft.trim();
   const canSend = draftTrimmed.length > 0 && !sending;
-  const canLaunch = canSend && !launching && Boolean(selectedAssignee);
   const composerGuidance = useMemo(() => {
     if (!selectedAssignee) return 'Choose a primary assignee to enable launch.';
     if (unresolvedAttachmentCount > 0) {
@@ -635,6 +659,12 @@ export function ChatSurface({
     }
     return 'Press Enter to send. Shift+Enter for a new line.';
   }, [selectedAssignee, unresolvedAttachmentCount]);
+
+  const primaryActionLabel = useMemo(() => {
+    if (sending) return 'Sending…';
+    if (launching) return 'Launching…';
+    return selectedAssignee ? 'Send + Launch' : 'Send';
+  }, [launching, selectedAssignee, sending]);
 
   const resetComposer = useCallback(() => {
     setDraft('');
@@ -1120,6 +1150,51 @@ export function ChatSurface({
     await openThreadPanel(result.thread.id);
   }, [launchThread, openThreadPanel, sendMessage]);
 
+  const handlePrimaryAction = useCallback(async () => {
+    if (!canSend) return;
+    if (selectedAssignee) {
+      await handleSendAndLaunch();
+      return;
+    }
+    await handleSendOnly();
+  }, [canSend, handleSendAndLaunch, handleSendOnly, selectedAssignee]);
+
+  const selectAssignee = useCallback((agentId: string) => {
+    setSelectedAssigneeId((previous) => (previous === agentId ? '' : agentId));
+    setSelectedWatcherIds((previous) => previous.filter((entry) => entry !== agentId));
+    setAgentPickerMode(null);
+    setAgentPickerQuery('');
+  }, []);
+
+  const toggleWatcher = useCallback((agentId: string) => {
+    setSelectedWatcherIds((previous) =>
+      previous.includes(agentId)
+        ? previous.filter((entry) => entry !== agentId)
+        : previous.concat(agentId)
+    );
+  }, []);
+
+  const toggleAssigneePicker = useCallback(() => {
+    setScopePickerOpen(false);
+    setScopePickerQuery('');
+    setAgentPickerMode((previous) => (previous === 'assignee' ? null : 'assignee'));
+    setAgentPickerQuery('');
+  }, []);
+
+  const toggleWatcherPicker = useCallback(() => {
+    setScopePickerOpen(false);
+    setScopePickerQuery('');
+    setAgentPickerMode((previous) => (previous === 'watcher' ? null : 'watcher'));
+    setAgentPickerQuery('');
+  }, []);
+
+  const toggleScopePicker = useCallback(() => {
+    setAgentPickerMode(null);
+    setAgentPickerQuery('');
+    setScopePickerOpen((previous) => !previous);
+    setScopePickerQuery('');
+  }, []);
+
   const applyScopeLink = useCallback(
     async (threadId: string, initiativeId: string | null) => {
       setScopeSaving(true);
@@ -1169,7 +1244,7 @@ export function ChatSurface({
     <section
       aria-label="Chat threads"
       data-testid="chat-surface"
-      className="rounded-xl border border-subtle bg-white/[0.02] p-3 sm:p-4"
+      className="relative rounded-xl border border-subtle bg-white/[0.02] p-3 sm:p-4"
     >
       <header className="mb-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -1185,364 +1260,9 @@ export function ChatSurface({
         )}
       </header>
 
-      <motion.section
-        data-testid="chat-composer"
-        data-state={composerExpanded ? 'expanded' : 'collapsed'}
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-        animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
-        transition={
-          prefersReducedMotion
-            ? undefined
-            : {
-                duration: motionTokens.durationStandard / 1000,
-                ease: motionTokens.easingStandard as unknown as number[],
-              }
-        }
-        className={cn(
-          'rounded-xl border bg-[#090D15]/90 px-3 py-3 backdrop-blur',
-          composerExpanded ? 'border-lime/35 shadow-[0_0_0_1px_rgba(191,255,0,0.08)]' : 'border-white/[0.12]'
-        )}
-      >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-micro uppercase tracking-[0.08em] text-muted">New message</p>
-            <span
-              className={cn(
-                'rounded-full border px-2 py-0.5 text-micro',
-                canLaunch
-                  ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
-                  : 'border-white/[0.16] bg-white/[0.05] text-secondary'
-              )}
-            >
-              {canLaunch ? 'Launch ready' : 'Draft'}
-            </span>
-          </div>
-
-          <label htmlFor="chat-composer-input" className="sr-only">
-            Chat composer
-          </label>
-          <textarea
-            id="chat-composer-input"
-            value={draft}
-            onFocus={() => setComposerExpanded(true)}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              if (!composerExpanded) setComposerExpanded(true);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void handleSendOnly();
-              }
-            }}
-            placeholder="Message an assignee, set scope, and launch when ready."
-            rows={composerExpanded ? 4 : 1}
-            className={cn(
-              'w-full resize-none rounded-xl border border-white/[0.14] bg-[#05080F] px-3 py-2.5 text-body text-primary placeholder:text-muted',
-              'focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35',
-              !composerExpanded && 'h-[48px]'
-            )}
-            aria-expanded={composerExpanded}
-          />
-
-          <AnimatePresence initial={false}>
-            {composerExpanded && (
-              <motion.div
-                initial={prefersReducedMotion ? false : { opacity: 0, y: -6 }}
-                animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? {} : { opacity: 0, y: -4 }}
-                transition={
-                  prefersReducedMotion
-                    ? undefined
-                    : {
-                        duration: motionTokens.durationFast / 1000,
-                        ease: motionTokens.easingStandard as unknown as number[],
-                      }
-                }
-                className="space-y-3"
-              >
-                {draftTrimmed.length === 0 && (
-                  <div className="flex flex-wrap gap-1.5" aria-label="Quick start prompts">
-                    {QUICK_START_PROMPTS.map((prompt) => (
-                      <motion.button
-                        key={prompt}
-                        type="button"
-                        whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                        whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                        transition={CONTROL_SPRING}
-                        onClick={() => {
-                          setDraft(prompt);
-                          requestAnimationFrame(() => {
-                            const composer = document.getElementById('chat-composer-input');
-                            if (composer instanceof HTMLTextAreaElement) composer.focus();
-                          });
-                        }}
-                        className="inline-flex min-h-[32px] items-center rounded-full border border-white/[0.14] bg-white/[0.03] px-2.5 text-micro text-secondary hover:border-white/[0.24] hover:bg-white/[0.08] hover:text-primary"
-                      >
-                        {prompt}
-                      </motion.button>
-                    ))}
-                  </div>
-                )}
-
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
-                    <span className="whitespace-nowrap text-micro uppercase tracking-[0.08em] text-muted">
-                      Assignee
-                    </span>
-                    <select
-                      value={selectedAssigneeId}
-                      onChange={(event) => setSelectedAssigneeId(event.target.value)}
-                      className="min-h-[32px] w-full rounded-md border border-transparent bg-transparent text-caption text-primary outline-none focus:border-lime/30"
-                      aria-label="Primary assignee"
-                    >
-                      <option value="">Select</option>
-                      {agentOptions.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
-                    <span className="whitespace-nowrap text-micro uppercase tracking-[0.08em] text-muted">
-                      Scope
-                    </span>
-                    <select
-                      value={selectedInitiativeId}
-                      onChange={(event) => setSelectedInitiativeId(event.target.value)}
-                      className="min-h-[32px] w-full rounded-md border border-transparent bg-transparent text-caption text-primary outline-none focus:border-lime/30"
-                      aria-label="Initiative scope"
-                    >
-                      <option value="">Unscoped</option>
-                      {initiativeOptions.map((initiative) => (
-                        <option key={initiative.id} value={initiative.id}>
-                          {initiative.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-white/[0.12] bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
-                    <span className="whitespace-nowrap text-micro uppercase tracking-[0.08em] text-muted">
-                      Watchers
-                    </span>
-                    <select
-                      value=""
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        if (!value) return;
-                        setSelectedWatcherIds((previous) =>
-                          previous.includes(value) ? previous : previous.concat(value)
-                        );
-                      }}
-                      className="min-h-[32px] w-full rounded-md border border-transparent bg-transparent text-caption text-primary outline-none focus:border-lime/30"
-                      aria-label="Add watcher"
-                    >
-                      <option value="">Add watcher</option>
-                      {agentOptions
-                        .filter((agent) => !selectedWatcherIds.includes(agent.id))
-                        .map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                </div>
-
-                {selectedWatchers.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {selectedWatchers.map((watcher) => (
-                      <motion.button
-                        key={watcher.id}
-                        type="button"
-                        whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                        whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                        transition={CONTROL_SPRING}
-                        onClick={() =>
-                          setSelectedWatcherIds((previous) =>
-                            previous.filter((entry) => entry !== watcher.id)
-                          )
-                        }
-                        className="inline-flex min-h-[30px] items-center gap-1 rounded-full border border-white/[0.16] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary hover:bg-white/[0.1] hover:text-primary"
-                        aria-label={`Remove watcher ${watcher.name}`}
-                      >
-                        @{watcher.name}
-                        <span aria-hidden>×</span>
-                      </motion.button>
-                    ))}
-                  </div>
-                )}
-
-                {draftAttachments.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
-                    {draftAttachments.map((attachment) => (
-                      <div
-                        key={attachment.id}
-                        className={cn(
-                          'inline-flex min-h-[30px] items-center gap-1 rounded-full border px-2 py-0.5 text-micro',
-                          attachment.status === 'ready'
-                            ? 'border-teal/25 bg-teal/[0.1] text-teal-100'
-                            : attachment.status === 'failed'
-                              ? 'border-rose-400/30 bg-rose-400/[0.12] text-rose-100'
-                              : 'border-white/[0.14] bg-white/[0.04] text-secondary'
-                        )}
-                      >
-                        <span className="max-w-[160px] truncate">{attachment.name}</span>
-                        <span className="text-[10px] text-muted">{attachmentReadableSize(attachment.sizeBytes)}</span>
-                        <span className="text-[10px] uppercase tracking-[0.08em]">{attachment.status}</span>
-                        {attachment.status === 'failed' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleRetryAttachment(attachment.id)}
-                            className="rounded-full border border-white/[0.2] bg-white/[0.05] px-1.5 py-0 text-[10px] hover:bg-white/[0.1]"
-                          >
-                            Retry
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftAttachments((previous) =>
-                              previous.filter((entry) => entry.id !== attachment.id)
-                            )
-                          }
-                          className="rounded-full border border-transparent px-1 py-0 text-[10px] hover:border-white/[0.16] hover:bg-white/[0.05]"
-                          aria-label={`Remove attachment ${attachment.name}`}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] pt-2">
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        handleFilesAdded(event.target.files);
-                        event.currentTarget.value = '';
-                      }}
-                    />
-                    <motion.button
-                      type="button"
-                      whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                      whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                      transition={CONTROL_SPRING}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.04] px-2.5 text-caption font-medium text-secondary hover:bg-white/[0.08] hover:text-primary"
-                    >
-                      Attach
-                    </motion.button>
-                    <span className="text-micro text-muted">
-                      {unresolvedAttachmentCount > 0
-                        ? `${unresolvedAttachmentCount} attachment(s) not ready`
-                        : 'Attachments ready'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <motion.button
-                      type="button"
-                      whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                      whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                      transition={CONTROL_SPRING}
-                      onClick={() => setComposerExpanded(false)}
-                      className="inline-flex min-h-[36px] items-center rounded-full border border-white/[0.12] bg-white/[0.03] px-3 text-caption font-medium text-secondary hover:bg-white/[0.08] hover:text-primary"
-                    >
-                      Collapse
-                    </motion.button>
-                    <motion.button
-                      type="button"
-                      whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                      whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                      transition={CONTROL_SPRING}
-                      onClick={() => void handleSendOnly()}
-                      disabled={!canSend}
-                      data-action="chat-send"
-                      className="inline-flex min-h-[36px] items-center rounded-full border border-white/[0.2] bg-white/[0.06] px-3 text-caption font-semibold text-primary hover:bg-white/[0.1] disabled:opacity-45"
-                    >
-                      {sending ? 'Sending…' : 'Send'}
-                    </motion.button>
-                    <motion.button
-                      type="button"
-                      whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-                      whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
-                      transition={CONTROL_SPRING}
-                      onClick={() => void handleSendAndLaunch()}
-                      disabled={!canLaunch}
-                      data-action="chat-send-launch"
-                      className="inline-flex min-h-[36px] items-center rounded-full border border-lime/30 bg-lime/[0.14] px-3 text-caption font-semibold text-[#E1FFB2] hover:bg-lime/[0.2] disabled:opacity-45"
-                      aria-describedby={!selectedAssignee ? 'chat-launch-requirements' : undefined}
-                    >
-                      {launching ? 'Launching…' : 'Launch'}
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </motion.section>
-
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro">
-        <p id="chat-launch-requirements" className="text-muted">
-          Launch requires a persisted message and a primary assignee.
-        </p>
-        <span aria-hidden className="text-muted">
-          ·
-        </span>
-        <p className="text-secondary">{composerGuidance}</p>
-      </div>
-      {composerError && (
-        <p className="mt-1.5 rounded-md border border-rose-400/30 bg-rose-400/[0.12] px-2.5 py-1.5 text-caption text-rose-100">
-          {composerError}
-        </p>
-      )}
-      {composerNotice && (
-        <p className="mt-1.5 rounded-md border border-lime/30 bg-lime/[0.1] px-2.5 py-1.5 text-caption text-[#E1FFB2]">
-          {composerNotice}
-        </p>
-      )}
-      {(guidanceStatus === 'submitted' || guidanceStatus === 'streaming') && (
-        <p className="mt-1.5 rounded-md border border-cyan-300/28 bg-cyan-500/[0.1] px-2.5 py-1.5 text-caption text-cyan-100">
-          Assistant is drafting guidance...
-        </p>
-      )}
-      {guidancePreview && (
-        <p className="mt-1.5 rounded-md border border-teal/28 bg-teal/[0.1] px-2.5 py-1.5 text-caption text-teal-100">
-          {guidancePreview}
-        </p>
-      )}
-      {guidanceError && (
-        <p className="mt-1.5 rounded-md border border-rose-400/30 bg-rose-400/[0.12] px-2.5 py-1.5 text-caption text-rose-100">
-          {humanizeApiError(guidanceError.message, 'send')}
-        </p>
-      )}
-      {launchWarningOpen && (
-        <div className="mt-1.5 rounded-md border border-amber-300/35 bg-amber-300/[0.12] px-2.5 py-2 text-caption text-amber-100">
-          <p>Launch includes non-ready attachments. Continue anyway?</p>
-          <label className="mt-1.5 flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={launchWarningAccepted}
-              onChange={(event) => setLaunchWarningAccepted(event.target.checked)}
-            />
-            <span>I understand unresolved attachment extraction may reduce context quality.</span>
-          </label>
-        </div>
-      )}
-
       <div
         className={cn(
-          'mt-3 grid gap-2 lg:gap-3',
+          'grid gap-2 pb-24 lg:gap-3',
           activeThreadId && 'lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]'
         )}
       >
@@ -1865,6 +1585,520 @@ export function ChatSurface({
                 </aside>
               </div>
             </motion.section>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div ref={composerShellRef} className="sticky bottom-2 z-20 mt-3">
+        <motion.section
+          data-testid="chat-composer"
+          data-state={composerExpanded ? 'expanded' : 'collapsed'}
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+          animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
+          transition={
+            prefersReducedMotion
+              ? undefined
+              : {
+                  duration: motionTokens.durationStandard / 1000,
+                  ease: motionTokens.easingStandard as unknown as number[],
+                }
+          }
+          onMouseEnter={() => {
+            if (!composerExpanded) setComposerExpanded(true);
+          }}
+          className={cn(
+            'relative rounded-[22px] border bg-[#0A0E16]/95 px-2.5 py-2.5 backdrop-blur-xl',
+            composerExpanded
+              ? 'border-lime/35 shadow-[0_0_0_1px_rgba(191,255,0,0.08),0_12px_36px_rgba(0,0,0,0.4)]'
+              : 'border-white/[0.14] shadow-[0_10px_28px_rgba(0,0,0,0.35)]'
+          )}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              handleFilesAdded(event.target.files);
+              event.currentTarget.value = '';
+            }}
+          />
+          <div className="flex items-end gap-2">
+            <motion.button
+              type="button"
+              whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+              whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
+              transition={CONTROL_SPRING}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex h-10 min-w-[40px] items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] text-caption font-medium text-secondary hover:bg-white/[0.08] hover:text-primary"
+              aria-label="Add attachment"
+            >
+              +
+            </motion.button>
+            <div className="flex-1">
+              <label htmlFor="chat-composer-input" className="sr-only">
+                Chat composer
+              </label>
+              <textarea
+                id="chat-composer-input"
+                value={draft}
+                onFocus={() => setComposerExpanded(true)}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    if (
+                      draftTrimmed.length === 0 &&
+                      composerShellRef.current &&
+                      !composerShellRef.current.contains(document.activeElement)
+                    ) {
+                      setComposerExpanded(false);
+                      setAgentPickerMode(null);
+                      setScopePickerOpen(false);
+                    }
+                  }, 0);
+                }}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  if (!composerExpanded) setComposerExpanded(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void handlePrimaryAction();
+                  }
+                }}
+                placeholder={composerExpanded ? 'Ask, decide scope, launch when ready.' : 'Message an agent...'}
+                rows={composerExpanded ? 3 : 1}
+                className={cn(
+                  'w-full resize-none rounded-2xl border border-white/[0.12] bg-[#05080F] px-3 py-2 text-caption text-primary placeholder:text-muted',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35',
+                  !composerExpanded && 'h-10 overflow-hidden'
+                )}
+                aria-expanded={composerExpanded}
+              />
+            </div>
+            <motion.button
+              type="button"
+              whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+              whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
+              transition={CONTROL_SPRING}
+              onClick={() => void handlePrimaryAction()}
+              disabled={!canSend}
+              data-action="chat-send-primary"
+              className={cn(
+                'inline-flex h-10 items-center rounded-full border px-3 text-caption font-semibold',
+                'disabled:opacity-45',
+                selectedAssignee
+                  ? 'border-lime/30 bg-lime/[0.14] text-[#E1FFB2] hover:bg-lime/[0.2]'
+                  : 'border-white/[0.2] bg-white/[0.06] text-primary hover:bg-white/[0.1]'
+              )}
+              aria-describedby={!selectedAssignee ? 'chat-launch-requirements' : undefined}
+            >
+              {primaryActionLabel}
+            </motion.button>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {composerExpanded && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: -6 }}
+                animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
+                exit={prefersReducedMotion ? {} : { opacity: 0, y: -4 }}
+                transition={
+                  prefersReducedMotion
+                    ? undefined
+                    : {
+                        duration: motionTokens.durationFast / 1000,
+                        ease: motionTokens.easingStandard as unknown as number[],
+                      }
+                }
+                className="mt-3 space-y-3 border-t border-white/[0.08] pt-3"
+              >
+                {draftTrimmed.length === 0 && (
+                  <div className="flex flex-wrap gap-1.5" aria-label="Quick start prompts">
+                    {QUICK_START_PROMPTS.map((prompt) => (
+                      <motion.button
+                        key={prompt}
+                        type="button"
+                        whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+                        whileTap={prefersReducedMotion ? undefined : CONTROL_TAP}
+                        transition={CONTROL_SPRING}
+                        onClick={() => {
+                          setDraft(prompt);
+                          requestAnimationFrame(() => {
+                            const composer = document.getElementById('chat-composer-input');
+                            if (composer instanceof HTMLTextAreaElement) composer.focus();
+                          });
+                        }}
+                        className="inline-flex min-h-[30px] items-center rounded-full border border-white/[0.14] bg-white/[0.03] px-2.5 text-micro text-secondary hover:border-white/[0.24] hover:bg-white/[0.08] hover:text-primary"
+                      >
+                        {prompt}
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-micro uppercase tracking-[0.08em] text-muted">Assignee</p>
+                    <button
+                      type="button"
+                      onClick={toggleAssigneePicker}
+                      className="rounded-full border border-white/[0.14] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                    >
+                      All agents
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {quickAssigneeOptions.map((agent) => {
+                      const isSelected = selectedAssigneeId === agent.id;
+                      return (
+                        <button
+                          key={agent.id}
+                          type="button"
+                          onClick={() => selectAssignee(agent.id)}
+                          className={cn(
+                            'inline-flex h-9 items-center gap-1.5 rounded-full border px-2 pr-2.5 text-micro transition-colors',
+                            isSelected
+                              ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                              : 'border-white/[0.12] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                          )}
+                          aria-pressed={isSelected}
+                        >
+                          <AgentAvatar name={agent.name} hint={agent.name} size="xs" />
+                          <span>{agent.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-micro uppercase tracking-[0.08em] text-muted">Scope</p>
+                    <button
+                      type="button"
+                      onClick={toggleScopePicker}
+                      className="rounded-full border border-white/[0.14] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedInitiativeId('')}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-micro',
+                        selectedInitiativeId === ''
+                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                          : 'border-white/[0.12] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                      )}
+                    >
+                      Unscoped
+                    </button>
+                    {initiativeOptions.slice(0, 4).map((initiative) => {
+                      const isSelected = selectedInitiativeId === initiative.id;
+                      return (
+                        <button
+                          key={initiative.id}
+                          type="button"
+                          onClick={() => setSelectedInitiativeId(initiative.id)}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-micro',
+                            isSelected
+                              ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                              : 'border-white/[0.12] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                          )}
+                        >
+                          {initiative.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-micro uppercase tracking-[0.08em] text-muted">Watchers</p>
+                    <button
+                      type="button"
+                      onClick={toggleWatcherPicker}
+                      className="rounded-full border border-white/[0.14] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                    >
+                      Add watcher
+                    </button>
+                  </div>
+                  {selectedWatchers.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {selectedWatchers.map((watcher) => (
+                        <button
+                          key={watcher.id}
+                          type="button"
+                          onClick={() => toggleWatcher(watcher.id)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/[0.16] bg-white/[0.04] px-2 pr-2.5 text-micro text-secondary hover:bg-white/[0.1] hover:text-primary"
+                          aria-label={`Remove watcher ${watcher.name}`}
+                        >
+                          <AgentAvatar name={watcher.name} hint={watcher.name} size="xs" />
+                          <span>{watcher.name}</span>
+                          <span aria-hidden>×</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-micro text-secondary">No watchers selected.</p>
+                  )}
+                </div>
+
+                {draftAttachments.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5" aria-live="polite">
+                    {draftAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className={cn(
+                          'inline-flex min-h-[30px] items-center gap-1 rounded-full border px-2 py-0.5 text-micro',
+                          attachment.status === 'ready'
+                            ? 'border-teal/25 bg-teal/[0.1] text-teal-100'
+                            : attachment.status === 'failed'
+                              ? 'border-rose-400/30 bg-rose-400/[0.12] text-rose-100'
+                              : 'border-white/[0.14] bg-white/[0.04] text-secondary'
+                        )}
+                      >
+                        <span className="max-w-[160px] truncate">{attachment.name}</span>
+                        <span className="text-[10px] text-muted">
+                          {attachmentReadableSize(attachment.sizeBytes)}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-[0.08em]">{attachment.status}</span>
+                        {attachment.status === 'failed' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRetryAttachment(attachment.id)}
+                            className="rounded-full border border-white/[0.2] bg-white/[0.05] px-1.5 py-0 text-[10px] hover:bg-white/[0.1]"
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftAttachments((previous) =>
+                              previous.filter((entry) => entry.id !== attachment.id)
+                            )
+                          }
+                          className="rounded-full border border-transparent px-1 py-0 text-[10px] hover:border-white/[0.16] hover:bg-white/[0.05]"
+                          aria-label={`Remove attachment ${attachment.name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 border-t border-white/[0.08] pt-2">
+                  <p id="chat-launch-requirements" className="text-micro text-secondary">
+                    {composerGuidance}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setComposerExpanded(false);
+                      setAgentPickerMode(null);
+                      setScopePickerOpen(false);
+                    }}
+                    className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2.5 py-1 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                  >
+                    Collapse
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.section>
+
+        {composerError && (
+          <p className="mt-1.5 rounded-md border border-rose-400/30 bg-rose-400/[0.12] px-2.5 py-1.5 text-caption text-rose-100">
+            {composerError}
+          </p>
+        )}
+        {composerNotice && (
+          <p className="mt-1.5 rounded-md border border-lime/30 bg-lime/[0.1] px-2.5 py-1.5 text-caption text-[#E1FFB2]">
+            {composerNotice}
+          </p>
+        )}
+        {(guidanceStatus === 'submitted' || guidanceStatus === 'streaming') && (
+          <p className="mt-1.5 rounded-md border border-cyan-300/28 bg-cyan-500/[0.1] px-2.5 py-1.5 text-caption text-cyan-100">
+            Assistant is drafting guidance...
+          </p>
+        )}
+        {guidancePreview && (
+          <p className="mt-1.5 rounded-md border border-teal/28 bg-teal/[0.1] px-2.5 py-1.5 text-caption text-teal-100">
+            {guidancePreview}
+          </p>
+        )}
+        {guidanceError && (
+          <p className="mt-1.5 rounded-md border border-rose-400/30 bg-rose-400/[0.12] px-2.5 py-1.5 text-caption text-rose-100">
+            {humanizeApiError(guidanceError.message, 'send')}
+          </p>
+        )}
+        {launchWarningOpen && (
+          <div className="mt-1.5 rounded-md border border-amber-300/35 bg-amber-300/[0.12] px-2.5 py-2 text-caption text-amber-100">
+            <p>Launch includes non-ready attachments. Continue anyway?</p>
+            <label className="mt-1.5 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={launchWarningAccepted}
+                onChange={(event) => setLaunchWarningAccepted(event.target.checked)}
+              />
+              <span>I understand unresolved attachment extraction may reduce context quality.</span>
+            </label>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {agentPickerMode && (
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
+              exit={prefersReducedMotion ? {} : { opacity: 0, y: 4 }}
+              transition={
+                prefersReducedMotion
+                  ? undefined
+                  : {
+                      duration: motionTokens.durationFast / 1000,
+                      ease: motionTokens.easingStandard as unknown as number[],
+                    }
+              }
+              className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 rounded-xl border border-white/[0.14] bg-[#0A0E16]/98 p-2.5 shadow-[0_20px_44px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:left-auto sm:w-[360px]"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-micro uppercase tracking-[0.08em] text-muted">
+                  {agentPickerMode === 'assignee' ? 'Pick assignee' : 'Pick watchers'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAgentPickerMode(null)}
+                  className="h-7 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                >
+                  Close
+                </button>
+              </div>
+              <input
+                value={agentPickerQuery}
+                onChange={(event) => setAgentPickerQuery(event.target.value)}
+                placeholder="Search agents..."
+                className="mb-2 h-9 w-full rounded-lg border border-white/[0.12] bg-black/35 px-2.5 text-caption text-primary outline-none focus:border-lime/35"
+              />
+              <div className="max-h-[240px] space-y-1 overflow-y-auto">
+                {filteredAgentOptions.map((agent) => {
+                  const isAssignee = selectedAssigneeId === agent.id;
+                  const isWatcher = selectedWatcherIds.includes(agent.id);
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => {
+                        if (agentPickerMode === 'assignee') {
+                          selectAssignee(agent.id);
+                          return;
+                        }
+                        if (isAssignee) return;
+                        toggleWatcher(agent.id);
+                      }}
+                      className={cn(
+                        'flex min-h-[38px] w-full items-center justify-between rounded-lg border px-2 py-1.5 text-left text-caption',
+                        isAssignee
+                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                          : isWatcher
+                            ? 'border-teal/30 bg-teal/[0.12] text-teal-100'
+                            : 'border-white/[0.1] bg-white/[0.02] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <AgentAvatar name={agent.name} hint={agent.name} size="xs" />
+                        <span>{agent.name}</span>
+                      </span>
+                      <span className="text-micro">
+                        {isAssignee ? 'Assignee' : isWatcher ? 'Watcher' : 'Select'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {scopePickerOpen && (
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={prefersReducedMotion ? {} : { opacity: 1, y: 0 }}
+              exit={prefersReducedMotion ? {} : { opacity: 0, y: 4 }}
+              transition={
+                prefersReducedMotion
+                  ? undefined
+                  : {
+                      duration: motionTokens.durationFast / 1000,
+                      ease: motionTokens.easingStandard as unknown as number[],
+                    }
+              }
+              className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 rounded-xl border border-white/[0.14] bg-[#0A0E16]/98 p-2.5 shadow-[0_20px_44px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:left-auto sm:w-[420px]"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-micro uppercase tracking-[0.08em] text-muted">Select scope</p>
+                <button
+                  type="button"
+                  onClick={() => setScopePickerOpen(false)}
+                  className="h-7 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 text-micro text-secondary hover:bg-white/[0.08] hover:text-primary"
+                >
+                  Close
+                </button>
+              </div>
+              <input
+                value={scopePickerQuery}
+                onChange={(event) => setScopePickerQuery(event.target.value)}
+                placeholder="Search initiatives..."
+                className="mb-2 h-9 w-full rounded-lg border border-white/[0.12] bg-black/35 px-2.5 text-caption text-primary outline-none focus:border-lime/35"
+              />
+              <div className="max-h-[240px] space-y-1 overflow-y-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedInitiativeId('');
+                    setScopePickerOpen(false);
+                  }}
+                  className={cn(
+                    'w-full rounded-lg border px-2 py-1.5 text-left text-caption',
+                    selectedInitiativeId === ''
+                      ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                      : 'border-white/[0.1] bg-white/[0.02] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                  )}
+                >
+                  Unscoped
+                </button>
+                {filteredInitiativeOptions.map((initiative) => {
+                  const isSelected = selectedInitiativeId === initiative.id;
+                  return (
+                    <button
+                      key={initiative.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedInitiativeId(initiative.id);
+                        setScopePickerOpen(false);
+                      }}
+                      className={cn(
+                        'w-full rounded-lg border px-2 py-1.5 text-left text-caption',
+                        isSelected
+                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                          : 'border-white/[0.1] bg-white/[0.02] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                      )}
+                    >
+                      {initiative.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>

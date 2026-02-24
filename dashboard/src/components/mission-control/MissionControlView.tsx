@@ -26,6 +26,7 @@ import { MissionControlEmpty } from './MissionControlEmpty';
 import { EntityDetailModal } from './EntityDetailModal';
 import { MissionControlFilters } from './MissionControlFilters';
 import { NextUpPanel } from './NextUpPanel';
+import { SliceExplorerPanel } from './SliceExplorerPanel';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { InlineToast } from '@/components/shared/InlineToast';
 
@@ -397,6 +398,7 @@ function MissionControlInner({
   const [connectivityToastDismissed, setConnectivityToastDismissed] = useState(false);
   const [nextUpRailOpen, setNextUpRailOpen] = useState(false);
   const [nextUpDrawerOpen, setNextUpDrawerOpen] = useState(false);
+  const [railSurface, setRailSurface] = useState<'next-up' | 'slices'>('next-up');
   const [nextActionNotice, setNextActionNotice] = useState<{
     tone: 'success' | 'error';
     message: string;
@@ -2346,7 +2348,59 @@ function MissionControlInner({
                         transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
                         className="origin-top-right flex h-[calc(100vh-var(--mc-toolbar-offset)-24px)] min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px] xl:rounded-l-none"
                       >
-                        <div className="relative flex-1 min-h-0">
+                        <div className="relative flex h-full min-h-0 flex-col">
+                          <div className="flex items-center gap-1 border-b border-strong px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => setRailSurface('next-up')}
+                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                                railSurface === 'next-up'
+                                  ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                                  : 'text-secondary'
+                              }`}
+                            >
+                              Next Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRailSurface('slices')}
+                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                                railSurface === 'slices'
+                                  ? 'border-teal-300/34 bg-teal-400/[0.12] text-teal-100'
+                                  : 'text-secondary'
+                              }`}
+                            >
+                              Slices
+                            </button>
+                          </div>
+                          <div className="min-h-0 flex-1">
+                            {railSurface === 'next-up' ? (
+                              <NextUpPanel
+                                title="Next Up"
+                                panelStyle="flat"
+                                className="!bg-transparent !shadow-none !border-transparent"
+                                disableEnterAnimation
+                                projectId={workspaceInitiativeId}
+                                authToken={authToken}
+                                embedMode={embedMode}
+                                onOpenInitiative={openInitiativeFromNextUp}
+                                onOpenSettings={onOpenSettings}
+                                onUpgradeGate={setAutopilotUpgradeGate}
+                              />
+                            ) : (
+                              <SliceExplorerPanel
+                                title="Slice Explorer"
+                                className="h-full !rounded-none !border-0 !bg-transparent"
+                                workspaceId={workspaceInitiativeId}
+                                authToken={authToken}
+                                embedMode={embedMode}
+                                compact
+                                onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                }}
+                              />
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={toggleNextUpSurface}
@@ -2355,18 +2409,6 @@ function MissionControlInner({
                           >
                             Hide
                           </button>
-                          <NextUpPanel
-                            title="Next Up"
-                            panelStyle="flat"
-                            className="!bg-transparent !shadow-none !border-transparent"
-                            disableEnterAnimation
-                            projectId={workspaceInitiativeId}
-                            authToken={authToken}
-                            embedMode={embedMode}
-                            onOpenInitiative={openInitiativeFromNextUp}
-                            onOpenSettings={onOpenSettings}
-                            onUpgradeGate={setAutopilotUpgradeGate}
-                          />
                         </div>
                       </motion.div>
                     </div>
@@ -2414,21 +2456,64 @@ function MissionControlInner({
                         transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
                         className="h-full overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
                       >
-                          <NextUpPanel
-                            title="Next Up"
-                            panelStyle="flat"
-                            className="!bg-transparent !shadow-none !border-transparent"
-                            disableEnterAnimation
-                            projectId={workspaceInitiativeId}
-                            authToken={authToken}
-                            embedMode={embedMode}
-                            onOpenInitiative={(initiativeId, initiativeTitle) => {
-                              openInitiativeFromNextUp(initiativeId, initiativeTitle);
-                              setNextUpDrawerOpen(false);
-                            }}
-                            onOpenSettings={onOpenSettings}
-                            onUpgradeGate={setAutopilotUpgradeGate}
-                          />
+                        <div className="flex h-full min-h-0 flex-col">
+                          <div className="flex items-center gap-1 border-b border-strong px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => setRailSurface('next-up')}
+                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                                railSurface === 'next-up'
+                                  ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                                  : 'text-secondary'
+                              }`}
+                            >
+                              Next Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRailSurface('slices')}
+                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                                railSurface === 'slices'
+                                  ? 'border-teal-300/34 bg-teal-400/[0.12] text-teal-100'
+                                  : 'text-secondary'
+                              }`}
+                            >
+                              Slices
+                            </button>
+                          </div>
+                          <div className="min-h-0 flex-1">
+                            {railSurface === 'next-up' ? (
+                              <NextUpPanel
+                                title="Next Up"
+                                panelStyle="flat"
+                                className="!bg-transparent !shadow-none !border-transparent"
+                                disableEnterAnimation
+                                projectId={workspaceInitiativeId}
+                                authToken={authToken}
+                                embedMode={embedMode}
+                                onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                  setNextUpDrawerOpen(false);
+                                }}
+                                onOpenSettings={onOpenSettings}
+                                onUpgradeGate={setAutopilotUpgradeGate}
+                              />
+                            ) : (
+                              <SliceExplorerPanel
+                                title="Slice Explorer"
+                                className="h-full !rounded-none !border-0 !bg-transparent"
+                                workspaceId={workspaceInitiativeId}
+                                authToken={authToken}
+                                embedMode={embedMode}
+                                compact
+                                onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                  setNextUpDrawerOpen(false);
+                                }}
+                              />
+                            )}
+                          </div>
+                        </div>
                       </motion.div>
                     </div>
                   </motion.aside>
