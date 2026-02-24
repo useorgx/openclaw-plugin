@@ -24,6 +24,14 @@ export function registerSummaryRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: SummaryRoutesDeps<TRes>
 ): void {
+  const sendDeprecated = (res: TRes, endpoint: string, replacement: string) => {
+    deps.sendJson(res, 410, {
+      error: `${endpoint} is deprecated`,
+      replacement,
+      required_scope: "workspace_id",
+    });
+  };
+
   router.add(
     "HEAD",
     "status",
@@ -66,7 +74,7 @@ export function registerSummaryRoutes<TReq, TRes>(
     "GET",
     "agents",
     ({ res }) => {
-      deps.sendJson(res, 200, deps.formatAgents(deps.getSnapshot()));
+      sendDeprecated(res, "/orgx/api/agents", "/orgx/api/live/agents");
     },
     "Agent summary"
   );
@@ -75,7 +83,7 @@ export function registerSummaryRoutes<TReq, TRes>(
     "GET",
     "activity",
     ({ res }) => {
-      deps.sendJson(res, 200, deps.formatActivity(deps.getSnapshot()));
+      sendDeprecated(res, "/orgx/api/activity", "/orgx/api/live/snapshot");
     },
     "Activity summary"
   );
@@ -84,7 +92,7 @@ export function registerSummaryRoutes<TReq, TRes>(
     "GET",
     "initiatives",
     ({ res }) => {
-      deps.sendJson(res, 200, deps.formatInitiatives(deps.getSnapshot()));
+      sendDeprecated(res, "/orgx/api/initiatives", "/orgx/api/live/initiatives");
     },
     "Initiatives summary"
   );

@@ -1,4 +1,5 @@
 import type { Router } from "../router.js";
+import { resolveWorkspaceScope as resolveCanonicalWorkspaceScope } from "../helpers/workspace-scope.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -109,6 +110,8 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   }) => { pins: unknown[]; updatedAt: string };
   clearNextUpQueueCache: (initiativeId?: string | null) => void;
   resolveAutoAssignments: (input: any) => Promise<unknown>;
+  buildMissionControlGraph: (initiativeId: string) => Promise<unknown>;
+  applyLocalInitiativeOverrideToGraph: (graph: unknown) => unknown;
   client: any;
   rawRequest?: (
     requestMethod: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
@@ -320,6 +323,121 @@ function shouldResetTaskStatus(
   return false;
 }
 
+type GraphNodeType = "initiative" | "workstream" | "milestone" | "task";
+
+type GraphCycleNode = {
+  id: string;
+  type: GraphNodeType;
+  title: string;
+  workstreamId: string | null;
+  dependencyIds: string[];
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => asString(entry))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function parseCycleGraphNodes(graph: unknown): GraphCycleNode[] {
+  const root = asRecord(graph);
+  const rawNodes = Array.isArray(root?.nodes) ? root.nodes : [];
+  const nodes: GraphCycleNode[] = [];
+
+  for (const entry of rawNodes) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const id = asString(record.id);
+    const type = asString(record.type);
+    if (!id || !type) continue;
+    if (
+      type !== "initiative" &&
+      type !== "workstream" &&
+      type !== "milestone" &&
+      type !== "task"
+    ) {
+      continue;
+    }
+    nodes.push({
+      id,
+      type,
+      title: asString(record.title) ?? id,
+      workstreamId: asString(record.workstreamId),
+      dependencyIds: Array.from(new Set(asStringArray(record.dependencyIds).filter((depId) => depId !== id))),
+    });
+  }
+
+  return nodes;
+}
+
+function parseCycleDiagnosticsRemovedEdges(
+  graph: unknown
+): Array<{ from: string; to: string }> {
+  const root = asRecord(graph);
+  const diagnostics = asRecord(root?.cycleDiagnostics);
+  const rawRemoved = Array.isArray(diagnostics?.removedEdges)
+    ? diagnostics?.removedEdges
+    : [];
+  const removedEdges: Array<{ from: string; to: string }> = [];
+  for (const entry of rawRemoved) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const from = asString(record.from);
+    const to = asString(record.to);
+    if (!from || !to) continue;
+    removedEdges.push({ from, to });
+  }
+  return removedEdges;
+}
+
+function detectCycleEdgeKeys(
+  edges: Array<{ from: string; to: string }>
+): Set<string> {
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = adjacency.get(edge.from) ?? [];
+    list.push(edge.to);
+    adjacency.set(edge.from, list);
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const cycleEdgeKeys = new Set<string>();
+
+  const dfs = (nodeId: string) => {
+    if (visited.has(nodeId)) return;
+    visiting.add(nodeId);
+    const children = adjacency.get(nodeId) ?? [];
+    for (const childId of children) {
+      if (visiting.has(childId)) {
+        cycleEdgeKeys.add(`${nodeId}->${childId}`);
+        continue;
+      }
+      dfs(childId);
+    }
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  };
+
+  for (const nodeId of adjacency.keys()) {
+    if (!visited.has(nodeId)) dfs(nodeId);
+  }
+
+  return cycleEdgeKeys;
+}
+
 export function registerMissionControlActionsRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterMissionControlActionsRoutesDeps<TReq, TRes>
@@ -351,28 +469,10 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
   const resolveWorkspaceScope = (
     payload: Record<string, unknown>,
     query: URLSearchParams
-  ): string | null => {
-    const value =
-      deps.pickString(payload, [
-        "workspace_id",
-        "workspaceId",
-        "command_center_id",
-        "commandCenterId",
-        "project_id",
-        "projectId",
-        "center",
-      ]) ??
-      query.get("workspace_id") ??
-      query.get("workspaceId") ??
-      query.get("command_center_id") ??
-      query.get("commandCenterId") ??
-      query.get("project_id") ??
-      query.get("projectId") ??
-      query.get("center");
-    return typeof value === "string" && value.trim().length > 0
-      ? value.trim()
-      : null;
-  };
+  ): { workspaceId: string | null; error?: string } =>
+    resolveCanonicalWorkspaceScope(query, payload, {
+      allowProjectScope: false,
+    });
 
   router.add(
     "POST",
@@ -929,7 +1029,17 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             query.get("initiative_id") ??
             ""
           ).trim() || null;
-        const workspaceId = resolveWorkspaceScope(payload, query);
+        const scope = resolveWorkspaceScope(payload, query);
+        if (scope.error) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.slices.reorder.validation",
+            scope.error
+          );
+          return;
+        }
+        const workspaceId = scope.workspaceId;
         const order = parseSliceOrderForMutation((payload as any)?.order);
         const canonicalOrder = order.map((sliceId) => ({ sliceId }));
 
@@ -953,7 +1063,6 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             ? {
                 workspace_id: workspaceId,
                 command_center_id: workspaceId,
-                project_id: workspaceId,
               }
             : {}),
           level,
@@ -996,7 +1105,17 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             query.get("initiative_id") ??
             ""
           ).trim() || null;
-        const workspaceId = resolveWorkspaceScope(payload, query);
+        const scope = resolveWorkspaceScope(payload, query);
+        if (scope.error) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.slices.order-mode.validation",
+            scope.error
+          );
+          return;
+        }
+        const workspaceId = scope.workspaceId;
         const orderMode = normalizeSliceOrderMode(
           deps.pickString(payload, ["orderMode", "order_mode"]) ??
             query.get("orderMode") ??
@@ -1032,7 +1151,6 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             ? {
                 workspace_id: workspaceId,
                 command_center_id: workspaceId,
-                project_id: workspaceId,
               }
             : {}),
           level,
@@ -1542,6 +1660,253 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
       }
     },
     "Mission-control next-up clear"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/graph/cycles/auto-fix",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+        const dryRunRaw =
+          (payload as Record<string, unknown>).dryRun ??
+          (payload as Record<string, unknown>).dry_run ??
+          query.get("dryRun") ??
+          query.get("dry_run") ??
+          null;
+        const dryRun =
+          typeof dryRunRaw === "boolean"
+            ? dryRunRaw
+            : deps.parseBooleanQuery(
+                typeof dryRunRaw === "string" ? dryRunRaw : null
+              ) ?? false;
+
+        if (!initiativeId) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.graph.cycles.auto-fix.validation",
+            "initiativeId is required"
+          );
+          return;
+        }
+
+        const graph = deps.applyLocalInitiativeOverrideToGraph(
+          await deps.buildMissionControlGraph(initiativeId)
+        );
+        const diagnosticsRemovedEdges = parseCycleDiagnosticsRemovedEdges(graph);
+        const graphNodes = parseCycleGraphNodes(graph);
+        const nodeById = new Map(graphNodes.map((node) => [node.id, node]));
+
+        const workingDependencies = new Map<string, Set<string>>(
+          graphNodes.map((node) => [node.id, new Set(node.dependencyIds)])
+        );
+        const removedEdgeKeys = new Set<string>();
+        const maxPasses = 12;
+        for (let pass = 0; pass < maxPasses; pass += 1) {
+          const edges: Array<{ from: string; to: string }> = [];
+          for (const node of graphNodes) {
+            const depsSet = workingDependencies.get(node.id) ?? new Set<string>();
+            for (const depId of depsSet.values()) {
+              if (!nodeById.has(depId) || depId === node.id) continue;
+              edges.push({ from: depId, to: node.id });
+            }
+          }
+          const cycleEdgeKeys = detectCycleEdgeKeys(edges);
+          if (cycleEdgeKeys.size === 0) break;
+
+          let removedInPass = 0;
+          for (const edgeKey of cycleEdgeKeys.values()) {
+            const [from, to] = edgeKey.split("->", 2);
+            if (!from || !to) continue;
+            const nodeDeps = workingDependencies.get(to);
+            if (!nodeDeps || !nodeDeps.has(from)) continue;
+            nodeDeps.delete(from);
+            removedEdgeKeys.add(edgeKey);
+            removedInPass += 1;
+          }
+          if (removedInPass === 0) break;
+        }
+
+        let removedEdges = Array.from(removedEdgeKeys.values())
+          .map((edgeKey) => {
+            const [from, to] = edgeKey.split("->", 2);
+            if (!from || !to) return null;
+            return { from, to };
+          })
+          .filter((entry): entry is { from: string; to: string } => Boolean(entry));
+        if (removedEdges.length === 0 && diagnosticsRemovedEdges.length > 0) {
+          removedEdges = diagnosticsRemovedEdges;
+        }
+
+        const affectedNodes = new Map<
+          string,
+          {
+            id: string;
+            type: GraphNodeType;
+            title: string;
+            workstreamId: string | null;
+            removedDependencyIds: string[];
+            dependencyIds: string[];
+          }
+        >();
+
+        for (const edge of removedEdges) {
+          const node = nodeById.get(edge.to);
+          if (!node) continue;
+          const existing = affectedNodes.get(node.id) ?? {
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            workstreamId: node.workstreamId,
+            removedDependencyIds: [],
+            dependencyIds: [],
+          };
+          if (!existing.removedDependencyIds.includes(edge.from)) {
+            existing.removedDependencyIds.push(edge.from);
+          }
+          existing.dependencyIds = Array.from(
+            (workingDependencies.get(node.id) ?? new Set<string>()).values()
+          );
+          affectedNodes.set(node.id, existing);
+        }
+
+        const affected = Array.from(affectedNodes.values()).sort((left, right) =>
+          left.title.localeCompare(right.title)
+        );
+
+        if (dryRun) {
+          deps.sendJson(res, 200, {
+            ok: true,
+            dryRun: true,
+            initiativeId,
+            cycleEdgesDetected: removedEdges.length,
+            nodesToUpdate: affected.length,
+            removedEdges,
+            affected,
+          });
+          return;
+        }
+
+        const updateResults: Array<{
+          id: string;
+          type: GraphNodeType;
+          ok: boolean;
+          error?: string;
+          dependencyIds: string[];
+          removedDependencyIds: string[];
+        }> = [];
+
+        for (const node of affected) {
+          if (
+            node.type !== "initiative" &&
+            node.type !== "workstream" &&
+            node.type !== "milestone" &&
+            node.type !== "task"
+          ) {
+            updateResults.push({
+              id: node.id,
+              type: node.type,
+              ok: false,
+              error: "Unsupported entity type for dependency update",
+              dependencyIds: node.dependencyIds,
+              removedDependencyIds: node.removedDependencyIds,
+            });
+            continue;
+          }
+
+          try {
+            await deps.client.updateEntity(node.type, node.id, {
+              depends_on: node.dependencyIds,
+              dependency_ids: node.dependencyIds,
+              dependencyIds: node.dependencyIds,
+            });
+            updateResults.push({
+              id: node.id,
+              type: node.type,
+              ok: true,
+              dependencyIds: node.dependencyIds,
+              removedDependencyIds: node.removedDependencyIds,
+            });
+          } catch (err: unknown) {
+            updateResults.push({
+              id: node.id,
+              type: node.type,
+              ok: false,
+              error: deps.safeErrorMessage(err),
+              dependencyIds: node.dependencyIds,
+              removedDependencyIds: node.removedDependencyIds,
+            });
+          }
+        }
+
+        const scheduled: Array<{ workstreamId: string; requestId: string }> = [];
+        const failedSchedules: Array<{ workstreamId: string; error: string }> = [];
+        const workstreamIds = Array.from(
+          new Set(
+            affected
+              .map((node) => {
+                if (node.type === "workstream") return node.id;
+                return node.workstreamId;
+              })
+              .filter(
+                (workstreamId): workstreamId is string =>
+                  typeof workstreamId === "string" &&
+                  workstreamId.trim().length > 0
+              )
+          )
+        );
+        for (const workstreamId of workstreamIds) {
+          try {
+            const scheduledFix = await deps.scheduleAutoFixForWorkstream({
+              initiativeId,
+              workstreamId,
+              runId: null,
+              event: "dependency_cycle_auto_fix",
+              requestedByAgentId: "orgx-orchestrator",
+              requestedByAgentName: "OrgX Orchestrator",
+              graceMs: 250,
+            });
+            scheduled.push({
+              workstreamId,
+              requestId: scheduledFix.requestId,
+            });
+          } catch (err: unknown) {
+            failedSchedules.push({
+              workstreamId,
+              error: deps.safeErrorMessage(err),
+            });
+          }
+        }
+
+        if (removedEdges.length > 0 || affected.length > 0) {
+          deps.clearNextUpQueueCache(initiativeId);
+        }
+
+        const updated = updateResults.filter((result) => result.ok).length;
+        const failed = updateResults.length - updated;
+        deps.sendJson(res, 200, {
+          ok: true,
+          initiativeId,
+          cycleEdgesDetected: removedEdges.length,
+          nodesUpdated: updated,
+          nodesFailed: failed,
+          removedEdges,
+          updates: updateResults,
+          scheduledAutofixes: scheduled,
+          autofixScheduleFailures: failedSchedules,
+        });
+      } catch (err: unknown) {
+        sendRouteException(res, "mission-control.graph.cycles.auto-fix.handler", err);
+      }
+    },
+    "Mission-control dependency cycle auto-fix"
   );
 
   router.add(

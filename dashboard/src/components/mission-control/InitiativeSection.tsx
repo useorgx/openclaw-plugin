@@ -19,6 +19,7 @@ import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import { buildOrgxHeaders } from '@/lib/http';
 import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
@@ -286,6 +287,9 @@ function toTaskEntity(node: MissionControlNode, initiative: Initiative): Initiat
 }
 
 function humanizeWarning(raw: string): string {
+  if (/cyclic dependency edge/i.test(raw)) {
+    return 'Dependency loop detected in saved links. ETA sequencing excludes the loop until fixed.';
+  }
   if (/unknown api endpoint/i.test(raw)) return 'Graph API unavailable — showing session-derived data';
   if (/401|unauthorized/i.test(raw)) return 'Auth expired — reconnect to load full data';
   if (/failed to list initiative/i.test(raw)) return 'Initiative data unavailable';
@@ -340,12 +344,13 @@ export function InitiativeSection({
   const [warningsExpanded, setWarningsExpanded] = useState(false);
   const [isBodyAnimating, setIsBodyAnimating] = useState(false);
   const [queueNotice, setQueueNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [isAutoFixingCycles, setIsAutoFixingCycles] = useState(false);
   const initiativeHeaderRef = useRef<HTMLDivElement | null>(null);
   const [initiativeHeaderOffset, setInitiativeHeaderOffset] = useState(52);
   const [stickyMorph, setStickyMorph] = useState(0);
 
   const isExpanded = expandedInitiatives.has(initiative.id);
-  const { graph, isLoading, degraded, error } = useMissionControlGraph({
+  const { graph, isLoading, degraded, error, refetch: refetchGraph } = useMissionControlGraph({
     initiativeId: initiative.id,
     authToken,
     embedMode,
@@ -395,6 +400,61 @@ export function InitiativeSection({
       ? ['OrgX auth is missing or expired in this local plugin instance. Reconnect in onboarding to load full workstreams/milestones/tasks.']
       : []),
   ];
+  const cycleWarnings = warnings.filter((warning) => /cyclic dependency edge/i.test(warning));
+  const cycleEdgeCount = cycleWarnings.reduce((count, warning) => {
+    const match = /detected\s+(\d+)\s+cyclic dependency edge/i.exec(warning);
+    return count + (match ? Number(match[1]) || 0 : 0);
+  }, 0);
+  const canAutoFixCycles = cycleWarnings.length > 0;
+
+  const autoFixDependencyCycles = async () => {
+    if (isAutoFixingCycles) return;
+    setIsAutoFixingCycles(true);
+    try {
+      const response = await fetch('/orgx/api/mission-control/graph/cycles/auto-fix', {
+        method: 'POST',
+        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        body: JSON.stringify({ initiativeId: initiative.id }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            message?: string;
+            cycleEdgesDetected?: number;
+            nodesUpdated?: number;
+            nodesFailed?: number;
+          }
+        | null;
+      if (!response.ok) {
+        throw new Error(
+          body?.error ??
+            body?.message ??
+            `Failed to auto-fix dependency cycles (${response.status})`
+        );
+      }
+      const detected = typeof body?.cycleEdgesDetected === 'number' ? body.cycleEdgesDetected : cycleEdgeCount;
+      const updated = typeof body?.nodesUpdated === 'number' ? body.nodesUpdated : 0;
+      const failed = typeof body?.nodesFailed === 'number' ? body.nodesFailed : 0;
+      setQueueNotice({
+        tone: failed > 0 ? 'error' : 'success',
+        message:
+          failed > 0
+            ? `Auto-fix removed ${detected} cyclic edge${detected === 1 ? '' : 's'} and updated ${updated} nodes (${failed} failed).`
+            : `Auto-fix removed ${detected} cyclic edge${detected === 1 ? '' : 's'} and updated ${updated} nodes.`,
+      });
+      void refetchGraph();
+    } catch (error) {
+      setQueueNotice({
+        tone: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to auto-fix dependency cycles.',
+      });
+    } finally {
+      setIsAutoFixingCycles(false);
+    }
+  };
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const highlightedNodeIds = useMemo(
@@ -996,26 +1056,40 @@ export function InitiativeSection({
                       variants={staggerItem}
                       className="overflow-hidden rounded-lg border border-amber-300/15 bg-amber-500/[0.06]"
                     >
-                      <button
-                        type="button"
-                        onClick={() => setWarningsExpanded((prev) => !prev)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
-                      >
-                        <span className="text-caption text-amber-100/85">
-                          {warnings.length} data source{warnings.length > 1 ? 's' : ''} unavailable
-                        </span>
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          className={`text-amber-100/55 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                      <div className="flex items-center justify-between gap-2 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setWarningsExpanded((prev) => !prev)}
+                          className="flex min-w-0 flex-1 items-center justify-between text-left transition-colors hover:text-white"
                         >
-                          <path d="m6 9 6 6 6-6" />
-                        </svg>
-                      </button>
+                          <span className="truncate text-caption text-amber-100/85">
+                            {canAutoFixCycles
+                              ? `Dependency loop detected (${cycleEdgeCount || cycleWarnings.length} edges)`
+                              : `${warnings.length} data source${warnings.length > 1 ? 's' : ''} unavailable`}
+                          </span>
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            className={`ml-2 text-amber-100/55 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                          >
+                            <path d="m6 9 6 6 6-6" />
+                          </svg>
+                        </button>
+                        {canAutoFixCycles ? (
+                          <button
+                            type="button"
+                            onClick={autoFixDependencyCycles}
+                            disabled={isAutoFixingCycles}
+                            className="control-pill h-7 flex-shrink-0 px-2.5 text-micro font-semibold text-[#D8FFA1] disabled:opacity-45"
+                          >
+                            {isAutoFixingCycles ? 'Fixing…' : 'Auto-fix'}
+                          </button>
+                        ) : null}
+                      </div>
                       <AnimatePresence>
                         {warningsExpanded && (
                           <motion.div
@@ -1025,7 +1099,7 @@ export function InitiativeSection({
                             transition={{ duration: 0.15 }}
                             className="overflow-hidden"
                           >
-                            <div className="px-3 pb-2 space-y-1">
+                            <div className="space-y-1 px-3 pb-2">
                               {warnings.map((w, i) => (
                                 <div key={i} className="text-micro text-amber-100/72">
                                   {humanizeWarning(w)}

@@ -726,6 +726,17 @@ export interface MissionControlGraphResponse {
   edges: MissionControlEdge[];
   recentTodos: string[];
   degraded?: string[];
+  cycleDiagnostics?: {
+    detected: boolean;
+    cycleEdgeCount: number;
+    removedEdges: Array<{ from: string; to: string }>;
+    affectedNodes: Array<{
+      nodeId: string;
+      nodeType: MissionControlNodeType;
+      removedDependencyIds: string[];
+      remainingDependencyIds: string[];
+    }>;
+  };
 }
 
 export type MissionControlSliceLevel =
@@ -755,6 +766,11 @@ export interface MissionControlSliceIwmts {
   laneId?: string | null;
   mixScore?: number | null;
   factors?: MissionControlSliceFactor[];
+}
+
+export interface RunnerAgentRef {
+  id: string;
+  name: string;
 }
 
 export interface MissionControlSliceItem {
@@ -789,6 +805,13 @@ export interface MissionControlSliceItem {
   lineage?: MissionControlSliceLineage | null;
   sourceWorkstreamIds?: string[];
   queueState?: string | null;
+  sliceTaskIds?: string[];
+  sliceTaskCount?: number | null;
+  sliceMilestoneId?: string | null;
+  runnerAgentId?: string | null;
+  runnerAgentName?: string | null;
+  runnerAgents?: RunnerAgentRef[];
+  runnerSource?: NextUpRunnerSource | null;
   updatedAt?: string | null;
 }
 
@@ -844,6 +867,7 @@ export interface NextUpQueueItem {
   nextTaskDueAt: string | null;
   runnerAgentId: string;
   runnerAgentName: string;
+  runnerAgents?: RunnerAgentRef[];
   runnerSource: NextUpRunnerSource;
   queueState: NextUpQueueState;
   blockReason: string | null;

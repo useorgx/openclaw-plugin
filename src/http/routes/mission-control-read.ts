@@ -1,4 +1,8 @@
 import { listBuiltInSentinels } from "../helpers/sentinel-catalog.js";
+import {
+  resolveWorkspaceScope,
+  workspaceScopeFromHeaders,
+} from "../helpers/workspace-scope.js";
 import type { Router } from "../router.js";
 
 type AutoContinueRunRecord = {
@@ -30,6 +34,8 @@ type NextUpQueueItem = {
   nextTaskMilestoneId?: string | null;
   runnerAgentId?: string | null;
   runnerAgentName?: string | null;
+  runnerAgents?: SliceRunnerAgent[];
+  runnerSource?: "assigned" | "inferred" | "fallback";
   queueState: "queued" | "running" | "blocked" | "idle" | "completed";
   sliceScope?: "task" | "milestone" | "workstream" | null;
   sliceTaskIds?: string[];
@@ -40,6 +46,11 @@ type NextUpQueueItem = {
   compositeScore?: number;
   scoringTier?: "urgent" | "ready" | "waiting" | "deferred";
   updatedAt?: string | null;
+};
+
+type SliceRunnerAgent = {
+  id: string;
+  name: string;
 };
 
 type NextUpQueue = {
@@ -65,6 +76,8 @@ type SliceViewItem = {
   sourceWorkstreamIds: string[];
   runnerAgentId: string | null;
   runnerAgentName: string | null;
+  runnerAgents: SliceRunnerAgent[];
+  runnerSource: "assigned" | "inferred" | "fallback";
   nextTaskId: string | null;
   nextTaskTitle: string | null;
   nextTaskPriority: number | null;
@@ -123,6 +136,71 @@ function asString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeRunnerValue(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized || normalized === "undefined" || normalized === "null") return null;
+  if (normalized === "main" || normalized === "unassigned") return null;
+  if (normalized === "n/a" || normalized === "na") return null;
+  return raw.trim();
+}
+
+function normalizeRunnerSource(
+  value: unknown
+): "assigned" | "inferred" | "fallback" | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "assigned") return "assigned";
+  if (normalized === "inferred") return "inferred";
+  if (normalized === "fallback") return "fallback";
+  return null;
+}
+
+function normalizeRunnerAgents(value: unknown): SliceRunnerAgent[] {
+  if (!Array.isArray(value)) return [];
+  const output: SliceRunnerAgent[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const id = normalizeRunnerValue(record.id);
+    const name = normalizeRunnerValue(record.name);
+    if (!id && !name) continue;
+    const resolvedId = id ?? (name as string);
+    const key = resolvedId.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push({
+      id: resolvedId,
+      name: name ?? resolvedId,
+    });
+  }
+  return output;
+}
+
+function mergeRunnerAgents(...groups: SliceRunnerAgent[][]): SliceRunnerAgent[] {
+  const output: SliceRunnerAgent[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const agent of group) {
+      const id = normalizeRunnerValue(agent.id);
+      const name = normalizeRunnerValue(agent.name);
+      if (!id && !name) continue;
+      const resolvedId = id ?? (name as string);
+      const key = resolvedId.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      output.push({
+        id: resolvedId,
+        name: name ?? resolvedId,
+      });
+    }
+  }
+  return output;
 }
 
 function asNumber(value: unknown): number | null {
@@ -352,6 +430,28 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       ...asStringArray(record.sliceTaskIds),
       ...(nextTaskId ? [nextTaskId] : []),
     ]);
+    const runnerAgentsRaw = normalizeRunnerAgents(record.runnerAgents);
+    const runnerAgentIdRaw = normalizeRunnerValue(record.runnerAgentId);
+    const runnerAgentNameRaw =
+      normalizeRunnerValue(record.runnerAgentName) ??
+      normalizeRunnerValue(record.agentName) ??
+      normalizeRunnerValue(record.runner);
+    const runnerAgents = mergeRunnerAgents(
+      runnerAgentsRaw,
+      runnerAgentIdRaw || runnerAgentNameRaw
+        ? [
+            {
+              id: runnerAgentIdRaw ?? runnerAgentNameRaw ?? "Unassigned",
+              name: runnerAgentNameRaw ?? runnerAgentIdRaw ?? "Unassigned",
+            },
+          ]
+        : []
+    );
+    const runnerPrimary = runnerAgents[0] ?? null;
+    const runnerAgentId = runnerPrimary?.id ?? null;
+    const runnerAgentName = runnerPrimary?.name ?? "Unassigned";
+    const runnerSourceHint = normalizeRunnerSource(record.runnerSource);
+    const runnerSource = runnerSourceHint ?? (runnerAgentId ? "inferred" : "fallback");
 
     output.push({
       initiativeId,
@@ -365,8 +465,10 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       nextTaskPriority: asNumber(record.nextTaskPriority),
       nextTaskDueAt: asString(record.nextTaskDueAt),
       nextTaskMilestoneId: asString(record.nextTaskMilestoneId),
-      runnerAgentId: asString(record.runnerAgentId),
-      runnerAgentName: asString(record.runnerAgentName),
+      runnerAgentId,
+      runnerAgentName,
+      runnerAgents,
+      runnerSource,
       queueState: normalizeQueueState(record.queueState),
       sliceScope:
         asString(record.sliceScope) === "task" ||
@@ -416,6 +518,211 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
     if (titleDelta !== 0) return titleDelta;
     return left.workstreamTitle.localeCompare(right.workstreamTitle);
   });
+}
+
+function mapCanonicalSlicesToQueueItems(input: {
+  payload: unknown;
+  initiativeId?: string | null;
+}): NextUpQueueItem[] {
+  const root = asRecord(input.payload);
+  const rawItems = Array.isArray(root?.items) ? root.items : [];
+  if (rawItems.length === 0) return [];
+
+  const requestedInitiativeId = input.initiativeId?.trim() || null;
+  const grouped = new Map<
+    string,
+    {
+      base: NextUpQueueItem;
+      states: NextUpQueueItem["queueState"][];
+      taskIds: Set<string>;
+      runnerAgents: SliceRunnerAgent[];
+      rank: number;
+    }
+  >();
+
+  const resolveRank = (record: Record<string, unknown>, fallback: number): number => {
+    const candidates = [
+      asNumber(record.finalRank),
+      asNumber(record.manualRank),
+      asNumber(record.algorithmRank),
+      asNumber(record.iwmtRank),
+      asNumber(record.rank),
+      asNumber(record.iwmt_rank),
+    ].filter((value): value is number => typeof value === "number");
+    if (candidates.length === 0) return fallback;
+    return candidates[0];
+  };
+
+  rawItems.forEach((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) return;
+
+    const initiativeId = asString(record.initiativeId);
+    const workstreamId = asString(record.workstreamId);
+    if (!initiativeId || !workstreamId) return;
+    if (requestedInitiativeId && initiativeId !== requestedInitiativeId) return;
+
+    const queueState = normalizeQueueState(
+      record.queueState ?? record.status ?? record.state
+    );
+    const nextTaskId = asString(record.nextTaskId) ?? asString(record.taskId);
+    const scope = asString(record.scope) ?? asString(record.level);
+    const normalizedScope =
+      scope === "task" || scope === "milestone" || scope === "workstream"
+        ? (scope as "task" | "milestone" | "workstream")
+        : null;
+    const taskIds = dedupeStrings([
+      ...asStringArray(record.sliceTaskIds),
+      ...(nextTaskId ? [nextTaskId] : []),
+      ...(asString(record.taskId) ? [asString(record.taskId)!] : []),
+    ]);
+    const runnerAgentsRaw = normalizeRunnerAgents(record.runnerAgents);
+    const runnerAgentIdRaw =
+      normalizeRunnerValue(record.runnerAgentId) ??
+      normalizeRunnerValue(record.agentId);
+    const runnerAgentNameRaw =
+      normalizeRunnerValue(record.runnerAgentName) ??
+      normalizeRunnerValue(record.agentName) ??
+      normalizeRunnerValue(record.runner);
+    const runnerAgents = mergeRunnerAgents(
+      runnerAgentsRaw,
+      runnerAgentIdRaw || runnerAgentNameRaw
+        ? [
+            {
+              id: runnerAgentIdRaw ?? runnerAgentNameRaw ?? "Unassigned",
+              name: runnerAgentNameRaw ?? runnerAgentIdRaw ?? "Unassigned",
+            },
+          ]
+        : []
+    );
+    const runnerPrimary = runnerAgents[0] ?? null;
+    const runnerAgentId = runnerPrimary?.id ?? null;
+    const runnerAgentName = runnerPrimary?.name ?? "Unassigned";
+    const runnerSourceHint = normalizeRunnerSource(record.runnerSource);
+    const runnerSource = runnerSourceHint ?? (runnerAgentId ? "inferred" : "fallback");
+    const candidate: NextUpQueueItem = {
+      initiativeId,
+      initiativeTitle: asString(record.initiativeTitle) ?? initiativeId,
+      initiativeStatus: asString(record.initiativeStatus) ?? "active",
+      workstreamId,
+      workstreamTitle:
+        asString(record.workstreamTitle) ??
+        (normalizedScope === "workstream" ? asString(record.title) : null) ??
+        workstreamId,
+      workstreamStatus:
+        asString(record.workstreamStatus) ??
+        (queueState === "running"
+          ? "active"
+          : queueState === "blocked"
+            ? "blocked"
+            : queueState === "completed"
+              ? "completed"
+              : "queued"),
+      nextTaskId,
+      nextTaskTitle:
+        asString(record.nextTaskTitle) ??
+        asString(record.taskTitle) ??
+        (normalizedScope === "task" ? asString(record.title) : null),
+      nextTaskPriority:
+        asNumber(record.nextTaskPriority) ??
+        asNumber(record.taskPriority) ??
+        asNumber(record.priorityNum),
+      nextTaskDueAt:
+        asString(record.nextTaskDueAt) ??
+        asString(record.taskDueAt) ??
+        asString(record.dueDate),
+      nextTaskMilestoneId:
+        asString(record.nextTaskMilestoneId) ?? asString(record.milestoneId),
+      runnerAgentId,
+      runnerAgentName,
+      runnerAgents,
+      runnerSource,
+      queueState,
+      sliceScope: normalizedScope,
+      sliceTaskIds: taskIds,
+      sliceTaskCount:
+        asNumber(record.sliceTaskCount) !== null
+          ? Math.max(0, Math.floor(asNumber(record.sliceTaskCount)!))
+          : taskIds.length,
+      sliceMilestoneId: asString(record.sliceMilestoneId) ?? asString(record.milestoneId),
+      compositeScore: asNumber(record.compositeScore) ?? undefined,
+      scoringTier:
+        asString(record.scoringTier) === "urgent" ||
+        asString(record.scoringTier) === "ready" ||
+        asString(record.scoringTier) === "waiting" ||
+        asString(record.scoringTier) === "deferred"
+          ? (asString(record.scoringTier) as "urgent" | "ready" | "waiting" | "deferred")
+          : undefined,
+      updatedAt: asString(record.updatedAt) ?? asString(record.lastEventAt) ?? null,
+      isPinned: false,
+      pinnedRank: null,
+    };
+
+    const key = `${initiativeId}:${workstreamId}`;
+    const rank = resolveRank(record, index + 1);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, {
+        base: candidate,
+        states: [queueState],
+        taskIds: new Set(taskIds),
+        runnerAgents: candidate.runnerAgents ?? [],
+        rank,
+      });
+      return;
+    }
+
+    existing.states.push(queueState);
+    for (const taskId of taskIds) {
+      if (taskId.trim().length > 0) existing.taskIds.add(taskId.trim());
+    }
+    existing.runnerAgents = mergeRunnerAgents(
+      existing.runnerAgents,
+      candidate.runnerAgents ?? []
+    );
+    if (rank < existing.rank) {
+      existing.base = candidate;
+      existing.rank = rank;
+    }
+  });
+
+  const output: NextUpQueueItem[] = [];
+  for (const bucket of grouped.values()) {
+    const taskIds = Array.from(bucket.taskIds.values());
+    const runnerAgents = mergeRunnerAgents(bucket.runnerAgents, bucket.base.runnerAgents ?? []);
+    const runnerPrimary = runnerAgents[0] ?? null;
+    output.push({
+      ...bucket.base,
+      runnerAgentId: runnerPrimary?.id ?? null,
+      runnerAgentName: runnerPrimary?.name ?? "Unassigned",
+      runnerAgents,
+      runnerSource:
+        bucket.base.runnerSource ??
+        (runnerPrimary ? "inferred" : "fallback"),
+      queueState: combinedQueueState(bucket.states),
+      sliceTaskIds: taskIds,
+      sliceTaskCount:
+        typeof bucket.base.sliceTaskCount === "number"
+          ? Math.max(bucket.base.sliceTaskCount, taskIds.length)
+          : taskIds.length,
+    });
+  }
+
+  output.sort((left, right) => {
+    const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
+    if (queueDelta !== 0) return queueDelta;
+    const priorityDelta =
+      (left.nextTaskPriority ?? Number.MAX_SAFE_INTEGER) -
+      (right.nextTaskPriority ?? Number.MAX_SAFE_INTEGER);
+    if (priorityDelta !== 0) return priorityDelta;
+    const dueDelta = dueEpoch(left.nextTaskDueAt) - dueEpoch(right.nextTaskDueAt);
+    if (dueDelta !== 0) return dueDelta;
+    const initiativeDelta = left.initiativeTitle.localeCompare(right.initiativeTitle);
+    if (initiativeDelta !== 0) return initiativeDelta;
+    return left.workstreamTitle.localeCompare(right.workstreamTitle);
+  });
+
+  return output;
 }
 
 async function loadInitiativeGraphIndex(
@@ -482,20 +789,6 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     sendRouteError(res, 500, location, deps.safeErrorMessage(err));
   };
 
-  const resolveWorkspaceScopeFromQuery = (query: URLSearchParams): string | null => {
-    const value =
-      query.get("project_id") ??
-      query.get("projectId") ??
-      query.get("workspace_id") ??
-      query.get("workspaceId") ??
-      query.get("command_center_id") ??
-      query.get("commandCenterId") ??
-      query.get("center");
-    if (!value) return null;
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : null;
-  };
-
   async function renderAutoContinueStatus(query: URLSearchParams, res: TRes): Promise<void> {
     const initiativeId = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
     const id = initiativeId.trim();
@@ -550,35 +843,108 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     }
   }
 
-  async function renderNextUpQueue(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderNextUpQueue(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
     const initiativeIdRaw = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
     const initiativeId = initiativeIdRaw.trim() || null;
-    const projectId = resolveWorkspaceScopeFromQuery(query);
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (scope.error) {
+      sendRouteError(
+        res,
+        400,
+        "mission-control.read.next-up.validation",
+        scope.error
+      );
+      return;
+    }
+    const projectId = scope.workspaceId;
 
     try {
       const queue = await deps.buildNextUpQueue({
         initiativeId,
         projectId,
       });
-      const items = Array.isArray(queue.items) ? queue.items : [];
+      let items = Array.isArray(queue.items) ? queue.items : [];
+      const degraded = dedupeStrings(
+        Array.isArray(queue.degraded) ? queue.degraded : []
+      );
+
+      if (items.length === 0 && deps.rawRequest) {
+        try {
+          const params = new URLSearchParams();
+          if (initiativeId) params.set("initiative_id", initiativeId);
+          if (projectId) {
+            params.set("workspace_id", projectId);
+            params.set("command_center_id", projectId);
+          }
+          params.set("level", "workstream");
+          params.set("include_completed", "0");
+          params.set("limit", "250");
+          params.set(
+            "mix_policy",
+            query.get("mix_policy") ?? query.get("mixPolicy") ?? "iwmt_v1"
+          );
+          const orderMode = query.get("order_mode") ?? query.get("orderMode");
+          if (orderMode) params.set("order_mode", orderMode);
+
+          const canonical = await deps.rawRequest(
+            "GET",
+            `/api/client/mission-control/slices?${params.toString()}`
+          );
+          const fallbackItems = mapCanonicalSlicesToQueueItems({
+            payload: canonical,
+            initiativeId,
+          });
+          if (fallbackItems.length > 0) {
+            items = fallbackItems;
+            degraded.push("Using canonical slices fallback for Next Up queue.");
+          }
+        } catch (err: unknown) {
+          degraded.push(
+            `canonical next-up fallback unavailable (${deps.safeErrorMessage(err)})`
+          );
+        }
+      }
+
       deps.sendJson(res, 200, {
         ok: true,
         generatedAt: new Date().toISOString(),
         total: items.length,
         items,
-        degraded: queue.degraded,
+        degraded: dedupeStrings(degraded),
       });
     } catch (err: unknown) {
       sendRouteException(res, "mission-control.read.next-up.handler", err);
     }
   }
 
-  async function renderSliceProjection(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderSliceProjection(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
     const initiativeIdRaw = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
     const initiativeId = initiativeIdRaw.trim() || null;
-    const projectId = resolveWorkspaceScopeFromQuery(query);
+    const workspaceScope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (workspaceScope.error) {
+      sendRouteError(
+        res,
+        400,
+        "mission-control.read.slices.validation",
+        workspaceScope.error
+      );
+      return;
+    }
+    const projectId = workspaceScope.workspaceId;
     const includeCompleted = parseBoolean(query.get("include_completed"));
-    const scope = parseSliceScope(query.get("scope") ?? query.get("level"));
+    const sliceScope = parseSliceScope(query.get("scope") ?? query.get("level"));
     const order = parseSliceOrder(query.get("order"));
     const searchTerm = normalizeSliceSearchTerm(
       query.get("q") ?? query.get("search")
@@ -602,9 +968,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         if (projectId) {
           params.set("workspace_id", projectId);
           params.set("command_center_id", projectId);
-          params.set("project_id", projectId);
         }
-        params.set("level", scope);
+        params.set("level", sliceScope);
         params.set("include_completed", includeCompleted ? "1" : "0");
         params.set(
           "mix_policy",
@@ -635,8 +1000,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         });
         deps.sendJson(res, 200, {
           ...canonicalRecord,
-          level: asString(canonicalRecord.level) ?? scope,
-          scope: asString(canonicalRecord.level) ?? scope,
+          level: asString(canonicalRecord.level) ?? sliceScope,
+          scope: asString(canonicalRecord.level) ?? sliceScope,
           order:
             asString(canonicalRecord.orderMode) ??
             asString(canonicalRecord.order) ??
@@ -666,7 +1031,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         ...(Array.isArray(queue.degraded) ? queue.degraded : []),
         ...(canonicalFallbackReason ? [canonicalFallbackReason] : []),
       ]);
-      if (scope === "milestone" || scope === "task") {
+      if (sliceScope === "milestone" || sliceScope === "task") {
         const uniqueInitiatives = dedupeStrings(
           queueItems.map((item) => item.initiativeId)
         );
@@ -684,7 +1049,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
 
       const slices: SliceViewItem[] = [];
 
-      if (scope === "initiative") {
+      if (sliceScope === "initiative") {
         const grouped = new Map<
           string,
           {
@@ -692,6 +1057,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             states: NextUpQueueItem["queueState"][];
             taskIds: Set<string>;
             workstreamIds: Set<string>;
+            runnerAgents: SliceRunnerAgent[];
             iwmtRank: number;
           }
         >();
@@ -703,6 +1069,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               states: [item.queueState],
               taskIds: new Set(item.sliceTaskIds ?? []),
               workstreamIds: new Set([item.workstreamId]),
+              runnerAgents: item.runnerAgents ?? [],
               iwmtRank: index,
             });
             return;
@@ -710,6 +1077,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           bucket.states.push(item.queueState);
           for (const taskId of item.sliceTaskIds ?? []) bucket.taskIds.add(taskId);
           bucket.workstreamIds.add(item.workstreamId);
+          bucket.runnerAgents = mergeRunnerAgents(
+            bucket.runnerAgents,
+            item.runnerAgents ?? []
+          );
           if (index < bucket.iwmtRank) {
             bucket.base = item;
             bucket.iwmtRank = index;
@@ -717,9 +1088,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         });
 
         for (const [initiativeKey, bucket] of grouped.entries()) {
+          const runnerAgents = mergeRunnerAgents(
+            bucket.runnerAgents,
+            bucket.base.runnerAgents ?? []
+          );
+          const runnerPrimary = runnerAgents[0] ?? null;
           slices.push({
             id: initiativeKey,
-            scope,
+            scope: sliceScope,
             initiativeId: bucket.base.initiativeId,
             initiativeTitle: bucket.base.initiativeTitle,
             workstreamId: null,
@@ -730,8 +1106,12 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             taskTitle: null,
             queueState: combinedQueueState(bucket.states),
             sourceWorkstreamIds: Array.from(bucket.workstreamIds.values()),
-            runnerAgentId: bucket.base.runnerAgentId ?? null,
-            runnerAgentName: bucket.base.runnerAgentName ?? null,
+            runnerAgentId: runnerPrimary?.id ?? null,
+            runnerAgentName: runnerPrimary?.name ?? "Unassigned",
+            runnerAgents,
+            runnerSource:
+              bucket.base.runnerSource ??
+              (runnerPrimary ? "inferred" : "fallback"),
             nextTaskId: bucket.base.nextTaskId,
             nextTaskTitle: bucket.base.nextTaskTitle,
             nextTaskPriority: bucket.base.nextTaskPriority,
@@ -744,11 +1124,13 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             iwmtRank: bucket.iwmtRank,
           });
         }
-      } else if (scope === "workstream") {
+      } else if (sliceScope === "workstream") {
         queueItems.forEach((item, index) => {
+          const runnerAgents = mergeRunnerAgents(item.runnerAgents ?? []);
+          const runnerPrimary = runnerAgents[0] ?? null;
           slices.push({
             id: `${item.initiativeId}:${item.workstreamId}`,
-            scope,
+            scope: sliceScope,
             initiativeId: item.initiativeId,
             initiativeTitle: item.initiativeTitle,
             workstreamId: item.workstreamId,
@@ -759,8 +1141,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             taskTitle: null,
             queueState: item.queueState,
             sourceWorkstreamIds: [item.workstreamId],
-            runnerAgentId: item.runnerAgentId ?? null,
-            runnerAgentName: item.runnerAgentName ?? null,
+            runnerAgentId: runnerPrimary?.id ?? null,
+            runnerAgentName: runnerPrimary?.name ?? "Unassigned",
+            runnerAgents,
+            runnerSource: item.runnerSource ?? (runnerPrimary ? "inferred" : "fallback"),
             nextTaskId: item.nextTaskId,
             nextTaskTitle: item.nextTaskTitle,
             nextTaskPriority: item.nextTaskPriority,
@@ -776,7 +1160,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             iwmtRank: index,
           });
         });
-      } else if (scope === "milestone") {
+      } else if (sliceScope === "milestone") {
         const grouped = new Map<
           string,
           {
@@ -839,9 +1223,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         });
 
         for (const [id, bucket] of grouped.entries()) {
+          const runnerAgents = mergeRunnerAgents(bucket.base.runnerAgents ?? []);
+          const runnerPrimary = runnerAgents[0] ?? null;
           slices.push({
             id,
-            scope,
+            scope: sliceScope,
             initiativeId: bucket.base.initiativeId,
             initiativeTitle: bucket.base.initiativeTitle,
             workstreamId: bucket.base.workstreamId,
@@ -852,8 +1238,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             taskTitle: null,
             queueState: bucket.base.queueState,
             sourceWorkstreamIds: [bucket.base.workstreamId],
-            runnerAgentId: bucket.base.runnerAgentId ?? null,
-            runnerAgentName: bucket.base.runnerAgentName ?? null,
+            runnerAgentId: runnerPrimary?.id ?? null,
+            runnerAgentName: runnerPrimary?.name ?? "Unassigned",
+            runnerAgents,
+            runnerSource:
+              bucket.base.runnerSource ?? (runnerPrimary ? "inferred" : "fallback"),
             nextTaskId: bucket.base.nextTaskId,
             nextTaskTitle: bucket.base.nextTaskTitle,
             nextTaskPriority: bucket.base.nextTaskPriority,
@@ -882,7 +1271,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               taskId;
             slices.push({
               id: `${item.initiativeId}:${item.workstreamId}:${taskId}`,
-              scope,
+              scope: sliceScope,
               initiativeId: item.initiativeId,
               initiativeTitle: item.initiativeTitle,
               workstreamId: item.workstreamId,
@@ -901,8 +1290,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               queueState:
                 isDoneStatus(task?.status ?? null) ? "completed" : item.queueState,
               sourceWorkstreamIds: [item.workstreamId],
-              runnerAgentId: item.runnerAgentId ?? null,
-              runnerAgentName: item.runnerAgentName ?? null,
+              runnerAgentId:
+                (item.runnerAgents ?? [])[0]?.id ?? item.runnerAgentId ?? null,
+              runnerAgentName:
+                (item.runnerAgents ?? [])[0]?.name ?? item.runnerAgentName ?? "Unassigned",
+              runnerAgents: mergeRunnerAgents(item.runnerAgents ?? []),
+              runnerSource:
+                item.runnerSource ??
+                ((item.runnerAgents ?? [])[0] ? "inferred" : "fallback"),
               nextTaskId: item.nextTaskId,
               nextTaskTitle: item.nextTaskTitle,
               nextTaskPriority: task?.priorityNum ?? item.nextTaskPriority,
@@ -928,8 +1323,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       deps.sendJson(res, 200, {
         ok: true,
         generatedAt: new Date().toISOString(),
-        level: scope,
-        scope,
+        level: sliceScope,
+        scope: sliceScope,
         order,
         includeCompleted,
         total: paged.filtered.length,
@@ -985,26 +1380,46 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
   router.add(
     "GET",
     "mission-control/next-up",
-    async ({ query, res }) => renderNextUpQueue(query, res),
+    async ({ query, res, req }) =>
+      renderNextUpQueue(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get next-up queue"
   );
   router.add(
     "HEAD",
     "mission-control/next-up",
-    async ({ query, res }) => renderNextUpQueue(query, res),
+    async ({ query, res, req }) =>
+      renderNextUpQueue(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get next-up queue (HEAD)"
   );
 
   router.add(
     "GET",
     "mission-control/slices",
-    async ({ query, res }) => renderSliceProjection(query, res),
+    async ({ query, res, req }) =>
+      renderSliceProjection(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get mission-control slices at initiative/workstream/milestone/task scope"
   );
   router.add(
     "HEAD",
     "mission-control/slices",
-    async ({ query, res }) => renderSliceProjection(query, res),
+    async ({ query, res, req }) =>
+      renderSliceProjection(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get mission-control slices at initiative/workstream/milestone/task scope (HEAD)"
   );
 

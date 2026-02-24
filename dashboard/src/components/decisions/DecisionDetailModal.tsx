@@ -5,6 +5,7 @@ import { formatDurationWithUrgency } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { humanizeWarning } from '@/lib/humanize';
 import type { LiveDecision, LiveDecisionOption } from '@/types';
 
 type DecisionActionSummary = {
@@ -58,6 +59,12 @@ function normalizeOptionStatus(
     return normalized;
   }
   return null;
+}
+
+function formatDecisionActionError(raw: string | undefined, fallback: string): string {
+  if (!raw || raw.trim().length === 0) return fallback;
+  const message = humanizeWarning(raw.trim());
+  return message || fallback;
 }
 
 export function DecisionDetailModal({
@@ -248,14 +255,17 @@ export function DecisionDetailModal({
       const result = await onApprove(decision.id, buildActionInput());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage(result.firstError ?? 'Approval failed. Please try again.');
+        setErrorMessage(
+          formatDecisionActionError(result.firstError, 'Approval failed. Please try again.')
+        );
       } else {
         setPhase('success');
         autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
       }
     } catch (err) {
       setPhase('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Approval failed.');
+      const raw = err instanceof Error ? err.message : '';
+      setErrorMessage(formatDecisionActionError(raw, 'Approval failed.'));
     }
   }, [buildActionInput, decision, note, onApprove, options.length, selectedOptionRecord]);
 
@@ -284,14 +294,17 @@ export function DecisionDetailModal({
       const result = await onReject(decision.id, buildActionInput());
       if (result.failed > 0) {
         setPhase('error');
-        setErrorMessage(result.firstError ?? 'Rejection failed. Please try again.');
+        setErrorMessage(
+          formatDecisionActionError(result.firstError, 'Rejection failed. Please try again.')
+        );
       } else {
         setPhase('rejected');
         autoCloseTimer.current = setTimeout(() => onCloseRef.current(), 800);
       }
     } catch (err) {
       setPhase('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Rejection failed.');
+      const raw = err instanceof Error ? err.message : '';
+      setErrorMessage(formatDecisionActionError(raw, 'Rejection failed.'));
     }
   }, [buildActionInput, decision, note, onReject, options.length, selectedOptionRecord]);
 

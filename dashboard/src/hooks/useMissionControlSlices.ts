@@ -5,10 +5,12 @@ import type {
   MissionControlSliceLevel,
   MissionControlSliceOrderMode,
   MissionControlSlicesResponse,
+  RunnerAgentRef,
 } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 
 interface UseMissionControlSlicesOptions {
   workspaceId?: string | null;
@@ -42,6 +44,63 @@ function asNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function normalizeRunnerSource(value: unknown): 'assigned' | 'inferred' | 'fallback' | null {
+  const raw = (asString(value) ?? '').toLowerCase();
+  if (raw === 'assigned' || raw === 'inferred' || raw === 'fallback') return raw;
+  return null;
+}
+
+function normalizeRunnerName(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (normalized === 'undefined' || normalized === 'null' || normalized === 'main') return null;
+  if (normalized === 'unassigned') return null;
+  return raw;
+}
+
+function normalizeRunnerId(value: unknown): string | null {
+  return normalizeRunnerName(value);
+}
+
+function normalizeRunnerAgents(
+  value: unknown,
+  fallbackId: string | null,
+  fallbackName: string | null
+): RunnerAgentRef[] {
+  if (!Array.isArray(value)) {
+    if (fallbackId || fallbackName) {
+      const id = fallbackId ?? fallbackName ?? '';
+      const name = fallbackName ?? fallbackId ?? '';
+      if (id.trim().length > 0 && name.trim().length > 0) {
+        return [{ id, name }];
+      }
+    }
+    return [];
+  }
+  const output: RunnerAgentRef[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const id = normalizeRunnerId(record.id) ?? normalizeRunnerName(record.name);
+    const name = normalizeRunnerName(record.name) ?? id;
+    if (!id || !name) continue;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push({ id, name });
+  }
+  if (output.length === 0 && (fallbackId || fallbackName)) {
+    const id = fallbackId ?? fallbackName ?? '';
+    const name = fallbackName ?? fallbackId ?? '';
+    if (id.trim().length > 0 && name.trim().length > 0) {
+      return [{ id, name }];
+    }
+  }
+  return output;
 }
 
 function normalizeLevel(
@@ -97,6 +156,16 @@ function normalizeSliceItem(
   const factorsRecord = asRecord(record.factors);
   const iwmtRecord = asRecord(record.iwmt);
   const lineageRecord = asRecord(record.lineage);
+  const runnerAgentIdRaw = normalizeRunnerId(record.runnerAgentId ?? record.agentId);
+  const runnerAgentNameRaw =
+    normalizeRunnerName(record.runnerAgentName ?? record.agentName) ??
+    normalizeRunnerName(record.runner);
+  const runnerAgents = normalizeRunnerAgents(
+    record.runnerAgents,
+    runnerAgentIdRaw,
+    runnerAgentNameRaw ?? runnerAgentIdRaw
+  );
+  const runnerPrimary = runnerAgents[0] ?? null;
 
   return {
     sliceId,
@@ -192,6 +261,15 @@ function normalizeSliceItem(
       : null,
     sourceWorkstreamIds: toStringArray(record.sourceWorkstreamIds),
     queueState: asString(record.queueState),
+    sliceTaskIds: toStringArray(record.sliceTaskIds),
+    sliceTaskCount: asNumber(record.sliceTaskCount),
+    sliceMilestoneId: asString(record.sliceMilestoneId),
+    runnerAgentId: runnerPrimary?.id ?? runnerAgentIdRaw,
+    runnerAgentName: runnerPrimary?.name ?? runnerAgentNameRaw,
+    runnerAgents,
+    runnerSource:
+      normalizeRunnerSource(record.runnerSource) ??
+      ((runnerPrimary?.id ?? runnerAgentIdRaw) ? 'inferred' : 'fallback'),
     updatedAt: asString(record.updatedAt),
   };
 }
@@ -220,15 +298,6 @@ function buildDemoSlicesResponse(
       hasMore: false,
     },
   };
-}
-
-function appendWorkspaceScopeParams(params: URLSearchParams, workspaceId: string): void {
-  const normalized = workspaceId.trim();
-  if (!normalized) return;
-  params.set('workspace_id', normalized);
-  params.set('project_id', normalized);
-  params.set('command_center_id', normalized);
-  params.set('center', normalized);
 }
 
 function buildFallbackPagination(input: {
@@ -306,7 +375,12 @@ export function useMissionControlSlices({
       }
 
       const params = new URLSearchParams();
-      if (workspaceId) appendWorkspaceScopeParams(params, workspaceId);
+      if (workspaceId) {
+        appendWorkspaceScopeParams(params, workspaceId, {
+          includeCenterAlias: true,
+          includeProjectAlias: false,
+        });
+      }
       if (initiativeId) params.set('initiative_id', initiativeId);
       params.set('level', level);
       params.set('include_completed', includeCompleted ? '1' : '0');

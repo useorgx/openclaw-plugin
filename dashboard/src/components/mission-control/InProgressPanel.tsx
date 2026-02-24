@@ -1,10 +1,12 @@
 import { memo, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import type { Initiative, SessionTreeNode, SliceRunProjection, SliceScope } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { getAgentPersonality, inferAgentDomain } from '@/lib/agentPersonality';
+import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
 import { normalizeStatus } from '@/lib/tokens';
 
@@ -41,6 +43,34 @@ function statusLabel(status: string): string {
   return status.replace(/_/g, ' ');
 }
 
+function statusTone(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'running' || normalized === 'active' || normalized === 'in_progress' || normalized === 'working' || normalized === 'dispatching') {
+    return 'border-teal-300/28 bg-teal-400/[0.10] text-teal-100';
+  }
+  if (normalized === 'blocked' || normalized === 'failed' || normalized === 'error') {
+    return 'border-red-400/26 bg-red-500/[0.10] text-red-100';
+  }
+  if (normalized === 'paused' || normalized === 'pending' || normalized === 'queued') {
+    return 'border-amber-300/28 bg-amber-300/[0.10] text-amber-100';
+  }
+  return 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.10] text-[#E8FFD0]';
+}
+
+function statusHighlight(status: string): string {
+  const normalized = normalizeStatus(status);
+  if (normalized === 'running' || normalized === 'active' || normalized === 'in_progress' || normalized === 'working' || normalized === 'dispatching') {
+    return 'from-teal-300/0 via-teal-300/65 to-teal-300/0';
+  }
+  if (normalized === 'blocked' || normalized === 'failed' || normalized === 'error') {
+    return 'from-red-300/0 via-red-300/65 to-red-300/0';
+  }
+  if (normalized === 'paused' || normalized === 'pending' || normalized === 'queued') {
+    return 'from-amber-300/0 via-amber-300/65 to-amber-300/0';
+  }
+  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+}
+
 function coerceProgress(progress: number | null | undefined): number | null {
   if (typeof progress !== 'number' || !Number.isFinite(progress)) return null;
   return Math.max(0, Math.min(100, Math.round(progress)));
@@ -66,6 +96,13 @@ function normalizeLineageIds(values: string[] | undefined, fallback?: string | n
   }
   push(fallback ?? null);
   return out;
+}
+
+function compactOpaqueLabel(value: string | null | undefined, prefix: string): string {
+  if (!value) return prefix;
+  const trimmed = value.trim();
+  if (!trimmed) return prefix;
+  return isOpaqueId(trimmed) ? `${prefix} ${humanizeId(trimmed)}` : trimmed;
 }
 
 export type InProgressRow = {
@@ -340,7 +377,8 @@ export const InProgressPanel = memo(function InProgressPanel({
       await action(row.session);
       setNotice(successMessage);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Workstream action failed');
+      const raw = error instanceof Error ? error.message : '';
+      setNotice(raw ? humanizeWarning(raw) : 'Workstream action failed');
     } finally {
       setBusySessionId(null);
     }
@@ -407,7 +445,7 @@ export const InProgressPanel = memo(function InProgressPanel({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           <div className="space-y-2">
-            {filtered.map((row) => {
+            {filtered.map((row, index) => {
               const status = normalizeStatus(row.status ?? '');
               const when = row.updatedAt;
               const subtitle = row.subtitle
@@ -415,6 +453,23 @@ export const InProgressPanel = memo(function InProgressPanel({
                 : when
                   ? `Updated ${formatRelativeTime(when)}`
                   : null;
+              const initiativeDisplay =
+                row.initiativeTitle || row.initiativeId
+                  ? sanitizeDisplayText(
+                      row.initiativeTitle && !isOpaqueId(row.initiativeTitle)
+                        ? row.initiativeTitle
+                        : compactOpaqueLabel(row.initiativeId, 'Initiative')
+                    )
+                  : null;
+              const rowTitleRaw = row.title?.trim() ? row.title : row.workstreamTitle ?? '';
+              const rowTitleFallback = compactOpaqueLabel(
+                row.workstreamId ?? row.runId,
+                row.scope === 'milestone' ? 'Milestone' : row.scope === 'task' ? 'Task' : 'Workstream'
+              );
+              const rowTitleDisplay = sanitizeDisplayText(
+                rowTitleRaw && !isOpaqueId(rowTitleRaw) ? rowTitleRaw : rowTitleFallback
+              );
+              const subtitleDisplay = subtitle ? sanitizeDisplayText(subtitle) : null;
               const progressValue = coerceProgress(row.progress);
               const canPauseAction = ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
               const canResumeAction = ['paused', 'blocked', 'queued', 'pending'].includes(status);
@@ -438,14 +493,25 @@ export const InProgressPanel = memo(function InProgressPanel({
                 (row.runId ? sliceRunByScope.get(`run:${row.runId}`) ?? null : null);
 
               return (
-                <div
+                <motion.article
+                  initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{
+                    duration: 0.24,
+                    delay: Math.min(index, 7) * 0.02,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
                   key={row.key}
-                  className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 cursor-pointer transition-colors hover:border-white/[0.14]"
+                  className="group hover-lift relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 cursor-pointer transition-colors hover:border-white/[0.14]"
                   onClick={() => onOpenSliceDetail?.(row, linkedSliceRun)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(row, linkedSliceRun); } }}
                 >
+                  <div
+                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(status)}`}
+                    aria-hidden
+                  />
                   <div className="flex min-w-0 items-start gap-2.5">
                     <div
                       className={row.status === 'running' ? 'agent-glow-ring rounded-full' : ''}
@@ -458,15 +524,15 @@ export const InProgressPanel = memo(function InProgressPanel({
                       />
                     </div>
                     <div className="min-w-0 flex-1">
-                      {row.initiativeTitle ? (
+                      {initiativeDisplay ? (
                         <p className="text-micro uppercase tracking-[0.08em] text-muted">
-                          {row.initiativeTitle}
+                          {initiativeDisplay}
                         </p>
                       ) : null}
                       <div className="flex min-w-0 items-start gap-1.5">
                         <EntityIcon type="session" size={12} className="mt-[3px] flex-shrink-0 opacity-80" />
-                        <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={row.title}>
-                          {row.title}
+                        <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={rowTitleDisplay}>
+                          {rowTitleDisplay}
                         </p>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -475,13 +541,13 @@ export const InProgressPanel = memo(function InProgressPanel({
                             {row.scope}
                           </Pill>
                         )}
-                        <span className="inline-flex rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                        <span className={`inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
                           {statusLabel(status)}
                         </span>
                       </div>
-                      {subtitle ? (
-                        <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={subtitle}>
-                          {subtitle}
+                      {subtitleDisplay ? (
+                        <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={subtitleDisplay}>
+                          {subtitleDisplay}
                         </p>
                       ) : null}
                       {(progressValue !== null || showEstimatedProgress) && (
@@ -574,7 +640,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                       ) : null}
 
                       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-white/[0.07] pt-2" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => {
@@ -668,7 +734,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                       </div>
                     </div>
                   </div>
-                </div>
+                </motion.article>
               );
             })}
           </div>

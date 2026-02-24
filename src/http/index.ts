@@ -372,6 +372,13 @@ const PROJECT_SCOPE_MAX_INITIATIVE_PAGES = readPositiveIntEnv(
   12,
   { min: 1, max: 100 }
 );
+const LIVE_WORKSPACE_INITIATIVE_STATUSES = [
+  "active",
+  "planning",
+  "paused",
+  "draft",
+  "in_progress",
+] as const;
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
 const snapshotResponseCache = new Map<
@@ -1402,9 +1409,9 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "object-src 'none'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob:",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "media-src 'self'",
   "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai http://127.0.0.1:* http://localhost:*",
 ].join("; ");
@@ -1781,6 +1788,21 @@ function send404(res: PluginResponse): void {
   res.end("Not Found");
 }
 
+function sendStaleChunkRecovery(res: PluginResponse): void {
+  const body = [
+    "// Recover from stale chunk references after dashboard/plugin upgrades.",
+    "window.location.replace('/orgx/live' + window.location.search);",
+    "export {};"
+  ].join("\n");
+  res.writeHead(200, {
+    "Content-Type": "application/javascript; charset=utf-8",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    ...SECURITY_HEADERS,
+    ...CORS_HEADERS,
+  });
+  res.end(body);
+}
+
 function sendIndexHtml(req: PluginRequest, res: PluginResponse): void {
   const indexPath = join(DIST_DIR, "index.html");
   if (existsSync(indexPath)) {
@@ -2020,6 +2042,10 @@ export function createHttpHandler(
   type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
   type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
   type NextUpExecutionPolicy = MissionControlExecutionPolicy;
+  type NextUpRunnerAgent = {
+    id: string;
+    name: string;
+  };
 
   type NextUpQueueItem = {
     initiativeId: string;
@@ -2034,6 +2060,7 @@ export function createHttpHandler(
     nextTaskDueAt: string | null;
     runnerAgentId: string;
     runnerAgentName: string;
+    runnerAgents?: NextUpRunnerAgent[];
     runnerSource: NextUpRunnerSource;
     queueState: NextUpQueueState;
     blockReason: string | null;
@@ -2072,6 +2099,63 @@ export function createHttpHandler(
         | null;
       updatedAt: string;
     } | null;
+  };
+
+  const normalizeRunnerAgentToken = (value: string | null | undefined): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.toLowerCase();
+    if (
+      normalized === "main" ||
+      normalized === "undefined" ||
+      normalized === "null" ||
+      normalized === "n/a" ||
+      normalized === "na"
+    ) {
+      return null;
+    }
+    return trimmed;
+  };
+
+  const pushRunnerAgent = (
+    target: NextUpRunnerAgent[],
+    seen: Set<string>,
+    input: { id?: string | null; name?: string | null }
+  ) => {
+    const agentId = normalizeRunnerAgentToken(input.id ?? null);
+    const agentName = normalizeRunnerAgentToken(input.name ?? null);
+    if (!agentId && !agentName) return;
+    const resolvedId = agentId ?? (agentName as string);
+    const dedupeKey = resolvedId.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    target.push({
+      id: resolvedId,
+      name: agentName ?? resolvedId,
+    });
+  };
+
+  const dedupeWithPrimary = (
+    primary: NextUpRunnerAgent[],
+    extras: NextUpRunnerAgent[]
+  ): NextUpRunnerAgent[] => {
+    const merged: NextUpRunnerAgent[] = [];
+    const seen = new Set<string>();
+    for (const candidate of [...primary, ...extras]) {
+      const id = normalizeRunnerAgentToken(candidate.id);
+      const name = normalizeRunnerAgentToken(candidate.name);
+      if (!id && !name) continue;
+      const resolvedId = id ?? (name as string);
+      const key = resolvedId.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        id: resolvedId,
+        name: name ?? resolvedId,
+      });
+    }
+    return merged;
   };
 
   const codexBinResolver = createCodexBinResolver();
@@ -2298,34 +2382,31 @@ export function createHttpHandler(
       return rows;
     };
 
-    let allInitiativeRows: unknown[] | null = null;
-    const getAllInitiativeRows = async (): Promise<unknown[]> => {
-      if (allInitiativeRows) return allInitiativeRows;
-      allInitiativeRows = await listInitiativesWithFilters({});
-      return allInitiativeRows;
+    const listLiveInitiativesWithFilters = async (
+      filters: Record<string, unknown>
+    ): Promise<unknown[]> => {
+      const rows: unknown[] = [];
+      for (const status of LIVE_WORKSPACE_INITIATIVE_STATUSES) {
+        const statusRows = await listInitiativesWithFilters({
+          ...filters,
+          status,
+        });
+        rows.push(...statusRows);
+      }
+      return rows;
     };
 
     try {
       // Workspace selection in the plugin uses command-center IDs.
       // Resolve that scope first so broad project queries never leak cross-workspace items.
       const byCommandCenterIds = mapInitiativeIds(
-        await listInitiativesWithFilters({
+        await listLiveInitiativesWithFilters({
           workspace_id: projectId,
           command_center_id: projectId,
         }),
         { commandCenterId: projectId }
       );
       if (byCommandCenterIds.length > 0) return cacheAndReturn(byCommandCenterIds);
-    } catch {
-      // continue to command-center all-rows fallback
-    }
-
-    try {
-      const byCommandCenterIdsFromAll = mapInitiativeIds(
-        await getAllInitiativeRows(),
-        { commandCenterId: projectId }
-      );
-      if (byCommandCenterIdsFromAll.length > 0) return cacheAndReturn(byCommandCenterIdsFromAll);
     } catch {
       // continue to project-id fallback
     }
@@ -2341,19 +2422,16 @@ export function createHttpHandler(
 
     try {
       const byProjectIds = mapInitiativeIds(
-        await listInitiativesWithFilters({ project_id: projectId }),
+        await listLiveInitiativesWithFilters({ project_id: projectId }),
         { projectId }
       );
       if (byProjectIds.length > 0) return cacheAndReturn(byProjectIds);
     } catch {
-      // continue to all-rows project-id fallback
+      // continue to empty fallback
     }
 
     try {
-      const fallbackProjectIds = mapInitiativeIds(await getAllInitiativeRows(), {
-        projectId,
-      });
-      return cacheAndReturn(fallbackProjectIds);
+      return cacheAndReturn([]);
     } catch {
       return [];
     }
@@ -2577,6 +2655,8 @@ export function createHttpHandler(
           workstreamTitle: string;
           statuses: Set<string>;
           blockers: string[];
+          runnerAgents: NextUpRunnerAgent[];
+          runnerAgentSeen: Set<string>;
           latest: SessionTreeResponse["nodes"][number];
           latestEpoch: number;
         }
@@ -2600,6 +2680,12 @@ export function createHttpHandler(
         const epoch = parseEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
         const existing = grouped.get(key);
         if (!existing) {
+          const runnerAgents: NextUpRunnerAgent[] = [];
+          const runnerAgentSeen = new Set<string>();
+          pushRunnerAgent(runnerAgents, runnerAgentSeen, {
+            id: node.agentId,
+            name: node.agentName,
+          });
           grouped.set(key, {
             initiativeId,
             workstreamId,
@@ -2611,6 +2697,8 @@ export function createHttpHandler(
             workstreamTitle: `Workstream ${workstreamId.slice(0, 8)}`,
             statuses: new Set([node.status]),
             blockers: Array.isArray(node.blockers) ? [...node.blockers] : [],
+            runnerAgents,
+            runnerAgentSeen,
             latest: node,
             latestEpoch: epoch,
           });
@@ -2624,6 +2712,10 @@ export function createHttpHandler(
             if (!existing.blockers.includes(blocker)) existing.blockers.push(blocker);
           }
         }
+        pushRunnerAgent(existing.runnerAgents, existing.runnerAgentSeen, {
+          id: node.agentId,
+          name: node.agentName,
+        });
         if (epoch >= existing.latestEpoch) {
           existing.latest = node;
           existing.latestEpoch = epoch;
@@ -2650,11 +2742,19 @@ export function createHttpHandler(
               ? "queued"
               : "idle";
 
-        const runnerAgentId = (entry.latest.agentId ?? "").trim() || "main";
-        const runnerAgentName =
-          (entry.latest.agentName ?? "").trim() ||
-          initiativeTitleById.get(`agent:${runnerAgentId}`) ||
-          runnerAgentId;
+        const latestRunner: NextUpRunnerAgent[] = [];
+        const latestRunnerSeen = new Set<string>();
+        pushRunnerAgent(latestRunner, latestRunnerSeen, {
+          id: entry.latest.agentId,
+          name: entry.latest.agentName,
+        });
+        const runnerAgents =
+          latestRunner.length > 0
+            ? dedupeWithPrimary(latestRunner, entry.runnerAgents)
+            : [...entry.runnerAgents];
+        const primaryRunner = runnerAgents[0] ?? null;
+        const runnerAgentId = primaryRunner?.id ?? "unassigned";
+        const runnerAgentName = primaryRunner?.name ?? "Unassigned";
 
         const pinKey = `${entry.initiativeId}:${entry.workstreamId}`;
         if (isSuppressed(entry.initiativeId, entry.workstreamId) && queueState !== "running") {
@@ -2677,6 +2777,7 @@ export function createHttpHandler(
           nextTaskDueAt: null,
           runnerAgentId,
           runnerAgentName,
+          runnerAgents,
           runnerSource: "fallback",
           queueState,
           blockReason: hasBlocked
@@ -3038,28 +3139,49 @@ export function createHttpHandler(
 
         runningWorkstreams.add(workstream.id);
 
-        const assignedAgent = workstream.assignedAgents[0] ?? null;
-        const inferredAgent =
-          graph.initiative.assignedAgents[0] ??
-          liveAgentsByInitiative.get(initiativeId)?.[0] ??
-          (autoContinueRun?.agentId
-            ? ({
-                id: autoContinueRun.agentId,
-                name: agentCatalogById.get(autoContinueRun.agentId)?.name ?? autoContinueRun.agentId,
-                domain: null,
-              } as MissionControlAssignedAgent)
-            : null);
-        const runnerSource: NextUpRunnerSource = assignedAgent
-          ? "assigned"
-          : inferredAgent
-            ? "inferred"
-            : "fallback";
-        const resolvedRunner = assignedAgent ?? inferredAgent;
-        const runnerAgentId = resolvedRunner?.id ?? autoContinueRun?.agentId ?? "main";
-        const runnerAgentName =
-          resolvedRunner?.name ??
-          agentCatalogById.get(runnerAgentId)?.name ??
-          runnerAgentId;
+        const assignedRunnerAgents: NextUpRunnerAgent[] = [];
+        const assignedRunnerSeen = new Set<string>();
+        for (const agent of workstream.assignedAgents) {
+          pushRunnerAgent(assignedRunnerAgents, assignedRunnerSeen, {
+            id: agent.id,
+            name: agent.name,
+          });
+        }
+
+        const inferredRunnerAgents: NextUpRunnerAgent[] = [];
+        const inferredRunnerSeen = new Set<string>();
+        for (const agent of graph.initiative.assignedAgents) {
+          pushRunnerAgent(inferredRunnerAgents, inferredRunnerSeen, {
+            id: agent.id,
+            name: agent.name,
+          });
+        }
+        for (const agent of liveAgentsByInitiative.get(initiativeId) ?? []) {
+          pushRunnerAgent(inferredRunnerAgents, inferredRunnerSeen, {
+            id: agent.id,
+            name: agent.name,
+          });
+        }
+        if (autoContinueRun?.agentId) {
+          pushRunnerAgent(inferredRunnerAgents, inferredRunnerSeen, {
+            id: autoContinueRun.agentId,
+            name:
+              agentCatalogById.get(autoContinueRun.agentId)?.name ??
+              autoContinueRun.agentId,
+          });
+        }
+
+        const runnerAgents =
+          assignedRunnerAgents.length > 0 ? assignedRunnerAgents : inferredRunnerAgents;
+        const runnerSource: NextUpRunnerSource =
+          assignedRunnerAgents.length > 0
+            ? "assigned"
+            : runnerAgents.length > 0
+              ? "inferred"
+              : "fallback";
+        const primaryRunner = runnerAgents[0] ?? null;
+        const runnerAgentId = primaryRunner?.id ?? "unassigned";
+        const runnerAgentName = primaryRunner?.name ?? "Unassigned";
 
         itemsForInitiative.push({
           initiativeId,
@@ -3082,6 +3204,7 @@ export function createHttpHandler(
           nextTaskDueAt: candidateTask?.dueDate ?? null,
           runnerAgentId,
           runnerAgentName,
+          runnerAgents,
           runnerSource,
           queueState,
           blockReason,
@@ -3174,6 +3297,13 @@ export function createHttpHandler(
           if (isSuppressed(initiativeId, workstream.id) && queueState !== "running") {
             continue;
           }
+          const runRunnerAgents: NextUpRunnerAgent[] = [];
+          const runRunnerSeen = new Set<string>();
+          pushRunnerAgent(runRunnerAgents, runRunnerSeen, {
+            id: run.agentId,
+            name: agentCatalogById.get(run.agentId)?.name ?? run.agentId,
+          });
+          const runPrimaryRunner = runRunnerAgents[0] ?? null;
           itemsForInitiative.push({
             initiativeId,
             initiativeTitle,
@@ -3188,10 +3318,10 @@ export function createHttpHandler(
                   : null,
             nextTaskPriority: null,
             nextTaskDueAt: null,
-            runnerAgentId: run.agentId,
-            runnerAgentName:
-              agentCatalogById.get(run.agentId)?.name ?? run.agentId,
-            runnerSource: "inferred",
+            runnerAgentId: runPrimaryRunner?.id ?? "unassigned",
+            runnerAgentName: runPrimaryRunner?.name ?? "Unassigned",
+            runnerAgents: runRunnerAgents,
+            runnerSource: runPrimaryRunner ? "inferred" : "fallback",
             queueState,
             blockReason:
                 queueState === "blocked"
@@ -3664,6 +3794,12 @@ export function createHttpHandler(
     setNextUpQueuePinOrder,
     clearNextUpQueueCache,
     resolveAutoAssignments,
+    buildMissionControlGraph: (initiativeId) =>
+      buildMissionControlGraph(client, initiativeId),
+    applyLocalInitiativeOverrideToGraph: (graph) =>
+      applyLocalInitiativeOverrideToGraph(
+        graph as Awaited<ReturnType<typeof buildMissionControlGraph>>
+      ),
     client,
     rawRequest: (requestMethod, requestPath, body) =>
       client.rawRequest(requestMethod, requestPath, body),
@@ -3988,6 +4124,10 @@ export function createHttpHandler(
             cacheControl
           );
         } else {
+          if (/^assets\/[A-Za-z0-9_-]+\.js$/i.test(subPath)) {
+            sendStaleChunkRecovery(res);
+            return true;
+          }
           send404(res);
         }
         return true;

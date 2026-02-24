@@ -1,5 +1,9 @@
 import type { Entity, OrgSnapshot } from "../../types.js";
 import type { Router } from "../router.js";
+import {
+  resolveWorkspaceScope,
+  workspaceScopeFromHeaders,
+} from "../helpers/workspace-scope.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -117,40 +121,6 @@ function toObjectArray(input: unknown): Array<Record<string, unknown>> {
   return input.filter(
     (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object"
   );
-}
-
-function normalizeScopeId(value: string | null): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function resolveWorkspaceScopeFromQuery(
-  query: URLSearchParams
-): { workspaceId: string | null; error?: string } {
-  const workspaceId = normalizeScopeId(
-    query.get("workspace_id") ?? query.get("workspaceId")
-  );
-  const commandCenterId = normalizeScopeId(
-    query.get("command_center_id") ??
-      query.get("commandCenterId") ??
-      query.get("center")
-  );
-  const projectScope = normalizeScopeId(
-    query.get("project_id") ?? query.get("projectId")
-  );
-
-  if (workspaceId && commandCenterId && workspaceId !== commandCenterId) {
-    return {
-      workspaceId: null,
-      error:
-        "workspace_id and command_center_id must match when both are provided",
-    };
-  }
-
-  return {
-    workspaceId: workspaceId ?? commandCenterId ?? projectScope ?? null,
-  };
 }
 
 export function registerEntitiesRoutes<TReq, TRes>(
@@ -379,7 +349,11 @@ export function registerEntitiesRoutes<TReq, TRes>(
     "Update entity"
   );
 
-  async function renderEntityList(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderEntityList(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
     const type = query.get("type");
     if (!type) {
       deps.sendJson(res, 400, {
@@ -388,7 +362,9 @@ export function registerEntitiesRoutes<TReq, TRes>(
       return;
     }
 
-    const workspaceScope = resolveWorkspaceScopeFromQuery(query);
+    const workspaceScope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
     if (workspaceScope.error) {
       deps.sendJson(res, 400, { error: workspaceScope.error });
       return;
@@ -403,8 +379,8 @@ export function registerEntitiesRoutes<TReq, TRes>(
       .filter((value) => value.length > 0);
     const search = query.get("search")?.trim() || undefined;
     const initiativeId = query.get("initiative_id") ?? undefined;
-    const projectId = query.get("project_id") ?? undefined;
     const workspaceId = workspaceScope.workspaceId ?? undefined;
+    const projectId = workspaceId ? undefined : query.get("project_id") ?? undefined;
     const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
     const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
 
@@ -535,13 +511,23 @@ export function registerEntitiesRoutes<TReq, TRes>(
   router.add(
     "GET",
     "entities",
-    async ({ query, res }) => renderEntityList(query, res),
+    async ({ query, res, req }) =>
+      renderEntityList(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "List entities"
   );
   router.add(
     "HEAD",
     "entities",
-    async ({ query, res }) => renderEntityList(query, res),
+    async ({ query, res, req }) =>
+      renderEntityList(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "List entities (HEAD)"
   );
 

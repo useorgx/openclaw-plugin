@@ -34,6 +34,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:hooks": "npm run build:core && node --test --test-concurrency=1 tests/*.test.mjs tests/**/*.test.mjs",
+    "test:file": "node ./scripts/run-targeted-test.mjs",
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "agents:refresh": "node ./scripts/daily-agents-refresh.mjs",
     "agents:install": "node ./scripts/install-daily-agents-refresh.mjs",

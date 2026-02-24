@@ -49,6 +49,21 @@ export interface MissionControlEdge {
   kind: "depends_on";
 }
 
+export interface MissionControlCycleDiagnostics {
+  detected: boolean;
+  cycleEdgeCount: number;
+  removedEdges: Array<{
+    from: string;
+    to: string;
+  }>;
+  affectedNodes: Array<{
+    nodeId: string;
+    nodeType: MissionControlNodeType;
+    removedDependencyIds: string[];
+    remainingDependencyIds: string[];
+  }>;
+}
+
 // ---------------------------------------------------------------------------
 // Polymorphic slice scope
 // ---------------------------------------------------------------------------
@@ -852,6 +867,7 @@ export async function buildMissionControlGraph(
   edges: MissionControlEdge[];
   recentTodos: string[];
   degraded: string[];
+  cycleDiagnostics?: MissionControlCycleDiagnostics;
 }> {
   const degraded: string[] = [];
   const preloadedInitiative = options?.initiativeEntity ?? null;
@@ -957,14 +973,66 @@ export async function buildMissionControlGraph(
   );
 
   const cyclicEdgeKeys = detectCycleEdgeKeys(edges);
+  const cycleDiagnostics: MissionControlCycleDiagnostics | null =
+    cyclicEdgeKeys.size > 0
+      ? {
+          detected: true,
+          cycleEdgeCount: cyclicEdgeKeys.size,
+          removedEdges: [],
+          affectedNodes: [],
+        }
+      : null;
   if (cyclicEdgeKeys.size > 0) {
     degraded.push(
       `Detected ${cyclicEdgeKeys.size} cyclic dependency edge(s); excluded from ETA graph.`
     );
+    if (cycleDiagnostics) {
+      const removedEdges = Array.from(cyclicEdgeKeys.values())
+        .map((key) => {
+          const [from, to] = key.split("->", 2);
+          if (!from || !to) return null;
+          return { from, to };
+        })
+        .filter((entry): entry is { from: string; to: string } => Boolean(entry));
+      cycleDiagnostics.removedEdges = removedEdges;
+    }
     edges = edges.filter((edge) => !cyclicEdgeKeys.has(`${edge.from}->${edge.to}`));
+    const affectedNodesById = new Map<
+      string,
+      {
+        nodeId: string;
+        nodeType: MissionControlNodeType;
+        removedDependencyIds: Set<string>;
+      }
+    >();
     for (const node of nodes) {
-      node.dependencyIds = node.dependencyIds.filter(
-        (depId) => !cyclicEdgeKeys.has(`${depId}->${node.id}`)
+      const removed = node.dependencyIds.filter((depId) =>
+        cyclicEdgeKeys.has(`${depId}->${node.id}`)
+      );
+      if (removed.length > 0) {
+        const existing = affectedNodesById.get(node.id) ?? {
+          nodeId: node.id,
+          nodeType: node.type,
+          removedDependencyIds: new Set<string>(),
+        };
+        for (const depId of removed) {
+          existing.removedDependencyIds.add(depId);
+        }
+        affectedNodesById.set(node.id, existing);
+      }
+      node.dependencyIds = node.dependencyIds.filter((depId) => !removed.includes(depId));
+    }
+    if (cycleDiagnostics) {
+      cycleDiagnostics.affectedNodes = Array.from(affectedNodesById.values()).map(
+        (entry) => {
+          const remaining = nodeMap.get(entry.nodeId)?.dependencyIds ?? [];
+          return {
+            nodeId: entry.nodeId,
+            nodeType: entry.nodeType,
+            removedDependencyIds: Array.from(entry.removedDependencyIds.values()),
+            remainingDependencyIds: [...remaining],
+          };
+        }
       );
     }
   }
@@ -1096,6 +1164,7 @@ export async function buildMissionControlGraph(
     edges,
     recentTodos,
     degraded,
+    ...(cycleDiagnostics ? { cycleDiagnostics } : {}),
   };
 }
 

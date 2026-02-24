@@ -121,7 +121,7 @@ function keySourceLabel(source: OnboardingState['keySource']): string {
     case 'openclaw-config-file':
       return 'OpenClaw config file';
     case 'legacy-dev':
-      return 'Legacy dev fallback';
+      return 'Local development key';
     default:
       return 'Not detected';
   }

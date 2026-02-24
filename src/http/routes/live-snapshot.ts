@@ -11,6 +11,10 @@ import {
   type SnapshotV2Payload,
   type WorkSliceProjectionV2,
 } from "../helpers/slice-experience-v2.js";
+import {
+  resolveWorkspaceScope,
+  workspaceScopeFromHeaders,
+} from "../helpers/workspace-scope.js";
 import type {
   AgentLaunchContext,
   RunLaunchContext,
@@ -439,9 +443,20 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     since: string | null;
     decisionStatus: string;
     includeIdle: boolean | undefined;
+    scopeError: string | null;
   };
 
-  function parseSnapshotQuery(query: URLSearchParams): SnapshotQuery {
+  const headerScopeFromRequest = (
+    req: TReq
+  ): Record<string, unknown> | null =>
+    workspaceScopeFromHeaders(
+      (req as { headers?: Record<string, unknown> } | null)?.headers
+    );
+
+  function parseSnapshotQuery(
+    query: URLSearchParams,
+    headerScope: Record<string, unknown> | null
+  ): SnapshotQuery {
     const sessionsLimit = deps.parsePositiveInt(
       query.get("sessionsLimit") ?? query.get("sessions_limit"),
       320
@@ -455,14 +470,10 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       120
     );
     const initiative = query.get("initiative");
-    const projectId =
-      query.get("project_id") ??
-      query.get("projectId") ??
-      query.get("workspace_id") ??
-      query.get("workspaceId") ??
-      query.get("command_center_id") ??
-      query.get("commandCenterId") ??
-      query.get("center");
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    const projectId = scope.workspaceId;
     const run = query.get("run");
     const since = query.get("since");
     const decisionStatus = query.get("status") ?? "pending";
@@ -478,11 +489,32 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       since,
       decisionStatus,
       includeIdle,
+      scopeError: scope.error ?? null,
     };
   }
 
-  async function buildSnapshotBundle(query: URLSearchParams): Promise<SnapshotBundle> {
-    const parsed = parseSnapshotQuery(query);
+  const validateWorkspaceScope = (
+    query: URLSearchParams,
+    res: TRes,
+    location: string,
+    headerScope: Record<string, unknown> | null
+  ): boolean => {
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (!scope.error) return true;
+    deps.sendJson(res, 400, {
+      error: scope.error,
+      error_location: location,
+    });
+    return false;
+  };
+
+  async function buildSnapshotBundle(
+    query: URLSearchParams,
+    headerScope: Record<string, unknown> | null
+  ): Promise<SnapshotBundle> {
+    const parsed = parseSnapshotQuery(query, headerScope);
     const {
       sessionsLimit,
       activityLimit,
@@ -493,7 +525,11 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       since,
       decisionStatus,
       includeIdle,
+      scopeError,
     } = parsed;
+    if (scopeError) {
+      throw new Error(scopeError);
+    }
 
     const degraded: string[] = [];
     const contextStore = deps.readAgentContexts();
@@ -842,19 +878,31 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     };
   }
 
-  async function renderSnapshot(path: string, query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderSnapshot(
+    path: string,
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.snapshot.validation", headerScope)) return;
     const snapshotCacheKey = `${path}?${query.toString()}`;
     const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
     if (cachedSnapshot) {
       deps.sendJson(res, 200, cachedSnapshot);
       return;
     }
-    const bundle = await buildSnapshotBundle(query);
+    const bundle = await buildSnapshotBundle(query, headerScope);
     deps.writeSnapshotResponseCache(snapshotCacheKey, bundle.payload as Record<string, unknown>);
     deps.sendJson(res, 200, bundle.payload);
   }
 
-  async function renderSnapshotV2(path: string, query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderSnapshotV2(
+    path: string,
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.snapshot-v2.validation", headerScope)) return;
     const snapshotCacheKey = `${path}?${query.toString()}`;
     const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
     if (cachedSnapshot) {
@@ -862,7 +910,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
 
-    const bundle = await buildSnapshotBundle(query);
+    const bundle = await buildSnapshotBundle(query, headerScope);
     const payload = {
       ...bundle.v2,
       sessions: bundle.payload.sessions,
@@ -883,8 +931,10 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
   async function renderSliceNarrative(
     path: string,
     query: URLSearchParams,
-    res: TRes
+    res: TRes,
+    headerScope: Record<string, unknown> | null
   ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.snapshot.slice-narrative.validation", headerScope)) return;
     const narrativeMatch = path.match(/^slices\/([^/]+)\/narrative$/);
     const timelineMatch = path.match(/^slices\/([^/]+)\/timeline$/);
     const match = narrativeMatch ?? timelineMatch;
@@ -899,7 +949,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
 
-    const bundle = await buildSnapshotBundle(query);
+    const bundle = await buildSnapshotBundle(query, headerScope);
     const narrative = findSliceNarrative(bundle.v2.timelineNarrative, sliceRunId);
     const projection =
       bundle.v2.projections.find((entry) => entry.sliceRunId === sliceRunId) ?? null;
@@ -937,8 +987,10 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
   async function renderSessionDetailV2(
     path: string,
     query: URLSearchParams,
-    res: TRes
+    res: TRes,
+    headerScope: Record<string, unknown> | null
   ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.snapshot.session-detail.validation", headerScope)) return;
     const detailMatch = path.match(/^sessions\/([^/]+)\/detail-v2$/);
     if (!detailMatch) {
       deps.sendJson(res, 404, { error: "Unknown API endpoint" });
@@ -951,7 +1003,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
 
-    const bundle = await buildSnapshotBundle(query);
+    const bundle = await buildSnapshotBundle(query, headerScope);
     const projection = findSessionDetailProjection(bundle.v2.projections, sessionId);
     if (!projection) {
       deps.sendJson(res, 404, { error: "Session detail not found." });
@@ -1003,7 +1055,14 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     });
   }
 
-  async function executeSliceAction(path: string, query: URLSearchParams, req: TReq, res: TRes): Promise<void> {
+  async function executeSliceAction(
+    path: string,
+    query: URLSearchParams,
+    req: TReq,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.snapshot.slice-action.validation", headerScope)) return;
     const actionMatch = path.match(/^slices\/([^/]+)\/actions\/([^/]+)$/);
     if (!actionMatch) {
       deps.sendJson(res, 404, { error: "Unknown API endpoint" });
@@ -1023,7 +1082,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     const note = pickString(payload, ["note", "context", "reason"]);
     const optionId = pickString(payload, ["option_id", "optionId"]);
 
-    const bundle = await buildSnapshotBundle(query);
+    const bundle = await buildSnapshotBundle(query, headerScope);
     const projection =
       bundle.v2.projections.find((entry) => entry.sliceRunId === sliceRunId) ?? null;
     if (!projection) {
@@ -1139,67 +1198,78 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
   router.add(
     "GET",
     "dashboard-bundle",
-    async ({ path, query, res }) => renderSnapshot(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshot(path, query, res, headerScopeFromRequest(req)),
     "Live dashboard bundle"
   );
   router.add(
     "HEAD",
     "dashboard-bundle",
-    async ({ path, query, res }) => renderSnapshot(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshot(path, query, res, headerScopeFromRequest(req)),
     "Live dashboard bundle (HEAD)"
   );
   router.add(
     "GET",
     "live/snapshot",
-    async ({ path, query, res }) => renderSnapshot(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshot(path, query, res, headerScopeFromRequest(req)),
     "Live snapshot"
   );
   router.add(
     "HEAD",
     "live/snapshot",
-    async ({ path, query, res }) => renderSnapshot(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshot(path, query, res, headerScopeFromRequest(req)),
     "Live snapshot (HEAD)"
   );
   router.add(
     "GET",
     "live/snapshot-v2",
-    async ({ path, query, res }) => renderSnapshotV2(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshotV2(path, query, res, headerScopeFromRequest(req)),
     "Live snapshot (v2 projections)"
   );
   router.add(
     "HEAD",
     "live/snapshot-v2",
-    async ({ path, query, res }) => renderSnapshotV2(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSnapshotV2(path, query, res, headerScopeFromRequest(req)),
     "Live snapshot (v2 projections, HEAD)"
   );
   router.add(
     "GET",
     "slices/*",
-    async ({ path, query, res }) => renderSliceNarrative(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSliceNarrative(path, query, res, headerScopeFromRequest(req)),
     "Slice narrative/timeline projections"
   );
   router.add(
     "HEAD",
     "slices/*",
-    async ({ path, query, res }) => renderSliceNarrative(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSliceNarrative(path, query, res, headerScopeFromRequest(req)),
     "Slice narrative/timeline projections (HEAD)"
   );
   router.add(
     "POST",
     "slices/*",
-    async ({ path, query, req, res }) => executeSliceAction(path, query, req, res),
+    async ({ path, query, req, res }) =>
+      executeSliceAction(path, query, req, res, headerScopeFromRequest(req)),
     "Slice action contracts"
   );
   router.add(
     "GET",
     "sessions/*",
-    async ({ path, query, res }) => renderSessionDetailV2(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSessionDetailV2(path, query, res, headerScopeFromRequest(req)),
     "Session detail (v2 projections)"
   );
   router.add(
     "HEAD",
     "sessions/*",
-    async ({ path, query, res }) => renderSessionDetailV2(path, query, res),
+    async ({ path, query, res, req }) =>
+      renderSessionDetailV2(path, query, res, headerScopeFromRequest(req)),
     "Session detail (v2 projections, HEAD)"
   );
 }

@@ -29,7 +29,8 @@ import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext'
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 import { ActivityTimelineItem } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
-import { ChatSurface } from './chat/ChatSurface';
+import { ChatDockProvider } from './chat/ChatDockContext';
+import { ActivityChatDock } from './chat/ActivityChatDock';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -3852,6 +3853,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   };
 
   return (
+    <ChatDockProvider
+      sessions={sessions}
+      initiatives={initiatives ?? []}
+      workspaceId={workspaceId ?? null}
+      query={query}
+      statusFilter={activeFilter as 'all' | 'completed' | 'needs_attention' | 'in_progress'}
+      sortOrder={sortOrder as 'newest' | 'oldest'}
+      timeFilterId={timeFilterId}
+      customTimeRange={customTimeRange}
+      snapshot={chatSnapshot}
+      onRequestRefresh={onRefreshData}
+    >
     <div className="flex h-full min-h-0 flex-col">
       {/* Thread view for single-session selection */}
       {isSingleSession && singleSessionItems.length > 0 ? (
@@ -4371,21 +4384,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3">
-            <div className="mb-3">
-              <ChatSurface
-                sessions={sessions}
-                initiatives={initiatives}
-                workspaceId={workspaceId}
-                query={query}
-                statusFilter={activeFilter}
-                sortOrder={sortOrder}
-                timeFilterId={timeFilterId}
-                customTimeRange={customTimeRange}
-                snapshot={chatSnapshot}
-                onRequestRefresh={onRefreshData}
-              />
-            </div>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3 pb-24">
             {filtered.length === 0 && (
               <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
                 <div className="mx-auto max-w-2xl">
@@ -4648,6 +4647,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           </div>
         </>
       )}
+
+      <ActivityChatDock />
 
       <ActivityDetailModal open={activeDecorated !== null} onClose={closeDetail}>
         {activeDecorated && (
@@ -5619,5 +5620,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         )}
       </ActivityDetailModal>
     </div>
+    </ChatDockProvider>
   );
 });

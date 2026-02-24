@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Initiative } from '@/types';
+import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 import {
   isVisibleInitiativeStatus,
   toInitiative,
@@ -76,10 +78,15 @@ export function useEntityInitiatives(enabled: boolean, projectId: string | null 
           offset: String(offset),
         });
         if (workspaceScopeId) {
-          params.set('command_center_id', workspaceScopeId);
+          appendWorkspaceScopeParams(params, workspaceScopeId, {
+            includeCenterAlias: true,
+            includeProjectAlias: false,
+          });
         }
 
-        const response = await fetch(`/orgx/api/entities?${params.toString()}`);
+        const response = await fetch(`/orgx/api/entities?${params.toString()}`, {
+          headers: buildOrgxHeaders({ workspaceId: workspaceScopeId }),
+        });
         if (!response.ok) break;
         const json = (await response.json()) as EntityListResponse;
         const pageRows = json.data ?? [];

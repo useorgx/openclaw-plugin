@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, Reorder, useDragControls } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatRelativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -8,7 +9,7 @@ import { Skeleton } from '@/components/shared/Skeleton';
 import { InlineToast } from '@/components/shared/InlineToast';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
-import { sanitizeDisplayText } from '@/lib/humanize';
+import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import type { NextUpQueueBulkAction } from '@/types';
@@ -198,7 +199,7 @@ function formatQueueErrorMessage(raw: string): string {
     .filter(Boolean)
     .slice(0, 2)
     .join(' ');
-  return compact || 'Next Up is temporarily unavailable.';
+  return humanizeWarning(compact || raw) || 'Next Up is temporarily unavailable.';
 }
 
 function formatQueueDegradedMessage(raw: string): string {
@@ -214,7 +215,69 @@ function formatQueueDegradedMessage(raw: string): string {
   if (normalized.includes('fallback')) {
     return 'Showing fallback queue data while full signal refreshes.';
   }
-  return raw.trim();
+  if (
+    normalized.includes('unknown api endpoint') ||
+    normalized.includes('route is unavailable')
+  ) {
+    return 'Some queue controls are unavailable in this plugin build. Update and restart to restore full controls.';
+  }
+  return humanizeWarning(raw.trim());
+}
+
+function resolveEntityLabel(
+  title: string | null | undefined,
+  fallbackId: string | null | undefined,
+  prefix: string
+): string {
+  const preferred = typeof title === 'string' ? title.trim() : '';
+  if (preferred && !isOpaqueId(preferred)) {
+    return sanitizeDisplayText(preferred);
+  }
+
+  const fallback = typeof fallbackId === 'string' ? fallbackId.trim() : '';
+  if (fallback) {
+    if (isOpaqueId(fallback)) return `${prefix} ${humanizeId(fallback)}`;
+    return sanitizeDisplayText(fallback);
+  }
+  return prefix;
+}
+
+function resolveRunnerName(item: NextUpQueueItem): string {
+  const raw = typeof item.runnerAgentName === 'string' ? item.runnerAgentName.trim() : '';
+  if (!raw) return 'Unassigned';
+  const normalized = raw.toLowerCase();
+  if (normalized === 'undefined' || normalized === 'null') return 'Unassigned';
+  if (
+    normalized === 'main' &&
+    (item.runnerAgentId === 'unassigned' || item.runnerSource === 'fallback')
+  ) {
+    return 'Unassigned';
+  }
+  return raw;
+}
+
+function resolveRunnerSourceBadge(item: NextUpQueueItem): string | null {
+  if (item.runnerSource === 'inferred') return 'inferred';
+  return null;
+}
+
+function resolveRunnerHint(item: NextUpQueueItem, runnerName: string): string {
+  const source =
+    item.runnerSource === 'assigned'
+      ? 'assigned'
+      : item.runnerSource === 'inferred'
+        ? 'inferred'
+        : 'fallback';
+  if (runnerName === 'Unassigned') {
+    return `Runner ${source}`;
+  }
+  return `${runnerName} · ${source}`;
+}
+
+function formatQueueActionError(raw: string | undefined, fallback: string): string {
+  if (!raw || raw.trim().length === 0) return fallback;
+  const message = humanizeWarning(raw.trim());
+  return message || fallback;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -357,6 +420,7 @@ export function NextUpPanel({
     isLoading,
     isFetching,
     error,
+    refetch,
     playWorkstream,
     startWorkstreamAutoContinue,
   } = useNextUpQueue({
@@ -374,14 +438,28 @@ export function NextUpPanel({
     [items]
   );
   const queueItems = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          item.queueState !== 'running' &&
-          item.queueState !== 'blocked'
-      ),
+    () => {
+      const queued = items.filter(
+        (item) => item.queueState !== 'running' && item.queueState !== 'blocked'
+      );
+      if (queued.length > 0) return queued;
+      const blocked = items.filter((item) => item.queueState === 'blocked');
+      if (blocked.length > 0) return blocked;
+      const running = items.filter((item) => item.queueState === 'running');
+      if (running.length > 0) return running;
+      return queued;
+    },
     [items]
   );
+  const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
+    if (queueItems.length === 0) return 'empty';
+    if (queueItems.some((item) => item.queueState !== 'running' && item.queueState !== 'blocked')) {
+      return 'queued';
+    }
+    if (queueItems.some((item) => item.queueState === 'blocked')) return 'blocked';
+    if (queueItems.some((item) => item.queueState === 'running')) return 'running';
+    return 'queued';
+  }, [queueItems]);
 
   const visibleItems = useMemo(
     () => (isCompact ? queueItems.slice(0, 5) : queueItems),
@@ -498,7 +576,8 @@ export function NextUpPanel({
       setSelectionAnchorKey((previous) => (previous === key ? null : previous));
       setNotice(`Removed ${label} from queue.`);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Failed to remove from queue');
+      const raw = err instanceof Error ? err.message : '';
+      setNotice(formatQueueActionError(raw, 'Failed to remove from queue'));
     }
   };
 
@@ -593,7 +672,12 @@ export function NextUpPanel({
             ? 'moved to top'
             : 'moved to bottom';
       if (updated === 0 && failed > 0 && fallbackErrors.length > 0) {
-        setNotice(fallbackErrors[0] ?? `${failed} queue action${failed === 1 ? '' : 's'} failed.`);
+        setNotice(
+          formatQueueActionError(
+            fallbackErrors[0],
+            `${failed} queue action${failed === 1 ? '' : 's'} failed.`
+          )
+        );
       } else {
         setNotice(
           failed > 0
@@ -604,7 +688,8 @@ export function NextUpPanel({
       setSelectedKeys(new Set());
       setSelectionAnchorKey(null);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Bulk queue action failed');
+      const raw = err instanceof Error ? err.message : '';
+      setNotice(formatQueueActionError(raw, 'Bulk queue action failed'));
     } finally {
       setActionKey(null);
     }
@@ -637,7 +722,8 @@ export function NextUpPanel({
         setUpgradeGate(err);
         onUpgradeGate?.(err);
       } else {
-        setNotice(err instanceof Error ? err.message : 'Action failed');
+        const raw = err instanceof Error ? err.message : '';
+        setNotice(formatQueueActionError(raw, 'Action failed'));
       }
     } finally {
       setActionKey(null);
@@ -660,11 +746,11 @@ export function NextUpPanel({
   const selectedCount = visibleSelection.length;
   const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
   const emptyStateMessage =
-    degraded.length > 0
-      ? projectId
-        ? 'Next Up is waiting for a stable workspace signal.'
-        : 'Next Up is waiting for a stable live signal.'
-      : 'No queued workstreams right now.';
+    activeElsewhereCount > 0
+      ? `No queued workstreams yet. ${activeElsewhereCount} running/blocked item${activeElsewhereCount === 1 ? '' : 's'} are still in-flight.`
+      : degraded.length > 0
+        ? 'Queue signal is delayed right now.'
+        : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
@@ -723,17 +809,32 @@ export function NextUpPanel({
         <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
-            {isLoading ? (
-              <Skeleton className="h-5 w-10 rounded-full" />
-            ) : (
-              <span className="chip text-micro">{queueItems.length}</span>
-            )}
-            {!isLoading && activeElsewhereCount > 0 && (
-              <span className="chip text-micro text-secondary">{activeElsewhereCount} active elsewhere</span>
-            )}
-            {isFetching && !isLoading && (
-              <span className="text-micro text-muted">refreshing…</span>
-            )}
+            <span className="chip inline-flex min-w-[52px] justify-center text-micro tabular-nums">
+              {isLoading ? (
+                <span aria-hidden className="h-2.5 w-5 rounded bg-white/15 animate-pulse" />
+              ) : (
+                queueItems.length
+              )}
+            </span>
+            <span
+              className={cn(
+                'chip inline-flex min-w-[148px] justify-center text-micro tabular-nums transition-opacity',
+                !isLoading && activeElsewhereCount > 0
+                  ? 'text-secondary opacity-100'
+                  : 'pointer-events-none opacity-0'
+              )}
+            >
+              {`${activeElsewhereCount} active elsewhere`}
+            </span>
+            <span
+              className={cn(
+                'inline-flex min-w-[92px] justify-end text-micro text-muted transition-opacity',
+                isFetching && !isLoading ? 'opacity-100' : 'opacity-0'
+              )}
+              aria-live="polite"
+            >
+              refreshing…
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             {allowCompactToggle ? (
@@ -795,7 +896,12 @@ export function NextUpPanel({
                             actions: upgradeGate.actions,
                             requiredPlan: upgradeGate.requiredPlan,
                           }).catch((err) =>
-                            setNotice(err instanceof Error ? err.message : 'Checkout failed')
+                            setNotice(
+                              formatQueueActionError(
+                                err instanceof Error ? err.message : '',
+                                'Checkout failed'
+                              )
+                            )
                           )
                         }
                         className="h-7 rounded-full border border-amber-200/25 bg-amber-200/15 px-3 text-micro font-semibold text-amber-50 transition-colors hover:bg-amber-200/20"
@@ -806,7 +912,12 @@ export function NextUpPanel({
                         type="button"
                         onClick={() =>
                           void openBillingPortal({ actions: upgradeGate.actions }).catch((err) =>
-                            setNotice(err instanceof Error ? err.message : 'Portal failed')
+                            setNotice(
+                              formatQueueActionError(
+                                err instanceof Error ? err.message : '',
+                                'Portal failed'
+                              )
+                            )
                           )
                         }
                         className="h-7 rounded-full border border-strong bg-white/[0.04] px-3 text-micro font-semibold text-primary transition-colors hover:bg-white/[0.08]"
@@ -867,16 +978,26 @@ export function NextUpPanel({
         {!isLoading && queueItems.length > 0 ? (
           <div className="flex flex-col gap-2.5 px-0.5 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="truncate text-micro uppercase tracking-[0.08em] text-muted">
-                Queue
-              </p>
+                  <p className="truncate text-micro uppercase tracking-[0.08em] text-muted">
+                    {queueDisplayMode === 'blocked'
+                      ? 'Needs attention'
+                      : queueDisplayMode === 'running'
+                        ? 'Running now'
+                        : 'Queue'}
+                  </p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {selectedCount > 0 ? (
                   <span className="chip text-micro">{selectedCount} selected</span>
                 ) : null}
-                {isFetching && !isLoading ? (
-                  <span className="text-micro text-muted">refreshing…</span>
-                ) : null}
+                <span
+                  className={cn(
+                    'inline-flex min-w-[92px] text-micro text-muted transition-opacity',
+                    isFetching && !isLoading ? 'opacity-100' : 'opacity-0'
+                  )}
+                  aria-live="polite"
+                >
+                  refreshing…
+                </span>
                 {selectionEnabled && !isCompact && selectedCount === 0 ? (
                   <span className="text-micro text-muted">Shift+select to pick ranges.</span>
                 ) : null}
@@ -967,6 +1088,20 @@ export function NextUpPanel({
             {primaryDegradedMessage ? (
               <p className="mt-1 text-micro text-muted">{primaryDegradedMessage}</p>
             ) : null}
+            {degraded.length > 0 ? (
+              <div className="mt-2.5 flex items-center justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSignalToastHidden(false);
+                    void refetch();
+                  }}
+                  className="control-pill h-7 px-2.5 text-micro font-semibold"
+                >
+                  Retry now
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -977,12 +1112,22 @@ export function NextUpPanel({
               const isRowBusy = actionKey === key;
               const isRunningRow = item.queueState === 'running';
               const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
-                const initiativeTitle = sanitizeDisplayText(item.initiativeTitle);
-                const workstreamTitle = sanitizeDisplayText(item.workstreamTitle);
-                const nextTaskTitle = item.nextTaskTitle
+                const initiativeTitle = resolveEntityLabel(
+                  item.initiativeTitle,
+                  item.initiativeId,
+                  'Initiative'
+                );
+                const workstreamTitle = resolveEntityLabel(
+                  item.workstreamTitle,
+                  item.workstreamId,
+                  'Workstream'
+                );
+              const nextTaskTitle = item.nextTaskTitle
                   ? sanitizeDisplayText(item.nextTaskTitle)
                   : null;
                 const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
+              const runnerName = resolveRunnerName(item);
+              const runnerSourceBadge = resolveRunnerSourceBadge(item);
 
               return (
                 <motion.article
@@ -1009,8 +1154,8 @@ export function NextUpPanel({
 
                   <div className="flex min-w-0 items-center gap-2.5">
                     <AgentAvatar
-                      name={item.runnerAgentName}
-                      hint={`${item.runnerAgentId} ${item.runnerSource}`}
+                      name={runnerName}
+                      hint={resolveRunnerHint(item, runnerName)}
                       size="xs"
                     />
                     <div className="min-w-0 flex-1">
@@ -1036,6 +1181,9 @@ export function NextUpPanel({
                           Next: {nextTaskTitle}
                           {dueText ? ` · ${dueText}` : ''}
                         </p>
+                      ) : null}
+                      {runnerSourceBadge ? (
+                        <p className="mt-0.5 text-micro text-muted">Runner {runnerSourceBadge}</p>
                       ) : null}
                     </div>
                   </div>
@@ -1299,10 +1447,20 @@ function NextUpReorderRow({
   const isRowBusy = actionKey === key;
   const isRunningRow = item.queueState === 'running';
   const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
-  const initiativeTitle = sanitizeDisplayText(item.initiativeTitle);
-  const workstreamTitle = sanitizeDisplayText(item.workstreamTitle);
+  const initiativeTitle = resolveEntityLabel(
+    item.initiativeTitle,
+    item.initiativeId,
+    'Initiative'
+  );
+  const workstreamTitle = resolveEntityLabel(
+    item.workstreamTitle,
+    item.workstreamId,
+    'Workstream'
+  );
   const nextTaskTitle = item.nextTaskTitle ? sanitizeDisplayText(item.nextTaskTitle) : null;
   const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
+  const runnerName = resolveRunnerName(item);
+  const runnerSourceBadge = resolveRunnerSourceBadge(item);
 
   return (
     <Reorder.Item
@@ -1359,8 +1517,8 @@ function NextUpReorderRow({
                 }`}
               >
                 <AgentAvatar
-                  name={item.runnerAgentName}
-                  hint={`${item.runnerAgentId} ${item.runnerSource}`}
+                  name={runnerName}
+                  hint={resolveRunnerHint(item, runnerName)}
                   size="sm"
                 />
               </div>
@@ -1422,8 +1580,8 @@ function NextUpReorderRow({
                   Runner
                 </span>
                 <span className="truncate text-white/68">
-                  {item.runnerAgentName}
-                  {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
+                  {runnerName}
+                  {runnerSourceBadge ? ` · ${runnerSourceBadge}` : ''}
                 </span>
               </div>
             </div>

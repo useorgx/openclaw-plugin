@@ -8,8 +8,10 @@ import { useNextUpQueue } from '@/hooks/useNextUpQueue';
 import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
+import { appendWorkspaceScopeParams as appendCanonicalWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import { cutoffEpochForActivityFilter } from '@/lib/activityTimeFilters';
+import { humanizeWarning } from '@/lib/humanize';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type {
   Agent,
@@ -391,12 +393,10 @@ function readWorkspaceScopeParam(params: URLSearchParams): string | null {
 }
 
 function setWorkspaceScopeParams(params: URLSearchParams, workspaceId: string): void {
-  const normalized = workspaceId.trim();
-  if (!normalized) return;
-  params.set('workspace_id', normalized);
-  params.set('command_center_id', normalized);
-  params.set('project_id', normalized);
-  params.set('center', normalized);
+  appendCanonicalWorkspaceScopeParams(params, workspaceId, {
+    includeCenterAlias: true,
+    includeProjectAlias: false,
+  });
 }
 
 function clearWorkspaceScopeParams(params: URLSearchParams): void {
@@ -1669,7 +1669,15 @@ function DashboardShell({
       if (/unknown api endpoint/i.test(message)) {
         return `${fallback}. This route is unavailable in the running plugin build.`;
       }
-      return message;
+      return humanizeWarning(message);
+    },
+    []
+  );
+
+  const formatOpsNoticeError = useCallback(
+    (raw: string | null | undefined, fallback: string): string => {
+      if (!raw || raw.trim().length === 0) return fallback;
+      return humanizeWarning(raw.trim()) || fallback;
     },
     []
   );
@@ -1732,7 +1740,12 @@ function DashboardShell({
       | { error?: string; message?: string }
       | null;
     if (!response.ok) {
-      throw new Error(body?.error ?? body?.message ?? `Failed to dispatch Next Up (${response.status})`);
+      throw new Error(
+        formatOpsNoticeError(
+          body?.error ?? body?.message ?? null,
+          `Failed to dispatch Next Up (${response.status})`
+        )
+      );
     }
 
     setActivityFilterSessionId(null);
@@ -1785,7 +1798,12 @@ function DashboardShell({
       | { error?: string; message?: string }
       | null;
     if (!response.ok) {
-      throw new Error(body?.error ?? body?.message ?? `Failed to start Autopilot (${response.status})`);
+      throw new Error(
+        formatOpsNoticeError(
+          body?.error ?? body?.message ?? null,
+          `Failed to start Autopilot (${response.status})`
+        )
+      );
     }
 
     setActivityFilterSessionId(null);
@@ -2156,7 +2174,9 @@ function DashboardShell({
       closeEntityModal();
       await refetch();
     } catch (err) {
-      setOpsNotice(err instanceof Error ? err.message : `Failed to create ${type}.`);
+      setOpsNotice(
+        formatOpsNoticeError(err instanceof Error ? err.message : '', `Failed to create ${type}.`)
+      );
       setEntityCreating(false);
     }
   }, [closeEntityModal, entityCreating, entityModal, entityName, initiatives, refetch, selectedSession?.initiativeId]);
@@ -2431,7 +2451,15 @@ function DashboardShell({
                   setExpandedRightPanel('decisions');
                   setMobileTab('decisions');
                 }}
-                onBlockedClick={() => setBulkModal('blocked')}
+                onBlockedClick={() => {
+                  if (actionableSliceRuns.length > 0) {
+                    switchDashboardView('mission-control');
+                    setInitiativesSidebarTab('in_progress');
+                    setInProgressSubFilter('needs_attention');
+                  } else {
+                    setBulkModal('blocked');
+                  }
+                }}
                 onNewInitiative={startInitiative}
               />
             )}
@@ -2624,7 +2652,13 @@ function DashboardShell({
                       setNotificationTrayOpen(false);
                     }}
                     onBlockedClick={() => {
-                      setBulkModal('blocked');
+                      if (actionableSliceRuns.length > 0) {
+                        switchDashboardView('mission-control');
+                        setInitiativesSidebarTab('in_progress');
+                        setInProgressSubFilter('needs_attention');
+                      } else {
+                        setBulkModal('blocked');
+                      }
                       setNotificationTrayOpen(false);
                     }}
                   />
@@ -2917,7 +2951,12 @@ function DashboardShell({
                     type="button"
                     onClick={() => {
                       void toggleSidebarAutopilot().catch((error) => {
-                        setOpsNotice(error instanceof Error ? error.message : 'Autopilot action failed.');
+                        setOpsNotice(
+                          formatOpsNoticeError(
+                            error instanceof Error ? error.message : '',
+                            'Autopilot action failed.'
+                          )
+                        );
                       });
                     }}
                     disabled={sidebarAutopilotBusy}
@@ -2978,6 +3017,7 @@ function DashboardShell({
                         showHeader={false}
                         panelStyle="flat"
                         sliceRuns={actionableSliceRuns}
+                        initiatives={initiatives}
                         onOpenDecisions={() => openDecisionsFromActivity()}
                         onFocusRunId={focusActivityRunId}
                         onReviewActivity={openReviewActivityForSlice}
@@ -3355,7 +3395,12 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(body?.error ?? body?.message ?? `Failed to dispatch workstream (${response.status})`);
+            setOpsNotice(
+              formatOpsNoticeError(
+                body?.error ?? body?.message ?? null,
+                `Failed to dispatch workstream (${response.status})`
+              )
+            );
             return;
           }
           setOpsNotice(`Dispatched workstream.`);
@@ -3378,7 +3423,12 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(body?.error ?? body?.message ?? `Failed to start auto-continue (${response.status})`);
+            setOpsNotice(
+              formatOpsNoticeError(
+                body?.error ?? body?.message ?? null,
+                `Failed to start auto-continue (${response.status})`
+              )
+            );
             return;
           }
           setOpsNotice(`Auto-continue started.`);
@@ -3392,7 +3442,12 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(body?.error ?? body?.message ?? `Move failed (${response.status})`);
+            setOpsNotice(
+              formatOpsNoticeError(
+                body?.error ?? body?.message ?? null,
+                `Move failed (${response.status})`
+              )
+            );
             return;
           }
           setOpsNotice(`Moved workstream to ${placement}.`);
@@ -3406,7 +3461,12 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(body?.error ?? body?.message ?? `Remove failed (${response.status})`);
+            setOpsNotice(
+              formatOpsNoticeError(
+                body?.error ?? body?.message ?? null,
+                `Remove failed (${response.status})`
+              )
+            );
             return;
           }
           setOpsNotice(`Removed workstream from queue.`);

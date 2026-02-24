@@ -50,7 +50,7 @@ function keySourceLabel(source: OnboardingState['keySource']): string {
     case 'openclaw-config-file':
       return 'OpenClaw key';
     case 'legacy-dev':
-      return 'Legacy key';
+      return 'Local dev key';
     default:
       return 'No key';
   }
