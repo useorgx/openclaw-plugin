@@ -167,36 +167,87 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
 }
 
 export function parseSliceResult<T extends object>(raw: string): T | null {
+  const allowedStatuses = new Set(["completed", "blocked", "needs_decision", "error"]);
+
+  const hasBlockingDecision = (value: unknown): boolean => {
+    if (!Array.isArray(value)) return false;
+    return value.some((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      return (entry as Record<string, unknown>).blocking === true;
+    });
+  };
+
+  const hasNonEmptyArray = (value: unknown): boolean => Array.isArray(value) && value.length > 0;
+
+  const satisfiesStatusConsistency = (record: Record<string, unknown>): boolean => {
+    const status = typeof record.status === "string" ? record.status : "";
+    const hasBlocking = hasBlockingDecision(record.decisions_needed);
+    if (status === "completed") {
+      if (hasBlocking) return false;
+      const hasOutcomes =
+        hasNonEmptyArray(record.artifacts) ||
+        hasNonEmptyArray(record.task_updates) ||
+        hasNonEmptyArray(record.milestone_updates);
+      if (!hasOutcomes) return false;
+    }
+    return true;
+  };
+
+  const isLikelySliceResult = (value: unknown): value is T => {
+    if (!value || typeof value !== "object") return false;
+    const record = value as Record<string, unknown>;
+    const status = typeof record.status === "string" ? record.status : "";
+    const workstreamId = typeof record.workstream_id === "string" ? record.workstream_id : "";
+    return (
+      allowedStatuses.has(status) &&
+      typeof record.summary === "string" &&
+      workstreamId.trim().length > 0 &&
+      satisfiesStatusConsistency(record)
+    );
+  };
+
   const unwrapStructuredOutput = (value: unknown): T | null => {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
     const structured = record.structured_output;
-    if (structured && typeof structured === "object") return structured as T;
+    if (structured && typeof structured === "object") {
+      return isLikelySliceResult(structured) ? (structured as T) : null;
+    }
     if (typeof structured === "string") {
       const parsedStructured = parseJsonSafe<T>(structured.trim());
-      if (parsedStructured && typeof parsedStructured === "object") return parsedStructured;
+      if (parsedStructured && typeof parsedStructured === "object" && isLikelySliceResult(parsedStructured)) {
+        return parsedStructured;
+      }
     }
     // Claude text-mode envelopes can sometimes return JSON in `result`.
     if (typeof record.result === "string") {
       const parsedResult = parseJsonSafe<T>(record.result.trim());
-      if (parsedResult && typeof parsedResult === "object") return parsedResult;
+      if (parsedResult && typeof parsedResult === "object" && isLikelySliceResult(parsedResult)) {
+        return parsedResult;
+      }
     }
-    return record as T;
+    return isLikelySliceResult(record) ? (record as T) : null;
   };
 
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const direct = parseJsonSafe<unknown>(trimmed);
+  const stripMarkdownJsonFence = (text: string): string => {
+    const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (!fenced || typeof fenced[1] !== "string") return text;
+    return fenced[1].trim();
+  };
+
+  const direct = parseJsonSafe<unknown>(stripMarkdownJsonFence(trimmed));
   const directUnwrapped = unwrapStructuredOutput(direct);
   if (directUnwrapped && typeof directUnwrapped === "object") return directUnwrapped;
 
   // Tolerant parse: extract the last complete top-level JSON object from mixed logs.
-  const extractLastTopLevelObject = (text: string): string | null => {
+  const extractTopLevelObjects = (text: string): string[] => {
     let inString = false;
     let escaped = false;
     let depth = 0;
     let start = -1;
-    let lastObject: string | null = null;
+    const objects: string[] = [];
 
     for (let i = 0; i < text.length; i += 1) {
       const ch = text[i]!;
@@ -228,16 +279,17 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         if (depth <= 0) continue;
         depth -= 1;
         if (depth === 0 && start >= 0) {
-          lastObject = text.slice(start, i + 1);
+          objects.push(text.slice(start, i + 1));
           start = -1;
         }
       }
     }
-    return lastObject;
+    return objects;
   };
 
-  const candidate = extractLastTopLevelObject(trimmed);
-  if (candidate) {
+  const candidates = extractTopLevelObjects(trimmed);
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const candidate = candidates[i]!;
     const parsed = parseJsonSafe<unknown>(candidate);
     const unwrapped = unwrapStructuredOutput(parsed);
     if (unwrapped && typeof unwrapped === "object") return unwrapped;

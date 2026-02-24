@@ -205,11 +205,22 @@ function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
   if (!item.autoContinue) return false;
   const status = item.autoContinue.status;
   if (status !== 'running' && status !== 'stopping') return false;
+  // Runtime status is the source of truth. Pointer fields can lag by one
+  // polling cycle right after start/stop transitions.
+  if (item.autoContinue.stopReason === 'error') return false;
+  if (item.queueState === 'running' || item.queueState === 'blocked') return true;
+
   const hasLegacyPointer = Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
   const hasLanePointer = Boolean(
     Array.isArray(item.autoContinue.activeRunIds) && item.autoContinue.activeRunIds.length > 0
   );
-  return hasLegacyPointer || hasLanePointer;
+  if (hasLegacyPointer || hasLanePointer) return true;
+
+  const updatedAtEpoch = Date.parse(item.autoContinue.updatedAt ?? '');
+  if (Number.isFinite(updatedAtEpoch)) {
+    return Date.now() - updatedAtEpoch <= 45_000;
+  }
+  return false;
 }
 
 function normalizeRunnerId(value: string | null | undefined): string {

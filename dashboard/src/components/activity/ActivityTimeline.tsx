@@ -5,7 +5,7 @@ import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens } from '@/lib/humanize';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   Initiative,
@@ -1520,6 +1520,21 @@ function inferAgentNameFromSkills(requiredSkills: string[]): string | null {
   return null;
 }
 
+function isGenericOrgxDomainLabel(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized.startsWith("orgx ")) return false;
+  return (
+    normalized === "orgx engineering" ||
+    normalized === "orgx product" ||
+    normalized === "orgx marketing" ||
+    normalized === "orgx sales" ||
+    normalized === "orgx operations" ||
+    normalized === "orgx design" ||
+    normalized === "orgx orchestrator"
+  );
+}
+
 function formatAgentLabel(
   explicitName: string | null,
   explicitId: string | null,
@@ -1532,7 +1547,10 @@ function formatAgentLabel(
     ? explicitId.trim()
     : null;
   const inferredFromId = normalizedId ? namesById?.get(normalizedId) ?? null : null;
-  const resolvedName = normalizedName ?? inferredFromId;
+  const resolvedName =
+    normalizedName && inferredFromId && isGenericOrgxDomainLabel(normalizedName)
+      ? inferredFromId
+      : normalizedName ?? inferredFromId;
   if (resolvedName) return humanizeActorName(resolvedName);
   if (!normalizedId) return 'OrgX';
   const idKey = normalizedId.toLowerCase();
@@ -3565,7 +3583,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to schedule auto-fix";
-      setAutoFixNotice(message);
+      setAutoFixNotice(humanizeWarning(message) || message);
     } finally {
       setAutoFixPending(false);
     }

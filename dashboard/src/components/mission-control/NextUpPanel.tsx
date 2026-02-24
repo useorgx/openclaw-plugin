@@ -160,6 +160,14 @@ function queueLabel(queueState: NextUpQueueItem['queueState']): string {
   return 'Queued';
 }
 
+function queueStateRank(queueState: NextUpQueueItem['queueState']): number {
+  if (queueState === 'queued' || queueState === 'idle') return 0;
+  if (queueState === 'blocked') return 1;
+  if (queueState === 'running') return 2;
+  if (queueState === 'completed') return 3;
+  return 4;
+}
+
 function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   if (queueState === 'running') return 'from-teal-300/0 via-teal-300/60 to-teal-300/0';
   if (queueState === 'blocked') return 'from-amber-300/0 via-amber-300/55 to-amber-300/0';
@@ -242,18 +250,67 @@ function resolveEntityLabel(
   return prefix;
 }
 
-function resolveRunnerName(item: NextUpQueueItem): string {
-  const raw = typeof item.runnerAgentName === 'string' ? item.runnerAgentName.trim() : '';
-  if (!raw) return 'Unassigned';
-  const normalized = raw.toLowerCase();
-  if (normalized === 'undefined' || normalized === 'null') return 'Unassigned';
+type RunnerDisplay = {
+  id: string;
+  name: string;
+  hint: string;
+};
+
+function normalizeRunnerToken(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.toLowerCase();
   if (
-    normalized === 'main' &&
-    (item.runnerAgentId === 'unassigned' || item.runnerSource === 'fallback')
+    normalized === 'undefined' ||
+    normalized === 'null' ||
+    normalized === 'main' ||
+    normalized === 'unassigned' ||
+    normalized === 'n/a' ||
+    normalized === 'na'
   ) {
-    return 'Unassigned';
+    return null;
   }
-  return raw;
+  return sanitizeDisplayText(trimmed);
+}
+
+function resolveRunnerAgents(item: NextUpQueueItem): RunnerDisplay[] {
+  const output: RunnerDisplay[] = [];
+  const seen = new Set<string>();
+  const source =
+    item.runnerSource === 'assigned'
+      ? 'assigned'
+      : item.runnerSource === 'inferred'
+        ? 'inferred'
+        : 'fallback';
+
+  const pushRunner = (idRaw: string | null | undefined, nameRaw: string | null | undefined) => {
+    const id = normalizeRunnerToken(idRaw);
+    const name = normalizeRunnerToken(nameRaw) ?? id;
+    if (!id && !name) return;
+    const resolvedId = id ?? (name as string);
+    const key = resolvedId.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const label = name ?? resolvedId;
+    output.push({
+      id: resolvedId,
+      name: label,
+      hint: `${label} · ${source}`,
+    });
+  };
+
+  if (Array.isArray(item.runnerAgents)) {
+    for (const runner of item.runnerAgents) {
+      pushRunner(runner?.id ?? null, runner?.name ?? null);
+    }
+  }
+  pushRunner(item.runnerAgentId, item.runnerAgentName);
+  return output;
+}
+
+function resolveRunnerName(item: NextUpQueueItem): string {
+  return resolveRunnerAgents(item)[0]?.name ?? 'Unassigned';
 }
 
 function resolveRunnerSourceBadge(item: NextUpQueueItem): string | null {
@@ -272,6 +329,43 @@ function resolveRunnerHint(item: NextUpQueueItem, runnerName: string): string {
     return `Runner ${source}`;
   }
   return `${runnerName} · ${source}`;
+}
+
+function RunnerAvatarStack({
+  item,
+  size = 'xs',
+  max = 3,
+}: {
+  item: NextUpQueueItem;
+  size?: 'xs' | 'sm';
+  max?: number;
+}) {
+  const runners = resolveRunnerAgents(item);
+  if (runners.length === 0) {
+    return <AgentAvatar name="Unassigned" hint="Runner fallback" size={size} />;
+  }
+  const shown = runners.slice(0, max);
+  const overflow = runners.length - shown.length;
+  return (
+    <div className="inline-flex items-center">
+      <div className="flex items-center -space-x-2">
+        {shown.map((runner, index) => (
+          <div
+            key={`${runner.id}-${index}`}
+            className="relative rounded-full ring-1 ring-[#080808]/90"
+            style={{ zIndex: shown.length - index }}
+          >
+            <AgentAvatar name={runner.name} hint={runner.hint} size={size} />
+          </div>
+        ))}
+      </div>
+      {overflow > 0 ? (
+        <span className="ml-1 rounded-full border border-strong bg-white/[0.03] px-1.5 py-0.5 text-micro text-secondary">
+          +{overflow}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function formatQueueActionError(raw: string | undefined, fallback: string): string {
@@ -438,26 +532,20 @@ export function NextUpPanel({
     [items]
   );
   const queueItems = useMemo(
-    () => {
-      const queued = items.filter(
-        (item) => item.queueState !== 'running' && item.queueState !== 'blocked'
-      );
-      if (queued.length > 0) return queued;
-      const blocked = items.filter((item) => item.queueState === 'blocked');
-      if (blocked.length > 0) return blocked;
-      const running = items.filter((item) => item.queueState === 'running');
-      if (running.length > 0) return running;
-      return queued;
-    },
+    () => [...items].sort((left, right) => queueStateRank(left.queueState) - queueStateRank(right.queueState)),
     [items]
   );
-  const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
+  const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'mixed' | 'empty'>(() => {
     if (queueItems.length === 0) return 'empty';
-    if (queueItems.some((item) => item.queueState !== 'running' && item.queueState !== 'blocked')) {
-      return 'queued';
-    }
-    if (queueItems.some((item) => item.queueState === 'blocked')) return 'blocked';
-    if (queueItems.some((item) => item.queueState === 'running')) return 'running';
+    const hasQueued = queueItems.some(
+      (item) => item.queueState !== 'running' && item.queueState !== 'blocked'
+    );
+    const hasBlocked = queueItems.some((item) => item.queueState === 'blocked');
+    const hasRunning = queueItems.some((item) => item.queueState === 'running');
+    if (hasQueued && (hasBlocked || hasRunning)) return 'mixed';
+    if (hasQueued) return 'queued';
+    if (hasBlocked) return 'blocked';
+    if (hasRunning) return 'running';
     return 'queued';
   }, [queueItems]);
 
@@ -746,11 +834,9 @@ export function NextUpPanel({
   const selectedCount = visibleSelection.length;
   const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
   const emptyStateMessage =
-    activeElsewhereCount > 0
-      ? `No queued workstreams yet. ${activeElsewhereCount} running/blocked item${activeElsewhereCount === 1 ? '' : 's'} are still in-flight.`
-      : degraded.length > 0
-        ? 'Queue signal is delayed right now.'
-        : 'No queued workstreams right now.';
+    degraded.length > 0
+      ? 'Queue signal is delayed right now.'
+      : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
@@ -824,7 +910,7 @@ export function NextUpPanel({
                   : 'pointer-events-none opacity-0'
               )}
             >
-              {`${activeElsewhereCount} active elsewhere`}
+              {`${activeElsewhereCount} in progress`}
             </span>
             <span
               className={cn(
@@ -983,6 +1069,8 @@ export function NextUpPanel({
                       ? 'Needs attention'
                       : queueDisplayMode === 'running'
                         ? 'Running now'
+                        : queueDisplayMode === 'mixed'
+                          ? 'Queue + active'
                         : 'Queue'}
                   </p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1153,11 +1241,7 @@ export function NextUpPanel({
                   />
 
                   <div className="flex min-w-0 items-center gap-2.5">
-                    <AgentAvatar
-                      name={runnerName}
-                      hint={resolveRunnerHint(item, runnerName)}
-                      size="xs"
-                    />
+                    <RunnerAvatarStack item={item} size="xs" max={3} />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <EntityIcon type="initiative" size={11} className="flex-shrink-0 opacity-85" />
@@ -1460,6 +1544,7 @@ function NextUpReorderRow({
   const nextTaskTitle = item.nextTaskTitle ? sanitizeDisplayText(item.nextTaskTitle) : null;
   const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
   const runnerName = resolveRunnerName(item);
+  const runnerCount = resolveRunnerAgents(item).length;
   const runnerSourceBadge = resolveRunnerSourceBadge(item);
 
   return (
@@ -1577,10 +1662,12 @@ function NextUpReorderRow({
               </div>
               <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
                 <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
-                  Runner
+                  {runnerCount > 1 ? 'Runners' : 'Runner'}
                 </span>
+                {runnerCount > 1 ? <RunnerAvatarStack item={item} size="xs" max={3} /> : null}
                 <span className="truncate text-white/68">
                   {runnerName}
+                  {runnerCount > 1 ? ` +${runnerCount - 1}` : ''}
                   {runnerSourceBadge ? ` · ${runnerSourceBadge}` : ''}
                 </span>
               </div>

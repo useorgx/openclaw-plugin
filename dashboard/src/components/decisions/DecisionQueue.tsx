@@ -587,6 +587,9 @@ export const DecisionQueue = memo(function DecisionQueue({
                   <polyline points="22 4 12 14.01 9 11.01" />
                 </svg>
                 <p className="text-body text-secondary">No pending decisions. All clear.</p>
+                {noticeIsSuccess && statusMessage ? (
+                  <p className="text-caption text-lime">{statusMessage}</p>
+                ) : null}
               </>
             )}
           </div>

@@ -651,17 +651,9 @@ export const InProgressPanel = memo(function InProgressPanel({
                             onFocusRunId?.(row.runId);
                           }}
                           className="control-pill h-7 px-2.5 text-micro font-semibold"
-                          title="Open session"
+                          title={row.session ? 'Open session detail' : 'Focus in Activity'}
                         >
-                          Open
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onFocusRunId?.(row.runId)}
-                          className="control-pill h-7 px-2.5 text-micro font-semibold"
-                          title="Focus in Activity"
-                        >
-                          Focus
+                          {row.session ? 'Open' : 'Focus'}
                         </button>
                         {row.session && canPauseAction && onPauseWorkstream && row.session.initiativeId && row.session.workstreamId && (
                           <button
