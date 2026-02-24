@@ -586,7 +586,10 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     const chatComposer = page.getByRole('textbox', { name: 'Chat composer' });
     await chatComposer.waitFor({ state: 'visible' });
     await chatComposer.fill(chatPrompt);
-    await page.locator('button[data-action="chat-send"]').click();
+    const chatPrimaryAction = page
+      .locator('button[data-action="chat-send-primary"], button[data-action="chat-send"]')
+      .first();
+    await chatPrimaryAction.click();
     const threadPanel = page.locator('[data-testid="chat-thread-panel"]');
     await threadPanel.waitFor({ state: 'visible' });
 

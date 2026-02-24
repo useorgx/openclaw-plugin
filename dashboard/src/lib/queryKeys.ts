@@ -70,6 +70,33 @@ export const queryKeys = {
         embedMode: params.embedMode ?? false,
       },
     ] as const,
+  missionControlSlices: (params: {
+    workspaceId?: string | null;
+    initiativeId?: string | null;
+    level: 'initiative' | 'workstream' | 'milestone' | 'task';
+    orderMode?: 'manual' | 'algorithmic' | null;
+    includeCompleted?: boolean;
+    search?: string;
+    offset?: number;
+    limit?: number;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'mission-control-slices',
+      {
+        workspaceId: params.workspaceId ?? null,
+        initiativeId: params.initiativeId ?? null,
+        level: params.level,
+        orderMode: params.orderMode ?? null,
+        includeCompleted: params.includeCompleted ?? false,
+        search: params.search?.trim().toLowerCase() ?? '',
+        offset: Math.max(0, params.offset ?? 0),
+        limit: Math.max(1, params.limit ?? 24),
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
   nextUpQueue: (params: {
     initiativeId?: string | null;
     authToken?: string | null;
