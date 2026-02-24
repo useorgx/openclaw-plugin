@@ -1315,7 +1315,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       onSelectSession(lead.id);
                     }
                   }}
-                  className="flex flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-white/[0.03]"
+                  className="flex flex-1 items-start gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-white/[0.03]"
                 >
                   <div className="relative flex-shrink-0">
                     {showProviderAvatar ? (
@@ -1368,7 +1368,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                       />
                     )}
                   </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 space-y-1">
                       <div
                         className="flex min-w-0 items-baseline"
                         title={roleLabel ? `${displayNameRaw} — ${roleLabel}` : displayNameRaw}
@@ -1382,62 +1382,73 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           )}
                         </span>
                       </div>
-                    </div>
-                  {hasSessions ? (
-                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
-                      <span
-                        className="flex h-1.5 w-12 overflow-hidden rounded-full"
-                        title={(() => {
-                          const counts: Record<string, number> = {};
-                          for (const node of group.nodes) {
-                            const nodeStatus = effectiveSessionStatus(node);
-                            counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
-                          }
-                          return Object.entries(counts).map(([s, c]) => `${c} ${s}`).join(' · ');
-                        })()}
-                      >
-                        {(() => {
-                          const counts: Record<string, number> = {};
-                          for (const node of group.nodes) {
-                            const nodeStatus = effectiveSessionStatus(node);
-                            counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
-                          }
-                          const total = group.nodes.length;
-                          return Object.entries(counts).map(([status, count]) => (
+                      <div className="flex items-center gap-1.5">
+                        {hasSessions ? (
+                          <>
                             <span
-                              key={status}
-                              style={{
-                                width: `${(count / total) * 100}%`,
-                                backgroundColor: statusColor(status),
-                              }}
-                            />
-                          ));
-                        })()}
-                      </span>
-                      <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {group.nodes.length}
-                      </span>
-                    </span>
-                  ) : catalogIsLive || runtimeIsLive ? (
-                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
-                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]">
-                        <span
-                          className="h-1.5 w-full"
-                          style={{ backgroundColor: statusColor('running') }}
-                        />
-                      </span>
-                      <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {Math.max(1, group.runtimeActiveCount ?? 0)}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex min-w-[76px] items-center justify-end gap-1.5">
-                      <span className="flex h-1.5 w-12 overflow-hidden rounded-full bg-white/[0.06]" />
-                      <span className="text-micro text-muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        0
-                      </span>
-                    </span>
-                  )}
+                              className="flex h-1.5 flex-1 overflow-hidden rounded-full"
+                              title={(() => {
+                                const counts: Record<string, number> = {};
+                                for (const node of group.nodes) {
+                                  const nodeStatus = effectiveSessionStatus(node);
+                                  counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
+                                }
+                                return Object.entries(counts).map(([s, c]) => `${c} ${s}`).join(' · ');
+                              })()}
+                            >
+                              {(() => {
+                                const counts: Record<string, number> = {};
+                                for (const node of group.nodes) {
+                                  const nodeStatus = effectiveSessionStatus(node);
+                                  counts[nodeStatus] = (counts[nodeStatus] ?? 0) + 1;
+                                }
+                                const total = group.nodes.length;
+                                return Object.entries(counts).map(([status, count]) => (
+                                  <span
+                                    key={status}
+                                    style={{
+                                      width: `${(count / total) * 100}%`,
+                                      backgroundColor: statusColor(status),
+                                    }}
+                                  />
+                                ));
+                              })()}
+                            </span>
+                            <span
+                              className="w-6 flex-shrink-0 text-right text-micro text-secondary"
+                              style={{ fontVariantNumeric: 'tabular-nums' }}
+                            >
+                              {group.nodes.length}
+                            </span>
+                          </>
+                        ) : catalogIsLive || runtimeIsLive ? (
+                          <>
+                            <span className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                              <span
+                                className="h-1.5 w-full"
+                                style={{ backgroundColor: statusColor('running') }}
+                              />
+                            </span>
+                            <span
+                              className="w-6 flex-shrink-0 text-right text-micro text-secondary"
+                              style={{ fontVariantNumeric: 'tabular-nums' }}
+                            >
+                              {Math.max(1, group.runtimeActiveCount ?? 0)}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]" />
+                            <span
+                              className="w-6 flex-shrink-0 text-right text-micro text-muted"
+                              style={{ fontVariantNumeric: 'tabular-nums' }}
+                            >
+                              0
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                 </button>
 
                 {/* Info/detail button */}

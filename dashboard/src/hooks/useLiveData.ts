@@ -76,8 +76,8 @@ const DEFAULT_MAX_HANDOFFS = 80;
 const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
-const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 3_000;
-const SNAPSHOT_FALLBACK_STAGGER_MS = 180;
+const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 9_000;
+const SNAPSHOT_FALLBACK_STAGGER_MS = 260;
 const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   pendingTotal: 0,
   pendingByQueue: {},
@@ -127,6 +127,90 @@ const LIVE_SESSION_STATUSES = new Set([
 ]);
 
 const SESSION_CARRYOVER_WINDOW_MS = 45 * 60_000;
+
+function isAbortLikeMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('aborterror') ||
+    normalized.includes('signal is aborted') ||
+    normalized.includes('aborted') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('request canceled')
+  );
+}
+
+function summarizeSnapshotFailureMessages(errors: string[]): string {
+  const cleaned = errors
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (cleaned.length === 0) {
+    return 'Live data is unavailable right now. OrgX Live will retry automatically.';
+  }
+
+  const lowered = cleaned.map((entry) => entry.toLowerCase());
+  const allTimedOut = lowered.every(
+    (entry) =>
+      entry.includes('timed out') ||
+      entry.includes('timeout') ||
+      entry.includes('signal is aborted') ||
+      entry.includes('request cancelled') ||
+      entry.includes('request canceled')
+  );
+  if (allTimedOut) {
+    return 'Live sync is taking longer than expected. OrgX Live is retrying in the background.';
+  }
+
+  if (lowered.some((entry) => entry.includes('unknown api endpoint'))) {
+    return 'This plugin runtime is missing required live routes. Restart the plugin, then update if needed.';
+  }
+
+  if (lowered.some((entry) => entry.includes('unauthorized') || entry.includes('forbidden'))) {
+    return 'OrgX authorization needs attention. Reconnect your API key in Settings.';
+  }
+
+  const uniqueDetails = Array.from(
+    new Set(
+      cleaned.map((entry) => {
+        const withoutLabel = entry.replace(/^[^:]+:\s*/, '').trim();
+        return withoutLabel.length > 0 ? withoutLabel : entry;
+      })
+    )
+  );
+  return uniqueDetails.slice(0, 2).join(' ');
+}
+
+function formatDegradedReason(reason: string): string {
+  const normalized = reason.trim().toLowerCase();
+  if (!normalized) return '';
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('request canceled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return 'Live sync is slower than expected. Some panels may refresh a few seconds late.';
+  }
+  if (normalized.includes('unauthorized') || normalized.includes('forbidden')) {
+    return 'OrgX authorization needs attention. Reconnect your API key in Settings.';
+  }
+  if (normalized.includes('unknown api endpoint') || normalized.includes('route is unavailable')) {
+    return 'This plugin runtime is missing required live routes. Restart the plugin after updating.';
+  }
+  const compact = reason
+    .replace(/^[^:]+:\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return compact.length > 0 ? compact : reason.trim();
+}
+
+function summarizeDegradedReasons(reasons: string[]): string[] {
+  const mapped = reasons
+    .map((entry) => formatDegradedReason(entry))
+    .filter((entry) => entry.length > 0);
+  return Array.from(new Set(mapped)).slice(0, 2);
+}
 
 function toEpoch(value: string | null | undefined): number {
   if (!value) return 0;
@@ -944,11 +1028,28 @@ async function fetchJson<T>(
       error: null,
     };
   } catch (err) {
+    const rawError = err instanceof Error ? err.message : 'Network error';
+    const timedOut =
+      Boolean(timeoutController?.signal.aborted) && !Boolean(upstreamSignal?.aborted);
+    if (
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      isAbortLikeMessage(rawError)
+    ) {
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        error:
+          timedOut && timeoutMs > 0
+            ? `request timed out after ${timeoutMs}ms`
+            : 'request cancelled',
+      };
+    }
     return {
       ok: false,
       status: 0,
       data: null,
-      error: err instanceof Error ? err.message : 'Network error',
+      error: rawError,
     };
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -1726,87 +1827,28 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           { label: 'live/snapshot', url: `/orgx/api/live/snapshot?${query.toString()}` },
         ];
         const errors: string[] = [];
-        const controllers = endpoints.map(() => new AbortController());
         let snapshot: LiveSnapshotResponse | null = null;
         let sawAuthFailure = false;
-        const snapshotAttempts = endpoints.map((endpoint, index) =>
-          (async () => {
-            if (index > 0) {
-              await new Promise<void>((resolve) => {
-                setTimeout(resolve, index * SNAPSHOT_FALLBACK_STAGGER_MS);
-              });
-            }
-            const snapshotRes = await fetchJson<LiveSnapshotResponse>(
-              endpoint.url,
-              { signal: controllers[index].signal },
-              { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
-            );
-            if (snapshotRes.ok && snapshotRes.data) {
-              return {
-                snapshot: snapshotRes.data,
-                index,
-              };
-            }
-            const failure = new Error(
-              `${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`
-            ) as Error & { status?: number };
-            failure.status = snapshotRes.status;
-            throw failure;
-          })()
-        );
-
-        try {
-          const winner = await new Promise<{
-            snapshot: LiveSnapshotResponse;
-            index: number;
-          }>((resolve, reject) => {
-            if (snapshotAttempts.length === 0) {
-              reject([new Error('No snapshot endpoints configured')]);
-              return;
-            }
-            let settled = false;
-            let remaining = snapshotAttempts.length;
-            const failures: unknown[] = [];
-            snapshotAttempts.forEach((attempt) => {
-              attempt
-                .then((value) => {
-                  if (settled) return;
-                  settled = true;
-                  resolve(value);
-                })
-                .catch((error) => {
-                  failures.push(error);
-                  remaining -= 1;
-                  if (!settled && remaining === 0) {
-                    reject(failures);
-                  }
-                });
+        for (let index = 0; index < endpoints.length; index += 1) {
+          const endpoint = endpoints[index];
+          if (index > 0) {
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, SNAPSHOT_FALLBACK_STAGGER_MS);
             });
-          });
-          snapshot = winner.snapshot;
-          controllers.forEach((controller, idx) => {
-            if (idx !== winner.index) controller.abort();
-          });
-        } catch (err) {
-          const attemptErrors: unknown[] = Array.isArray(err) ? err : [err];
-          for (const entry of attemptErrors) {
-            const message =
-              entry instanceof Error
-                ? entry.message
-                : typeof entry === 'string'
-                ? entry
-                : 'Snapshot endpoint unavailable';
-            errors.push(message);
-            const statusCandidate =
-              entry && typeof entry === 'object' && 'status' in entry
-                ? Number((entry as { status?: unknown }).status)
-                : NaN;
-            if (statusCandidate === 401 || statusCandidate === 403) {
-              sawAuthFailure = true;
-            }
           }
-        } finally {
-          controllers.forEach((controller) => controller.abort());
+          const snapshotRes = await fetchJson<LiveSnapshotResponse>(
+            endpoint.url,
+            undefined,
+            { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
+          );
+          if (snapshotRes.ok && snapshotRes.data) {
+            snapshot = snapshotRes.data;
+            break;
+          }
+          if (snapshotRes.status === 401 || snapshotRes.status === 403) {
+            sawAuthFailure = true;
+          }
+          errors.push(`${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`);
         }
 
         if (!snapshot) {
@@ -1817,7 +1859,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             (authErr as Error & { code?: string }).code = 'ORGX_AUTH';
             throw authErr;
           }
-          throw new Error(errors.length > 0 ? errors.join(' | ') : 'Snapshot endpoint unavailable');
+          throw new Error(summarizeSnapshotFailureMessages(errors));
         }
         if (scopeKeyRef.current !== requestScopeKey) {
           return;
@@ -1875,7 +1917,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         );
 
         const degradedReasons = Array.isArray(snapshot.degraded)
-          ? snapshot.degraded
+          ? summarizeDegradedReasons(snapshot.degraded)
           : [];
 
         if (degradedReasons.length > 0) {

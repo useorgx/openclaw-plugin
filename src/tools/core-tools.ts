@@ -1416,12 +1416,36 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             description: "Max results (default 20)",
             default: 20,
           },
+          initiative_id: {
+            type: "string",
+            description: "Filter by initiative ID",
+          },
+          project_id: {
+            type: "string",
+            description: "Legacy project/workspace scope filter",
+          },
+          workspace_id: {
+            type: "string",
+            description: "Workspace ID (canonical scope)",
+          },
+          command_center_id: {
+            type: "string",
+            description: "Deprecated alias for workspace_id",
+          },
         },
         required: ["type"],
       },
       async execute(
         _callId: string,
-        params: { type: string; status?: string; limit?: number } = { type: "" }
+        params: {
+          type: string;
+          status?: string;
+          limit?: number;
+          initiative_id?: string;
+          project_id?: string;
+          workspace_id?: string;
+          command_center_id?: string;
+        } = { type: "" }
       ) {
         try {
           const { type, ...filters } = params;

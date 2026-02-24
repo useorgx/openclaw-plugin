@@ -367,6 +367,11 @@ const PROJECT_SCOPE_LOOKUP_TIMEOUT_MS = readPositiveIntEnv(
   2_500,
   { min: 250, max: 20_000 }
 );
+const PROJECT_SCOPE_MAX_INITIATIVE_PAGES = readPositiveIntEnv(
+  "ORGX_PROJECT_SCOPE_MAX_INITIATIVE_PAGES",
+  12,
+  { min: 1, max: 100 }
+);
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
 const snapshotResponseCache = new Map<
@@ -2186,11 +2191,16 @@ export function createHttpHandler(
     };
 
     const cacheAndReturn = (ids: string[]): string[] => {
+      const normalized = dedupeStrings(
+        ids
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0)
+      );
       projectInitiativeIdsCache.set(projectId, {
         expiresAt: Date.now() + PROJECT_INITIATIVE_IDS_CACHE_TTL_MS,
-        ids,
+        ids: normalized,
       });
-      return ids;
+      return normalized;
     };
 
     const isKnownCommandCenterScope = async (): Promise<boolean> => {
@@ -2247,15 +2257,45 @@ export function createHttpHandler(
     const listInitiativesWithFilters = async (
       filters: Record<string, unknown>
     ): Promise<unknown[]> => {
-      const result = await withSoftTimeout(
-        "initiative scope lookup",
-        PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
-        client.listEntities("initiative", {
-          ...filters,
-          limit: 100,
-        })
-      );
-      return Array.isArray(result.data) ? result.data : [];
+      const rows: unknown[] = [];
+      const pageSize = 100;
+      const seenIds = new Set<string>();
+      let offset = 0;
+      let page = 0;
+
+      while (page < PROJECT_SCOPE_MAX_INITIATIVE_PAGES) {
+        const result = await withSoftTimeout(
+          "initiative scope lookup",
+          PROJECT_SCOPE_LOOKUP_TIMEOUT_MS,
+          client.listEntities("initiative", {
+            ...filters,
+            limit: pageSize,
+            offset,
+          })
+        );
+        const pageRows = Array.isArray(result.data) ? result.data : [];
+        let addedCount = 0;
+        for (const entry of pageRows) {
+          const record = entry as Record<string, unknown>;
+          const id = pickString(record, ["id"]);
+          if (id && seenIds.has(id)) continue;
+          if (id) seenIds.add(id);
+          rows.push(entry);
+          addedCount += 1;
+        }
+
+        const hasMoreFlag = Boolean(
+          (result as { pagination?: { has_more?: boolean } }).pagination?.has_more
+        );
+        const likelyMore = hasMoreFlag || pageRows.length >= pageSize;
+        if (!likelyMore) break;
+        if (addedCount === 0) break;
+
+        offset += pageRows.length;
+        page += 1;
+      }
+
+      return rows;
     };
 
     let allInitiativeRows: unknown[] | null = null;
@@ -3379,6 +3419,8 @@ export function createHttpHandler(
     listInitiativeIdsForProject: ({ projectId }) =>
       listInitiativeIdsForProject({ projectId }),
     buildNextUpQueue,
+    rawRequest: (requestMethod, requestPath, body) =>
+      client.rawRequest(requestMethod, requestPath, body),
     sendJson,
     safeErrorMessage,
   });
@@ -3623,6 +3665,8 @@ export function createHttpHandler(
     clearNextUpQueueCache,
     resolveAutoAssignments,
     client,
+    rawRequest: (requestMethod, requestPath, body) =>
+      client.rawRequest(requestMethod, requestPath, body),
     sendJson,
     safeErrorMessage,
   });

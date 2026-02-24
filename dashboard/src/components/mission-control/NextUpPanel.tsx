@@ -166,6 +166,57 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
 
+function formatQueueErrorMessage(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return 'Next Up is still syncing. Keep this panel open and it will repopulate automatically.';
+  }
+  if (
+    normalized.includes('unauthorized') ||
+    normalized.includes('forbidden') ||
+    normalized.includes('api key') ||
+    normalized.includes('auth')
+  ) {
+    return 'Next Up is unavailable until OrgX authentication is reconnected in Settings.';
+  }
+  if (
+    normalized.includes('unknown api endpoint') ||
+    normalized.includes('route is unavailable')
+  ) {
+    return 'This runtime is missing queue routes. Restart and update the plugin build.';
+  }
+  const compact = raw
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => segment.replace(/^[^:]+:\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+  return compact || 'Next Up is temporarily unavailable.';
+}
+
+function formatQueueDegradedMessage(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return 'Signal is delayed right now. Queue data will appear as soon as sync catches up.';
+  }
+  if (normalized.includes('fallback')) {
+    return 'Showing fallback queue data while full signal refreshes.';
+  }
+  return raw.trim();
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -600,12 +651,20 @@ export function NextUpPanel({
       : notice
         ? 'notice'
         : null;
+  const queueErrorMessage = error ? formatQueueErrorMessage(error) : null;
+  const primaryDegradedMessage = degraded.length > 0 ? formatQueueDegradedMessage(degraded[0]) : null;
 
   const showStatusBanner = statusTone !== null;
   const showSignalToast =
     degraded.length > 0 && !signalToastHidden && menuKey === null && !queueSettingsOpen;
   const selectedCount = visibleSelection.length;
   const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
+  const emptyStateMessage =
+    degraded.length > 0
+      ? projectId
+        ? 'Next Up is waiting for a stable workspace signal.'
+        : 'Next Up is waiting for a stable live signal.'
+      : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
@@ -777,7 +836,7 @@ export function NextUpPanel({
                   </div>
                 </div>
               </motion.div>
-            ) : statusTone === 'error' && error ? (
+            ) : statusTone === 'error' && queueErrorMessage ? (
               <motion.div
                 key="error"
                 initial={{ opacity: 0, y: -4 }}
@@ -786,7 +845,7 @@ export function NextUpPanel({
                 transition={{ duration: 0.18 }}
                 className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-caption text-red-100"
               >
-                {error}
+                {queueErrorMessage}
               </motion.div>
             ) : statusTone === 'notice' && notice ? (
               <motion.div
@@ -903,8 +962,11 @@ export function NextUpPanel({
         ) : null}
 
         {!isLoading && visibleItems.length === 0 && !error && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center text-body text-secondary">
-            No queued workstreams right now.
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center">
+            <p className="text-body text-secondary">{emptyStateMessage}</p>
+            {primaryDegradedMessage ? (
+              <p className="mt-1 text-micro text-muted">{primaryDegradedMessage}</p>
+            ) : null}
           </div>
         )}
 
@@ -1168,7 +1230,7 @@ export function NextUpPanel({
           open={showSignalToast}
           tone="warning"
           title="Limited signal"
-          message={degraded[0] ?? null}
+          message={primaryDegradedMessage}
           autoDismissMs={6000}
           onDismiss={() => setSignalToastHidden(true)}
         />
@@ -1355,6 +1417,15 @@ function NextUpReorderRow({
                   {workstreamTitle}
                 </p>
               </div>
+              <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
+                <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
+                  Runner
+                </span>
+                <span className="truncate text-white/68">
+                  {item.runnerAgentName}
+                  {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1379,13 +1450,6 @@ function NextUpReorderRow({
           ) : (
             <span className="text-secondary">No task currently queued.</span>
           )}
-        </div>
-
-        <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
-          <span className="truncate text-white/68">
-            {item.runnerAgentName}
-            {item.runnerSource !== 'assigned' ? ` · ${item.runnerSource}` : ''}
-          </span>
         </div>
 
         {blockReason && (

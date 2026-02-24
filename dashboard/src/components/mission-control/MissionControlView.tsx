@@ -216,6 +216,41 @@ function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'start
   return 'border-strong bg-white/[0.04] text-white/68';
 }
 
+function formatLiveIssueDetail(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return 'Live sync is taking longer than expected. Initiatives and Next Up will repopulate as soon as sync completes.';
+  }
+  if (
+    normalized.includes('unauthorized') ||
+    normalized.includes('forbidden') ||
+    normalized.includes('api key') ||
+    normalized.includes('auth')
+  ) {
+    return 'OrgX authentication needs attention. Reconnect your API key in Settings.';
+  }
+  if (
+    normalized.includes('unknown api endpoint') ||
+    normalized.includes('missing required live routes')
+  ) {
+    return 'This runtime is missing required live routes. Restart and update the plugin build.';
+  }
+  const compact = raw
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => segment.replace(/^[^:]+:\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+  return compact || 'Live data is temporarily unavailable.';
+}
+
 const PAGE_SIZE_OPTIONS = [12, 24, 36, 48, 72] as const;
 
 export function MissionControlView({
@@ -1009,9 +1044,9 @@ function MissionControlInner({
         ? 'Live degraded'
         : 'Connected';
   const hintDetail = error
-    ? error
+    ? formatLiveIssueDetail(error)
     : connection === 'disconnected'
-      ? 'Data may be stale'
+      ? 'Live updates are offline. Data may be stale until reconnect.'
       : `Last snapshot ${formatLocalTimestamp(lastSnapshotAt)}`;
 
   useEffect(() => {
@@ -2185,6 +2220,18 @@ function MissionControlInner({
                           </div>
                         )}
                       </div>
+                    </div>
+                  ) : connection === 'disconnected' || Boolean(error) ? (
+                    <div className="pb-8">
+                      <MissionControlEmpty
+                        mode="degraded"
+                        detail={hintDetail}
+                        onCreateInitiative={onCreateInitiative}
+                        onPlayNextUp={onPlayNextUp}
+                        onStartAutopilot={onStartAutopilot}
+                        onRefresh={onRefresh}
+                        onOpenSettings={onOpenSettings}
+                      />
                     </div>
                   ) : (
                     <div className="pb-8">

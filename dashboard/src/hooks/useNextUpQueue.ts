@@ -99,6 +99,23 @@ function normalizeErrorMessage(
   );
 }
 
+function normalizeTransportFailure(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : '';
+  const normalized = message.trim().toLowerCase();
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return `${fallback}. Request timed out while waiting for queue data.`;
+  }
+  if (normalized.includes('failed to fetch') || normalized.includes('network')) {
+    return `${fallback}. Unable to reach the queue service right now.`;
+  }
+  return message || fallback;
+}
+
 function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueResponse {
   const nowIso = new Date().toISOString();
   const items: NextUpQueueItem[] = [
@@ -288,9 +305,14 @@ export function useNextUpQueue({
       if (projectId && projectId.trim().length > 0) {
         appendWorkspaceScopeParams(params, projectId);
       }
-      const response = await fetch(`/orgx/api/mission-control/next-up?${params.toString()}`, {
-        headers: buildOrgxHeaders({ authToken, embedMode }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`/orgx/api/mission-control/next-up?${params.toString()}`, {
+          headers: buildOrgxHeaders({ authToken, embedMode }),
+        });
+      } catch (err) {
+        throw new Error(normalizeTransportFailure(err, 'Failed to load next up queue'));
+      }
       const body = await readResponseJson<NextUpQueueResponse | { error?: string; message?: string }>(
         response
       );

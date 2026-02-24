@@ -184,6 +184,69 @@ function formatAbsoluteTimestamp(value: string | null | undefined): string {
   }
 }
 
+function compactErrorMessage(value: string, maxLength = 220): string {
+  const segments = value
+    .split('|')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => segment.replace(/^[^:]+:\s*/, '').trim());
+  const unique = Array.from(new Set(segments.length > 0 ? segments : [value.trim()]));
+  const joined = unique.slice(0, 2).join(' ');
+  if (joined.length <= maxLength) return joined;
+  return `${joined.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function formatLiveErrorCopy(raw: string): {
+  title: string;
+  message: string;
+  action: 'settings' | 'refresh';
+} {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('request cancelled') ||
+    normalized.includes('signal is aborted')
+  ) {
+    return {
+      title: 'Live sync delayed',
+      message:
+        'OrgX Live is responding slowly. Initiatives and Next Up may look empty until sync recovers.',
+      action: 'refresh',
+    };
+  }
+  if (
+    normalized.includes('unauthorized') ||
+    normalized.includes('forbidden') ||
+    normalized.includes('api key') ||
+    normalized.includes('auth')
+  ) {
+    return {
+      title: 'OrgX auth required',
+      message:
+        'Reconnect your OrgX API key in Settings to restore live initiatives, activity, and Next Up.',
+      action: 'settings',
+    };
+  }
+  if (
+    normalized.includes('unknown api endpoint') ||
+    normalized.includes('missing required live routes') ||
+    normalized.includes('runtime is missing required live routes')
+  ) {
+    return {
+      title: 'Plugin update required',
+      message:
+        'This runtime is missing required live routes. Restart the plugin and update to the latest build.',
+      action: 'settings',
+    };
+  }
+  return {
+    title: 'Live stream degraded',
+    message: compactErrorMessage(raw),
+    action: 'settings',
+  };
+}
+
 function resolveActivityRunId(item: LiveActivityItem): string | null {
   if (item.runId && item.runId.trim().length > 0) return item.runId.trim();
   if (!item.metadata || typeof item.metadata !== 'object' || Array.isArray(item.metadata)) {
@@ -548,6 +611,22 @@ function DashboardShell({
       `Workspace ${selectedWorkspaceId.slice(0, 8)}`
     );
   }, [selectedWorkspaceId, workspaceOptions]);
+  const workspaceSelectOptions = useMemo<WorkspaceOption[]>(() => {
+    if (!selectedWorkspaceId) return workspaceOptions;
+    if (workspaceOptions.some((option) => option.id === selectedWorkspaceId)) {
+      return workspaceOptions;
+    }
+    return [
+      {
+        id: selectedWorkspaceId,
+        title: selectedWorkspaceLabel,
+        status: null,
+        isDefault: false,
+        createdAt: null,
+      },
+      ...workspaceOptions,
+    ];
+  }, [selectedWorkspaceId, selectedWorkspaceLabel, workspaceOptions]);
   useEffect(() => {
     if (!selectedWorkspaceId) return;
     if (workspaceOptions.length === 0) return;
@@ -1177,18 +1256,20 @@ function DashboardShell({
     () => data.decisions.length > 0 ? Math.max(0, ...data.decisions.map((d) => d.waitingMinutes)) : 0,
     [data.decisions]
   );
+  const liveErrorCopy = useMemo(() => (error ? formatLiveErrorCopy(error) : null), [error]);
 
   const headerNotifications = useMemo(() => {
     const items: HeaderNotification[] = [];
-    if (error) {
+    if (liveErrorCopy) {
+      const useRefresh = liveErrorCopy.action === 'refresh' && typeof refetch === 'function';
       items.push({
         id: `stream-error:${error}`,
         kind: 'error',
         icon: 'notification',
-        title: 'Live stream degraded',
-        message: error,
-        actionLabel: 'Settings',
-        onAction: () => openSettings('orgx'),
+        title: liveErrorCopy.title,
+        message: liveErrorCopy.message,
+        actionLabel: useRefresh ? 'Refresh' : 'Settings',
+        onAction: useRefresh ? () => void refetch() : () => openSettings('orgx'),
       });
     }
     if (data.connection !== 'connected') {
@@ -1199,8 +1280,8 @@ function DashboardShell({
         title: data.connection === 'disconnected' ? 'Connection lost' : 'Reconnecting',
         message:
           data.connection === 'disconnected'
-            ? 'Dashboard is offline. Some data may be stale.'
-            : 'Live data is recovering. Some sections may be delayed.',
+            ? 'Live connection is offline. Initiatives and Next Up may stay stale until reconnect.'
+            : 'Live connection is recovering. Fresh updates will resume automatically.',
         actionLabel: 'Reconnect',
         onAction: handleReconnect,
       });
@@ -1222,7 +1303,9 @@ function DashboardShell({
     data.outbox.pendingTotal,
     data.outbox.replayStatus,
     error,
+    liveErrorCopy,
     handleReconnect,
+    refetch,
     openSettings,
     opsNotice,
   ]);
@@ -2329,7 +2412,7 @@ function DashboardShell({
                     ? 'Meaning: retrying live stream (data may be stale).'
                     : 'Meaning: offline (data is stale).',
                 `Last snapshot: ${formatAbsoluteTimestamp(data.lastSnapshotAt)}`,
-                error ? `Error: ${error}` : null,
+                liveErrorCopy ? `Details: ${liveErrorCopy.message}` : null,
               ]
                 .filter(Boolean)
                 .join('\n')}
@@ -2405,7 +2488,7 @@ function DashboardShell({
                 title={`Workspace scope: ${selectedWorkspaceLabel}`}
               >
                 <option value="__all__">All workspaces</option>
-                {workspaceOptions.map((workspace) => (
+                {workspaceSelectOptions.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.title}
                   </option>
@@ -2619,7 +2702,7 @@ function DashboardShell({
                 title={`Workspace scope: ${selectedWorkspaceLabel}`}
               >
                 <option value="__all__">All workspaces</option>
-                {workspaceOptions.map((workspace) => (
+                {workspaceSelectOptions.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
                     {workspace.title}
                   </option>

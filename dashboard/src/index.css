@@ -273,6 +273,9 @@
   color: rgba(242, 247, 255, 0.86) !important;
   font-family: 'Geist', system-ui, -apple-system, sans-serif !important;
   border-radius: 12px !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  width: max-content !important;
   overflow: hidden !important;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4) !important;
 }
@@ -307,6 +310,11 @@
 .orgx-datepicker .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box,
 .orgx-datepicker .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list {
   background: #0a0d14 !important;
+}
+
+.orgx-datepicker .react-datepicker__month-container,
+.orgx-datepicker .react-datepicker__time-container {
+  float: none !important;
 }
 
 .orgx-datepicker .react-datepicker__time-container {
@@ -370,6 +378,7 @@
   }
 
   .orgx-datepicker {
+    display: block !important;
     width: min(92vw, 336px) !important;
   }
 
