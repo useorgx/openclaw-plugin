@@ -5,6 +5,7 @@ import type {
   MissionControlSliceLevel,
   MissionControlSliceOrderMode,
   MissionControlSlicesResponse,
+  RunnerAgentRef,
 } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
@@ -56,7 +57,50 @@ function normalizeRunnerName(value: unknown): string | null {
   if (!raw) return null;
   const normalized = raw.toLowerCase();
   if (normalized === 'undefined' || normalized === 'null' || normalized === 'main') return null;
+  if (normalized === 'unassigned') return null;
   return raw;
+}
+
+function normalizeRunnerId(value: unknown): string | null {
+  return normalizeRunnerName(value);
+}
+
+function normalizeRunnerAgents(
+  value: unknown,
+  fallbackId: string | null,
+  fallbackName: string | null
+): RunnerAgentRef[] {
+  if (!Array.isArray(value)) {
+    if (fallbackId || fallbackName) {
+      const id = fallbackId ?? fallbackName ?? '';
+      const name = fallbackName ?? fallbackId ?? '';
+      if (id.trim().length > 0 && name.trim().length > 0) {
+        return [{ id, name }];
+      }
+    }
+    return [];
+  }
+  const output: RunnerAgentRef[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const id = normalizeRunnerId(record.id) ?? normalizeRunnerName(record.name);
+    const name = normalizeRunnerName(record.name) ?? id;
+    if (!id || !name) continue;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push({ id, name });
+  }
+  if (output.length === 0 && (fallbackId || fallbackName)) {
+    const id = fallbackId ?? fallbackName ?? '';
+    const name = fallbackName ?? fallbackId ?? '';
+    if (id.trim().length > 0 && name.trim().length > 0) {
+      return [{ id, name }];
+    }
+  }
+  return output;
 }
 
 function normalizeLevel(
@@ -112,6 +156,16 @@ function normalizeSliceItem(
   const factorsRecord = asRecord(record.factors);
   const iwmtRecord = asRecord(record.iwmt);
   const lineageRecord = asRecord(record.lineage);
+  const runnerAgentIdRaw = normalizeRunnerId(record.runnerAgentId ?? record.agentId);
+  const runnerAgentNameRaw =
+    normalizeRunnerName(record.runnerAgentName ?? record.agentName) ??
+    normalizeRunnerName(record.runner);
+  const runnerAgents = normalizeRunnerAgents(
+    record.runnerAgents,
+    runnerAgentIdRaw,
+    runnerAgentNameRaw ?? runnerAgentIdRaw
+  );
+  const runnerPrimary = runnerAgents[0] ?? null;
 
   return {
     sliceId,
@@ -210,13 +264,12 @@ function normalizeSliceItem(
     sliceTaskIds: toStringArray(record.sliceTaskIds),
     sliceTaskCount: asNumber(record.sliceTaskCount),
     sliceMilestoneId: asString(record.sliceMilestoneId),
-    runnerAgentId: normalizeRunnerName(record.runnerAgentId ?? record.agentId),
-    runnerAgentName:
-      normalizeRunnerName(record.runnerAgentName ?? record.agentName) ??
-      normalizeRunnerName(record.runner),
+    runnerAgentId: runnerPrimary?.id ?? runnerAgentIdRaw,
+    runnerAgentName: runnerPrimary?.name ?? runnerAgentNameRaw,
+    runnerAgents,
     runnerSource:
       normalizeRunnerSource(record.runnerSource) ??
-      (normalizeRunnerName(record.runnerAgentId ?? record.agentId) ? 'inferred' : 'fallback'),
+      ((runnerPrimary?.id ?? runnerAgentIdRaw) ? 'inferred' : 'fallback'),
     updatedAt: asString(record.updatedAt),
   };
 }

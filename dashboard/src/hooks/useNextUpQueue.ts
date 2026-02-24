@@ -398,6 +398,14 @@ function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | n
     item.level === 'workstream' || item.level === 'milestone' || item.level === 'task'
       ? item.level
       : null;
+  const fallbackRunnerId = normalizeRunnerId(item.runnerAgentId ?? null);
+  const fallbackRunnerName = normalizeRunnerName(item.runnerAgentName ?? null, fallbackRunnerId);
+  const runnerAgents = normalizeRunnerAgents(
+    item.runnerAgents ?? null,
+    fallbackRunnerId,
+    fallbackRunnerName
+  );
+  const runnerPrimary = runnerAgents[0] ?? null;
 
   return {
     initiativeId,
@@ -415,10 +423,10 @@ function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | n
     nextTaskTitle: item.taskTitle?.trim() || null,
     nextTaskPriority: typeof item.priorityNum === 'number' ? item.priorityNum : null,
     nextTaskDueAt: item.dueAt,
-    runnerAgentId: 'orgx',
-    runnerAgentName: 'OrgX',
-    runnerAgents: [{ id: 'orgx', name: 'OrgX' }],
-    runnerSource: 'fallback',
+    runnerAgentId: runnerPrimary?.id ?? fallbackRunnerId,
+    runnerAgentName: runnerPrimary?.name ?? fallbackRunnerName,
+    runnerAgents,
+    runnerSource: item.runnerSource ?? (runnerPrimary ? 'inferred' : 'fallback'),
     queueState: normalizeSliceQueueState(item),
     blockReason: item.blockReason ?? null,
     queueOrigin: 'system',
