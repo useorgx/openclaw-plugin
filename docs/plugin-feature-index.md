@@ -82,6 +82,13 @@ Scope: current repository state in `src/` and `dashboard/src/`
   - `POST /orgx/api/live/decisions/approve`
   - `POST /orgx/api/live/decisions/:id/approve`
   - `GET /orgx/api/live/stream` (SSE bridge)
+- Mission Control read endpoints:
+  - `GET /orgx/api/mission-control/auto-continue/status`
+  - `GET /orgx/api/mission-control/graph`
+  - `GET /orgx/api/mission-control/next-up`
+  - `GET /orgx/api/mission-control/slices`
+  - `GET /orgx/api/mission-control/sentinels`
+  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `project_id` (legacy compatibility)
 - Run control endpoints:
   - `GET /orgx/api/runs/:runId/checkpoints`
   - `POST /orgx/api/runs/:runId/checkpoints`

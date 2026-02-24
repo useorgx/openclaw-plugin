@@ -324,6 +324,90 @@ function createProjectFallbackHarness() {
   return { client };
 }
 
+function createPagedWorkspaceHarness() {
+  const workspaceAInitiatives = Array.from({ length: 130 }, (_, index) => ({
+    id: `init-a-${String(index + 1).padStart(3, "0")}`,
+    title: `Workspace A Initiative ${index + 1}`,
+    status: "active",
+    priority: "high",
+    command_center_id: "workspace-a",
+  }));
+  const workspaceBInitiatives = Array.from({ length: 12 }, (_, index) => ({
+    id: `init-b-${String(index + 1).padStart(3, "0")}`,
+    title: `Workspace B Initiative ${index + 1}`,
+    status: "active",
+    priority: "high",
+    command_center_id: "workspace-b",
+  }));
+  const initiatives = [...workspaceAInitiatives, ...workspaceBInitiatives];
+
+  const client = {
+    getBaseUrl: () => "https://www.useorgx.com",
+    listEntities: async (type, filters = {}) => {
+      if (type === "command_center") {
+        return {
+          data: [
+            { id: "workspace-a", title: "Workspace A", status: "active" },
+            { id: "workspace-b", title: "Workspace B", status: "active" },
+          ],
+          pagination: { total: 2, has_more: false },
+        };
+      }
+      if (type === "initiative") {
+        const limit = Number.isFinite(Number(filters.limit))
+          ? Math.max(1, Math.floor(Number(filters.limit)))
+          : 100;
+        const offset = Number.isFinite(Number(filters.offset))
+          ? Math.max(0, Math.floor(Number(filters.offset)))
+          : 0;
+        const page = initiatives.slice(offset, offset + limit);
+        return {
+          data: page,
+          pagination: {
+            total: initiatives.length,
+            has_more: offset + page.length < initiatives.length,
+          },
+        };
+      }
+      return { data: [], pagination: { total: 0, has_more: false } };
+    },
+    getLiveInitiatives: async () => ({ initiatives, total: initiatives.length }),
+    getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+    getLiveActivity: async () => ({ activities: [] }),
+    getHandoffs: async () => ({ handoffs: [] }),
+    getLiveDecisions: async () => ({ decisions: [], total: 0 }),
+    getLiveAgents: async () => ({ agents: [], summary: {} }),
+    emitActivity: async () => ({ ok: true, run_id: "run_1", event_id: null, reused_run: false }),
+    bulkDecideDecisions: async () => [],
+    rawRequest: async () => {
+      throw new Error("not implemented");
+    },
+    applyChangeset: async () => ({
+      ok: true,
+      changeset_id: "cs_1",
+      replayed: false,
+      run_id: "run_1",
+      applied_count: 0,
+      results: [],
+      event_id: null,
+    }),
+    createEntity: async () => ({ ok: true, id: "entity_1" }),
+    updateEntity: async () => ({ ok: true }),
+    checkSpawnGuard: async () => ({
+      allowed: true,
+      modelTier: "sonnet",
+      checks: {
+        rateLimit: { passed: true, current: 1, max: 10 },
+        qualityGate: { passed: true, score: 5, threshold: 3 },
+        taskAssigned: { passed: true, taskId: "task-a-1", status: "todo" },
+      },
+      blockedReason: null,
+    }),
+  };
+
+  return { client };
+}
+
 async function createHandler(harnessFactory = createScopedHarness) {
   const harness = harnessFactory();
   const config = baseConfig();
@@ -388,7 +472,38 @@ test("workspace scope filters live initiatives and next-up queue even when upstr
   );
 });
 
-test("workspace scope does not fall back to project_id initiatives when command center exists", async () => {
+test("workspace scope filters mission-control slices and accepts level alias", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-slices-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const handler = await createHandler();
+
+      const slicesRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/slices?project_id=workspace-a&level=initiative",
+        headers: {},
+      });
+      assert.equal(slicesRes.status, 200);
+      const slicesBody = JSON.parse(slicesRes.body);
+      assert.equal(slicesBody.ok, true);
+      assert.equal(slicesBody.level, "initiative");
+      assert.equal(slicesBody.scope, "initiative");
+      assert.ok(Array.isArray(slicesBody.items));
+      assert.ok(slicesBody.items.length > 0);
+      assert.ok(
+        slicesBody.items.every((item) => item.initiativeId === "init-a"),
+        "slices should only include workspace-a initiatives"
+      );
+    }
+  );
+});
+
+test("workspace scope falls back to project_id initiatives when command center links are missing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-scope-project-fallback-"));
   await withEnv(
     {
@@ -406,7 +521,10 @@ test("workspace scope does not fall back to project_id initiatives when command 
       });
       assert.equal(initiativesRes.status, 200);
       const initiativesBody = JSON.parse(initiativesRes.body);
-      assert.deepEqual(initiativesBody.initiatives ?? [], []);
+      assert.deepEqual(
+        (initiativesBody.initiatives ?? []).map((item) => item.id),
+        ["init-project-only"]
+      );
 
       const nextUpRes = await call(handler, {
         method: "GET",
@@ -417,7 +535,42 @@ test("workspace scope does not fall back to project_id initiatives when command 
       const nextUpBody = JSON.parse(nextUpRes.body);
       assert.equal(nextUpBody.ok, true);
       assert.equal(Array.isArray(nextUpBody.items), true);
-      assert.equal(nextUpBody.items.length, 0);
+      assert.ok(nextUpBody.items.length > 0);
+      assert.ok(
+        nextUpBody.items.every((item) => item.initiativeId === "init-project-only"),
+        "next-up should stay scoped to workspace-a fallback initiatives"
+      );
+    }
+  );
+});
+
+test("workspace initiative discovery paginates beyond first 100 initiatives", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-pagination-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+      ORGX_PROJECT_SCOPE_MAX_INITIATIVE_PAGES: "6",
+    },
+    async () => {
+      const handler = await createHandler(createPagedWorkspaceHarness);
+
+      const initiativesRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/initiatives?project_id=workspace-a&limit=200",
+        headers: {},
+      });
+      assert.equal(initiativesRes.status, 200);
+      const initiativesBody = JSON.parse(initiativesRes.body);
+      assert.equal(initiativesBody.total, 130);
+      assert.equal(initiativesBody.initiatives.length, 130);
+      assert.ok(
+        initiativesBody.initiatives.every(
+          (item) => item.command_center_id === "workspace-a"
+        ),
+        "all returned initiatives should belong to workspace-a"
+      );
     }
   );
 });

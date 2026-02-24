@@ -110,6 +110,11 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   clearNextUpQueueCache: (initiativeId?: string | null) => void;
   resolveAutoAssignments: (input: any) => Promise<unknown>;
   client: any;
+  rawRequest?: (
+    requestMethod: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+    requestPath: string,
+    body?: unknown
+  ) => Promise<unknown>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 };
@@ -240,6 +245,44 @@ function dedupeQueueOrder(
   return next;
 }
 
+function normalizeSliceLevel(
+  value: unknown
+): "initiative" | "workstream" | "milestone" | "task" {
+  if (typeof value !== "string") return "workstream";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "initiative") return "initiative";
+  if (normalized === "milestone") return "milestone";
+  if (normalized === "task") return "task";
+  return "workstream";
+}
+
+function normalizeSliceOrderMode(value: unknown): "manual" | "algorithmic" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "manual" || normalized === "algorithmic") return normalized;
+  return null;
+}
+
+function parseSliceOrderForMutation(input: unknown): string[] {
+  const values = Array.isArray(input) ? input : [];
+  const output: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of values) {
+    let raw = "";
+    if (typeof entry === "string") raw = entry;
+    else if (entry && typeof entry === "object") {
+      const record = entry as Record<string, unknown>;
+      if (typeof record.sliceId === "string") raw = record.sliceId;
+      else if (typeof record.id === "string") raw = record.id;
+    }
+    const normalized = raw.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
 function buildPlacedOrder(input: {
   order: Array<{ initiativeId: string; workstreamId: string }>;
   targets: Set<string>;
@@ -303,6 +346,32 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
     extra: Record<string, unknown> = {}
   ) => {
     sendRouteError(res, 500, location, deps.safeErrorMessage(err), extra);
+  };
+
+  const resolveWorkspaceScope = (
+    payload: Record<string, unknown>,
+    query: URLSearchParams
+  ): string | null => {
+    const value =
+      deps.pickString(payload, [
+        "workspace_id",
+        "workspaceId",
+        "command_center_id",
+        "commandCenterId",
+        "project_id",
+        "projectId",
+        "center",
+      ]) ??
+      query.get("workspace_id") ??
+      query.get("workspaceId") ??
+      query.get("command_center_id") ??
+      query.get("commandCenterId") ??
+      query.get("project_id") ??
+      query.get("projectId") ??
+      query.get("center");
+    return typeof value === "string" && value.trim().length > 0
+      ? value.trim()
+      : null;
   };
 
   router.add(
@@ -842,6 +911,152 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
       }
     },
     "Mission-control next-up reorder"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/slices/reorder",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const level = normalizeSliceLevel(
+          deps.pickString(payload, ["level"]) ?? query.get("level")
+        );
+        const initiativeId =
+          (
+            deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            ""
+          ).trim() || null;
+        const workspaceId = resolveWorkspaceScope(payload, query);
+        const order = parseSliceOrderForMutation((payload as any)?.order);
+        const canonicalOrder = order.map((sliceId) => ({ sliceId }));
+
+        const rawRequest =
+          deps.rawRequest ??
+          (typeof deps.client?.rawRequest === "function"
+            ? (deps.client.rawRequest.bind(deps.client) as RegisterMissionControlActionsRoutesDeps<TReq, TRes>["rawRequest"])
+            : null);
+        if (!rawRequest) {
+          sendRouteError(
+            res,
+            503,
+            "mission-control.slices.reorder.unavailable",
+            "Canonical mission-control slices API is unavailable"
+          );
+          return;
+        }
+
+        const response = await rawRequest("POST", "/api/mission-control/slices/reorder", {
+          ...(workspaceId
+            ? {
+                workspace_id: workspaceId,
+                command_center_id: workspaceId,
+                project_id: workspaceId,
+              }
+            : {}),
+          level,
+          ...(initiativeId ? { initiative_id: initiativeId } : {}),
+          order: canonicalOrder,
+        });
+        deps.sendJson(res, 200, {
+          ...(response && typeof response === "object" ? (response as Record<string, unknown>) : { ok: true }),
+          source: "canonical",
+        });
+      } catch (err: unknown) {
+        sendRouteError(
+          res,
+          503,
+          "mission-control.slices.reorder.canonical",
+          "Canonical mission-control slices API unavailable for reorder",
+          {
+            degraded: [`canonical unavailable (${deps.safeErrorMessage(err)})`],
+            canonical_only: true,
+          }
+        );
+      }
+    },
+    "Mission-control slices reorder (canonical)"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/slices/order-mode",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const level = normalizeSliceLevel(
+          deps.pickString(payload, ["level"]) ?? query.get("level")
+        );
+        const initiativeId =
+          (
+            deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            ""
+          ).trim() || null;
+        const workspaceId = resolveWorkspaceScope(payload, query);
+        const orderMode = normalizeSliceOrderMode(
+          deps.pickString(payload, ["orderMode", "order_mode"]) ??
+            query.get("orderMode") ??
+            query.get("order_mode")
+        );
+        if (!orderMode) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.slices.order-mode.validation",
+            "order_mode must be either 'manual' or 'algorithmic'"
+          );
+          return;
+        }
+
+        const rawRequest =
+          deps.rawRequest ??
+          (typeof deps.client?.rawRequest === "function"
+            ? (deps.client.rawRequest.bind(deps.client) as RegisterMissionControlActionsRoutesDeps<TReq, TRes>["rawRequest"])
+            : null);
+        if (!rawRequest) {
+          sendRouteError(
+            res,
+            503,
+            "mission-control.slices.order-mode.unavailable",
+            "Canonical mission-control slices API is unavailable"
+          );
+          return;
+        }
+
+        const response = await rawRequest("POST", "/api/mission-control/slices/order-mode", {
+          ...(workspaceId
+            ? {
+                workspace_id: workspaceId,
+                command_center_id: workspaceId,
+                project_id: workspaceId,
+              }
+            : {}),
+          level,
+          ...(initiativeId ? { initiative_id: initiativeId } : {}),
+          order_mode: orderMode,
+        });
+        deps.sendJson(res, 200, {
+          ...(response && typeof response === "object" ? (response as Record<string, unknown>) : { ok: true }),
+          source: "canonical",
+        });
+      } catch (err: unknown) {
+        sendRouteError(
+          res,
+          503,
+          "mission-control.slices.order-mode.canonical",
+          "Canonical mission-control slices API unavailable for mode changes",
+          {
+            degraded: [`canonical unavailable (${deps.safeErrorMessage(err)})`],
+            canonical_only: true,
+          }
+        );
+      }
+    },
+    "Mission-control slices order mode (canonical)"
   );
 
   router.add(

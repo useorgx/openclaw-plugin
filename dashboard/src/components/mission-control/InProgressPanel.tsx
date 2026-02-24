@@ -468,15 +468,15 @@ export const InProgressPanel = memo(function InProgressPanel({
                         <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={row.title}>
                           {row.title}
                         </p>
-                        <span className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-                          {row.scope && row.scope !== 'task' && (
-                            <Pill tone={row.scope === 'milestone' ? 'cyan' : 'lime'}>
-                              {row.scope}
-                            </Pill>
-                          )}
-                          <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
-                            {statusLabel(status)}
-                          </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {row.scope && row.scope !== 'task' && (
+                          <Pill tone={row.scope === 'milestone' ? 'cyan' : 'lime'}>
+                            {row.scope}
+                          </Pill>
+                        )}
+                        <span className="inline-flex rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                          {statusLabel(status)}
                         </span>
                       </div>
                       {subtitle ? (

@@ -3,23 +3,27 @@ import { colors } from '@/lib/tokens';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 
 interface MissionControlEmptyProps {
-  mode?: 'empty' | 'filtered';
+  mode?: 'empty' | 'filtered' | 'degraded';
   hasActiveFilters?: boolean;
+  detail?: string | null;
   onClearFilters?: () => void;
   onCreateInitiative?: () => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
   onRefresh?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function MissionControlEmpty({
   mode = 'empty',
   hasActiveFilters = false,
+  detail = null,
   onClearFilters,
   onCreateInitiative,
   onPlayNextUp,
   onStartAutopilot,
   onRefresh,
+  onOpenSettings,
 }: MissionControlEmptyProps) {
   const [pending, setPending] = useState<'play' | 'autopilot' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,13 +44,20 @@ export function MissionControlEmpty({
     []
   );
 
-  const headline = mode === 'filtered' ? 'No initiatives match this view' : 'No initiatives yet';
+  const headline =
+    mode === 'filtered'
+      ? 'No initiatives match this view'
+      : mode === 'degraded'
+        ? 'Initiatives are temporarily unavailable'
+        : 'No initiatives yet';
   const description =
     mode === 'filtered'
       ? hasActiveFilters
         ? 'Adjust filters or clear them to return to the full hierarchy.'
         : 'Try a broader search or create a new initiative.'
-      : 'Create an initiative to unlock hierarchy, Next Up routing, and slice-level tracking.';
+      : mode === 'degraded'
+        ? 'Live sync is reconnecting, so initiative and Next Up data may be stale.'
+        : 'Create an initiative to unlock hierarchy, Next Up routing, and slice-level tracking.';
 
   return (
     <div className="flex-1 flex items-center justify-center p-6 sm:p-10">
@@ -90,6 +101,15 @@ export function MissionControlEmpty({
                 Clear filters
               </button>
             )}
+            {mode === 'degraded' && onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="rounded-full border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
+              >
+                Open settings
+              </button>
+            )}
             {onCreateInitiative && (
               <button
                 type="button"
@@ -130,6 +150,9 @@ export function MissionControlEmpty({
             )}
           </div>
 
+          {mode === 'degraded' && detail && (
+            <p className="text-caption text-secondary">{detail}</p>
+          )}
           {error && <p className="text-caption text-amber-200/80">{error}</p>}
         </div>
       </PremiumCard>
