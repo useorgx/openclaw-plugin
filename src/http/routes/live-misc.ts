@@ -1,5 +1,9 @@
 import type { Router } from "../router.js";
 import type { Entity } from "../../types.js";
+import {
+  resolveWorkspaceScope,
+  workspaceScopeFromHeaders,
+} from "../helpers/workspace-scope.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -154,16 +158,27 @@ export function registerLiveMiscRoutes<TReq, TRes>(
     "Reject unsupported methods for live/activity/headline"
   );
 
-  async function renderLiveAgents(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderLiveAgents(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (scope.error) {
+      deps.sendJson(res, 400, { error: scope.error });
+      return;
+    }
+    const workspaceId = scope.workspaceId;
     try {
       const initiative = query.get("initiative");
-      const projectId = query.get("project_id") ?? query.get("projectId");
-      const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+      const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
       const includeIdleRaw = query.get("include_idle");
       const includeIdle = includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
       const data = (await deps.getLiveAgents({
         initiative,
-        projectId,
+        projectId: workspaceId,
         includeIdle,
       })) as Record<string, unknown>;
       const agents = Array.isArray(data.agents) ? data.agents : [];
@@ -195,8 +210,7 @@ export function registerLiveMiscRoutes<TReq, TRes>(
     } catch (err: unknown) {
       try {
         const initiative = query.get("initiative");
-        const projectId = query.get("project_id") ?? query.get("projectId");
-        const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+        const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
         const includeIdleRaw = query.get("include_idle");
         const includeIdle = includeIdleRaw === null ? undefined : includeIdleRaw !== "false";
 
@@ -235,32 +249,75 @@ export function registerLiveMiscRoutes<TReq, TRes>(
   router.add(
     "GET",
     "live/agents",
-    async ({ query, res }) => renderLiveAgents(query, res),
+    async ({ query, res, req }) =>
+      renderLiveAgents(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live agents"
   );
   router.add(
     "HEAD",
     "live/agents",
-    async ({ query, res }) => renderLiveAgents(query, res),
+    async ({ query, res, req }) =>
+      renderLiveAgents(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live agents (HEAD)"
   );
 
-  async function renderLiveInitiatives(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderLiveInitiatives(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (scope.error) {
+      deps.sendJson(res, 400, { error: scope.error });
+      return;
+    }
+    const workspaceId = scope.workspaceId;
     try {
       const id = query.get("id");
-      const projectId = query.get("project_id") ?? query.get("projectId");
-      const projectInitiatives = await resolveProjectInitiativeSet(projectId);
-      const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
-      const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
+      const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
+      const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
+      const offsetRaw = query.get("offset") ? Number(query.get("offset")) : undefined;
+      const requestedLimit = Number.isFinite(limitRaw)
+        ? Math.max(1, Math.floor(Number(limitRaw)))
+        : null;
+      const requestedOffset = Number.isFinite(offsetRaw)
+        ? Math.max(0, Math.floor(Number(offsetRaw)))
+        : 0;
       const data = await deps.getLiveInitiatives({
         id,
-        projectId,
-        limit: Number.isFinite(limit) ? limit : undefined,
-        offset: Number.isFinite(offset) ? offset : undefined,
+        projectId: workspaceId,
+        limit: requestedLimit ?? undefined,
+        offset: requestedOffset,
       });
       const payload = data as Record<string, unknown>;
       const rawInitiatives = Array.isArray(payload.initiatives) ? payload.initiatives : [];
-      const initiatives = Array.isArray(payload.initiatives)
+      const applyLocalOverrides = (rows: unknown[]): unknown[] =>
+        rows.map((entry) => {
+          if (!entry || typeof entry !== "object") return entry;
+          const row = entry as Record<string, unknown>;
+          const initiativeId = deps.pickString(row, ["id"]);
+          if (!initiativeId) return entry;
+          const override = deps.localInitiativeStatusOverrides.get(initiativeId) ?? null;
+          if (!override) return entry;
+          return {
+            ...row,
+            status: override.status,
+            updatedAt:
+              deps.pickString(row, ["updatedAt", "updated_at"]) ?? override.updatedAt,
+          };
+        });
+
+      let initiatives = Array.isArray(payload.initiatives)
         ? payload.initiatives
             .filter((entry) => {
               const row = asRecord(entry);
@@ -271,35 +328,73 @@ export function registerLiveMiscRoutes<TReq, TRes>(
               if (projectInitiatives && !projectInitiatives.has(initiativeId)) return false;
               return true;
             })
-            .map((entry) => {
-            if (!entry || typeof entry !== "object") return entry;
-            const row = entry as Record<string, unknown>;
-            const initiativeId = deps.pickString(row, ["id"]);
-            if (!initiativeId) return entry;
-            const override = deps.localInitiativeStatusOverrides.get(initiativeId) ?? null;
-            if (!override) return entry;
-            return {
-              ...row,
-              status: override.status,
-              updatedAt:
-                deps.pickString(row, ["updatedAt", "updated_at"]) ?? override.updatedAt,
-            };
-          })
+            .map((entry) => entry)
         : payload.initiatives;
-      const requestedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(Number(limit))) : null;
-      const requestedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(Number(offset))) : 0;
+      initiatives = Array.isArray(initiatives) ? applyLocalOverrides(initiatives) : initiatives;
+
+      let fallbackHydratedFromScope = false;
+      if (
+        Array.isArray(initiatives) &&
+        initiatives.length === 0 &&
+        !id &&
+        projectInitiatives &&
+        projectInitiatives.size > 0
+      ) {
+        const scopedIds = Array.from(projectInitiatives.values()).slice(
+          requestedOffset,
+          requestedOffset + (requestedLimit ?? 50)
+        );
+        const hydrated: unknown[] = [];
+        for (const initiativeId of scopedIds) {
+          try {
+            const single = await deps.getLiveInitiatives({
+              id: initiativeId,
+              projectId: null,
+              limit: 1,
+              offset: 0,
+            });
+            const singleRows = Array.isArray(single?.initiatives)
+              ? single.initiatives
+              : [];
+            const match = singleRows.find((entry) => {
+              const row = asRecord(entry);
+              const rowId = deps.pickString(row ?? {}, ["id"]);
+              return rowId === initiativeId;
+            });
+            if (match) hydrated.push(match);
+          } catch {
+            // Ignore per-initiative hydration failures and continue with remaining IDs.
+          }
+        }
+        if (hydrated.length > 0) {
+          initiatives = applyLocalOverrides(hydrated);
+          fallbackHydratedFromScope = true;
+        }
+      }
+
       const remotePagination = asRecord(payload.pagination);
-      const remoteHasMore = typeof remotePagination?.has_more === "boolean"
+      const remoteHasMoreComputed = typeof remotePagination?.has_more === "boolean"
         ? (remotePagination.has_more as boolean)
         : typeof payload.total === "number"
           ? requestedOffset + rawInitiatives.length < (payload.total as number)
           : requestedLimit !== null
             ? rawInitiatives.length >= requestedLimit
             : false;
+      const scopedTotal =
+        fallbackHydratedFromScope && projectInitiatives
+          ? projectInitiatives.size
+          : Array.isArray(initiatives)
+            ? initiatives.length
+            : 0;
+      const scopedHasMore =
+        fallbackHydratedFromScope && projectInitiatives
+          ? requestedOffset + (Array.isArray(initiatives) ? initiatives.length : 0) <
+            projectInitiatives.size
+          : remoteHasMoreComputed;
       deps.sendJson(res, 200, {
         ...payload,
         initiatives,
-        total: Array.isArray(initiatives) ? initiatives.length : 0,
+        total: scopedTotal,
         pagination: {
           ...(remotePagination ?? {}),
           limit:
@@ -310,14 +405,20 @@ export function registerLiveMiscRoutes<TReq, TRes>(
             typeof remotePagination?.offset === "number"
               ? remotePagination.offset
               : requestedOffset,
-          has_more: remoteHasMore,
+          has_more: scopedHasMore,
         },
+        ...(fallbackHydratedFromScope
+          ? {
+              scopedFallback: true,
+              scopedFallbackReason:
+                "upstream live initiatives page did not contain requested workspace rows",
+            }
+          : {}),
       });
     } catch (err: unknown) {
       try {
         const id = query.get("id");
-        const projectId = query.get("project_id") ?? query.get("projectId");
-        const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+        const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
         const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
         const offsetRaw = query.get("offset") ? Number(query.get("offset")) : undefined;
         const limit = Number.isFinite(limitRaw) ? Math.max(1, Number(limitRaw)) : 100;
@@ -401,25 +502,46 @@ export function registerLiveMiscRoutes<TReq, TRes>(
   router.add(
     "GET",
     "live/initiatives",
-    async ({ query, res }) => renderLiveInitiatives(query, res),
+    async ({ query, res, req }) =>
+      renderLiveInitiatives(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live initiatives"
   );
   router.add(
     "HEAD",
     "live/initiatives",
-    async ({ query, res }) => renderLiveInitiatives(query, res),
+    async ({ query, res, req }) =>
+      renderLiveInitiatives(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live initiatives (HEAD)"
   );
 
-  async function renderLiveDecisions(query: URLSearchParams, res: TRes): Promise<void> {
+  async function renderLiveDecisions(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    const scope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (scope.error) {
+      deps.sendJson(res, 400, { error: scope.error });
+      return;
+    }
+    const workspaceId = scope.workspaceId;
     try {
       const status = query.get("status") ?? "pending";
-      const projectId = query.get("project_id") ?? query.get("projectId");
-      const projectInitiatives = await resolveProjectInitiativeSet(projectId);
+      const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
       const limit = query.get("limit") ? Number(query.get("limit")) : 100;
       const data = await deps.getLiveDecisions({
         status,
-        projectId,
+        projectId: workspaceId,
         limit: Number.isFinite(limit) ? limit : 100,
       });
       const decisions = data.decisions
@@ -448,13 +570,23 @@ export function registerLiveMiscRoutes<TReq, TRes>(
   router.add(
     "GET",
     "live/decisions",
-    async ({ query, res }) => renderLiveDecisions(query, res),
+    async ({ query, res, req }) =>
+      renderLiveDecisions(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live decisions"
   );
   router.add(
     "HEAD",
     "live/decisions",
-    async ({ query, res }) => renderLiveDecisions(query, res),
+    async ({ query, res, req }) =>
+      renderLiveDecisions(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get live decisions (HEAD)"
   );
 

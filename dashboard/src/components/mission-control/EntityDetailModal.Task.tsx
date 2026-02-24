@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { colors } from '@/lib/tokens';
+import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeTask } from '@/types';
 import {
   getTaskStatusClass,
@@ -32,6 +33,8 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const [draftStatus, setDraftStatus] = useState(task.status);
 
   const status = task.status.toLowerCase();
+  const formatNoticeError = (raw: string | undefined, fallback: string) =>
+    raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
   const isMutating =
     mutations.entityAction.isPending ||
@@ -44,7 +47,9 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
       { type: 'task', id: task.id, action },
       {
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Task action failed.');
+          setNotice(
+            formatNoticeError(error instanceof Error ? error.message : '', 'Task action failed.')
+          );
         },
       },
     );
@@ -74,7 +79,9 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           setNotice('Task updated.');
         },
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Failed to update task.');
+          setNotice(
+            formatNoticeError(error instanceof Error ? error.message : '', 'Failed to update task.')
+          );
         },
       },
     );
@@ -87,7 +94,9 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
       {
         onSuccess: () => closeModal(),
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Failed to delete task.');
+          setNotice(
+            formatNoticeError(error instanceof Error ? error.message : '', 'Failed to delete task.')
+          );
         },
       },
     );

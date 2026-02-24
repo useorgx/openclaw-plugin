@@ -140,20 +140,19 @@ function buildAssistantReply(input: {
   initiativeTitle: string | null;
   watcherCount: number;
 }): string {
-  const compactPrompt = input.prompt.replace(/\s+/g, " ").trim();
-  const clippedPrompt =
-    compactPrompt.length > 180 ? `${compactPrompt.slice(0, 177).trim()}...` : compactPrompt;
-  const scopeSentence = input.initiativeTitle
-    ? `Scoped to ${input.initiativeTitle}.`
-    : "Currently unscoped.";
-  const assigneeSentence = input.assigneeName
-    ? `Primary assignee: ${input.assigneeName}.`
-    : "Set a primary assignee to enable launch.";
-  const watcherSentence =
-    input.watcherCount > 0
-      ? `${input.watcherCount} watcher${input.watcherCount === 1 ? "" : "s"} will receive context.`
-      : "No watchers added.";
-  return `Captured: ${clippedPrompt}. ${scopeSentence} ${assigneeSentence} ${watcherSentence} Use Launch when you want execution to start.`;
+  const hasAgent = Boolean(input.assigneeName);
+  const hasScope = Boolean(input.initiativeTitle);
+
+  if (hasAgent && hasScope) {
+    return `Got it \u2014 ${input.assigneeName} is on it. Scoped to ${input.initiativeTitle}.`;
+  }
+  if (hasAgent && !hasScope) {
+    return `Got it \u2014 ${input.assigneeName} is assigned. Scope to an initiative when ready to launch.`;
+  }
+  if (!hasAgent && hasScope) {
+    return `Saved to ${input.initiativeTitle}. Pick an agent with @ to get started.`;
+  }
+  return "Message saved. Pick an agent with @ and scope with # to get started.";
 }
 
 function sendThreadList(

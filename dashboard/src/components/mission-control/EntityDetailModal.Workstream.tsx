@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
+import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeWorkstream } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
@@ -88,6 +89,8 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
     mutations.updateEntity.isPending ||
     mutations.deleteEntity.isPending;
   const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
+  const formatNoticeError = (raw: string | undefined, fallback: string) =>
+    raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
   const handleSaveEdits = () => {
     const name = draftName.trim();
@@ -111,7 +114,12 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           setNotice('Workstream updated.');
         },
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Failed to update workstream.');
+          setNotice(
+            formatNoticeError(
+              error instanceof Error ? error.message : '',
+              'Failed to update workstream.'
+            )
+          );
         },
       }
     );
@@ -131,7 +139,9 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
       });
       setNotice(`Queued workstream to ${placement === 'top' ? 'top' : 'end'}.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Failed to queue workstream.');
+      setNotice(
+        formatNoticeError(error instanceof Error ? error.message : '', 'Failed to queue workstream.')
+      );
     }
   };
 
@@ -431,7 +441,10 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                       onSuccess: () => closeModal(),
                       onError: (error) =>
                         setNotice(
-                          error instanceof Error ? error.message : 'Failed to delete workstream.'
+                          formatNoticeError(
+                            error instanceof Error ? error.message : '',
+                            'Failed to delete workstream.'
+                          )
                         ),
                     }
                   )
@@ -475,7 +488,12 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                       setAddingTask(false);
                     },
                     onError: (error) => {
-                      setNotice(error instanceof Error ? error.message : 'Failed to create task.');
+                      setNotice(
+                        formatNoticeError(
+                          error instanceof Error ? error.message : '',
+                          'Failed to create task.'
+                        )
+                      );
                     },
                   }
                 );

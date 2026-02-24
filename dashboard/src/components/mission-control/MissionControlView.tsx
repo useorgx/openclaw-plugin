@@ -17,6 +17,7 @@ import { useInitiativeSearch } from '@/hooks/useInitiativeSearch';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { captureTelemetry } from '@/lib/telemetry';
+import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { MissionControlProvider, useMissionControl } from './MissionControlContext';
@@ -249,7 +250,13 @@ function formatLiveIssueDetail(raw: string): string {
     .filter(Boolean)
     .slice(0, 2)
     .join(' ');
-  return compact || 'Live data is temporarily unavailable.';
+  return humanizeWarning(compact || raw) || 'Live data is temporarily unavailable.';
+}
+
+function formatMissionControlError(raw: string | undefined, fallback: string): string {
+  if (!raw || raw.trim().length === 0) return fallback;
+  const message = humanizeWarning(raw.trim());
+  return message || fallback;
 }
 
 const PAGE_SIZE_OPTIONS = [12, 24, 36, 48, 72] as const;
@@ -896,7 +903,10 @@ function MissionControlInner({
       } catch (error) {
         setBulkInitiativeNotice({
           tone: 'error',
-          message: error instanceof Error ? error.message : 'Bulk initiative update failed.',
+          message: formatMissionControlError(
+            error instanceof Error ? error.message : '',
+            'Bulk initiative update failed.'
+          ),
         });
       }
     },
@@ -932,7 +942,10 @@ function MissionControlInner({
     } catch (error) {
       setBulkInitiativeNotice({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Bulk initiative delete failed.',
+        message: formatMissionControlError(
+          error instanceof Error ? error.message : '',
+          'Bulk initiative delete failed.'
+        ),
       });
     }
   }, [mutations.bulkEntityMutation, selectedFilteredInitiatives]);
@@ -1060,11 +1073,15 @@ function MissionControlInner({
     (initiativeId: string, initiativeTitle?: string) => {
       const target = initiatives.find((initiative) => initiative.id === initiativeId);
       if (!target) {
+        const readableTitle = (initiativeTitle ?? '').trim();
+        const label = readableTitle
+          ? isOpaqueId(readableTitle)
+            ? `Initiative ${humanizeId(readableTitle)}`
+            : sanitizeDisplayText(readableTitle)
+          : 'This initiative';
         setNextActionNotice({
           tone: 'error',
-          message: initiativeTitle
-            ? `${initiativeTitle} is unavailable in the current initiative list.`
-            : 'Initiative is unavailable in the current initiative list.',
+          message: `${label} is not in this workspace view. Switch workspace or clear filters to find it.`,
         });
         return false;
       }
@@ -1171,7 +1188,10 @@ function MissionControlInner({
       .catch((err) => {
         setNextActionNotice({
           tone: 'error',
-          message: err instanceof Error ? err.message : 'Failed to start initiative.',
+          message: formatMissionControlError(
+            err instanceof Error ? err.message : '',
+            'Failed to start initiative.'
+          ),
         });
       });
   }, [mutations.updateEntity, nextActionInitiative, openInitiativeFromNextUp]);
@@ -1192,7 +1212,10 @@ function MissionControlInner({
       } catch (error) {
         setNextActionNotice({
           tone: 'error',
-          message: error instanceof Error ? error.message : 'Action failed.',
+          message: formatMissionControlError(
+            error instanceof Error ? error.message : '',
+            'Action failed.'
+          ),
         });
       } finally {
         setRailActionKey(null);
@@ -1586,6 +1609,13 @@ function MissionControlInner({
                           requiredPlan: autopilotUpgradeGate.requiredPlan,
                         }).catch((err) => {
                           console.warn('[billing] checkout failed', err);
+                          setNextActionNotice({
+                            tone: 'error',
+                            message: formatMissionControlError(
+                              err instanceof Error ? err.message : '',
+                              'Unable to open checkout right now.'
+                            ),
+                          });
                         });
                         return;
                       }
@@ -1609,6 +1639,13 @@ function MissionControlInner({
                           } else {
                             setAutopilotUpgradeGate(null);
                             console.warn('[autopilot] toggle failed', err);
+                            setNextActionNotice({
+                              tone: 'error',
+                              message: formatMissionControlError(
+                                err instanceof Error ? err.message : '',
+                                'Autopilot action failed.'
+                              ),
+                            });
                           }
                         });
                     }}
@@ -2007,79 +2044,6 @@ function MissionControlInner({
                 </AnimatePresence>
               </div>
             )}
-            {sortedInitiatives.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption text-white/70">
-                  <span className="font-medium text-white/80">
-                    Showing {pageRangeStart}-{pageRangeEnd}
-                  </span>
-                  <span className="text-white/50">of</span>
-                  <span className="font-medium text-white/80">{totalFilteredCount}</span>
-                  <span className="text-white/50">initiatives</span>
-                </div>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-black/25 px-2 py-1 text-micro text-white/68">
-                    <span>Per page</span>
-                    <select
-                      value={pageSize}
-                      onChange={(event) => {
-                        const parsed = Number.parseInt(event.target.value, 10);
-                        if (!Number.isFinite(parsed)) return;
-                        setPageSize(parsed);
-                      }}
-                      className="h-6 rounded-md border border-transparent bg-transparent px-1 text-caption text-white/90 outline-none"
-                    >
-                      {PAGE_SIZE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/25 p-1">
-                    <button
-                      type="button"
-                      onClick={goToFirstPage}
-                      disabled={!canPageBackward}
-                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
-                      title="First page"
-                    >
-                      «
-                    </button>
-                    <button
-                      type="button"
-                      onClick={goToPreviousPage}
-                      disabled={!canPageBackward}
-                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
-                      title="Previous page"
-                    >
-                      ‹
-                    </button>
-                    <span className="px-1.5 text-micro text-white/64">
-                      Page {currentPageIndex + 1} / {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={goToNextPage}
-                      disabled={!canPageForward}
-                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
-                      title="Next page"
-                    >
-                      ›
-                    </button>
-                    <button
-                      type="button"
-                      onClick={goToLastPage}
-                      disabled={!canPageForward}
-                      className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
-                      title="Last page"
-                    >
-                      »
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
             {bulkInitiativeNotice && (
               <div
                 role="status"
@@ -2326,6 +2290,79 @@ function MissionControlInner({
                       isSquished={nextUpRailOpen}
                       runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
                     />
+                  </div>
+                )}
+                {sortedInitiatives.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-caption text-white/70">
+                      <span className="font-medium text-white/80">
+                        Showing {pageRangeStart}-{pageRangeEnd}
+                      </span>
+                      <span className="text-white/50">of</span>
+                      <span className="font-medium text-white/80">{totalFilteredCount}</span>
+                      <span className="text-white/50">initiatives</span>
+                    </div>
+                    <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                      <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-black/25 px-2 py-1 text-micro text-white/68">
+                        <span>Per page</span>
+                        <select
+                          value={pageSize}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10);
+                            if (!Number.isFinite(parsed)) return;
+                            setPageSize(parsed);
+                          }}
+                          className="h-6 rounded-md border border-transparent bg-transparent px-1 text-caption text-white/90 outline-none"
+                        >
+                          {PAGE_SIZE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/25 p-1">
+                        <button
+                          type="button"
+                          onClick={goToFirstPage}
+                          disabled={!canPageBackward}
+                          className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                          title="First page"
+                        >
+                          «
+                        </button>
+                        <button
+                          type="button"
+                          onClick={goToPreviousPage}
+                          disabled={!canPageBackward}
+                          className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                          title="Previous page"
+                        >
+                          ‹
+                        </button>
+                        <span className="px-1.5 text-micro text-white/64">
+                          Page {currentPageIndex + 1} / {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={goToNextPage}
+                          disabled={!canPageForward}
+                          className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                          title="Next page"
+                        >
+                          ›
+                        </button>
+                        <button
+                          type="button"
+                          onClick={goToLastPage}
+                          disabled={!canPageForward}
+                          className="control-pill h-7 px-2 text-micro font-semibold disabled:opacity-40"
+                          title="Last page"
+                        >
+                          »
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </motion.div>

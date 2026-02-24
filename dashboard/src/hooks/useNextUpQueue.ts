@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { NextUpQueueItem, NextUpQueueResponse } from '@/types';
+import type {
+  MissionControlSliceItem,
+  MissionControlSlicesResponse,
+  NextUpQueueItem,
+  NextUpQueueResponse,
+  NextUpQueueState,
+  RunnerAgentRef,
+} from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import {
@@ -9,6 +16,8 @@ import {
   shouldIncludeSyntheticEntities,
 } from '@/lib/initiativeIds';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
+import { humanizeWarning } from '@/lib/humanize';
 
 interface UseNextUpQueueOptions {
   initiativeId?: string | null;
@@ -64,15 +73,6 @@ interface NextUpPlayResponse {
 
 const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
 
-function appendWorkspaceScopeParams(params: URLSearchParams, projectId: string): void {
-  const normalized = projectId.trim();
-  if (!normalized) return;
-  params.set('project_id', normalized);
-  params.set('workspace_id', normalized);
-  params.set('command_center_id', normalized);
-  params.set('center', normalized);
-}
-
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
 }
@@ -92,11 +92,17 @@ function normalizeErrorMessage(
   if (isUnknownApiEndpointError(response, body)) {
     return `${fallback}. This queue route is unavailable in the running plugin build.`;
   }
-  return (
+  if (response.status === 401 || response.status === 403) {
+    return `${fallback}. Reconnect OrgX authentication in Settings.`;
+  }
+  if (response.status >= 500) {
+    return `${fallback}. OrgX is temporarily unavailable.`;
+  }
+  const detail =
     (typeof body?.error === 'string' && body.error.trim()) ||
     (typeof body?.message === 'string' && body.message.trim()) ||
-    `${fallback} (${response.status})`
-  );
+    fallback;
+  return humanizeWarning(detail);
 }
 
 function normalizeTransportFailure(err: unknown, fallback: string): string {
@@ -113,7 +119,7 @@ function normalizeTransportFailure(err: unknown, fallback: string): string {
   if (normalized.includes('failed to fetch') || normalized.includes('network')) {
     return `${fallback}. Unable to reach the queue service right now.`;
   }
-  return message || fallback;
+  return message ? humanizeWarning(message) : fallback;
 }
 
 function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueResponse {
@@ -132,6 +138,7 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
       nextTaskDueAt: null,
       runnerAgentId: 'dana',
       runnerAgentName: 'Dana',
+      runnerAgents: [{ id: 'dana', name: 'Dana' }],
       runnerSource: 'assigned',
       queueState: 'running',
       blockReason: null,
@@ -157,6 +164,7 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
       nextTaskDueAt: null,
       runnerAgentId: 'mark',
       runnerAgentName: 'Mark',
+      runnerAgents: [{ id: 'mark', name: 'Mark' }],
       runnerSource: 'assigned',
       queueState: 'queued',
       blockReason: null,
@@ -204,7 +212,89 @@ function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
   return hasLegacyPointer || hasLanePointer;
 }
 
+function normalizeRunnerId(value: string | null | undefined): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return 'unassigned';
+  const lowered = raw.toLowerCase();
+  if (lowered === 'undefined' || lowered === 'null') return 'unassigned';
+  if (lowered === 'main') return 'unassigned';
+  return raw;
+}
+
+function normalizeRunnerName(
+  value: string | null | undefined,
+  runnerId: string
+): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return runnerId === 'unassigned' ? 'Unassigned' : runnerId;
+  const lowered = raw.toLowerCase();
+  if (
+    lowered === 'undefined' ||
+    lowered === 'null' ||
+    (lowered === 'main' && runnerId === 'unassigned')
+  ) {
+    return runnerId === 'unassigned' ? 'Unassigned' : runnerId;
+  }
+  return raw;
+}
+
+function normalizeRunnerAgents(
+  value: unknown,
+  fallbackId: string,
+  fallbackName: string
+): RunnerAgentRef[] {
+  if (!Array.isArray(value)) {
+    if (fallbackId === 'unassigned') return [];
+    return [{ id: fallbackId, name: fallbackName }];
+  }
+  const output: RunnerAgentRef[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const id = normalizeRunnerId(typeof record.id === 'string' ? record.id : null);
+    const name = normalizeRunnerName(
+      typeof record.name === 'string' ? record.name : null,
+      id
+    );
+    if (id === 'unassigned' && name === 'Unassigned') continue;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push({ id, name });
+  }
+  if (output.length === 0 && fallbackId !== 'unassigned') {
+    return [{ id: fallbackId, name: fallbackName }];
+  }
+  return output;
+}
+
+function normalizeRunnerSource(
+  source: NextUpQueueItem['runnerSource'] | null | undefined,
+  runnerId: string
+): NextUpQueueItem['runnerSource'] {
+  if (source === 'assigned' || source === 'inferred' || source === 'fallback') {
+    return source;
+  }
+  if (runnerId === 'unassigned') return 'fallback';
+  return 'inferred';
+}
+
 function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
+  const fallbackRunnerAgentId = normalizeRunnerId(item.runnerAgentId);
+  const fallbackRunnerAgentName = normalizeRunnerName(
+    item.runnerAgentName,
+    fallbackRunnerAgentId
+  );
+  const runnerAgents = normalizeRunnerAgents(
+    (item as { runnerAgents?: unknown }).runnerAgents,
+    fallbackRunnerAgentId,
+    fallbackRunnerAgentName
+  );
+  const runnerPrimary = runnerAgents[0] ?? null;
+  const runnerAgentId = runnerPrimary?.id ?? fallbackRunnerAgentId;
+  const runnerAgentName = runnerPrimary?.name ?? fallbackRunnerAgentName;
+  const runnerSource = normalizeRunnerSource(item.runnerSource, runnerAgentId);
   const normalizedSliceTaskIds =
     Array.isArray(item.sliceTaskIds) && item.sliceTaskIds.length > 0
       ? item.sliceTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -218,6 +308,10 @@ function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
 
   return {
     ...item,
+    runnerAgentId,
+    runnerAgentName,
+    runnerAgents,
+    runnerSource,
     playbackState: item.queueState,
     autoIntentEnabled: hasExplicitAutoIntent(item),
     autoRuntimeState: resolveAutoRuntimeState(item),
@@ -238,6 +332,103 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
     ...response,
     items,
     total: items.length,
+  };
+}
+
+function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueState {
+  const explicit = (item.queueState ?? '').trim().toLowerCase();
+  if (explicit === 'queued' || explicit === 'running' || explicit === 'blocked' || explicit === 'idle') {
+    return explicit as NextUpQueueState;
+  }
+
+  const status = item.status.trim().toLowerCase();
+  if (
+    status === 'running' ||
+    status === 'active' ||
+    status === 'in_progress' ||
+    status === 'dispatching'
+  ) {
+    return 'running';
+  }
+  if (
+    item.runnable === false ||
+    status === 'blocked' ||
+    status === 'failed' ||
+    status === 'error'
+  ) {
+    return 'blocked';
+  }
+  if (status === 'completed' || status === 'done' || status === 'resolved') {
+    return 'idle';
+  }
+  return 'queued';
+}
+
+function toWorkstreamFallbackLabel(workstreamId: string | null): string {
+  if (!workstreamId) return 'Workstream';
+  const trimmed = workstreamId.trim();
+  if (trimmed.length === 0) return 'Workstream';
+  return /^[a-f0-9-]{16,}$/i.test(trimmed)
+    ? `Workstream ${trimmed.slice(0, 8)}`
+    : trimmed;
+}
+
+function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | null {
+  const lineageInitiativeIds =
+    item.lineage?.initiativeIds?.filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    ) ?? [];
+  const lineageWorkstreamIds =
+    item.lineage?.workstreamIds?.filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    ) ?? [];
+
+  const initiativeId = item.initiativeId?.trim() || lineageInitiativeIds[0] || null;
+  const workstreamId =
+    item.workstreamId?.trim() ||
+    item.sourceWorkstreamIds?.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim() ||
+    lineageWorkstreamIds[0] ||
+    null;
+  if (!initiativeId || !workstreamId) return null;
+
+  const taskIds =
+    item.lineage?.taskIds?.filter((taskId): taskId is string => typeof taskId === 'string' && taskId.trim().length > 0) ??
+    [];
+  const scopeFromLevel =
+    item.level === 'workstream' || item.level === 'milestone' || item.level === 'task'
+      ? item.level
+      : null;
+
+  return {
+    initiativeId,
+    initiativeTitle: item.initiativeTitle?.trim() || lineageInitiativeIds[0] || initiativeId,
+    initiativeStatus: 'active',
+    workstreamId,
+    workstreamTitle:
+      item.workstreamTitle?.trim() ||
+      item.title?.trim() ||
+      item.milestoneTitle?.trim() ||
+      item.taskTitle?.trim() ||
+      toWorkstreamFallbackLabel(workstreamId),
+    workstreamStatus: item.status,
+    nextTaskId: item.taskId,
+    nextTaskTitle: item.taskTitle?.trim() || null,
+    nextTaskPriority: typeof item.priorityNum === 'number' ? item.priorityNum : null,
+    nextTaskDueAt: item.dueAt,
+    runnerAgentId: 'orgx',
+    runnerAgentName: 'OrgX',
+    runnerAgents: [{ id: 'orgx', name: 'OrgX' }],
+    runnerSource: 'fallback',
+    queueState: normalizeSliceQueueState(item),
+    blockReason: item.blockReason ?? null,
+    queueOrigin: 'system',
+    sliceScope: scopeFromLevel,
+    sliceTaskIds: taskIds.length > 0 ? taskIds : item.taskId ? [item.taskId] : [],
+    sliceTaskCount:
+      taskIds.length > 0 ? taskIds.length : item.taskId ? 1 : 0,
+    sliceMilestoneId: item.milestoneId,
+    executionPolicy: null,
+    autoContinue: null,
   };
 }
 
@@ -303,7 +494,10 @@ export function useNextUpQueue({
       const params = new URLSearchParams();
       if (initiativeId) params.set('initiative_id', initiativeId);
       if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(params, projectId);
+        appendWorkspaceScopeParams(params, projectId, {
+          includeCenterAlias: true,
+          includeProjectAlias: false,
+        });
       }
       let response: Response;
       try {
@@ -341,10 +535,57 @@ export function useNextUpQueue({
       const visibleItems = normalized.items.filter(
         (item) => !isSyntheticInitiativeId(item.initiativeId)
       );
-      return normalizeQueueResponse({
+      let responsePayload = normalizeQueueResponse({
         ...normalized,
         items: visibleItems,
       });
+
+      if (responsePayload.items.length > 0) {
+        return responsePayload;
+      }
+
+      const sliceParams = new URLSearchParams();
+      if (initiativeId) sliceParams.set('initiative_id', initiativeId);
+      if (projectId && projectId.trim().length > 0) {
+        appendWorkspaceScopeParams(sliceParams, projectId, {
+          includeCenterAlias: true,
+          includeProjectAlias: false,
+        });
+      }
+      sliceParams.set('level', 'workstream');
+      sliceParams.set('include_completed', '0');
+      sliceParams.set('limit', '120');
+
+      try {
+        const slicesRes = await fetch(`/orgx/api/mission-control/slices?${sliceParams.toString()}`, {
+          headers: buildOrgxHeaders({ authToken, embedMode }),
+        });
+        const slicesBody = await readResponseJson<MissionControlSlicesResponse>(slicesRes);
+        if (slicesRes.ok && slicesBody?.ok && Array.isArray(slicesBody.items)) {
+          const sliceItems = slicesBody.items
+            .map((slice) => mapSliceToQueueItem(slice))
+            .filter((item): item is NextUpQueueItem => Boolean(item))
+            .filter((item) => !isSyntheticInitiativeId(item.initiativeId));
+          if (sliceItems.length > 0) {
+            responsePayload = normalizeQueueResponse({
+              ok: true,
+              generatedAt: new Date().toISOString(),
+              total: sliceItems.length,
+              items: sliceItems,
+              degraded: Array.from(
+                new Set([
+                  ...(normalized.degraded ?? []),
+                  'Queue derived from slices while live queue stabilizes.',
+                ])
+              ),
+            });
+          }
+        }
+      } catch {
+        // best effort fallback only
+      }
+
+      return responsePayload;
     },
     refetchInterval: (state) => {
       const payload = state.state.data;

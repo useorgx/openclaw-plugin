@@ -1,6 +1,16 @@
 type PosthogClient = typeof import('posthog-js').default;
 
 const POSTHOG_KEY = 'phc_s4KPgkYEFZgvkMYw4zXG41H5FN6haVwbEWPYHfNjxOc';
+const TELEMETRY_FLAG_ENABLED =
+  String(import.meta.env.VITE_ORGX_DASHBOARD_TELEMETRY ?? '')
+    .trim()
+    .toLowerCase() === 'true' ||
+  String(import.meta.env.VITE_ORGX_DASHBOARD_TELEMETRY ?? '').trim() === '1';
+const TELEMETRY_FORCE_LOOPBACK =
+  String(import.meta.env.VITE_ORGX_DASHBOARD_TELEMETRY_FORCE_LOOPBACK ?? '')
+    .trim()
+    .toLowerCase() === 'true' ||
+  String(import.meta.env.VITE_ORGX_DASHBOARD_TELEMETRY_FORCE_LOOPBACK ?? '').trim() === '1';
 const POSTHOG_OPTIONS = {
   api_host: 'https://us.i.posthog.com',
   defaults: '2026-01-30',
@@ -10,12 +20,33 @@ const POSTHOG_OPTIONS = {
 let posthogClientPromise: Promise<PosthogClient | null> | null = null;
 let posthogInitialized = false;
 let initScheduled = false;
+let telemetrySuppressed = false;
+
+function isLoopbackHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.trim().toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function telemetryEnabled(): boolean {
+  if (telemetrySuppressed) return false;
+  if (!TELEMETRY_FLAG_ENABLED) return false;
+  if (TELEMETRY_FORCE_LOOPBACK) return true;
+  // Plugin dashboards run on loopback with restrictive CSP by default.
+  // Avoid spinning PostHog retries that flood console/network errors.
+  if (isLoopbackHost()) return false;
+  return true;
+}
 
 function loadPosthogClient(): Promise<PosthogClient | null> {
+  if (!telemetryEnabled()) return Promise.resolve(null);
   if (!posthogClientPromise) {
     posthogClientPromise = import('posthog-js')
       .then((module) => module.default)
-      .catch(() => null);
+      .catch(() => {
+        telemetrySuppressed = true;
+        return null;
+      });
   }
   return posthogClientPromise;
 }
@@ -27,6 +58,7 @@ function ensurePosthogInitialized(client: PosthogClient): boolean {
     posthogInitialized = true;
     return true;
   } catch {
+    telemetrySuppressed = true;
     return false;
   }
 }
@@ -51,7 +83,7 @@ function scheduleIdle(callback: () => void): void {
 }
 
 export function initTelemetry(): void {
-  if (typeof window === 'undefined' || initScheduled) return;
+  if (!telemetryEnabled() || typeof window === 'undefined' || initScheduled) return;
   initScheduled = true;
   scheduleIdle(() => {
     void resolvePosthog();
@@ -59,6 +91,7 @@ export function initTelemetry(): void {
 }
 
 export function identifyTelemetry(distinctId: string): void {
+  if (!telemetryEnabled()) return;
   const normalizedId = distinctId.trim();
   if (!normalizedId) return;
   void resolvePosthog().then((client) => {
@@ -72,6 +105,7 @@ export function identifyTelemetry(distinctId: string): void {
 }
 
 export function captureTelemetry(event: string, properties?: Record<string, unknown>): void {
+  if (!telemetryEnabled()) return;
   if (!event.trim()) return;
   void resolvePosthog().then((client) => {
     if (!client) return;

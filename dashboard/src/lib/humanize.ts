@@ -201,10 +201,26 @@ export function humanizeActorName(name: string): string {
  * Consumer-friendly warning messages.
  */
 export function humanizeWarning(raw: string): string {
-  if (/agent catalog unavailable/i.test(raw)) return 'Some agent details are temporarily unavailable';
-  if (/timed out/i.test(raw)) return 'Loading agent details...';
+  if (/agent catalog unavailable|listagents/i.test(raw)) {
+    return 'Agent details are still loading.';
+  }
+  if (/timed out|timeout|request cancelled|signal is aborted/i.test(raw)) {
+    return 'Live sync is taking longer than expected. Data will refresh automatically.';
+  }
   if (/budget.*exhaust/i.test(raw)) return 'Token budget reached';
-  return humanizeText(raw);
+  if (/unknown api endpoint|route is unavailable|missing required live routes/i.test(raw)) {
+    return 'This plugin build is missing required routes. Update and restart the plugin.';
+  }
+  if (/unauthorized|forbidden|authentication|api key/i.test(raw)) {
+    return 'Authentication needs attention. Reconnect OrgX in Settings.';
+  }
+  if (/worker exited without structured output|worker close|signal=null/i.test(raw)) {
+    return 'An agent run ended before returning a structured result.';
+  }
+  if (/mcp handshake failed/i.test(raw)) {
+    return 'The agent connection handshake failed. Retry after reconnecting.';
+  }
+  return sanitizeDisplayText(humanizeText(raw));
 }
 
 /**

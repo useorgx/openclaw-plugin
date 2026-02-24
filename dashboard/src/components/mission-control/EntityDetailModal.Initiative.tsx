@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
+import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
@@ -90,6 +91,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       name: workstream.name,
     }));
   }, [details.workstreams, initiative.workstreams]);
+  const formatNoticeError = (raw: string | undefined, fallback: string) =>
+    raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
   useEffect(() => {
     if (editMode) return;
@@ -122,7 +125,12 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           setNotice(successMessage);
         },
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : `Failed to ${action} initiative.`);
+          setNotice(
+            formatNoticeError(
+              error instanceof Error ? error.message : '',
+              `Failed to ${action} initiative.`
+            )
+          );
         },
       }
     );
@@ -150,7 +158,12 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           setNotice('Initiative updated.');
         },
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Failed to update initiative.');
+          setNotice(
+            formatNoticeError(
+              error instanceof Error ? error.message : '',
+              'Failed to update initiative.'
+            )
+          );
         },
       }
     );
@@ -183,8 +196,10 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       } catch (error) {
         failedCount += 1;
         if (!firstError) {
-          firstError =
-            error instanceof Error ? error.message : 'Failed to queue initiative workstream.';
+          firstError = formatNoticeError(
+            error instanceof Error ? error.message : '',
+            'Failed to queue initiative workstream.'
+          );
         }
       }
     }

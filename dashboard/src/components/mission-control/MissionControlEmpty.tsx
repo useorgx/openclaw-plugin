@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { colors } from '@/lib/tokens';
+import { humanizeWarning } from '@/lib/humanize';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 
 interface MissionControlEmptyProps {
@@ -36,7 +37,8 @@ export function MissionControlEmpty({
       try {
         await handler();
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : 'Action failed');
+        const raw = nextError instanceof Error ? nextError.message : '';
+        setError(raw ? humanizeWarning(raw) : 'Action failed');
       } finally {
         setPending((current) => (current === action ? null : current));
       }
@@ -151,7 +153,7 @@ export function MissionControlEmpty({
           </div>
 
           {mode === 'degraded' && detail && (
-            <p className="text-caption text-secondary">{detail}</p>
+            <p className="text-caption text-secondary">{humanizeWarning(detail)}</p>
           )}
           {error && <p className="text-caption text-amber-200/80">{error}</p>}
         </div>

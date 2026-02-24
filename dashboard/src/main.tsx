@@ -5,6 +5,14 @@ import { App } from './App';
 import { initTelemetry } from './lib/telemetry';
 import './index.css';
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', (event) => {
+    // Recover from stale chunk graphs after plugin/dashboard upgrades.
+    event.preventDefault();
+    window.location.reload();
+  });
+}
+
 initTelemetry();
 
 const queryClient = new QueryClient({

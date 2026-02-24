@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LiveActivityItem } from '@/types';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { cutoffEpochForActivityFilter, sinceIsoForActivityFilter } from '@/lib/activityTimeFilters';
+import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 
 type ActivityPageResponse = {
   activities: LiveActivityItem[];
   nextCursor: string | null;
   total: number;
   storeUpdatedAt: string;
+  error?: string;
+  message?: string;
 };
 
 function toEpoch(value: string | null | undefined): number {
@@ -213,13 +218,22 @@ export function useActivityFeed(options: {
           search.set('initiative', initiativeId.trim());
         }
         if (projectId && projectId.trim().length > 0) {
-          search.set('project_id', projectId.trim());
+          appendWorkspaceScopeParams(search, projectId, {
+            includeCenterAlias: true,
+            includeProjectAlias: false,
+          });
         }
 
-        const resp = await fetch(`/orgx/api/live/activity/page?${search.toString()}`);
+        const resp = await fetch(`/orgx/api/live/activity/page?${search.toString()}`, {
+          headers: buildOrgxHeaders({ workspaceId: projectId }),
+        });
         const payload = (await resp.json().catch(() => null)) as ActivityPageResponse | null;
         if (!resp.ok || !payload) {
-          throw new Error(`Activity paging failed (${resp.status})`);
+          const detail =
+            (typeof payload?.error === 'string' && payload.error.trim()) ||
+            (typeof payload?.message === 'string' && payload.message.trim()) ||
+            `Activity paging failed (${resp.status})`;
+          throw new Error(detail);
         }
 
         const nextItems = (Array.isArray(payload.activities) ? payload.activities : []).filter(
@@ -230,7 +244,8 @@ export function useActivityFeed(options: {
         setStoreUpdatedAt(payload.storeUpdatedAt ?? null);
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Activity paging failed');
+        const raw = err instanceof Error ? err.message : '';
+        setError(raw ? humanizeWarning(raw) : 'Activity paging failed');
         // Prevent repeated bootstrap retries on hard failures.
         setCursor((prev) => (prev === '' ? null : prev));
       } finally {

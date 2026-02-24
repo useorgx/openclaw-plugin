@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { colors } from '@/lib/tokens';
+import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeMilestone } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
 import {
@@ -58,6 +59,8 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
     mutations.createEntity.isPending ||
     mutations.updateEntity.isPending ||
     mutations.deleteEntity.isPending;
+  const formatNoticeError = (raw: string | undefined, fallback: string) =>
+    raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
   const handleSaveEdits = () => {
     const title = draftTitle.trim();
@@ -82,7 +85,12 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           setNotice('Milestone updated.');
         },
         onError: (error) => {
-          setNotice(error instanceof Error ? error.message : 'Failed to update milestone.');
+          setNotice(
+            formatNoticeError(
+              error instanceof Error ? error.message : '',
+              'Failed to update milestone.'
+            )
+          );
         },
       }
     );
@@ -357,7 +365,10 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
                       onSuccess: () => closeModal(),
                       onError: (error) =>
                         setNotice(
-                          error instanceof Error ? error.message : 'Failed to delete milestone.'
+                          formatNoticeError(
+                            error instanceof Error ? error.message : '',
+                            'Failed to delete milestone.'
+                          )
                         ),
                     }
                   )
@@ -401,7 +412,12 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
                       setAddingTask(false);
                     },
                     onError: (error) => {
-                      setNotice(error instanceof Error ? error.message : 'Failed to create task.');
+                      setNotice(
+                        formatNoticeError(
+                          error instanceof Error ? error.message : '',
+                          'Failed to create task.'
+                        )
+                      );
                     },
                   }
                 );

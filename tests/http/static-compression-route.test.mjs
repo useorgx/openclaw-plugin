@@ -136,3 +136,25 @@ test("dashboard static assets negotiate br/gzip sidecars", async () => {
     rmSync(gzPath, { force: true });
   }
 });
+
+test("missing hashed JS chunk returns recovery module instead of hard 404", async () => {
+  const config = baseConfig();
+  const client = { getBaseUrl: () => config.baseUrl };
+  const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+  const res = createStubResponse();
+  await handler(
+    {
+      method: "GET",
+      url: `/orgx/live/assets/${Date.now()}-missing-chunk.js`,
+      headers: {},
+    },
+    res
+  );
+
+  assert.equal(res.status, 200);
+  assert.match(String(res.headers?.["Content-Type"] ?? ""), /application\/javascript/i);
+  assert.match(String(res.headers?.["Cache-Control"] ?? ""), /no-store/i);
+  const body = res.body.toString("utf8");
+  assert.match(body, /window\.location\.replace\('\/orgx\/live'/);
+});

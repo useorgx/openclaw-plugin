@@ -18,7 +18,7 @@ function appendWorkspaceScope(payload: Record<string, unknown>, workspaceId: str
   const normalized = workspaceId.trim();
   payload.workspace_id = normalized;
   payload.command_center_id = normalized;
-  payload.project_id = normalized;
+  payload.center = normalized;
 }
 
 async function readResponseOrThrow(response: Response): Promise<Record<string, unknown>> {
@@ -53,7 +53,12 @@ export function useMissionControlSliceOrdering({
 
       const response = await fetch('/orgx/api/mission-control/slices/reorder', {
         method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        headers: buildOrgxHeaders({
+          authToken,
+          embedMode,
+          contentTypeJson: true,
+          workspaceId,
+        }),
         body: JSON.stringify(payload),
       });
       return readResponseOrThrow(response);
@@ -108,7 +113,12 @@ export function useMissionControlSliceOrdering({
 
       const response = await fetch('/orgx/api/mission-control/slices/order-mode', {
         method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
+        headers: buildOrgxHeaders({
+          authToken,
+          embedMode,
+          contentTypeJson: true,
+          workspaceId,
+        }),
         body: JSON.stringify(payload),
       });
       return readResponseOrThrow(response);

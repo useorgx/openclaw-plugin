@@ -18,7 +18,10 @@ import type {
   SliceDataHealthSummary,
 } from '@/types';
 import { createMockData } from '@/data/mockData';
+import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 
 interface UseLiveDataOptions {
   enabled?: boolean;
@@ -177,7 +180,11 @@ function summarizeSnapshotFailureMessages(errors: string[]): string {
       })
     )
   );
-  return uniqueDetails.slice(0, 2).join(' ');
+  return uniqueDetails
+    .slice(0, 2)
+    .map((entry) => humanizeWarning(entry))
+    .filter((entry) => entry.length > 0)
+    .join(' ');
 }
 
 function formatDegradedReason(reason: string): string {
@@ -202,7 +209,7 @@ function formatDegradedReason(reason: string): string {
     .replace(/^[^:]+:\s*/, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return compact.length > 0 ? compact : reason.trim();
+  return humanizeWarning(compact.length > 0 ? compact : reason.trim());
 }
 
 function summarizeDegradedReasons(reasons: string[]): string[] {
@@ -1816,7 +1823,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           include_idle: 'true',
         });
         if (normalizedProjectId) {
-          query.set('project_id', normalizedProjectId);
+          appendWorkspaceScopeParams(query, normalizedProjectId, {
+            includeCenterAlias: true,
+            includeProjectAlias: false,
+          });
         }
         if (normalizedInitiativeId) {
           query.set('initiative', normalizedInitiativeId);
@@ -1836,11 +1846,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
               setTimeout(resolve, SNAPSHOT_FALLBACK_STAGGER_MS);
             });
           }
-          const snapshotRes = await fetchJson<LiveSnapshotResponse>(
-            endpoint.url,
-            undefined,
-            { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
-          );
+          const snapshotRes = await fetchJson<LiveSnapshotResponse>(endpoint.url, {
+            headers: buildOrgxHeaders({ workspaceId: normalizedProjectId }),
+          }, { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS });
           if (snapshotRes.ok && snapshotRes.data) {
             snapshot = snapshotRes.data;
             break;
@@ -2062,9 +2070,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
       const response = await fetch('/orgx/api/live/decisions/approve', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: buildOrgxHeaders({
+          contentTypeJson: true,
+          workspaceId: normalizedProjectId,
+        }),
         body: JSON.stringify({
           ids,
           action,
@@ -2228,7 +2237,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     const streamQuery = new URLSearchParams();
     if (normalizedProjectId) {
-      streamQuery.set('project_id', normalizedProjectId);
+      appendWorkspaceScopeParams(streamQuery, normalizedProjectId, {
+        includeCenterAlias: true,
+        includeProjectAlias: false,
+      });
     }
     if (normalizedInitiativeId) {
       streamQuery.set('initiative', normalizedInitiativeId);

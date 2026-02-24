@@ -794,12 +794,16 @@ export class OrgXClient {
   async getLiveSessions(params?: {
     limit?: number;
     initiative?: string | null;
+    workspaceId?: string | null;
+    /** @deprecated Use workspaceId */
     projectId?: string | null;
   }): Promise<SessionTreeResponse> {
+    const workspaceScope = params?.workspaceId ?? params?.projectId ?? null;
     const query = this.buildQuery({
       limit: params?.limit,
       initiative: params?.initiative ?? null,
-      project_id: params?.projectId ?? null,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     return this.get(`/api/client/live/sessions${query}`);
   }
@@ -808,13 +812,17 @@ export class OrgXClient {
     limit?: number;
     run?: string | null;
     since?: string | null;
+    workspaceId?: string | null;
+    /** @deprecated Use workspaceId */
     projectId?: string | null;
   }): Promise<{ activities: LiveActivityItem[]; total: number }> {
+    const workspaceScope = params?.workspaceId ?? params?.projectId ?? null;
     const query = this.buildQuery({
       limit: params?.limit,
       run: params?.run ?? null,
       since: params?.since ?? null,
-      project_id: params?.projectId ?? null,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     return this.get(`/api/client/live/activity${query}`);
   }
@@ -822,12 +830,16 @@ export class OrgXClient {
   async getLiveAgents(params?: {
     initiative?: string | null;
     includeIdle?: boolean;
+    workspaceId?: string | null;
+    /** @deprecated Use workspaceId */
     projectId?: string | null;
   }): Promise<{ agents: unknown[]; summary: Record<string, number> }> {
+    const workspaceScope = params?.workspaceId ?? params?.projectId ?? null;
     const query = this.buildQuery({
       initiative: params?.initiative ?? null,
       include_idle: params?.includeIdle ?? undefined,
-      project_id: params?.projectId ?? null,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     return this.get(`/api/client/live/agents${query}`);
   }
@@ -836,17 +848,21 @@ export class OrgXClient {
     id?: string | null;
     limit?: number;
     offset?: number;
+    workspaceId?: string | null;
+    /** @deprecated Use workspaceId */
     projectId?: string | null;
   }): Promise<{
     initiatives: unknown[];
     total: number;
     pagination?: { limit?: number; offset?: number; has_more?: boolean };
   }> {
+    const workspaceScope = params?.workspaceId ?? params?.projectId ?? null;
     const query = this.buildQuery({
       id: params?.id ?? null,
       limit: params?.limit ?? null,
       offset: params?.offset ?? null,
-      project_id: params?.projectId ?? null,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     return this.get(`/api/client/live/initiatives${query}`);
   }
@@ -914,12 +930,16 @@ export class OrgXClient {
   async getLiveDecisions(params?: {
     status?: string;
     limit?: number;
+    workspaceId?: string | null;
+    /** @deprecated Use workspaceId */
     projectId?: string | null;
   }): Promise<{ decisions: Entity[]; total: number }> {
+    const workspaceScope = params?.workspaceId ?? params?.projectId ?? undefined;
     const response = await this.listEntities("decision", {
       status: params?.status,
       limit: params?.limit,
-      project_id: params?.projectId ?? undefined,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     const decisions = Array.isArray(response.data) ? response.data : [];
     return {

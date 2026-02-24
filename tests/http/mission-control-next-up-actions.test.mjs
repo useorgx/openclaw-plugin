@@ -99,6 +99,7 @@ function withEnv(patch, fn) {
 function createClientHarness({
   blockedQueueForWs1 = false,
   dependencyBlockedForWs1 = false,
+  taskDependencyOverrides = null,
   rawRequestImpl = null,
 } = {}) {
   const calls = {
@@ -171,6 +172,19 @@ function createClientHarness({
       },
     ],
   ]);
+
+  if (taskDependencyOverrides && typeof taskDependencyOverrides === "object") {
+    for (const [taskId, dependencyIds] of Object.entries(taskDependencyOverrides)) {
+      if (!tasks.has(taskId)) continue;
+      const normalizedDeps = Array.isArray(dependencyIds)
+        ? dependencyIds.filter((entry) => typeof entry === "string")
+        : [];
+      tasks.set(taskId, {
+        ...tasks.get(taskId),
+        dependency_ids: normalizedDeps,
+      });
+    }
+  }
 
   const client = {
     getBaseUrl: () => "https://www.useorgx.com",
@@ -505,8 +519,14 @@ test("mission-control next-up honors workspace scope aliases and never falls bac
       assert.ok(Array.isArray(baselineBody.items));
       assert.ok(baselineBody.items.length > 0);
 
+      const rejectedScope = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?project_id=workspace-crane",
+        headers: {},
+      });
+      assert.equal(rejectedScope.status, 400);
+
       const scopedQueries = [
-        "project_id=workspace-crane",
         "workspace_id=workspace-crane",
         "command_center_id=workspace-crane",
         "center=workspace-crane",
@@ -854,6 +874,46 @@ test("mission-control activity auto-fix skips when user pauses during grace wind
         (entry) => entry?.metadata?.event === "autopilot_autofix_skipped"
       );
       assert.equal(skipped?.metadata?.reason, "paused_by_user");
+    }
+  );
+});
+
+test("mission-control dependency cycle auto-fix applies cycle diagnostics updates", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-cycle-autofix-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+    },
+    async () => {
+      const { handler, calls } = await createHandler({
+        taskDependencyOverrides: {
+          "task-ws1-primary": ["task-ws1-dependency"],
+          "task-ws1-dependency": ["task-ws1-primary"],
+        },
+      });
+
+      const res = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/graph/cycles/auto-fix",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.ok(body.cycleEdgesDetected >= 1);
+      assert.ok(body.nodesUpdated >= 1);
+      assert.ok(Array.isArray(body.scheduledAutofixes));
+      assert.ok(
+        calls.updateEntity.some(
+          (entry) =>
+            entry.type === "task" &&
+            Array.isArray(entry.updates?.dependency_ids)
+        )
+      );
     }
   );
 });

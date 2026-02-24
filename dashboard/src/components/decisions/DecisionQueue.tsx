@@ -4,6 +4,7 @@ import type { LiveDecision } from '@/types';
 import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { DecisionDetailModal } from '@/components/decisions/DecisionDetailModal';
@@ -20,6 +21,24 @@ interface DecisionActionSummary {
 interface DecisionActionInput {
   note?: string;
   optionId?: string;
+}
+
+function formatDecisionError(raw: string | undefined, fallback: string): string {
+  if (!raw || raw.trim().length === 0) return fallback;
+  const message = humanizeWarning(raw.trim());
+  return message || fallback;
+}
+
+function formatDecisionFailureNotice(
+  action: 'approve' | 'reject',
+  failed: number,
+  firstError?: string
+): string {
+  const fallback =
+    action === 'approve'
+      ? `Approval failed for ${failed} decision${failed === 1 ? '' : 's'}.`
+      : `Rejection failed for ${failed} decision${failed === 1 ? '' : 's'}.`;
+  return formatDecisionError(firstError, fallback);
 }
 
 type DecisionBulkActionId =
@@ -132,14 +151,46 @@ export const DecisionQueue = memo(function DecisionQueue({
     decisionId: string,
     input?: DecisionActionInput
   ) => {
+    setNotice(null);
+    setApproving((prev) => {
+      const next = new Set(prev);
+      next.add(decisionId);
+      return next;
+    });
     const result = await onApproveDecision(decisionId, input);
+    if (result.failed > 0) {
+      setNotice(formatDecisionFailureNotice('approve', result.failed, result.firstError));
+    } else if (result.updated > 0) {
+      setNotice('Decision approved. Changes synced.');
+    }
+    setApproving((prev) => {
+      const next = new Set(prev);
+      next.delete(decisionId);
+      return next;
+    });
     // Auto-close is handled by the detail modal's success state
     return result;
   };
 
   const handleRejectFromDetail = onRejectDecision
     ? async (decisionId: string, input?: DecisionActionInput) => {
+        setNotice(null);
+        setApproving((prev) => {
+          const next = new Set(prev);
+          next.add(decisionId);
+          return next;
+        });
         const result = await onRejectDecision(decisionId, input);
+        if (result.failed > 0) {
+          setNotice(formatDecisionFailureNotice('reject', result.failed, result.firstError));
+        } else if (result.updated > 0) {
+          setNotice('Decision rejected. Changes synced.');
+        }
+        setApproving((prev) => {
+          const next = new Set(prev);
+          next.delete(decisionId);
+          return next;
+        });
         return result;
       }
     : undefined;
@@ -293,8 +344,9 @@ export const DecisionQueue = memo(function DecisionQueue({
           );
       const verb = selectedBulkOption.action === 'approve' ? 'Approved' : 'Rejected';
       if (result.failed > 0) {
-        const reason = result.firstError ? ` ${result.firstError}` : '';
-        setNotice(`${verb} ${result.updated}; ${result.failed} failed.${reason}`);
+        const base = `${verb} ${result.updated}; ${result.failed} failed.`;
+        const reason = formatDecisionError(result.firstError, base);
+        setNotice(reason === base ? base : `${base} ${reason}`);
       } else if (result.updated > 0) {
         setNotice(`${verb} ${result.updated} decision${result.updated === 1 ? '' : 's'}.`);
       } else {
@@ -302,7 +354,8 @@ export const DecisionQueue = memo(function DecisionQueue({
       }
       setSelected(new Set());
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Bulk decision action failed.');
+      const raw = err instanceof Error ? err.message : '';
+      setNotice(formatDecisionError(raw, 'Bulk decision action failed.'));
     } finally {
       setIsApprovingAll(false);
       setApproving(new Set());
@@ -322,16 +375,13 @@ export const DecisionQueue = memo(function DecisionQueue({
     try {
       const result = await onApproveDecision(decisionId);
       if (result.failed > 0) {
-        setNotice(
-          result.firstError
-            ? `Approval failed: ${result.firstError}`
-            : `Approval failed for ${result.failed} decision.`
-        );
+        setNotice(formatDecisionFailureNotice('approve', result.failed, result.firstError));
       } else if (result.updated > 0) {
         setNotice('Decision approved.');
       }
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Decision approval failed.');
+      const raw = err instanceof Error ? err.message : '';
+      setNotice(formatDecisionError(raw, 'Decision approval failed.'));
     } finally {
       setApproving((prev) => {
         const next = new Set(prev);
@@ -367,7 +417,7 @@ export const DecisionQueue = memo(function DecisionQueue({
             return next;
           });
           void onApproveDecision(decision.id).catch(() => {
-            setNotice(`Approval failed for '${decision.title}'.`);
+            setNotice('Approval failed. Try again from the decision panel.');
           });
         },
       });
@@ -375,7 +425,25 @@ export const DecisionQueue = memo(function DecisionQueue({
     [approving, isApprovingAll, enqueueUndo, onApproveDecision]
   );
 
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 5200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
+  const hasInFlightMutations = isApprovingAll || approving.size > 0;
+  const inFlightCount = Math.max(approving.size, isApprovingAll ? selectedCount : 0);
+  const statusMessage = hasInFlightMutations
+    ? `Applying ${inFlightCount} decision action${inFlightCount === 1 ? '' : 's'}…`
+    : notice ?? null;
+  const statusTone: 'processing' | 'success' | 'warning' | 'idle' = hasInFlightMutations
+    ? 'processing'
+    : notice
+      ? noticeIsSuccess
+        ? 'success'
+        : 'warning'
+      : 'idle';
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
   const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
   const pendingCount = sorted.length;
@@ -412,7 +480,7 @@ export const DecisionQueue = memo(function DecisionQueue({
           {sorted.length > 0 && (
             <button
               onClick={toggleSelectAll}
-              disabled={isApprovingAll}
+              disabled={hasInFlightMutations}
               className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
             >
               {allVisibleSelected ? 'Clear all' : 'Select all'}
@@ -422,7 +490,7 @@ export const DecisionQueue = memo(function DecisionQueue({
             <>
               <button
                 onClick={handleApplyBulkAction}
-                disabled={!selectedEnabled || isApprovingAll}
+                disabled={!selectedEnabled || hasInFlightMutations}
                 data-state={selectedEnabled ? 'active' : 'idle'}
                 className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
               >
@@ -432,7 +500,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                 <button
                   type="button"
                   onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
-                  disabled={isApprovingAll}
+                  disabled={hasInFlightMutations}
                   data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
                   className={cn(
                     'control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45',
@@ -445,26 +513,82 @@ export const DecisionQueue = memo(function DecisionQueue({
             </>
           )}
         </div>
+
+        <div
+          aria-live="polite"
+          className={cn(
+            'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
+            statusTone === 'processing'
+              ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
+              : statusTone === 'success'
+                ? 'border-lime/30 bg-lime/10 text-lime'
+                : statusTone === 'warning'
+                  ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
+                  : 'border-strong bg-white/[0.02] text-secondary'
+          )}
+        >
+          {statusTone === 'processing' ? (
+            <span
+              aria-hidden
+              className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
+            />
+          ) : statusTone === 'success' ? (
+            <EntityIcon type="decision" size={12} className="opacity-90" />
+          ) : statusTone === 'warning' ? (
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opacity-90"
+            >
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+              <line x1="12" x2="12" y1="9" y2="13" />
+              <line x1="12" x2="12.01" y1="17" y2="17" />
+            </svg>
+          ) : (
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
+          )}
+          <span className="min-w-0 truncate">
+            {statusMessage ?? 'Resolve decisions here. Status will remain visible until sync settles.'}
+          </span>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] p-4 text-center">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-faint"
-            >
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-            <p className="text-body text-secondary">No pending decisions. All clear.</p>
+            {hasInFlightMutations ? (
+              <>
+                <span
+                  aria-hidden
+                  className="h-5 w-5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
+                />
+                <p className="text-body text-secondary">Finalizing decision updates…</p>
+              </>
+            ) : (
+              <>
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-faint"
+                >
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <p className="text-body text-secondary">No pending decisions. All clear.</p>
+              </>
+            )}
           </div>
         )}
 
@@ -486,7 +610,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                       setDetailDecisionId(decision.id);
                     }
                   }}
-                  drag={!isApproving && !isApprovingAll ? 'x' : false}
+                  drag={!hasInFlightMutations && !isApproving ? 'x' : false}
                   dragConstraints={{ left: 0, right: 0 }}
                   dragElastic={0.3}
                   onDragEnd={(_e, info) => {
@@ -516,7 +640,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(decision.id)}
-                      disabled={isApproving || isApprovingAll}
+                      disabled={isApproving || hasInFlightMutations}
                       onClick={(event) => event.stopPropagation()}
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                     />
@@ -540,7 +664,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                               event.stopPropagation();
                               void handleApproveOne(decision.id);
                             }}
-                            disabled={isApproving || isApprovingAll}
+                            disabled={isApproving || hasInFlightMutations}
                             className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
                           >
                             {isApproving ? 'Approving…' : 'Approve'}
@@ -584,7 +708,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(decision.id)}
-                      disabled={isApproving || isApprovingAll}
+                      disabled={isApproving || hasInFlightMutations}
                       onClick={(event) => event.stopPropagation()}
                       className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                     />
@@ -608,7 +732,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                               event.stopPropagation();
                               void handleApproveOne(decision.id);
                             }}
-                            disabled={isApproving || isApprovingAll}
+                            disabled={isApproving || hasInFlightMutations}
                             className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
                           >
                             {isApproving ? 'Approving…' : 'Approve'}
@@ -634,36 +758,6 @@ export const DecisionQueue = memo(function DecisionQueue({
       </div>
 
       <UndoToastRenderer />
-
-      {notice && (
-        <div className="flex items-center gap-2 border-t border-subtle px-4 py-2.5 text-body text-secondary">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={noticeIsSuccess ? 'text-lime' : 'text-amber-400'}
-          >
-            {noticeIsSuccess ? (
-              <>
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </>
-            ) : (
-              <>
-                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                <line x1="12" x2="12" y1="9" y2="13" />
-                <line x1="12" x2="12.01" y1="17" y2="17" />
-              </>
-            )}
-          </svg>
-          {notice}
-        </div>
-      )}
     </PremiumCard>
   );
 });

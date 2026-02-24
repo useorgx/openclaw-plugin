@@ -13,6 +13,7 @@ import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useMissionControl } from './MissionControlContext';
 import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 import { QueuePlacementControl } from './QueuePlacementControl';
 
 type EntityMutations = ReturnType<typeof useEntityMutations>;
@@ -121,6 +122,12 @@ function compareByField(a: MissionControlNode, b: MissionControlNode, field: Sor
     cmp = aEta - bEta;
   }
   return dir === 'desc' ? -cmp : cmp;
+}
+
+function formatHierarchyError(raw: string | undefined, fallback: string): string {
+  if (!raw || raw.trim().length === 0) return fallback;
+  const message = humanizeWarning(raw.trim());
+  return message || fallback;
 }
 
 export function HierarchyTreeTable({
@@ -480,7 +487,10 @@ export function HierarchyTreeTable({
         } catch (err) {
           failedCount += 1;
           if (!firstError) {
-            firstError = err instanceof Error ? err.message : 'Failed to add initiative workstream to queue.';
+            firstError = formatHierarchyError(
+              err instanceof Error ? err.message : '',
+              'Failed to add initiative workstream to queue.'
+            );
           }
         }
       }
@@ -536,16 +546,38 @@ export function HierarchyTreeTable({
     } catch (err) {
       setBulkNotice({
         tone: 'error',
-        message: err instanceof Error ? err.message : 'Failed to add workstream to queue.',
+        message: formatHierarchyError(
+          err instanceof Error ? err.message : '',
+          'Failed to add workstream to queue.'
+        ),
       });
       window.setTimeout(() => setBulkNotice(null), 2400);
     }
   };
 
-  const playNow = async (node: MissionControlNode) => {
-    const initiativeId = node.initiativeId ?? '';
+  const resolvePlayableWorkstreamId = (node: MissionControlNode): string | null => {
+    if (node.type === 'workstream') return node.id;
+    if (node.type === 'milestone' || node.type === 'task') {
+      return node.workstreamId ?? null;
+    }
+    if (node.type === 'initiative') {
+      const initiativeWorkstreams = workstreams.filter(
+        (candidate) => candidate.initiativeId === node.id
+      );
+      if (initiativeWorkstreams.length === 0) return null;
+      const preferred =
+        initiativeWorkstreams.find((candidate) => !isDoneStatus(candidate.status)) ??
+        initiativeWorkstreams[0];
+      return preferred?.id ?? null;
+    }
+    return null;
+  };
+
+  const playNow = async (node: MissionControlNode, preferredWorkstreamId?: string | null) => {
+    const initiativeId = node.type === 'initiative' ? node.id : (node.initiativeId ?? '');
     const workstreamId =
-      node.type === 'workstream' ? node.id : (node.workstreamId ?? '');
+      preferredWorkstreamId ??
+      (node.type === 'workstream' ? node.id : (node.workstreamId ?? ''));
 
     if (!initiativeId || !workstreamId) {
       setBulkNotice({ tone: 'error', message: 'Cannot start now: missing initiative/workstream id.' });
@@ -581,7 +613,10 @@ export function HierarchyTreeTable({
     } catch (err) {
       setBulkNotice({
         tone: 'error',
-        message: err instanceof Error ? err.message : 'Failed to start workstream now.',
+        message: formatHierarchyError(
+          err instanceof Error ? err.message : '',
+          'Failed to start workstream now.'
+        ),
       });
       window.setTimeout(() => setBulkNotice(null), 2400);
     }
@@ -696,7 +731,10 @@ export function HierarchyTreeTable({
     } catch (error) {
       setBulkNotice({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Bulk status update failed.',
+        message: formatHierarchyError(
+          error instanceof Error ? error.message : '',
+          'Bulk status update failed.'
+        ),
       });
     }
   };
@@ -729,7 +767,10 @@ export function HierarchyTreeTable({
     } catch (error) {
       setBulkNotice({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Bulk delete failed.',
+        message: formatHierarchyError(
+          error instanceof Error ? error.message : '',
+          'Bulk delete failed.'
+        ),
       });
     }
   };
@@ -1050,9 +1091,8 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      {/* Mobile needs horizontal access to row actions; keep clip only on larger breakpoints. */}
-      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2 lg:overflow-x-clip">
-        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5 lg:min-w-0">
+      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
+        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
           <thead className="sticky z-20" style={{ top: tableHeaderStickyTop }}>
             <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
               <th
@@ -1128,8 +1168,8 @@ export function HierarchyTreeTable({
                 node.type === 'workstream' ||
                 node.type === 'milestone' ||
                 node.type === 'task';
-              const canPlayNode =
-                node.type === 'workstream' || node.type === 'milestone' || node.type === 'task';
+              const playableWorkstreamId = resolvePlayableWorkstreamId(node);
+              const canPlayNode = Boolean(playableWorkstreamId);
 
               return (
                 <tr
@@ -1216,22 +1256,24 @@ export function HierarchyTreeTable({
                             <span className="h-7 w-[124px]" />
                           )}
 
-                          {canPlayNode ? (
-                            <button
-                              type="button"
-                              title="Start"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void playNow(node);
-                              }}
-                              aria-label={`Start ${node.type}: ${node.title}`}
-                              className="control-pill flex h-7 w-[34px] items-center justify-center px-0 text-[#D8FFA1] hover:text-[#E9FFBD]"
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                            </button>
-                          ) : (
-                            <span className="h-7 w-[34px]" />
-                          )}
+                          <button
+                            type="button"
+                            disabled={!canPlayNode}
+                            title={canPlayNode ? 'Start' : 'No runnable workstream'}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!playableWorkstreamId) return;
+                              void playNow(node, playableWorkstreamId);
+                            }}
+                            aria-label={
+                              canPlayNode
+                                ? `Start ${node.type}: ${node.title}`
+                                : `${node.type} has no runnable workstream`
+                            }
+                            className="control-pill flex h-7 w-[34px] items-center justify-center px-0 text-[#D8FFA1] hover:text-[#E9FFBD] disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:text-white/25"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                          </button>
                         </div>
                       )}
                     </div>

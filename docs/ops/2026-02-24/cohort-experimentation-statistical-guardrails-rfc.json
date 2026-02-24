@@ -1,0 +1,139 @@
+{
+  "title": "RFC: Statistical Guardrails and Stopping Rules for Cohort Experimentation",
+  "summary": "Define a single operating policy for cohort experiments across channel, hook, and offer so launch decisions are statistically valid, comparable across cohorts, and protected against false positives caused by repeated peeking and low-sample noise.",
+  "background": "The Cohort Experimentation Operating System has backlog items for guardrails, hypothesis structure, and portfolio policy, but there is no canonical statistical decision policy checked into this repository. Without a shared stopping protocol, teams can stop on noisy early lifts, over-contact weak cohorts, and create conflicting decisions across channels. A unified policy is required to preserve learning velocity while controlling Type I error and business risk.",
+  "proposal": {
+    "description": "Adopt a staged experimentation policy with explicit eligibility thresholds, minimum sample floors, sequential decision boundaries, and practical-significance gates. All cohort experiments must define a primary metric, minimum detectable effect (MDE), and risk class before launch. Decisions are made only when both statistical and business-impact gates pass.",
+    "policy": {
+      "experiment_inputs": {
+        "required": [
+          "cohort_id",
+          "channel",
+          "hook",
+          "offer",
+          "primary_metric",
+          "baseline_rate",
+          "mde",
+          "alpha",
+          "power",
+          "risk_tier"
+        ],
+        "defaults": {
+          "alpha": 0.05,
+          "power": 0.8,
+          "risk_tier": "standard"
+        }
+      },
+      "minimum_sample_rules": {
+        "hard_floor_per_arm": 200,
+        "hard_floor_conversions_per_arm": 25,
+        "note": "No stop-for-win or stop-for-loss decisions before floors are met unless a safety or compliance trigger fires."
+      },
+      "sequential_stopping": {
+        "looks": [
+          "50% planned information",
+          "75% planned information",
+          "100% planned information"
+        ],
+        "method": "alpha spending (O'Brien-Fleming style)",
+        "illustrative_p_thresholds": {
+          "look_1": 0.005,
+          "look_2": 0.014,
+          "look_3": 0.045
+        },
+        "futility_rule": "At look_2 or later, stop for futility if posterior probability of beating MDE is < 0.1 or conditional power < 0.2."
+      },
+      "decision_ladder": {
+        "scale": "If p-threshold passes and absolute lift >= MDE and risk checks pass",
+        "iterate": "If p-threshold fails but directional signal exists and guardrails are healthy",
+        "stop": "If futility or negative lift beyond tolerance is triggered"
+      },
+      "guardrail_metrics": {
+        "required": [
+          "reply_complaint_rate",
+          "unsubscribe_rate",
+          "bounce_rate",
+          "spam_report_rate"
+        ],
+        "default_guardrail_limits": {
+          "reply_complaint_rate": "<= baseline + 0.3pp",
+          "unsubscribe_rate": "<= baseline + 0.4pp",
+          "bounce_rate": "<= 5%",
+          "spam_report_rate": "<= 0.1%"
+        }
+      },
+      "multiple_testing": {
+        "scope": "family = cohort x channel for a weekly planning cycle",
+        "control": "Benjamini-Hochberg FDR at q=0.10 for secondary reads",
+        "primary_decisions": "alpha-spent primary endpoint only"
+      },
+      "data_quality_constraints": [
+        "Randomization key must be stable and auditable.",
+        "No cross-arm contamination from duplicate contacts within a test window.",
+        "Attribution window fixed before launch and unchanged during run."
+      ]
+    }
+  },
+  "alternatives_considered": [
+    {
+      "option": "Fixed horizon only (no interim looks)",
+      "pros": [
+        "Simple to govern",
+        "Low implementation complexity"
+      ],
+      "cons": [
+        "Slower learning cycle",
+        "Misses opportunities to stop harmful variants early"
+      ],
+      "why_not": "The operating system needs rapid iteration across many cohorts; strict fixed-horizon runs are too slow for the portfolio size."
+    },
+    {
+      "option": "Always-on Bayesian decisions with no frequentist constraints",
+      "pros": [
+        "Intuitive probability framing",
+        "Flexible with uneven sample sizes"
+      ],
+      "cons": [
+        "Harder to align with existing team thresholds",
+        "Can drift into inconsistent priors and decision criteria"
+      ],
+      "why_not": "Current stakeholders already reason in alpha/power terms; introducing Bayesian-only governance now increases adoption friction and policy variance."
+    }
+  ],
+  "migration_plan": {
+    "steps": [
+      "Add this policy as the default experiment template for all new cohort tests.",
+      "Backfill active experiments with explicit MDE, sample floors, and planned look schedule.",
+      "Require decision logs to include look number, threshold used, and guardrail status.",
+      "Review first two weeks of decisions for threshold calibration and edge-case exceptions."
+    ],
+    "rollback": "If teams cannot execute sequential looks reliably in the first cycle, temporarily revert to fixed-horizon decisions with the same minimum sample floors and guardrail limits while instrumentation gaps are fixed."
+  },
+  "risks": [
+    {
+      "risk": "Sample floors are too high for smaller cohorts, slowing learning.",
+      "mitigation": "Allow pre-approved small-cohort exception paths with wider MDE and explicit confidence downgrade labeling."
+    },
+    {
+      "risk": "Teams misapply multiple-testing correction scope.",
+      "mitigation": "Define family boundaries in planning docs and auto-calculate BH-adjusted q-values in reporting templates."
+    },
+    {
+      "risk": "Guardrail breaches are ignored when primary metric looks positive.",
+      "mitigation": "Treat guardrail breaches as hard veto conditions for scale decisions unless explicit exception is approved."
+    }
+  ],
+  "success_metrics": [
+    "100% of new cohort experiments include MDE, alpha, power, and look schedule before launch.",
+    "At least 90% of experiment decisions cite a valid look threshold and guardrail status.",
+    "False-positive reversals (scaled then rolled back within 14 days) decline by 30% over two planning cycles."
+  ],
+  "assumptions": [
+    "Primary outcomes are binary conversion-style metrics for most outbound experiments.",
+    "Experiment planning cadence is weekly and supports at least three planned looks for medium-volume cohorts."
+  ],
+  "non_goals": [
+    "Replacing outbound compliance policy and contact-pressure governance (tracked as separate backlog work).",
+    "Defining channel-specific creative standards for hooks/offers."
+  ]
+}

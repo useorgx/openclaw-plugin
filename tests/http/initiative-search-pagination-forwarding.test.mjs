@@ -191,6 +191,39 @@ test("GET /orgx/api/entities accepts workspace_id alias, forwards canonical scop
   }
 });
 
+test("GET /orgx/api/entities rejects project_id-only workspace scope", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-entities-project-scope-reject-"));
+  const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const client = {
+      getBaseUrl: () => "https://www.useorgx.com",
+      listEntities: async () => ({ data: [], pagination: { total: 0, has_more: false } }),
+      rawRequest: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(baseConfig(), client, () => null, createNoopOnboarding());
+    const res = await call(handler, {
+      method: "GET",
+      url: "/orgx/api/entities?type=initiative&project_id=workspace-a&limit=10",
+      headers: {},
+    });
+
+    assert.equal(res.status, 400);
+    const payload = JSON.parse(res.body);
+    assert.match(
+      String(payload.error ?? ""),
+      /project_id is no longer accepted/i
+    );
+  } finally {
+    if (previousDir == null) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
+  }
+});
+
 test("GET /orgx/api/live/initiatives forwards offset and returns pagination envelope", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-live-initiatives-pagination-"));
   const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;

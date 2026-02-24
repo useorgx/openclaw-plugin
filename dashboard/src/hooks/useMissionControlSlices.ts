@@ -9,6 +9,7 @@ import type {
 import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 
 interface UseMissionControlSlicesOptions {
   workspaceId?: string | null;
@@ -42,6 +43,20 @@ function asNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function normalizeRunnerSource(value: unknown): 'assigned' | 'inferred' | 'fallback' | null {
+  const raw = (asString(value) ?? '').toLowerCase();
+  if (raw === 'assigned' || raw === 'inferred' || raw === 'fallback') return raw;
+  return null;
+}
+
+function normalizeRunnerName(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (normalized === 'undefined' || normalized === 'null' || normalized === 'main') return null;
+  return raw;
 }
 
 function normalizeLevel(
@@ -192,6 +207,16 @@ function normalizeSliceItem(
       : null,
     sourceWorkstreamIds: toStringArray(record.sourceWorkstreamIds),
     queueState: asString(record.queueState),
+    sliceTaskIds: toStringArray(record.sliceTaskIds),
+    sliceTaskCount: asNumber(record.sliceTaskCount),
+    sliceMilestoneId: asString(record.sliceMilestoneId),
+    runnerAgentId: normalizeRunnerName(record.runnerAgentId ?? record.agentId),
+    runnerAgentName:
+      normalizeRunnerName(record.runnerAgentName ?? record.agentName) ??
+      normalizeRunnerName(record.runner),
+    runnerSource:
+      normalizeRunnerSource(record.runnerSource) ??
+      (normalizeRunnerName(record.runnerAgentId ?? record.agentId) ? 'inferred' : 'fallback'),
     updatedAt: asString(record.updatedAt),
   };
 }
@@ -220,15 +245,6 @@ function buildDemoSlicesResponse(
       hasMore: false,
     },
   };
-}
-
-function appendWorkspaceScopeParams(params: URLSearchParams, workspaceId: string): void {
-  const normalized = workspaceId.trim();
-  if (!normalized) return;
-  params.set('workspace_id', normalized);
-  params.set('project_id', normalized);
-  params.set('command_center_id', normalized);
-  params.set('center', normalized);
 }
 
 function buildFallbackPagination(input: {
@@ -306,7 +322,12 @@ export function useMissionControlSlices({
       }
 
       const params = new URLSearchParams();
-      if (workspaceId) appendWorkspaceScopeParams(params, workspaceId);
+      if (workspaceId) {
+        appendWorkspaceScopeParams(params, workspaceId, {
+          includeCenterAlias: true,
+          includeProjectAlias: false,
+        });
+      }
       if (initiativeId) params.set('initiative_id', initiativeId);
       params.set('level', level);
       params.set('include_completed', includeCompleted ? '1' : '0');

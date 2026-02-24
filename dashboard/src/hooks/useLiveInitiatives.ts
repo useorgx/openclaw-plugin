@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Initiative } from '@/types';
+import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 
 interface RawLiveInitiative {
   id: string;
@@ -75,9 +77,14 @@ export function useLiveInitiatives(enabled: boolean, projectId: string | null = 
           offset: String(offset),
         });
         if (projectId && projectId.trim().length > 0) {
-          params.set('project_id', projectId.trim());
+          appendWorkspaceScopeParams(params, projectId, {
+            includeCenterAlias: true,
+            includeProjectAlias: false,
+          });
         }
-        const response = await fetch(`/orgx/api/live/initiatives?${params.toString()}`);
+        const response = await fetch(`/orgx/api/live/initiatives?${params.toString()}`, {
+          headers: buildOrgxHeaders({ workspaceId: projectId }),
+        });
         if (!response.ok) break;
         const json = (await response.json()) as LiveInitiativesResponse;
         const pageRows = json.initiatives ?? [];

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { humanizeWarning } from '@/lib/humanize';
 
 const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
 
@@ -20,11 +21,17 @@ function normalizeErrorMessage(response: Response, body: any | null, fallback: s
   if (isUnknownApiEndpointError(response, body)) {
     return `${fallback}. This queue control is unavailable in the running plugin build.`;
   }
-  return (
+  if (response.status === 401 || response.status === 403) {
+    return `${fallback}. Reconnect OrgX authentication in Settings.`;
+  }
+  if (response.status >= 500) {
+    return `${fallback}. OrgX is temporarily unavailable. Try again in a moment.`;
+  }
+  const detail =
     (typeof body?.error === 'string' && body.error.trim()) ||
     (typeof body?.message === 'string' && body.message.trim()) ||
-    `${fallback} (${response.status})`
-  );
+    `${fallback}.`;
+  return humanizeWarning(detail);
 }
 
 export function useNextUpQueueActions(input: { authToken?: string | null; embedMode?: boolean }) {

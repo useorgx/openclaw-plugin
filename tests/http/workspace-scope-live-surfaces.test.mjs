@@ -324,6 +324,86 @@ function createProjectFallbackHarness() {
   return { client };
 }
 
+function createScopedHydrationHarness() {
+  const initiatives = [
+    {
+      id: "init-a",
+      title: "Workspace A Initiative",
+      status: "active",
+      priority: "active",
+      command_center_id: "workspace-a",
+    },
+    {
+      id: "init-b",
+      title: "Workspace B Initiative",
+      status: "active",
+      priority: "active",
+      command_center_id: "workspace-b",
+    },
+  ];
+
+  const client = {
+    getBaseUrl: () => "https://www.useorgx.com",
+    listEntities: async (type, filters = {}) => {
+      if (type === "initiative") {
+        // Simulate upstream entity list returning mixed workspace rows.
+        return { data: initiatives, pagination: { total: initiatives.length, has_more: false } };
+      }
+      if (type === "command_center") {
+        return {
+          data: [
+            { id: "workspace-a", title: "Workspace A", status: "active" },
+            { id: "workspace-b", title: "Workspace B", status: "active" },
+          ],
+          pagination: { total: 2, has_more: false },
+        };
+      }
+      return { data: [], pagination: { total: 0, has_more: false } };
+    },
+    getLiveInitiatives: async ({ id } = {}) => {
+      if (id) {
+        const match = initiatives.find((item) => item.id === id);
+        return { initiatives: match ? [match] : [], total: match ? 1 : 0 };
+      }
+      // Simulate upstream live page missing workspace-a entirely.
+      return { initiatives: [initiatives[1]], total: 1 };
+    },
+    getLiveSessions: async () => ({ nodes: [], edges: [], groups: [] }),
+    getLiveActivity: async () => ({ activities: [] }),
+    getHandoffs: async () => ({ handoffs: [] }),
+    getLiveDecisions: async () => ({ decisions: [], total: 0 }),
+    getLiveAgents: async () => ({ agents: [], summary: {} }),
+    emitActivity: async () => ({ ok: true, run_id: "run_1", event_id: null, reused_run: false }),
+    bulkDecideDecisions: async () => [],
+    rawRequest: async () => {
+      throw new Error("not implemented");
+    },
+    applyChangeset: async () => ({
+      ok: true,
+      changeset_id: "cs_1",
+      replayed: false,
+      run_id: "run_1",
+      applied_count: 0,
+      results: [],
+      event_id: null,
+    }),
+    createEntity: async () => ({ ok: true, id: "entity_1" }),
+    updateEntity: async () => ({ ok: true }),
+    checkSpawnGuard: async () => ({
+      allowed: true,
+      modelTier: "sonnet",
+      checks: {
+        rateLimit: { passed: true, current: 1, max: 10 },
+        qualityGate: { passed: true, score: 5, threshold: 3 },
+        taskAssigned: { passed: true, taskId: "task-a-1", status: "todo" },
+      },
+      blockedReason: null,
+    }),
+  };
+
+  return { client };
+}
+
 function createPagedWorkspaceHarness() {
   const workspaceAInitiatives = Array.from({ length: 130 }, (_, index) => ({
     id: `init-a-${String(index + 1).padStart(3, "0")}`,
@@ -444,7 +524,7 @@ test("workspace scope filters live initiatives and next-up queue even when upstr
 
       const initiativesRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/live/initiatives?project_id=workspace-a&limit=50",
+        url: "/orgx/api/live/initiatives?workspace_id=workspace-a&limit=50",
         headers: {},
       });
       assert.equal(initiativesRes.status, 200);
@@ -456,7 +536,7 @@ test("workspace scope filters live initiatives and next-up queue even when upstr
 
       const nextUpRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/next-up?project_id=workspace-a",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-a",
         headers: {},
       });
       assert.equal(nextUpRes.status, 200);
@@ -485,7 +565,7 @@ test("workspace scope filters mission-control slices and accepts level alias", a
 
       const slicesRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/slices?project_id=workspace-a&level=initiative",
+        url: "/orgx/api/mission-control/slices?workspace_id=workspace-a&level=initiative",
         headers: {},
       });
       assert.equal(slicesRes.status, 200);
@@ -503,7 +583,47 @@ test("workspace scope filters mission-control slices and accepts level alias", a
   );
 });
 
-test("workspace scope falls back to project_id initiatives when command center links are missing", async () => {
+test("workspace-scoped routes reject project_id-only scope aliases", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-project-id-reject-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const handler = await createHandler();
+
+      const initiativesRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/initiatives?project_id=workspace-a&limit=50",
+        headers: {},
+      });
+      assert.equal(initiativesRes.status, 400);
+      const initiativesBody = JSON.parse(initiativesRes.body);
+      assert.match(
+        String(initiativesBody.error ?? ""),
+        /project_id is no longer accepted/i
+      );
+
+      const nextUpRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?project_id=workspace-a",
+        headers: {},
+      });
+      assert.equal(nextUpRes.status, 400);
+
+      const slicesRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/slices?project_id=workspace-a&level=initiative",
+        headers: {},
+      });
+      assert.equal(slicesRes.status, 400);
+    }
+  );
+});
+
+test("workspace scope falls back to project-linked initiatives when command center links are missing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-scope-project-fallback-"));
   await withEnv(
     {
@@ -516,7 +636,7 @@ test("workspace scope falls back to project_id initiatives when command center l
 
       const initiativesRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/live/initiatives?project_id=workspace-a&limit=50",
+        url: "/orgx/api/live/initiatives?workspace_id=workspace-a&limit=50",
         headers: {},
       });
       assert.equal(initiativesRes.status, 200);
@@ -528,7 +648,7 @@ test("workspace scope falls back to project_id initiatives when command center l
 
       const nextUpRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/next-up?project_id=workspace-a",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-a",
         headers: {},
       });
       assert.equal(nextUpRes.status, 200);
@@ -540,6 +660,34 @@ test("workspace scope falls back to project_id initiatives when command center l
         nextUpBody.items.every((item) => item.initiativeId === "init-project-only"),
         "next-up should stay scoped to workspace-a fallback initiatives"
       );
+    }
+  );
+});
+
+test("workspace scope hydrates initiatives when upstream live page has no matching rows", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-live-hydration-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const handler = await createHandler(createScopedHydrationHarness);
+
+      const initiativesRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/initiatives?workspace_id=workspace-a&limit=25",
+        headers: {},
+      });
+      assert.equal(initiativesRes.status, 200);
+      const initiativesBody = JSON.parse(initiativesRes.body);
+      assert.deepEqual(
+        (initiativesBody.initiatives ?? []).map((item) => item.id),
+        ["init-a"]
+      );
+      assert.equal(initiativesBody.scopedFallback, true);
+      assert.equal(initiativesBody.pagination.has_more, false);
     }
   );
 });
@@ -558,7 +706,7 @@ test("workspace initiative discovery paginates beyond first 100 initiatives", as
 
       const initiativesRes = await call(handler, {
         method: "GET",
-        url: "/orgx/api/live/initiatives?project_id=workspace-a&limit=200",
+        url: "/orgx/api/live/initiatives?workspace_id=workspace-a&limit=200",
         headers: {},
       });
       assert.equal(initiativesRes.status, 200);

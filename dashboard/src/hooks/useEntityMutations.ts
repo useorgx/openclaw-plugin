@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 
 async function throwOnError(res: Response) {
   if (!res.ok) {
@@ -8,7 +9,7 @@ async function throwOnError(res: Response) {
       (typeof body?.error === 'string' && body.error) ||
       (typeof body?.message === 'string' && body.message) ||
       `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new Error(humanizeWarning(msg));
   }
   return res;
 }

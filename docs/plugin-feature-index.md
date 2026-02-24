@@ -70,7 +70,8 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - Entity endpoints:
   - `GET /orgx/api/entities?type=...`
   - `POST /orgx/api/entities`
-  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `project_id` (legacy compatibility)
+  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `center` (UI alias)
+  - `project_id` is no longer accepted for workspace scope and returns `400`.
 - Live endpoints:
   - `GET /orgx/api/dashboard-bundle`
   - `GET /orgx/api/live/snapshot`
@@ -88,7 +89,8 @@ Scope: current repository state in `src/` and `dashboard/src/`
   - `GET /orgx/api/mission-control/next-up`
   - `GET /orgx/api/mission-control/slices`
   - `GET /orgx/api/mission-control/sentinels`
-  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `project_id` (legacy compatibility)
+  - Workspace scope query params: `workspace_id` (canonical), `command_center_id` (legacy alias), `center` (UI alias)
+  - `project_id` is no longer accepted for workspace scope and returns `400`.
 - Run control endpoints:
   - `GET /orgx/api/runs/:runId/checkpoints`
   - `POST /orgx/api/runs/:runId/checkpoints`
@@ -108,6 +110,19 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - Initiative panel.
 - Decision queue with single and bulk approve.
 - Mobile tabbed navigation.
+
+## 6.1) Deprecated Endpoints
+
+- Legacy summary endpoints now return `410 Gone`:
+  - `GET /orgx/api/agents` → use `GET /orgx/api/live/agents`
+  - `GET /orgx/api/activity` → use `GET /orgx/api/live/snapshot`
+  - `GET /orgx/api/initiatives` → use `GET /orgx/api/live/initiatives`
+- Legacy live shim endpoints now return `410 Gone`:
+  - `GET/HEAD /orgx/api/live/sessions`
+  - `GET/HEAD /orgx/api/live/activity`
+  - `GET/HEAD /orgx/api/live/activity/page`
+  - `GET/HEAD /orgx/api/live/activity/detail`
+  - `GET/HEAD /orgx/api/live/stream`
 - Entity creation modal for initiatives/workstreams.
 
 ## 7) Reliability/Resilience Features
