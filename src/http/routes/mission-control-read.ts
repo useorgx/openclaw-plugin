@@ -620,7 +620,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
 
         const canonical = await deps.rawRequest(
           "GET",
-          `/api/mission-control/slices?${params.toString()}`
+          `/api/client/mission-control/slices?${params.toString()}`
         );
         const canonicalRecord = asRecord(canonical);
         if (!canonicalRecord || !Array.isArray(canonicalRecord.items)) {

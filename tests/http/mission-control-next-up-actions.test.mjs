@@ -96,11 +96,16 @@ function withEnv(patch, fn) {
     });
 }
 
-function createClientHarness({ blockedQueueForWs1 = false, dependencyBlockedForWs1 = false } = {}) {
+function createClientHarness({
+  blockedQueueForWs1 = false,
+  dependencyBlockedForWs1 = false,
+  rawRequestImpl = null,
+} = {}) {
   const calls = {
     listEntities: [],
     updateEntity: [],
     emitActivity: [],
+    rawRequest: [],
   };
 
   const tasks = new Map([
@@ -230,7 +235,11 @@ function createClientHarness({ blockedQueueForWs1 = false, dependencyBlockedForW
     getHandoffs: async () => ({ handoffs: [] }),
     getLiveDecisions: async () => ({ decisions: [] }),
     bulkDecideDecisions: async () => [],
-    rawRequest: async () => {
+    rawRequest: async (...args) => {
+      calls.rawRequest.push(args);
+      if (typeof rawRequestImpl === "function") {
+        return await rawRequestImpl(...args);
+      }
       throw new Error("not implemented");
     },
     applyChangeset: async () => ({
@@ -845,6 +854,80 @@ test("mission-control activity auto-fix skips when user pauses during grace wind
         (entry) => entry?.metadata?.event === "autopilot_autofix_skipped"
       );
       assert.equal(skipped?.metadata?.reason, "paused_by_user");
+    }
+  );
+});
+
+test("mission-control slices reorder proxies to canonical client API", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-slices-reorder-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler, calls } = await createHandler({
+        rawRequestImpl: async (_method, path, body) => {
+          assert.equal(path, "/api/client/mission-control/slices/reorder");
+          return {
+            ok: true,
+            level: body.level,
+            order: body.order ?? [],
+          };
+        },
+      });
+
+      const res = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/slices/reorder?workspace_id=workspace-crane",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          level: "workstream",
+          order: [{ sliceId: "workstream:ws-2" }, { sliceId: "workstream:ws-1" }],
+        }),
+      });
+
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.source, "canonical");
+      assert.equal(calls.rawRequest.length, 1);
+    }
+  );
+});
+
+test("mission-control slices order-mode returns 503 when canonical API is unavailable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-slices-order-mode-down-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler({
+        rawRequestImpl: async () => {
+          throw new Error("upstream unavailable");
+        },
+      });
+
+      const res = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/slices/order-mode",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          level: "task",
+          order_mode: "manual",
+        }),
+      });
+
+      assert.equal(res.status, 503);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, false);
+      assert.equal(body.canonical_only, true);
+      assert.ok(Array.isArray(body.degraded));
+      assert.ok(String(body.degraded[0]).includes("canonical unavailable"));
     }
   );
 });
