@@ -948,7 +948,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           return;
         }
 
-        const response = await rawRequest("POST", "/api/mission-control/slices/reorder", {
+        const response = await rawRequest("POST", "/api/client/mission-control/slices/reorder", {
           ...(workspaceId
             ? {
                 workspace_id: workspaceId,
@@ -1027,7 +1027,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           return;
         }
 
-        const response = await rawRequest("POST", "/api/mission-control/slices/order-mode", {
+        const response = await rawRequest("POST", "/api/client/mission-control/slices/order-mode", {
           ...(workspaceId
             ? {
                 workspace_id: workspaceId,
