@@ -111,11 +111,11 @@ export const queryKeys = {
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
         projectId: params.projectId ?? null,
-        snapshotVersion:
-          typeof params.snapshotVersion === 'number' &&
-          Number.isFinite(params.snapshotVersion)
-            ? params.snapshotVersion
-            : null,
+        // NOTE: snapshotVersion intentionally excluded from the query key.
+        // Including it caused new cache entries on every SSE snapshot bump,
+        // orphaning in-flight fetches and creating a perpetual loading state.
+        // The query already polls via refetchInterval — snapshot changes
+        // trigger invalidation through scheduleLiveDataInvalidate() instead.
       },
     ] as const,
   autoContinueStatus: (params: {

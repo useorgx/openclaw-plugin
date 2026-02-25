@@ -271,10 +271,7 @@ export function useAgentSuite({
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify({
           ...(projectId
-            ? {
-                workspace_id: projectId,
-                command_center_id: projectId,
-              }
+            ? { workspace_id: projectId }
             : {}),
           agent_id: input.agentId,
           runtime_settings: {

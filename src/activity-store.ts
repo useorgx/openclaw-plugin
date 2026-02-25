@@ -6,6 +6,7 @@ import { Buffer } from "node:buffer";
 
 import type { LiveActivityItem } from "./contracts/types.js";
 import { enrichActivityActorFieldsList } from "./activity-actor-fields.js";
+import { shouldHideActivityItem } from "./event-sanitization.js";
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
 import { backupCorruptFileSync, writeFileAtomicSync } from "./fs-utils.js";
 import { ensureStoreDirSync, parseJsonSafe } from "./stores/json-store.js";
@@ -100,6 +101,7 @@ function normalizeItems(source: LiveActivityItem[]): LiveActivityItem[] {
     const epoch = toEpoch(ts);
     if (!epoch) continue;
     if (epoch < cutoffEpoch) continue;
+    if (shouldHideActivityItem(item)) continue;
     byId.set(id, item);
   }
 
@@ -207,6 +209,7 @@ export function appendActivityItems(items: LiveActivityItem[]): { appended: numb
     if (typeof item.id !== "string" || !item.id.trim()) continue;
     if (typeof item.timestamp !== "string" || !item.timestamp.trim()) continue;
     if (!Number.isFinite(Date.parse(item.timestamp))) continue;
+    if (shouldHideActivityItem(item)) continue;
 
     const id = item.id.trim();
     const existing = state.byId.get(id);

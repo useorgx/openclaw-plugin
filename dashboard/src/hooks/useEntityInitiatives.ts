@@ -78,10 +78,7 @@ export function useEntityInitiatives(enabled: boolean, projectId: string | null 
           offset: String(offset),
         });
         if (workspaceScopeId) {
-          appendWorkspaceScopeParams(params, workspaceScopeId, {
-            includeCenterAlias: true,
-            includeProjectAlias: false,
-          });
+          appendWorkspaceScopeParams(params, workspaceScopeId);
         }
 
         const response = await fetch(`/orgx/api/entities?${params.toString()}`, {

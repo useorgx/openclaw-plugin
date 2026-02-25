@@ -403,14 +403,12 @@ function readWorkspaceScopeParam(params: URLSearchParams): string | null {
 }
 
 function setWorkspaceScopeParams(params: URLSearchParams, workspaceId: string): void {
-  appendCanonicalWorkspaceScopeParams(params, workspaceId, {
-    includeCenterAlias: true,
-    includeProjectAlias: false,
-  });
+  appendCanonicalWorkspaceScopeParams(params, workspaceId);
 }
 
 function clearWorkspaceScopeParams(params: URLSearchParams): void {
   params.delete('workspace_id');
+  // Clean up legacy aliases if present from old URLs
   params.delete('workspaceId');
   params.delete('command_center_id');
   params.delete('commandCenterId');

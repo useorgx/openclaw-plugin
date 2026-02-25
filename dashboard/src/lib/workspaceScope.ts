@@ -25,21 +25,10 @@ export function readWorkspaceScopeIdFromLocation(): string | null {
 export function appendWorkspaceScopeParams(
   params: URLSearchParams,
   workspaceId: string | null | undefined,
-  options?: {
-    includeCenterAlias?: boolean;
-    includeProjectAlias?: boolean;
-  }
 ): void {
   const normalized = normalizeWorkspaceScopeId(workspaceId);
   if (!normalized) return;
   params.set('workspace_id', normalized);
-  params.set('command_center_id', normalized);
-  if (options?.includeCenterAlias ?? true) {
-    params.set('center', normalized);
-  }
-  if (options?.includeProjectAlias ?? false) {
-    params.set('project_id', normalized);
-  }
 }
 
 export function buildWorkspaceScopeHeaders(
@@ -49,6 +38,5 @@ export function buildWorkspaceScopeHeaders(
   if (!normalized) return {};
   return {
     'x-orgx-workspace-id': normalized,
-    'x-orgx-command-center-id': normalized,
   };
 }

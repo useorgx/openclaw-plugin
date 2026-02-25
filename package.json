@@ -63,8 +63,10 @@
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "rm -rf dist && tsc && node ./scripts/copy-manifest.mjs",
     "build": "npm run build:dashboard && npm run build:core",
+    "cleanup:runtime": "node ./dist/runtime-cleanup.js",
     "clean": "rm -rf dist",
     "pack": "npm run build && mkdir -p artifacts && npm pack --pack-destination artifacts",
+    "preuninstall": "node ./dist/runtime-cleanup.js",
     "prepublishOnly": "npm run build",
     "export:design-tokens": "node ./scripts/export-design-tokens.mjs"
   },

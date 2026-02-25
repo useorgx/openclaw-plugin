@@ -11,6 +11,7 @@ import {
   type SnapshotV2Payload,
   type WorkSliceProjectionV2,
 } from "../helpers/slice-experience-v2.js";
+import { shouldHideActivityItem } from "../../event-sanitization.js";
 import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
@@ -787,6 +788,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       agents: agentContexts,
       runs: runContexts,
     });
+    activity = activity.filter((item) => !shouldHideActivityItem(item));
     sessions = normalizeReportingBlockedSessions({
       sessions,
       activity,

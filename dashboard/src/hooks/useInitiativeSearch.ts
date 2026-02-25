@@ -119,7 +119,7 @@ export function useInitiativeSearch(
       const buildScopedParams = (input: Record<string, string>): URLSearchParams => {
         const params = new URLSearchParams(input);
         if (scopedProjectId.length > 0) {
-          params.set('command_center_id', scopedProjectId);
+          params.set('workspace_id', scopedProjectId);
         }
         return params;
       };
