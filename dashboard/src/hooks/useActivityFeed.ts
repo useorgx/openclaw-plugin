@@ -51,6 +51,34 @@ function resolveInitiativeId(item: LiveActivityItem): string | null {
   return readMetadataString(metadata, ['initiative_id', 'initiativeId']);
 }
 
+function areJsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right) return false;
+  if (left === null || right === null) return left === right;
+  if (typeof left !== 'object') return false;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!areJsonValuesEqual(left[index], right[index])) return false;
+    }
+    return true;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    const key = leftKeys[index];
+    if (key !== rightKeys[index]) return false;
+    if (!areJsonValuesEqual(leftRecord[key], rightRecord[key])) return false;
+  }
+  return true;
+}
+
 const FEED_DEBUG = typeof window !== 'undefined' && /[?&]debug_feed/.test(window.location.search);
 
 function feedLog(tag: string, ...args: unknown[]) {
@@ -116,7 +144,7 @@ function mergeById(current: LiveActivityItem[], incoming: LiveActivityItem[]): L
       existing.title !== item.title ||
       existing.description !== item.description ||
       existing.summary !== item.summary ||
-      JSON.stringify(existing.metadata ?? null) !== JSON.stringify(item.metadata ?? null)
+      !areJsonValuesEqual(existing.metadata ?? null, item.metadata ?? null)
     ) {
       byId.set(item.id, item);
       changed = true;

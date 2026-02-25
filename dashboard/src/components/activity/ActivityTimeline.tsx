@@ -3211,6 +3211,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     };
   }, [timeRangeMenuOpen]);
 
+  // Prefetch-style infinite scroll: start loading well before the user sees
+  // the bottom so new events materialise seamlessly.
+  const loadMoreStableRef = useRef(onLoadMore);
+  loadMoreStableRef.current = onLoadMore;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  isLoadingMoreRef.current = isLoadingMore;
+
   useEffect(() => {
     const root = scrollRef.current;
     const target = sentinelRef.current;
@@ -3228,16 +3237,21 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           return;
         }
 
-        if (hasMore && !isLoadingMore) {
-          onLoadMore?.();
+        if (hasMoreRef.current && !isLoadingMoreRef.current) {
+          loadMoreStableRef.current?.();
         }
       },
-      { root, rootMargin: '240px' }
+      // Large rootMargin so we begin fetching ~600px before the user
+      // reaches the bottom — by the time they scroll there, items are
+      // already in the DOM.
+      { root, rootMargin: '0px 0px 600px 0px' }
     );
 
     observer.observe(target);
     return () => observer.disconnect();
-  }, [filtered.length, hasMore, isLoadingMore, onLoadMore, renderableTotal]);
+    // Intentionally stable deps — hasMore/isLoadingMore/onLoadMore read
+    // from refs so the observer doesn't get recreated on every poll cycle.
+  }, [filtered.length, renderableTotal]);
 
   const activeIndex = useMemo(() => {
     if (!activeItemId) return -1;
@@ -4482,7 +4496,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             </div>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth px-4 py-3 pb-24">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth px-4 py-3 pb-24">
             {filtered.length === 0 && (
               <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
                 <div className="mx-auto max-w-2xl">
@@ -4720,25 +4734,32 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               );
             })}
 
-            {hiddenCount > 0 && (
-              <p className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">
-                Showing {filtered.length}/{filteredTotal} matched events (load more to see older).
-              </p>
-            )}
+            {/* Infinite-scroll sentinel — positioned well above the visual
+                bottom so the IntersectionObserver fires early (600px margin). */}
+            <div ref={sentinelRef} className="pointer-events-none h-px" aria-hidden />
 
-            <div ref={sentinelRef} className="h-6" />
-
-            {(hasMore || isLoadingMore) && (
-              <div className="flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={() => onLoadMore?.()}
-                  disabled={!hasMore || isLoadingMore}
-                  className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                >
-                  {isLoadingMore ? 'Loading older…' : 'Load older'}
-                </button>
+            {/* Minimal loading affordance — fades in/out without layout shift. */}
+            <div
+              className={cn(
+                'flex items-center justify-center py-6 transition-opacity duration-500 ease-out',
+                isLoadingMore ? 'opacity-100' : hasMore ? 'opacity-0' : 'opacity-0 pointer-events-none'
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="flex gap-1" aria-label="Loading older events">
+                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                </div>
               </div>
+            </div>
+
+            {!hasMore && !isLoadingMore && filtered.length > 0 && (
+              <p className="pb-4 text-center text-micro tracking-wide text-muted/50">
+                {hiddenCount > 0
+                  ? `${filtered.length} of ${filteredTotal} events`
+                  : 'You\u2019ve reached the beginning'}
+              </p>
             )}
           </div>
         )}
