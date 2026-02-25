@@ -204,6 +204,15 @@ export function selectInProgressRows({
       ? initiativeNameById.get(primaryInitiativeId) ?? primaryInitiativeId
       : null;
 
+    const sliceProgress =
+      slice.scopeProgress &&
+      typeof slice.scopeProgress.totalTasks === 'number' &&
+      slice.scopeProgress.totalTasks > 0
+        ? Math.round(
+            (slice.scopeProgress.completedTasks / slice.scopeProgress.totalTasks) * 100
+          )
+        : null;
+
     runningSliceRows.push({
       key: `slice:${slice.sliceRunId}`,
       source: 'slice',
@@ -212,7 +221,7 @@ export function selectInProgressRows({
       status: normalizeStatus(slice.status),
       title: slice.workstreamTitle ?? linkedSession?.title ?? `Work slice ${slice.sliceRunId.slice(0, 8)}`,
       subtitle: slice.statusExplainer ?? slice.lastEventSummary ?? linkedSession?.lastEventSummary ?? null,
-      progress: linkedSession?.progress ?? null,
+      progress: sliceProgress ?? linkedSession?.progress ?? null,
       initiativeId: primaryInitiativeId,
       initiativeIds,
       initiativeTitle,

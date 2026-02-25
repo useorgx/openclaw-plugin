@@ -51,6 +51,14 @@ function resolveInitiativeId(item: LiveActivityItem): string | null {
   return readMetadataString(metadata, ['initiative_id', 'initiativeId']);
 }
 
+const FEED_DEBUG = typeof window !== 'undefined' && /[?&]debug_feed/.test(window.location.search);
+
+function feedLog(tag: string, ...args: unknown[]) {
+  if (!FEED_DEBUG) return;
+  // eslint-disable-next-line no-console
+  console.log(`%c[activity-feed] ${tag}`, 'color:#7dd3c0;font-weight:600', ...args);
+}
+
 function normalizeSeed(
   items: LiveActivityItem[],
   bounds: { sinceEpoch: number | null; untilEpoch: number | null },
@@ -60,16 +68,30 @@ function normalizeSeed(
   const byId = new Map<string, LiveActivityItem>();
   const sinceEpoch = bounds.sinceEpoch;
   const untilEpoch = bounds.untilEpoch;
+  let skippedRun = 0;
+  let skippedInitiative = 0;
+  let skippedTime = 0;
   for (const item of items ?? []) {
     if (!item || typeof item.id !== 'string') continue;
-    if (runId && item.runId !== runId) continue;
-    if (initiativeId && resolveInitiativeId(item) !== initiativeId) continue;
+    if (runId && item.runId !== runId) { skippedRun++; continue; }
+    if (initiativeId && resolveInitiativeId(item) !== initiativeId) { skippedInitiative++; continue; }
     const epoch = toEpoch(item.timestamp);
     if (!epoch) continue;
-    if (sinceEpoch !== null && epoch < sinceEpoch) continue;
-    if (untilEpoch !== null && epoch > untilEpoch) continue;
+    if (sinceEpoch !== null && epoch < sinceEpoch) { skippedTime++; continue; }
+    if (untilEpoch !== null && epoch > untilEpoch) { skippedTime++; continue; }
     byId.set(item.id, item);
   }
+  feedLog('normalizeSeed', {
+    inputCount: items?.length ?? 0,
+    outputCount: byId.size,
+    runId,
+    initiativeId,
+    skippedRun,
+    skippedInitiative,
+    skippedTime,
+    sinceEpoch: sinceEpoch ? new Date(sinceEpoch).toISOString() : null,
+    untilEpoch: untilEpoch ? new Date(untilEpoch).toISOString() : null,
+  });
   return Array.from(byId.values()).sort(compareActivity);
 }
 
@@ -77,12 +99,15 @@ function mergeById(current: LiveActivityItem[], incoming: LiveActivityItem[]): L
   if (incoming.length === 0) return current;
   const byId = new Map<string, LiveActivityItem>();
   for (const item of current) byId.set(item.id, item);
+  let added = 0;
+  let updated = 0;
   let changed = false;
   for (const item of incoming) {
     const existing = byId.get(item.id);
     if (!existing) {
       byId.set(item.id, item);
       changed = true;
+      added++;
       continue;
     }
     if (
@@ -95,8 +120,17 @@ function mergeById(current: LiveActivityItem[], incoming: LiveActivityItem[]): L
     ) {
       byId.set(item.id, item);
       changed = true;
+      updated++;
     }
   }
+  feedLog('mergeById', {
+    currentCount: current.length,
+    incomingCount: incoming.length,
+    added,
+    updated,
+    changed,
+    resultCount: byId.size,
+  });
   if (!changed) return current;
   return Array.from(byId.values()).sort(compareActivity);
 }
@@ -182,18 +216,59 @@ export function useActivityFeed(options: {
   const inFlightRef = useRef<Promise<void> | null>(null);
   const bootstrapAttemptedRef = useRef(false);
 
-  // Reset when filter/run changes.
+  // Keep a ref to the latest seed so the reset effect can read it without
+  // depending on it — preventing the "wipe paged data on every SSE push" bug.
+  const normalizedSeedRef = useRef(normalizedSeed);
+  normalizedSeedRef.current = normalizedSeed;
+
+  // Composite key of the filter parameters that should cause a full reset.
+  // When only the SSE seed changes the key stays stable → no reset.
+  const filterIdentity = useMemo(
+    () => `${runId ?? ''}|${initiativeId ?? ''}|${timeFilterId}|${sinceIso ?? ''}|${untilIso ?? ''}|${projectId ?? ''}`,
+    [runId, initiativeId, timeFilterId, sinceIso, untilIso, projectId]
+  );
+  const prevFilterIdentityRef = useRef(filterIdentity);
+
+  // Reset when actual filter/run parameters change — NOT on seed data changes.
+  // The old dependency on `normalizedSeed` caused a full wipe + re-bootstrap
+  // on every SSE push, flickering from ~57 paged items down to ~11 seed items.
   useEffect(() => {
-    setItems(normalizedSeed);
+    // Skip the initial mount — useState already initialized with the seed.
+    if (prevFilterIdentityRef.current === filterIdentity) return;
+    prevFilterIdentityRef.current = filterIdentity;
+
+    feedLog('RESET', {
+      reason: 'filter/run change',
+      runId,
+      initiativeId,
+      projectId,
+      timeFilterId,
+      sinceIso,
+      untilIso,
+      seedCount: normalizedSeedRef.current.length,
+    });
+    setItems(normalizedSeedRef.current);
     setCursor(initialCursor);
     setError(null);
     setStoreUpdatedAt(null);
     bootstrapAttemptedRef.current = false;
-  }, [initialCursor, initiativeId, normalizedSeed, projectId, runId, sinceIso, timeFilterId, untilIso]);
+  }, [filterIdentity, initialCursor, runId, initiativeId, projectId, timeFilterId, sinceIso, untilIso]);
 
   // Merge in new seed items (SSE tail) without disturbing the paging cursor.
+  // This is the ONLY path for SSE data to enter the items array after mount.
   useEffect(() => {
-    setItems((prev) => mergeById(prev, normalizedSeed));
+    setItems((prev) => {
+      const next = mergeById(prev, normalizedSeed);
+      if (next !== prev) {
+        feedLog('SSE_MERGE', {
+          prevCount: prev.length,
+          seedCount: normalizedSeed.length,
+          nextCount: next.length,
+          delta: next.length - prev.length,
+        });
+      }
+      return next;
+    });
   }, [normalizedSeed]);
 
   const loadMore = useCallback(async () => {
@@ -233,10 +308,29 @@ export function useActivityFeed(options: {
           throw new Error(detail);
         }
 
-        const nextItems = (Array.isArray(payload.activities) ? payload.activities : []).filter(
+        const rawPageItems = Array.isArray(payload.activities) ? payload.activities : [];
+        const nextItems = rawPageItems.filter(
           (item) => !initiativeId || resolveInitiativeId(item) === initiativeId
         );
-        setItems((prev) => mergeById(prev, nextItems));
+        feedLog('PAGE_FETCH', {
+          cursor,
+          rawCount: rawPageItems.length,
+          afterFilter: nextItems.length,
+          filteredOut: rawPageItems.length - nextItems.length,
+          initiativeId,
+          runId,
+          nextCursor: payload.nextCursor ?? null,
+        });
+        setItems((prev) => {
+          const next = mergeById(prev, nextItems);
+          feedLog('PAGE_MERGE', {
+            prevCount: prev.length,
+            pageCount: nextItems.length,
+            nextCount: next.length,
+            added: next.length - prev.length,
+          });
+          return next;
+        });
         setCursor(payload.nextCursor ?? null);
         setStoreUpdatedAt(payload.storeUpdatedAt ?? null);
         setError(null);

@@ -2900,12 +2900,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
     let filteredSyncEvents = 0;
+    let skippedBySession = 0;
+    let skippedByWorkstream = 0;
+    let skippedByAgent = 0;
     const seenSyncReplayKeys = new Set<string>();
     const normalizedQuery = query.trim().toLowerCase();
 
     for (const decorated of decoratedActivity) {
       const runId = decorated.runId;
       if (hasSessionFilter && (!runId || !selectedRunIdSet.has(runId))) {
+        skippedBySession++;
         continue;
       }
 
@@ -2914,12 +2918,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         const fromSession = runId ? sessionWorkstreamByRunId.get(runId) ?? null : null;
         const resolvedWorkstreamId = fromMetadata ?? fromSession;
         if (resolvedWorkstreamId !== selectedWorkstreamId) {
+          skippedByWorkstream++;
           continue;
         }
       }
 
       const identity = resolveAgentIdentity(decorated.item);
       if (agentFilter && identity.agentName !== agentFilter) {
+        skippedByAgent++;
         continue;
       }
 
@@ -2960,6 +2966,28 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       } else {
         overflow += 1; // avoid unbounded CPU for huge windows
       }
+    }
+
+    if (typeof window !== 'undefined' && /[?&]debug_feed/.test(window.location.search)) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '%c[activity-timeline] FILTER',
+        'color:#7dd3c0;font-weight:600',
+        {
+          inputCount: decoratedActivity.length,
+          matchedCount: matched.length,
+          skippedBySession,
+          skippedByWorkstream,
+          skippedByAgent,
+          filteredSyncEvents,
+          overflow,
+          hasSessionFilter,
+          selectedRunIds: hasSessionFilter ? Array.from(selectedRunIdSet) : null,
+          selectedWorkstreamId: selectedWorkstreamId ?? null,
+          agentFilter: agentFilter ?? null,
+          activeFilter,
+        }
+      );
     }
 
     const sortedAll = [...matched].sort((a, b) => {

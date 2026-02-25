@@ -102,7 +102,6 @@ export function ActivityTimelineItem({
             className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"
             title={displayAgentName}
           >
-            <AgentAvatar name={displayAgentName} hint={displayAgentName} size="xs" />
             <span className="truncate">{displayAgentName}</span>
           </span>
         </div>
