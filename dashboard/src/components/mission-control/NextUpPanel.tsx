@@ -10,8 +10,15 @@ import { InlineToast } from '@/components/shared/InlineToast';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
-import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
-import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import {
+  useNextUpQueue,
+  type NextUpQueueItem,
+  type UseNextUpQueueResult,
+} from '@/hooks/useNextUpQueue';
+import {
+  useNextUpQueueActions,
+  type UseNextUpQueueActionsResult,
+} from '@/hooks/useNextUpQueueActions';
 import type { NextUpQueueBulkAction } from '@/types';
 
 interface NextUpPanelProps {
@@ -33,6 +40,9 @@ interface NextUpPanelProps {
   selectionEnabled?: boolean;
   panelStyle?: 'card' | 'flat';
   showQueueSettings?: boolean;
+  queueModel?: UseNextUpQueueResult;
+  queueActions?: UseNextUpQueueActionsResult;
+  snapshotVersion?: number | null;
 }
 
 interface ActionGlyphProps {
@@ -488,6 +498,9 @@ export function NextUpPanel({
   selectionEnabled = true,
   panelStyle = 'card',
   showQueueSettings = true,
+  queueModel,
+  queueActions,
+  snapshotVersion = null,
 }: NextUpPanelProps) {
   const [localCompact, setLocalCompact] = useState(compact);
   useEffect(() => setLocalCompact(compact), [compact]);
@@ -508,6 +521,15 @@ export function NextUpPanel({
   const [queueSettingsOpen, setQueueSettingsOpen] = useState(false);
   const [signalToastHidden, setSignalToastHidden] = useState(false);
   const queueSettingsRef = useRef<HTMLDivElement | null>(null);
+  const internalQueue = useNextUpQueue({
+    initiativeId,
+    projectId,
+    authToken,
+    embedMode,
+    enabled: queueModel ? false : true,
+    snapshotVersion,
+  });
+  const queue = queueModel ?? internalQueue;
   const {
     items,
     degraded,
@@ -517,15 +539,10 @@ export function NextUpPanel({
     refetch,
     playWorkstream,
     startWorkstreamAutoContinue,
-  } = useNextUpQueue({
-    initiativeId,
-    projectId,
-    authToken,
-    embedMode,
-    enabled: true,
-  });
+  } = queue;
 
-  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const activeElsewhereCount = useMemo(
     () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,

@@ -380,7 +380,6 @@ export function registerEntitiesRoutes<TReq, TRes>(
     const search = query.get("search")?.trim() || undefined;
     const initiativeId = query.get("initiative_id") ?? undefined;
     const workspaceId = workspaceScope.workspaceId ?? undefined;
-    const projectId = workspaceId ? undefined : query.get("project_id") ?? undefined;
     const limit = query.get("limit") ? Number(query.get("limit")) : undefined;
     const offset = query.get("offset") ? Number(query.get("offset")) : undefined;
 
@@ -391,7 +390,6 @@ export function registerEntitiesRoutes<TReq, TRes>(
         search,
         status,
         initiative_id: initiativeId,
-        project_id: projectId,
         workspace_id: workspaceId,
         command_center_id: workspaceId,
         limit: Number.isFinite(limit) ? limit : undefined,

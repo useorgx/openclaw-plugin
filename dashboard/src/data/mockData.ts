@@ -9,6 +9,7 @@ export const createMockData = (): LiveData => {
     connection: 'connected',
     lastActivity: '2m ago',
     lastSnapshotAt: now.toISOString(),
+    snapshotVersion: 1,
     sessions: {
       groups: [
         { id: 'init-1', label: 'Q4 Feature Ship', status: 'active' },

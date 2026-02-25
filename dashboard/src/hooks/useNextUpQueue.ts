@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  MissionControlSliceItem,
-  MissionControlSlicesResponse,
   NextUpQueueItem,
   NextUpQueueResponse,
   NextUpQueueState,
@@ -25,6 +23,7 @@ interface UseNextUpQueueOptions {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
+  snapshotVersion?: number | null;
 }
 
 interface NextUpActionInput {
@@ -189,7 +188,7 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
     generatedAt: nowIso,
     total: scopedItems.length,
     items: scopedItems,
-    degraded: ['Demo mode: queue is rendered from local fixture data.'],
+    degraded: [],
   });
 }
 
@@ -346,117 +345,13 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
   };
 }
 
-function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueState {
-  const explicit = (item.queueState ?? '').trim().toLowerCase();
-  if (explicit === 'queued' || explicit === 'running' || explicit === 'blocked' || explicit === 'idle') {
-    return explicit as NextUpQueueState;
-  }
-
-  const status = item.status.trim().toLowerCase();
-  if (
-    status === 'running' ||
-    status === 'active' ||
-    status === 'in_progress' ||
-    status === 'dispatching'
-  ) {
-    return 'running';
-  }
-  if (
-    item.runnable === false ||
-    status === 'blocked' ||
-    status === 'failed' ||
-    status === 'error'
-  ) {
-    return 'blocked';
-  }
-  if (status === 'completed' || status === 'done' || status === 'resolved') {
-    return 'idle';
-  }
-  return 'queued';
-}
-
-function toWorkstreamFallbackLabel(workstreamId: string | null): string {
-  if (!workstreamId) return 'Workstream';
-  const trimmed = workstreamId.trim();
-  if (trimmed.length === 0) return 'Workstream';
-  return /^[a-f0-9-]{16,}$/i.test(trimmed)
-    ? `Workstream ${trimmed.slice(0, 8)}`
-    : trimmed;
-}
-
-function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | null {
-  const lineageInitiativeIds =
-    item.lineage?.initiativeIds?.filter(
-      (value): value is string => typeof value === 'string' && value.trim().length > 0
-    ) ?? [];
-  const lineageWorkstreamIds =
-    item.lineage?.workstreamIds?.filter(
-      (value): value is string => typeof value === 'string' && value.trim().length > 0
-    ) ?? [];
-
-  const initiativeId = item.initiativeId?.trim() || lineageInitiativeIds[0] || null;
-  const workstreamId =
-    item.workstreamId?.trim() ||
-    item.sourceWorkstreamIds?.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim() ||
-    lineageWorkstreamIds[0] ||
-    null;
-  if (!initiativeId || !workstreamId) return null;
-
-  const taskIds =
-    item.lineage?.taskIds?.filter((taskId): taskId is string => typeof taskId === 'string' && taskId.trim().length > 0) ??
-    [];
-  const scopeFromLevel =
-    item.level === 'workstream' || item.level === 'milestone' || item.level === 'task'
-      ? item.level
-      : null;
-  const fallbackRunnerId = normalizeRunnerId(item.runnerAgentId ?? null);
-  const fallbackRunnerName = normalizeRunnerName(item.runnerAgentName ?? null, fallbackRunnerId);
-  const runnerAgents = normalizeRunnerAgents(
-    item.runnerAgents ?? null,
-    fallbackRunnerId,
-    fallbackRunnerName
-  );
-  const runnerPrimary = runnerAgents[0] ?? null;
-
-  return {
-    initiativeId,
-    initiativeTitle: item.initiativeTitle?.trim() || lineageInitiativeIds[0] || initiativeId,
-    initiativeStatus: 'active',
-    workstreamId,
-    workstreamTitle:
-      item.workstreamTitle?.trim() ||
-      item.title?.trim() ||
-      item.milestoneTitle?.trim() ||
-      item.taskTitle?.trim() ||
-      toWorkstreamFallbackLabel(workstreamId),
-    workstreamStatus: item.status,
-    nextTaskId: item.taskId,
-    nextTaskTitle: item.taskTitle?.trim() || null,
-    nextTaskPriority: typeof item.priorityNum === 'number' ? item.priorityNum : null,
-    nextTaskDueAt: item.dueAt,
-    runnerAgentId: runnerPrimary?.id ?? fallbackRunnerId,
-    runnerAgentName: runnerPrimary?.name ?? fallbackRunnerName,
-    runnerAgents,
-    runnerSource: item.runnerSource ?? (runnerPrimary ? 'inferred' : 'fallback'),
-    queueState: normalizeSliceQueueState(item),
-    blockReason: item.blockReason ?? null,
-    queueOrigin: 'system',
-    sliceScope: scopeFromLevel,
-    sliceTaskIds: taskIds.length > 0 ? taskIds : item.taskId ? [item.taskId] : [],
-    sliceTaskCount:
-      taskIds.length > 0 ? taskIds.length : item.taskId ? 1 : 0,
-    sliceMilestoneId: item.milestoneId,
-    executionPolicy: null,
-    autoContinue: null,
-  };
-}
-
 export function useNextUpQueue({
   initiativeId = null,
   projectId = null,
   authToken = null,
   embedMode = false,
   enabled = true,
+  snapshotVersion = null,
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
   const demoMode = isDemoModeEnabled();
@@ -472,8 +367,8 @@ export function useNextUpQueue({
   }, []);
 
   const queryKey = useMemo(
-    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
-    [initiativeId, projectId, authToken, embedMode]
+    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode, snapshotVersion }),
+    [initiativeId, projectId, authToken, embedMode, snapshotVersion]
   );
 
   const scheduleLiveDataInvalidate = () => {
@@ -558,51 +453,6 @@ export function useNextUpQueue({
         ...normalized,
         items: visibleItems,
       });
-
-      if (responsePayload.items.length > 0) {
-        return responsePayload;
-      }
-
-      const sliceParams = new URLSearchParams();
-      if (initiativeId) sliceParams.set('initiative_id', initiativeId);
-      if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(sliceParams, projectId, {
-          includeCenterAlias: true,
-          includeProjectAlias: false,
-        });
-      }
-      sliceParams.set('level', 'workstream');
-      sliceParams.set('include_completed', '0');
-      sliceParams.set('limit', '120');
-
-      try {
-        const slicesRes = await fetch(`/orgx/api/mission-control/slices?${sliceParams.toString()}`, {
-          headers: buildOrgxHeaders({ authToken, embedMode }),
-        });
-        const slicesBody = await readResponseJson<MissionControlSlicesResponse>(slicesRes);
-        if (slicesRes.ok && slicesBody?.ok && Array.isArray(slicesBody.items)) {
-          const sliceItems = slicesBody.items
-            .map((slice) => mapSliceToQueueItem(slice))
-            .filter((item): item is NextUpQueueItem => Boolean(item))
-            .filter((item) => !isSyntheticInitiativeId(item.initiativeId));
-          if (sliceItems.length > 0) {
-            responsePayload = normalizeQueueResponse({
-              ok: true,
-              generatedAt: new Date().toISOString(),
-              total: sliceItems.length,
-              items: sliceItems,
-              degraded: Array.from(
-                new Set([
-                  ...(normalized.degraded ?? []),
-                  'Queue derived from slices while live queue stabilizes.',
-                ])
-              ),
-            });
-          }
-        }
-      } catch {
-        // best effort fallback only
-      }
 
       return responsePayload;
     },
@@ -744,6 +594,7 @@ export function useNextUpQueue({
   return {
     items: query.data?.items ?? [],
     total: query.data?.total ?? 0,
+    generatedAt: query.data?.generatedAt ?? null,
     degraded: query.data?.degraded ?? [],
     isLoading: query.isLoading,
     isFetching: query.isFetching,
@@ -759,3 +610,20 @@ export function useNextUpQueue({
 }
 
 export type { NextUpQueueItem };
+
+export interface UseNextUpQueueResult {
+  items: NextUpQueueItem[];
+  total: number;
+  generatedAt: string | null;
+  degraded: string[];
+  isLoading: boolean;
+  isFetching: boolean;
+  error: string | null;
+  refetch: () => Promise<unknown>;
+  playWorkstream: (input: NextUpActionInput) => Promise<unknown>;
+  startWorkstreamAutoContinue: (input: StartAutoContinueInput) => Promise<unknown>;
+  stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;
+  isPlaying: boolean;
+  isStartingAutoContinue: boolean;
+  isStoppingAutoContinue: boolean;
+}

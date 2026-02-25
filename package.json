@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:hooks": "npm run build:core && node --test --test-concurrency=1 tests/*.test.mjs tests/**/*.test.mjs",
+    "test:hooks": "npm run build:core && node ./scripts/run-targeted-test.mjs tests/*.test.mjs tests/**/*.test.mjs",
     "test:file": "node ./scripts/run-targeted-test.mjs",
     "job:dispatch": "npm run build:core && node ./scripts/run-codex-dispatch-job.mjs",
     "agents:refresh": "node ./scripts/daily-agents-refresh.mjs",

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import type { LiveDecision } from '@/types';
+import type { DecisionMutationState, LiveDecision } from '@/types';
 import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,7 @@ interface DecisionQueueProps {
     action: 'approve' | 'reject',
     note?: string
   ) => Promise<DecisionActionSummary>;
+  mutationState?: DecisionMutationState;
 }
 
 function composeBulkActionId(
@@ -89,6 +90,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   onRejectDecision,
   onApproveAll,
   onBulkDecisionAction,
+  mutationState,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);
@@ -431,19 +433,32 @@ export const DecisionQueue = memo(function DecisionQueue({
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  const externalPending = mutationState?.phase === 'pending';
+  const externalError = mutationState?.phase === 'error';
+  const externalSuccess = mutationState?.phase === 'success';
+  const externalTargetCount =
+    mutationState && mutationState.targetCount > 0 ? mutationState.targetCount : 0;
+  const externalMessage = mutationState?.message ?? null;
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
-  const hasInFlightMutations = isApprovingAll || approving.size > 0;
-  const inFlightCount = Math.max(approving.size, isApprovingAll ? selectedCount : 0);
+  const hasInFlightMutations = externalPending || isApprovingAll || approving.size > 0;
+  const inFlightCount = externalPending
+    ? externalTargetCount
+    : Math.max(approving.size, isApprovingAll ? selectedCount : 0);
   const statusMessage = hasInFlightMutations
-    ? `Applying ${inFlightCount} decision action${inFlightCount === 1 ? '' : 's'}…`
-    : notice ?? null;
+    ? externalMessage ??
+      `Applying ${inFlightCount} decision action${inFlightCount === 1 ? '' : 's'}…`
+    : externalMessage ?? notice ?? null;
   const statusTone: 'processing' | 'success' | 'warning' | 'idle' = hasInFlightMutations
     ? 'processing'
-    : notice
-      ? noticeIsSuccess
+    : externalError
+      ? 'warning'
+      : externalSuccess
         ? 'success'
-        : 'warning'
-      : 'idle';
+        : notice
+          ? noticeIsSuccess
+            ? 'success'
+            : 'warning'
+          : 'idle';
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
   const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
   const pendingCount = sorted.length;

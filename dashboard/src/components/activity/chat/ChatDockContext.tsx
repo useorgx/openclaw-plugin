@@ -574,7 +574,8 @@ export function ChatDockProvider({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             threadId,
-            project_id: workspaceId ?? undefined,
+            workspace_id: workspaceId ?? undefined,
+            command_center_id: workspaceId ?? undefined,
             initiativeId: initiative?.id ?? null,
             initiativeTitle: initiative?.name ?? null,
             relinked: true,
@@ -608,7 +609,8 @@ export function ChatDockProvider({
         {
           body: {
             threadId: input.thread.id,
-            project_id: workspaceId ?? undefined,
+            workspace_id: workspaceId ?? undefined,
+            command_center_id: workspaceId ?? undefined,
             initiativeId: input.thread.initiativeId ?? selectedInitiative?.id ?? undefined,
             initiativeTitle: input.thread.initiativeTitle ?? selectedInitiative?.name ?? undefined,
             assigneeId: selectedAssignee?.id ?? input.thread.assigneeId ?? undefined,
@@ -657,7 +659,8 @@ export function ChatDockProvider({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         threadId: activeThreadId ?? undefined,
-        project_id: workspaceId ?? undefined,
+        workspace_id: workspaceId ?? undefined,
+        command_center_id: workspaceId ?? undefined,
         initiativeId: selectedInitiative?.id ?? activeThread?.initiativeId ?? undefined,
         initiativeTitle: selectedInitiative?.name ?? activeThread?.initiativeTitle ?? undefined,
         assigneeId: selectedAssignee?.id ?? activeThread?.assigneeId ?? undefined,

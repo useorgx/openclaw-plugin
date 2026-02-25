@@ -44,7 +44,9 @@ type AgentSuiteRuntimeSettingsApiAgent = {
 type AgentSuiteRuntimeSettingsEnvelope =
   | {
       ok: true;
-      project_id: string | null;
+      workspace_id?: string | null;
+      command_center_id?: string | null;
+      project_id?: string | null;
       agents?: AgentSuiteRuntimeSettingsApiAgent[];
       agent?: AgentSuiteRuntimeSettingsApiAgent;
     }
@@ -139,7 +141,15 @@ function normalizeRuntimeSettingsResponse(
     ? [envelope.agent]
     : [];
   return {
-    projectId: normalizeUuid(typeof envelope.project_id === 'string' ? envelope.project_id : null),
+    projectId: normalizeUuid(
+      typeof envelope.workspace_id === 'string'
+        ? envelope.workspace_id
+        : typeof envelope.command_center_id === 'string'
+          ? envelope.command_center_id
+          : typeof envelope.project_id === 'string'
+            ? envelope.project_id
+            : null
+    ),
     agents: agents.map(normalizeRuntimeSettingsAgent),
   };
 }
@@ -260,7 +270,12 @@ export function useAgentSuite({
         method: 'PATCH',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify({
-          ...(projectId ? { project_id: projectId } : {}),
+          ...(projectId
+            ? {
+                workspace_id: projectId,
+                command_center_id: projectId,
+              }
+            : {}),
           agent_id: input.agentId,
           runtime_settings: {
             decision_v2_enabled: input.runtimeSettings.decisionV2Enabled,

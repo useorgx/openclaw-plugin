@@ -168,29 +168,31 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
 
 export function parseSliceResult<T extends object>(raw: string): T | null {
   const allowedStatuses = new Set(["completed", "blocked", "needs_decision", "error"]);
-
-  const hasBlockingDecision = (value: unknown): boolean => {
-    if (!Array.isArray(value)) return false;
-    return value.some((entry) => {
-      if (!entry || typeof entry !== "object") return false;
-      return (entry as Record<string, unknown>).blocking === true;
-    });
+  const stripUtf8Bom = (text: string): string => text.replace(/^\uFEFF/, "");
+  const extractMarkdownJsonFence = (text: string): string | null => {
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (!match || typeof match[1] !== "string") return null;
+    const inner = match[1].trim();
+    return inner.length > 0 ? inner : null;
   };
-
-  const hasNonEmptyArray = (value: unknown): boolean => Array.isArray(value) && value.length > 0;
-
-  const satisfiesStatusConsistency = (record: Record<string, unknown>): boolean => {
-    const status = typeof record.status === "string" ? record.status : "";
-    const hasBlocking = hasBlockingDecision(record.decisions_needed);
-    if (status === "completed") {
-      if (hasBlocking) return false;
-      const hasOutcomes =
-        hasNonEmptyArray(record.artifacts) ||
-        hasNonEmptyArray(record.task_updates) ||
-        hasNonEmptyArray(record.milestone_updates);
-      if (!hasOutcomes) return false;
+  const stripMarkdownJsonFence = (text: string): string => {
+    const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (!fenced || typeof fenced[1] !== "string") return text;
+    return fenced[1].trim();
+  };
+  const parseSliceJsonText = (text: string): T | null => {
+    const normalized = stripUtf8Bom(stripMarkdownJsonFence(text.trim()));
+    const parsed = parseJsonSafe<T>(normalized);
+    if (parsed && typeof parsed === "object" && isLikelySliceResult(parsed)) {
+      return normalizeSliceResult(parsed);
     }
-    return true;
+    const innerFenced = extractMarkdownJsonFence(normalized);
+    if (!innerFenced) return null;
+    const parsedInner = parseJsonSafe<T>(stripUtf8Bom(innerFenced));
+    if (parsedInner && typeof parsedInner === "object" && isLikelySliceResult(parsedInner)) {
+      return normalizeSliceResult(parsedInner);
+    }
+    return null;
   };
 
   const isLikelySliceResult = (value: unknown): value is T => {
@@ -198,44 +200,118 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
     const record = value as Record<string, unknown>;
     const status = typeof record.status === "string" ? record.status : "";
     const workstreamId = typeof record.workstream_id === "string" ? record.workstream_id : "";
+    const summary = typeof record.summary === "string" ? record.summary : "";
+
     return (
       allowedStatuses.has(status) &&
-      typeof record.summary === "string" &&
-      workstreamId.trim().length > 0 &&
-      satisfiesStatusConsistency(record)
+      summary.trim().length > 0 &&
+      workstreamId.trim().length > 0
     );
+  };
+
+  const normalizeSliceResult = (value: T): T => {
+    const record = value as Record<string, unknown>;
+    const status = typeof record.status === "string" ? record.status : "";
+    const decisions = record.decisions_needed;
+    let changed = false;
+    let nextRecord: Record<string, unknown> = record;
+
+    if (Array.isArray(decisions)) {
+      const normalized = decisions.map((decision) => {
+        if (!decision || typeof decision !== "object") return decision;
+        const decisionRecord = decision as Record<string, unknown>;
+        if (typeof decisionRecord.blocking === "boolean") return decision;
+        changed = true;
+        return { ...decisionRecord, blocking: false };
+      });
+      if (changed) nextRecord = { ...nextRecord, decisions_needed: normalized };
+    }
+
+    const hasBlockingDecision =
+      Array.isArray(nextRecord.decisions_needed) &&
+      nextRecord.decisions_needed.some((decision) => {
+        if (!decision || typeof decision !== "object") return false;
+        return (decision as Record<string, unknown>).blocking === true;
+      });
+
+    if (status === "completed" && hasBlockingDecision) {
+      changed = true;
+      nextRecord = { ...nextRecord, status: "needs_decision" };
+    }
+
+    const hasOutcome =
+      (Array.isArray(nextRecord.artifacts) && nextRecord.artifacts.length > 0) ||
+      (Array.isArray(nextRecord.task_updates) && nextRecord.task_updates.length > 0) ||
+      (Array.isArray(nextRecord.milestone_updates) && nextRecord.milestone_updates.length > 0);
+
+    if (status === "completed" && !hasOutcome) {
+      changed = true;
+      nextRecord = { ...nextRecord, status: "error" };
+    }
+
+    return changed ? (nextRecord as T) : value;
   };
 
   const unwrapStructuredOutput = (value: unknown): T | null => {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
+    const parseEmbeddedText = (candidate: unknown): T | null => {
+      if (typeof candidate !== "string") return null;
+      return parseSliceJsonText(candidate);
+    };
+    const finalOutput = record.final_output;
+    if (finalOutput && typeof finalOutput === "object") {
+      return isLikelySliceResult(finalOutput) ? normalizeSliceResult(finalOutput as T) : null;
+    }
+    if (typeof finalOutput === "string") {
+      const parsedFinalOutput = parseSliceJsonText(finalOutput);
+      if (parsedFinalOutput) return parsedFinalOutput;
+    }
     const structured = record.structured_output;
     if (structured && typeof structured === "object") {
-      return isLikelySliceResult(structured) ? (structured as T) : null;
+      return isLikelySliceResult(structured) ? normalizeSliceResult(structured as T) : null;
     }
     if (typeof structured === "string") {
-      const parsedStructured = parseJsonSafe<T>(structured.trim());
-      if (parsedStructured && typeof parsedStructured === "object" && isLikelySliceResult(parsedStructured)) {
-        return parsedStructured;
-      }
+      const parsedStructured = parseSliceJsonText(structured);
+      if (parsedStructured) return parsedStructured;
     }
     // Claude text-mode envelopes can sometimes return JSON in `result`.
     if (typeof record.result === "string") {
-      const parsedResult = parseJsonSafe<T>(record.result.trim());
-      if (parsedResult && typeof parsedResult === "object" && isLikelySliceResult(parsedResult)) {
-        return parsedResult;
+      const parsedResult = parseSliceJsonText(record.result);
+      if (parsedResult) return parsedResult;
+    }
+    if (typeof record.output_text === "string") {
+      const parsedOutputText = parseSliceJsonText(record.output_text);
+      if (parsedOutputText) return parsedOutputText;
+    }
+    // Responses-style envelopes can return text in output/message/content arrays.
+    const output = record.output;
+    if (Array.isArray(output)) {
+      for (let i = output.length - 1; i >= 0; i -= 1) {
+        const item = output[i];
+        if (!item || typeof item !== "object") continue;
+        const itemRecord = item as Record<string, unknown>;
+        const directText = parseEmbeddedText(itemRecord.text);
+        if (directText) return directText;
+        const outputText = parseEmbeddedText(itemRecord.output_text);
+        if (outputText) return outputText;
+        if (!Array.isArray(itemRecord.content)) continue;
+        for (let j = itemRecord.content.length - 1; j >= 0; j -= 1) {
+          const content = itemRecord.content[j];
+          if (!content || typeof content !== "object") continue;
+          const contentRecord = content as Record<string, unknown>;
+          const contentText = parseEmbeddedText(contentRecord.text);
+          if (contentText) return contentText;
+          const contentOutputText = parseEmbeddedText(contentRecord.output_text);
+          if (contentOutputText) return contentOutputText;
+        }
       }
     }
-    return isLikelySliceResult(record) ? (record as T) : null;
+    return isLikelySliceResult(record) ? normalizeSliceResult(record as T) : null;
   };
 
-  const trimmed = raw.trim();
+  const trimmed = stripUtf8Bom(raw).trim();
   if (!trimmed) return null;
-  const stripMarkdownJsonFence = (text: string): string => {
-    const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    if (!fenced || typeof fenced[1] !== "string") return text;
-    return fenced[1].trim();
-  };
 
   const direct = parseJsonSafe<unknown>(stripMarkdownJsonFence(trimmed));
   const directUnwrapped = unwrapStructuredOutput(direct);

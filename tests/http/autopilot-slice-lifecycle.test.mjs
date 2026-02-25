@@ -974,7 +974,8 @@ test("autopilot slice lifecycle: behavior config approval gate blocks before dis
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      // Keep this above scheduler jitter so short mock runs are not marked stalled under full-suite load.
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -1026,7 +1027,8 @@ test("autopilot slice lifecycle: behavior config approval gate normalizes in-rev
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      // Keep this above scheduler jitter so short mock runs are not marked stalled under full-suite load.
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();

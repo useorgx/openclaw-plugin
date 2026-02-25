@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
+  DecisionMutationState,
   LiveData,
   LiveActivityItem,
   LiveDecision,
@@ -79,8 +80,8 @@ const DEFAULT_MAX_HANDOFFS = 80;
 const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
-const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 9_000;
-const SNAPSHOT_FALLBACK_STAGGER_MS = 260;
+const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 3_500;
+const SNAPSHOT_FALLBACK_STAGGER_MS = 180;
 const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   pendingTotal: 0,
   pendingByQueue: {},
@@ -91,6 +92,15 @@ const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   lastReplaySuccessAt: null,
   lastReplayFailureAt: null,
   lastReplayError: null,
+};
+
+const EMPTY_DECISION_MUTATION: DecisionMutationState = {
+  phase: 'idle',
+  action: null,
+  targetCount: 0,
+  message: null,
+  startedAt: null,
+  completedAt: null,
 };
 const EMPTY_CHAT_SNAPSHOT: LiveChatSnapshot = {
   threads: [],
@@ -595,6 +605,7 @@ function metadataString(
 
 const SEMANTIC_ACTIVITY_EVENTS = new Set([
   'autopilot_slice_result',
+  'auto_continue_started',
   'auto_continue_stopped',
   'next_up_manual_dispatch_started',
   'autopilot_slice_mcp_handshake_failed',
@@ -1072,6 +1083,7 @@ function buildLiveData(
   sliceRuns: SliceRunProjection[] = [],
   outbox: OutboxStatus = EMPTY_OUTBOX_STATUS,
   generatedAt: string | null = null,
+  snapshotVersion = 1,
   runtimeInstances: RuntimeInstance[] = [],
   chat: LiveChatSnapshot = EMPTY_CHAT_SNAPSHOT,
   extra?: {
@@ -1097,6 +1109,7 @@ function buildLiveData(
     connection: 'connected',
     lastActivity: latestTimestamp ? formatRelativeTime(latestTimestamp) : null,
     lastSnapshotAt: generatedAt,
+    snapshotVersion,
     sessions,
     activity,
     handoffs,
@@ -1581,6 +1594,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       : null;
 
   const [data, setData] = useState<LiveData>(createMockData());
+  const [decisionMutation, setDecisionMutation] =
+    useState<DecisionMutationState>(EMPTY_DECISION_MUTATION);
   const [isLoading, setIsLoading] = useState(!useMock);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
@@ -1593,12 +1608,45 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`
   );
   const resetScopeOnNextSnapshotRef = useRef<boolean>(false);
+  const decisionMutationResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const publishDecisionMutation = useCallback(
+    (
+      next: DecisionMutationState,
+      options?: {
+        autoResetMs?: number;
+      }
+    ) => {
+      if (decisionMutationResetTimerRef.current) {
+        clearTimeout(decisionMutationResetTimerRef.current);
+        decisionMutationResetTimerRef.current = null;
+      }
+      setDecisionMutation(next);
+      if (options?.autoResetMs && options.autoResetMs > 0) {
+        decisionMutationResetTimerRef.current = setTimeout(() => {
+          decisionMutationResetTimerRef.current = null;
+          setDecisionMutation(EMPTY_DECISION_MUTATION);
+        }, options.autoResetMs);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (decisionMutationResetTimerRef.current) {
+        clearTimeout(decisionMutationResetTimerRef.current);
+        decisionMutationResetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const scopeKey = `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`;
     if (scopeKeyRef.current === scopeKey) return;
     scopeKeyRef.current = scopeKey;
     resetScopeOnNextSnapshotRef.current = true;
+    publishDecisionMutation(EMPTY_DECISION_MUTATION);
     setData((prev) => ({
       ...prev,
       sessions: { nodes: [], edges: [], groups: [] },
@@ -1618,10 +1666,11 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       consistencyFlags: [],
       lastActivity: null,
       lastSnapshotAt: null,
+      snapshotVersion: (prev.snapshotVersion ?? 0) + 1,
     }));
     setIsLoading(true);
     setError(null);
-  }, [normalizedInitiativeId, normalizedProjectId]);
+  }, [normalizedInitiativeId, normalizedProjectId, publishDecisionMutation]);
 
   const applySnapshot = useCallback(
     (
@@ -1736,6 +1785,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           v2Input?.dataHealth === undefined || v2Input?.dataHealth === null
             ? prev.dataHealth
             : v2Input.dataHealth;
+        const nextSnapshotVersion = (prev.snapshotVersion ?? 0) + 1;
 
         if (
           sameSessionsShape(prev.sessions, sessions) &&
@@ -1769,6 +1819,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sliceRuns,
           outbox,
           generatedAtInput,
+          nextSnapshotVersion,
           runtimeInstances,
           chat,
           {
@@ -2019,156 +2070,215 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       }
       const note = input?.note?.trim() || undefined;
       const optionId = input?.optionId?.trim() || undefined;
-
-      if (useMock) {
-        const resolvedIds = new Set(ids);
-        setData((prev) => {
-          const approvedDecisions = prev.decisions.filter((decision) =>
-            resolvedIds.has(decision.id)
-          );
-          if (approvedDecisions.length === 0) {
-            return prev;
-          }
-
-          const now = new Date().toISOString();
-          const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
-            id: `decision:${action}:${decision.id}:${Date.now()}`,
-            type: 'decision_resolved',
-            title:
-              action === 'approve'
-                ? `Approved: ${decision.title}`
-                : `Rejected: ${decision.title}`,
-            description: decision.context,
-            agentId: null,
-            agentName: decision.agentName,
-            requesterAgentId: null,
-            requesterAgentName: decision.agentName ?? null,
-            executorAgentId: null,
-            executorAgentName: decision.agentName ?? null,
-            runId: null,
-            initiativeId: null,
-            timestamp: now,
-            metadata: {
-              decisionId: decision.id,
-              action,
-            },
-          }));
-
-          const mergedActivity = normalizeActivity(
-            decisionEvents.concat(prev.activity),
-            maxActivityItems
-          );
-          return {
-            ...prev,
-            decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
-            activity: mergedActivity,
-            lastActivity: formatRelativeTime(now),
-          };
-        });
-        return { updated: resolvedIds.size, failed: 0, firstError: undefined };
-      }
-
-      const response = await fetch('/orgx/api/live/decisions/approve', {
-        method: 'POST',
-        headers: buildOrgxHeaders({
-          contentTypeJson: true,
-          workspaceId: normalizedProjectId,
-        }),
-        body: JSON.stringify({
-          ids,
-          action,
-          ...(note ? { note } : {}),
-          ...(optionId ? { option_id: optionId } : {}),
-        }),
+      const startedAt = new Date().toISOString();
+      publishDecisionMutation({
+        phase: 'pending',
+        action,
+        targetCount: ids.length,
+        message:
+          action === 'approve'
+            ? `Approving ${ids.length} decision${ids.length === 1 ? '' : 's'}…`
+            : `Rejecting ${ids.length} decision${ids.length === 1 ? '' : 's'}…`,
+        startedAt,
+        completedAt: null,
       });
 
-      const payload = (await response.json().catch(() => null)) as DecisionMutationResponse | null;
-      const results = Array.isArray(payload?.results) ? payload.results : [];
-      const resolvedIds = new Set(
-        results.filter((result) => result.ok).map((result) => result.id)
-      );
-      const failedResults = results.filter((result) => !result.ok);
-      const firstError =
-        failedResults.find((result) => typeof result.error === 'string' && result.error.trim().length > 0)
-          ?.error ??
-        (typeof payload?.error === 'string' && payload.error.trim().length > 0
-          ? payload.error
-          : undefined);
+      try {
+        if (useMock) {
+          const resolvedIds = new Set(ids);
+          setData((prev) => {
+            const approvedDecisions = prev.decisions.filter((decision) =>
+              resolvedIds.has(decision.id)
+            );
+            if (approvedDecisions.length === 0) {
+              return prev;
+            }
 
-      if (!response.ok && response.status !== 207) {
-        const serverMessage = firstError ?? `Decision action failed (${response.status})`;
-        throw new Error(serverMessage);
-      }
+            const now = new Date().toISOString();
+            const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
+              id: `decision:${action}:${decision.id}:${Date.now()}`,
+              type: 'decision_resolved',
+              title:
+                action === 'approve'
+                  ? `Approved: ${decision.title}`
+                  : `Rejected: ${decision.title}`,
+              description: decision.context,
+              agentId: null,
+              agentName: decision.agentName,
+              requesterAgentId: null,
+              requesterAgentName: decision.agentName ?? null,
+              executorAgentId: null,
+              executorAgentName: decision.agentName ?? null,
+              runId: null,
+              initiativeId: null,
+              timestamp: now,
+              metadata: {
+                decisionId: decision.id,
+                action,
+              },
+            }));
 
-      if (resolvedIds.size === 0 && response.ok && (payload?.failed ?? 0) === 0) {
-        for (const id of ids) {
-          resolvedIds.add(id);
-        }
-      }
-
-      if (resolvedIds.size > 0) {
-        setData((prev) => {
-          const approvedDecisions = prev.decisions.filter((decision) =>
-            resolvedIds.has(decision.id)
-          );
-          if (approvedDecisions.length === 0) {
-            return prev;
-          }
-
-          const now = new Date().toISOString();
-          const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
-            id: `decision:${action}:${decision.id}:${Date.now()}`,
-            type: 'decision_resolved',
-            title:
-              action === 'approve'
-                ? `Approved: ${decision.title}`
-                : `Rejected: ${decision.title}`,
-            description: decision.context,
-            agentId: null,
-            agentName: decision.agentName,
-            requesterAgentId: null,
-            requesterAgentName: decision.agentName ?? null,
-            executorAgentId: null,
-            executorAgentName: decision.agentName ?? null,
-            runId: null,
-            initiativeId: null,
-            timestamp: now,
-            metadata: {
-              decisionId: decision.id,
+            const mergedActivity = normalizeActivity(
+              decisionEvents.concat(prev.activity),
+              maxActivityItems
+            );
+            return {
+              ...prev,
+              decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
+              activity: mergedActivity,
+              lastActivity: formatRelativeTime(now),
+            };
+          });
+          publishDecisionMutation(
+            {
+              phase: 'success',
               action,
+              targetCount: resolvedIds.size,
+              message:
+                action === 'approve'
+                  ? `Approved ${resolvedIds.size} decision${resolvedIds.size === 1 ? '' : 's'}.`
+                  : `Rejected ${resolvedIds.size} decision${resolvedIds.size === 1 ? '' : 's'}.`,
+              startedAt,
+              completedAt: new Date().toISOString(),
             },
-          }));
-
-          const mergedActivity = normalizeActivity(
-            decisionEvents.concat(prev.activity),
-            maxActivityItems
+            { autoResetMs: 4_000 }
           );
-          const next = {
-            ...prev,
-            decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
-            activity: mergedActivity,
-            lastActivity: formatRelativeTime(now),
-          };
+          return { updated: resolvedIds.size, failed: 0, firstError: undefined };
+        }
 
-          return next;
+        const response = await fetch('/orgx/api/live/decisions/approve', {
+          method: 'POST',
+          headers: buildOrgxHeaders({
+            contentTypeJson: true,
+            workspaceId: normalizedProjectId,
+          }),
+          body: JSON.stringify({
+            ids,
+            action,
+            ...(note ? { note } : {}),
+            ...(optionId ? { option_id: optionId } : {}),
+          }),
         });
-      } else if (response.ok && ids.length > 0) {
-        // API returned 200 but no individual results — clear optimistically
-        // and schedule a refetch to reconcile.
-        setData((prev) => ({
-          ...prev,
-          decisions: prev.decisions.filter((d) => !ids.includes(d.id)),
-        }));
+
+        const payload = (await response.json().catch(() => null)) as DecisionMutationResponse | null;
+        const results = Array.isArray(payload?.results) ? payload.results : [];
+        const resolvedIds = new Set(
+          results.filter((result) => result.ok).map((result) => result.id)
+        );
+        const failedResults = results.filter((result) => !result.ok);
+        const firstError =
+          failedResults.find((result) => typeof result.error === 'string' && result.error.trim().length > 0)
+            ?.error ??
+          (typeof payload?.error === 'string' && payload.error.trim().length > 0
+            ? payload.error
+            : undefined);
+
+        if (!response.ok && response.status !== 207) {
+          const serverMessage = firstError ?? `Decision action failed (${response.status})`;
+          throw new Error(serverMessage);
+        }
+
+        if (resolvedIds.size === 0 && response.ok && (payload?.failed ?? 0) === 0) {
+          for (const id of ids) {
+            resolvedIds.add(id);
+          }
+        }
+
+        if (resolvedIds.size > 0) {
+          setData((prev) => {
+            const approvedDecisions = prev.decisions.filter((decision) =>
+              resolvedIds.has(decision.id)
+            );
+            if (approvedDecisions.length === 0) {
+              return prev;
+            }
+
+            const now = new Date().toISOString();
+            const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
+              id: `decision:${action}:${decision.id}:${Date.now()}`,
+              type: 'decision_resolved',
+              title:
+                action === 'approve'
+                  ? `Approved: ${decision.title}`
+                  : `Rejected: ${decision.title}`,
+              description: decision.context,
+              agentId: null,
+              agentName: decision.agentName,
+              requesterAgentId: null,
+              requesterAgentName: decision.agentName ?? null,
+              executorAgentId: null,
+              executorAgentName: decision.agentName ?? null,
+              runId: null,
+              initiativeId: null,
+              timestamp: now,
+              metadata: {
+                decisionId: decision.id,
+                action,
+              },
+            }));
+
+            const mergedActivity = normalizeActivity(
+              decisionEvents.concat(prev.activity),
+              maxActivityItems
+            );
+            const next = {
+              ...prev,
+              decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
+              activity: mergedActivity,
+              lastActivity: formatRelativeTime(now),
+            };
+
+            return next;
+          });
+        } else if (response.ok && ids.length > 0) {
+          setData((prev) => ({
+            ...prev,
+            decisions: prev.decisions.filter((d) => !ids.includes(d.id)),
+          }));
+        }
+
+        // Force a refetch to reconcile server state after mutation
+        void fetchSnapshot();
+
+        const updated = payload?.updated ?? resolvedIds.size;
+        const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
+        publishDecisionMutation(
+          {
+            phase: failed > 0 ? 'error' : 'success',
+            action,
+            targetCount: ids.length,
+            message:
+              failed > 0
+                ? `${action === 'approve' ? 'Approve' : 'Reject'} completed with ${failed} failure${failed === 1 ? '' : 's'}.`
+                : action === 'approve'
+                  ? `Approved ${updated} decision${updated === 1 ? '' : 's'}.`
+                  : `Rejected ${updated} decision${updated === 1 ? '' : 's'}.`,
+            startedAt,
+            completedAt: new Date().toISOString(),
+          },
+          { autoResetMs: failed > 0 ? 8_000 : 4_000 }
+        );
+        return { updated, failed, firstError };
+      } catch (err) {
+        publishDecisionMutation({
+          phase: 'error',
+          action,
+          targetCount: ids.length,
+          message: err instanceof Error ? err.message : 'Decision update failed.',
+          startedAt,
+          completedAt: new Date().toISOString(),
+        });
+        throw err;
       }
-
-      // Force a refetch to reconcile server state after mutation
-      void fetchSnapshot();
-
-      const updated = payload?.updated ?? resolvedIds.size;
-      const failed = payload?.failed ?? Math.max(0, ids.length - resolvedIds.size);
-      return { updated, failed, firstError };
     },
-    [enableDecisions, fetchSnapshot, maxActivityItems, useMock]
+    [
+      enableDecisions,
+      fetchSnapshot,
+      maxActivityItems,
+      normalizedProjectId,
+      publishDecisionMutation,
+      useMock,
+    ]
   );
 
   const approveDecision = useCallback(
@@ -2206,11 +2316,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
   useEffect(() => {
     if (enableDecisions) return;
+    publishDecisionMutation(EMPTY_DECISION_MUTATION);
     setData((prev) => {
       if (prev.decisions.length === 0) return prev;
       return { ...prev, decisions: [] };
     });
-  }, [enableDecisions]);
+  }, [enableDecisions, publishDecisionMutation]);
 
   useEffect(() => {
     if (!enabled) {
@@ -2605,5 +2716,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     rejectDecision,
     approveAllDecisions,
     bulkDecisionAction,
+    decisionMutation,
   };
 }

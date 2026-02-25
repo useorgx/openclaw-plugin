@@ -127,6 +127,32 @@ type RegisterMissionControlReadRoutesDeps<TRes> = {
   safeErrorMessage: (err: unknown) => string;
 };
 
+const NEXT_UP_LOCAL_QUEUE_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.ORGX_NEXT_UP_LOCAL_QUEUE_TIMEOUT_MS ?? "");
+  if (!Number.isFinite(raw)) return 1_500;
+  return Math.max(250, Math.min(15_000, Math.floor(raw)));
+})();
+
+async function withSoftTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -865,10 +891,19 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const projectId = scope.workspaceId;
 
     try {
-      const queue = await deps.buildNextUpQueue({
-        initiativeId,
-        projectId,
-      });
+      const queue = await withSoftTimeout(
+        deps.buildNextUpQueue({
+          initiativeId,
+          projectId,
+        }),
+        NEXT_UP_LOCAL_QUEUE_TIMEOUT_MS,
+        "local next-up queue"
+      ).catch((err: unknown) => ({
+        items: [] as NextUpQueueItem[],
+        degraded: [
+          `local next-up queue unavailable (${deps.safeErrorMessage(err)})`,
+        ],
+      }));
       let items = Array.isArray(queue.items) ? queue.items : [];
       const degraded = dedupeStrings(
         Array.isArray(queue.degraded) ? queue.degraded : []
