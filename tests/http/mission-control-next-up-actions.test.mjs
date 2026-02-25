@@ -548,6 +548,145 @@ test("mission-control next-up honors workspace scope aliases and never falls bac
   );
 });
 
+test("mission-control next-up re-paginates canonical payloads that ignore limit/offset", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-canonical-page-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const canonicalItems = Array.from({ length: 60 }, (_, idx) => ({
+        initiativeId: "init-1",
+        initiativeTitle: "Initiative 1",
+        initiativeStatus: "active",
+        workstreamId: `ws-${idx + 1}`,
+        workstreamTitle: `Workstream ${idx + 1}`,
+        workstreamStatus: "active",
+        nextTaskId: `task-${idx + 1}`,
+        nextTaskTitle: `Task ${idx + 1}`,
+        nextTaskPriority: idx + 1,
+        nextTaskDueAt: null,
+        queueState: "queued",
+      }));
+
+      const { handler, calls } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          assert.equal(method, "GET");
+          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
+          return {
+            ok: true,
+            generatedAt: new Date().toISOString(),
+            total: canonicalItems.length,
+            items: canonicalItems,
+          };
+        },
+      });
+
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&offset=24&limit=24",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.source, "canonical");
+      assert.equal(body.total, 60);
+      assert.equal(Array.isArray(body.items), true);
+      assert.equal(body.items.length, 24);
+      assert.equal(body.items[0]?.workstreamId, "ws-25");
+      assert.equal(body.items[23]?.workstreamId, "ws-48");
+      assert.equal(body.pagination?.offset, 24);
+      assert.equal(body.pagination?.limit, 24);
+      assert.equal(body.pagination?.total, 60);
+      assert.equal(body.pagination?.nextCursor, "48");
+      assert.equal(body.pagination?.hasMore, true);
+      assert.ok(calls.rawRequest.length >= 1);
+    }
+  );
+});
+
+test("mission-control next-up serves stale canonical cache on transient canonical failures", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-stale-cache-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      let failCanonical = false;
+      const { handler } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          if (!path.startsWith("/api/client/mission-control/next-up?")) {
+            throw new Error("unexpected canonical path");
+          }
+          if (failCanonical) throw new Error("upstream timeout");
+          return {
+            ok: true,
+            generatedAt: new Date().toISOString(),
+            total: 1,
+            items: [
+              {
+                initiativeId: "init-1",
+                initiativeTitle: "Initiative 1",
+                initiativeStatus: "active",
+                workstreamId: "ws-1",
+                workstreamTitle: "Workstream 1",
+                workstreamStatus: "active",
+                nextTaskId: "task-1",
+                nextTaskTitle: "Task 1",
+                nextTaskPriority: 1,
+                nextTaskDueAt: null,
+                queueState: "queued",
+              },
+            ],
+            pagination: {
+              offset: 0,
+              limit: 24,
+              total: 1,
+              hasMore: false,
+              nextCursor: null,
+            },
+          };
+        },
+      });
+
+      const first = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&offset=0&limit=24",
+        headers: {},
+      });
+      assert.equal(first.status, 200);
+      const firstBody = JSON.parse(first.body);
+      assert.equal(firstBody.source, "canonical");
+      assert.equal(firstBody.items.length, 1);
+
+      // Wait for fresh cache expiry (9s) while staying within stale cache window (45s).
+      await sleep(9_500);
+      failCanonical = true;
+
+      const second = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&offset=0&limit=24",
+        headers: {},
+      });
+      assert.equal(second.status, 200);
+      const secondBody = JSON.parse(second.body);
+      assert.equal(secondBody.source, "canonical_cache_stale");
+      assert.equal(secondBody.items.length, 1);
+      assert.ok(Array.isArray(secondBody.degraded));
+      assert.ok(
+        secondBody.degraded.some((entry) =>
+          String(entry).toLowerCase().includes("cached canonical queue")
+        )
+      );
+    }
+  );
+});
+
 test("mission-control next-up bulk reorders and removes queue entries", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-bulk-"));
   await withEnv(

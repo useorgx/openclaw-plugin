@@ -39,6 +39,68 @@ type PersistedAgentContexts = {
 const MAX_AGENTS = 120;
 const MAX_RUNS = 480;
 
+function timestampSortValue(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asTimestamp(value: unknown): string {
+  if (typeof value === "string" && value.trim().length > 0) return value;
+  return new Date().toISOString();
+}
+
+function normalizeAgentContextsMap(input: unknown): Record<string, AgentLaunchContext> {
+  if (!isRecord(input)) return {};
+  const normalized: Record<string, AgentLaunchContext> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!isRecord(value)) continue;
+    const hasExplicitAgentId = Object.prototype.hasOwnProperty.call(value, "agentId");
+    const id = hasExplicitAgentId ? asOptionalString(value.agentId) : asOptionalString(key);
+    if (!id) continue;
+    normalized[id] = {
+      agentId: id,
+      initiativeId: asOptionalString(value.initiativeId),
+      initiativeTitle: asOptionalString(value.initiativeTitle),
+      workstreamId: asOptionalString(value.workstreamId),
+      taskId: asOptionalString(value.taskId),
+      updatedAt: asTimestamp(value.updatedAt),
+    };
+  }
+  return normalized;
+}
+
+function normalizeRunContextsMap(input: unknown): Record<string, RunLaunchContext> {
+  if (!isRecord(input)) return {};
+  const normalized: Record<string, RunLaunchContext> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!isRecord(value)) continue;
+    const hasExplicitRunId = Object.prototype.hasOwnProperty.call(value, "runId");
+    const runId = hasExplicitRunId ? asOptionalString(value.runId) : asOptionalString(key);
+    const agentId = asOptionalString(value.agentId);
+    if (!runId || !agentId) continue;
+    normalized[runId] = {
+      runId,
+      agentId,
+      initiativeId: asOptionalString(value.initiativeId),
+      initiativeTitle: asOptionalString(value.initiativeTitle),
+      workstreamId: asOptionalString(value.workstreamId),
+      taskId: asOptionalString(value.taskId),
+      updatedAt: asTimestamp(value.updatedAt),
+    };
+  }
+  return normalized;
+}
+
 function contextDir(): string {
   return getOrgxPluginConfigDir();
 }
@@ -54,11 +116,11 @@ function ensureContextDir(): void {
 function normalizeContext(input: AgentLaunchContext): AgentLaunchContext {
   return {
     agentId: input.agentId.trim(),
-    initiativeId: input.initiativeId ?? null,
-    initiativeTitle: input.initiativeTitle ?? null,
-    workstreamId: input.workstreamId ?? null,
-    taskId: input.taskId ?? null,
-    updatedAt: input.updatedAt,
+    initiativeId: asOptionalString(input.initiativeId),
+    initiativeTitle: asOptionalString(input.initiativeTitle),
+    workstreamId: asOptionalString(input.workstreamId),
+    taskId: asOptionalString(input.taskId),
+    updatedAt: asTimestamp(input.updatedAt),
   };
 }
 
@@ -66,11 +128,11 @@ function normalizeRunContext(input: RunLaunchContext): RunLaunchContext {
   return {
     runId: input.runId.trim(),
     agentId: input.agentId.trim(),
-    initiativeId: input.initiativeId ?? null,
-    initiativeTitle: input.initiativeTitle ?? null,
-    workstreamId: input.workstreamId ?? null,
-    taskId: input.taskId ?? null,
-    updatedAt: input.updatedAt,
+    initiativeId: asOptionalString(input.initiativeId),
+    initiativeTitle: asOptionalString(input.initiativeTitle),
+    workstreamId: asOptionalString(input.workstreamId),
+    taskId: asOptionalString(input.taskId),
+    updatedAt: asTimestamp(input.updatedAt),
   };
 }
 
@@ -86,15 +148,10 @@ export function readAgentContexts(): PersistedAgentContexts {
       backupCorruptFileSync(file);
       return { updatedAt: new Date().toISOString(), agents: {}, runs: {} };
     }
-    const agents =
-      parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {};
-    const runs =
-      parsed.runs && typeof parsed.runs === "object" ? parsed.runs : {};
+    const agents = normalizeAgentContextsMap(parsed.agents);
+    const runs = normalizeRunContextsMap(parsed.runs);
     return {
-      updatedAt:
-        typeof parsed.updatedAt === "string"
-          ? parsed.updatedAt
-          : new Date().toISOString(),
+      updatedAt: asTimestamp(parsed.updatedAt),
       agents: agents as Record<string, AgentLaunchContext>,
       runs: runs as Record<string, RunLaunchContext>,
     };
@@ -146,7 +203,7 @@ export function upsertAgentContext(input: {
   // Prune if the file grows unbounded (rare).
   const values = Object.values(next.agents);
   if (values.length > MAX_AGENTS) {
-    values.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    values.sort((a, b) => timestampSortValue(b.updatedAt) - timestampSortValue(a.updatedAt));
     const keep = new Set(values.slice(0, MAX_AGENTS).map((c) => c.agentId));
     for (const key of Object.keys(next.agents)) {
       if (!keep.has(key)) {
@@ -193,7 +250,7 @@ export function upsertRunContext(input: {
 
   const values = Object.values(next.runs);
   if (values.length > MAX_RUNS) {
-    values.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    values.sort((a, b) => timestampSortValue(b.updatedAt) - timestampSortValue(a.updatedAt));
     const keep = new Set(values.slice(0, MAX_RUNS).map((c) => c.runId));
     for (const key of Object.keys(next.runs)) {
       if (!keep.has(key)) {

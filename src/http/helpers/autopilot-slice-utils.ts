@@ -169,13 +169,18 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
 export function parseSliceResult<T extends object>(raw: string): T | null {
   const allowedStatuses = new Set(["completed", "blocked", "needs_decision", "error"]);
   const stripUtf8Bom = (text: string): string => text.replace(/^\uFEFF/, "");
-  const extractMarkdownJsonFence = (text: string): string | null => {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (!match || typeof match[1] !== "string") return null;
-    const inner = match[1].trim();
-    return inner.length > 0 ? inner : null;
+  const extractMarkdownJsonFences = (text: string): string[] => {
+    const matches = text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
+    const fences: string[] = [];
+    for (const match of matches) {
+      const inner = typeof match[1] === "string" ? match[1].trim() : "";
+      if (inner.length > 0) fences.push(inner);
+    }
+    return fences;
   };
   const stripMarkdownJsonFence = (text: string): string => {
+    const fenceCount = text.match(/```/g)?.length ?? 0;
+    if (fenceCount !== 2) return text;
     const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
     if (!fenced || typeof fenced[1] !== "string") return text;
     return fenced[1].trim();
@@ -186,11 +191,12 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
     if (parsed && typeof parsed === "object" && isLikelySliceResult(parsed)) {
       return normalizeSliceResult(parsed);
     }
-    const innerFenced = extractMarkdownJsonFence(normalized);
-    if (!innerFenced) return null;
-    const parsedInner = parseJsonSafe<T>(stripUtf8Bom(innerFenced));
-    if (parsedInner && typeof parsedInner === "object" && isLikelySliceResult(parsedInner)) {
-      return normalizeSliceResult(parsedInner);
+    const fencedCandidates = extractMarkdownJsonFences(normalized);
+    for (let i = fencedCandidates.length - 1; i >= 0; i -= 1) {
+      const parsedInner = parseJsonSafe<T>(stripUtf8Bom(fencedCandidates[i]!));
+      if (parsedInner && typeof parsedInner === "object" && isLikelySliceResult(parsedInner)) {
+        return normalizeSliceResult(parsedInner);
+      }
     }
     return null;
   };
@@ -234,9 +240,32 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         return (decision as Record<string, unknown>).blocking === true;
       });
 
-    if (status === "completed" && hasBlockingDecision) {
+    if (hasBlockingDecision && status === "completed") {
       changed = true;
       nextRecord = { ...nextRecord, status: "needs_decision" };
+    }
+
+    if (status === "completed") {
+      const hasExplicitOutcomeArrays =
+        Array.isArray(record.artifacts) ||
+        Array.isArray(record.task_updates) ||
+        Array.isArray(record.milestone_updates) ||
+        Array.isArray(record.decisions_needed);
+      const artifactsCount = Array.isArray(nextRecord.artifacts) ? nextRecord.artifacts.length : 0;
+      const taskUpdatesCount = Array.isArray(nextRecord.task_updates)
+        ? nextRecord.task_updates.length
+        : 0;
+      const milestoneUpdatesCount = Array.isArray(nextRecord.milestone_updates)
+        ? nextRecord.milestone_updates.length
+        : 0;
+      const hasOutcomes =
+        artifactsCount > 0 ||
+        taskUpdatesCount > 0 ||
+        milestoneUpdatesCount > 0;
+      if (hasExplicitOutcomeArrays && !hasOutcomes) {
+        changed = true;
+        nextRecord = { ...nextRecord, status: "error" };
+      }
     }
 
     return changed ? (nextRecord as T) : value;
@@ -246,12 +275,38 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
     const parseEmbeddedText = (candidate: unknown): T | null => {
-      if (typeof candidate !== "string") return null;
-      return parseSliceJsonText(candidate);
+      if (typeof candidate === "string") {
+        return parseSliceJsonText(candidate);
+      }
+      if (Array.isArray(candidate)) {
+        for (let i = candidate.length - 1; i >= 0; i -= 1) {
+          const parsed = parseEmbeddedText(candidate[i]);
+          if (parsed) return parsed;
+        }
+        return null;
+      }
+      if (!candidate || typeof candidate !== "object") return null;
+      const candidateRecord = candidate as Record<string, unknown>;
+      if (typeof candidateRecord.value === "string") {
+        return parseSliceJsonText(candidateRecord.value);
+      }
+      if (typeof candidateRecord.text === "string") {
+        return parseSliceJsonText(candidateRecord.text);
+      }
+      const fromValue = parseEmbeddedText(candidateRecord.value);
+      if (fromValue) return fromValue;
+      const fromText = parseEmbeddedText(candidateRecord.text);
+      if (fromText) return fromText;
+      const fromOutputText = parseEmbeddedText(candidateRecord.output_text);
+      if (fromOutputText) return fromOutputText;
+      return null;
     };
     const finalOutput = record.final_output;
     if (finalOutput && typeof finalOutput === "object") {
-      return isLikelySliceResult(finalOutput) ? normalizeSliceResult(finalOutput as T) : null;
+      if (isLikelySliceResult(finalOutput)) return normalizeSliceResult(finalOutput as T);
+      const parsedFinalOutput = parseEmbeddedText(finalOutput);
+      if (parsedFinalOutput) return parsedFinalOutput;
+      return null;
     }
     if (typeof finalOutput === "string") {
       const parsedFinalOutput = parseSliceJsonText(finalOutput);
@@ -259,7 +314,10 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
     }
     const structured = record.structured_output;
     if (structured && typeof structured === "object") {
-      return isLikelySliceResult(structured) ? normalizeSliceResult(structured as T) : null;
+      if (isLikelySliceResult(structured)) return normalizeSliceResult(structured as T);
+      const parsedStructured = parseEmbeddedText(structured);
+      if (parsedStructured) return parsedStructured;
+      return null;
     }
     if (typeof structured === "string") {
       const parsedStructured = parseSliceJsonText(structured);
@@ -290,6 +348,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
           const content = itemRecord.content[j];
           if (!content || typeof content !== "object") continue;
           const contentRecord = content as Record<string, unknown>;
+          const contentDirect = parseEmbeddedText(contentRecord);
+          if (contentDirect) return contentDirect;
           const contentText = parseEmbeddedText(contentRecord.text);
           if (contentText) return contentText;
           const contentOutputText = parseEmbeddedText(contentRecord.output_text);
@@ -306,6 +366,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
   const direct = parseJsonSafe<unknown>(stripMarkdownJsonFence(trimmed));
   const directUnwrapped = unwrapStructuredOutput(direct);
   if (directUnwrapped && typeof directUnwrapped === "object") return directUnwrapped;
+  const directTextParsed = parseSliceJsonText(trimmed);
+  if (directTextParsed && typeof directTextParsed === "object") return directTextParsed;
 
   // Tolerant parse: extract the last complete top-level JSON object from mixed logs.
   const extractTopLevelObjects = (text: string): string[] => {
@@ -424,7 +486,12 @@ export function normalizeCodexArgs(args: string[]): string[] {
   }
 
   if (!normalized.includes("--skip-git-repo-check")) {
-    normalized.push("--skip-git-repo-check");
+    const passthroughIndex = normalized.indexOf("--");
+    if (passthroughIndex > -1) {
+      normalized.splice(passthroughIndex, 0, "--skip-git-repo-check");
+    } else {
+      normalized.push("--skip-git-repo-check");
+    }
   }
 
   return normalized;

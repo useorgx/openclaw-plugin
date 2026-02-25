@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   parseArgs,
+  normalizeCodexArgs,
   buildTaskQueue,
   extractPlanContext,
   buildCodexPrompt,
@@ -19,6 +20,7 @@ import {
   computeMilestoneRollup,
   computeWorkstreamRollup,
   computeExecutionProgress,
+  phaseFromJobOutcome,
 } from "../../scripts/run-codex-dispatch-job.mjs";
 
 test("parseArgs parses --key=value pairs", () => {
@@ -31,6 +33,57 @@ test("parseArgs parses --key=value pairs", () => {
   assert.equal(args.initiative_id, "aa6d16dc-d450-417f-8a17-fd89bd597195");
   assert.equal(args.concurrency, "6");
   assert.equal(args.dry_run, "true");
+});
+
+test("parseArgs parses space-delimited values and flags", () => {
+  const args = parseArgs([
+    "--initiative_id",
+    "aa6d16dc-d450-417f-8a17-fd89bd597195",
+    "--concurrency",
+    "8",
+    "--dry_run",
+    "--max_attempts",
+    "3",
+  ]);
+
+  assert.equal(args.initiative_id, "aa6d16dc-d450-417f-8a17-fd89bd597195");
+  assert.equal(args.concurrency, "8");
+  assert.equal(args.dry_run, "true");
+  assert.equal(args.max_attempts, "3");
+});
+
+test("normalizeCodexArgs inserts internal flags before passthrough marker", () => {
+  const normalized = normalizeCodexArgs(["exec", "--", "echo", "ok"]);
+  assert.deepEqual(normalized, [
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    'model_reasoning_effort="high"',
+    "--",
+    "echo",
+    "ok",
+  ]);
+});
+
+test("normalizeCodexArgs does not duplicate existing internal flags", () => {
+  const normalized = normalizeCodexArgs([
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    'model_reasoning_effort="high"',
+    "--",
+    "echo",
+    "ok",
+  ]);
+  assert.deepEqual(normalized, [
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    'model_reasoning_effort="high"',
+    "--",
+    "echo",
+    "ok",
+  ]);
 });
 
 test("buildTaskQueue filters by workstream/task and sorts by due + priority", () => {
@@ -107,6 +160,219 @@ test("buildTaskQueue filters by workstream/task and sorts by due + priority", ()
   });
 
   assert.ok(queueExplicitDone.some((task) => task.id === "t5"));
+});
+
+test("buildTaskQueue normalizes active-status aliases before due-date sorting", () => {
+  const tasks = [
+    {
+      id: "t-active",
+      title: "active alias earlier due",
+      status: "active",
+      priority: "medium",
+      due_date: "2026-02-08",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-progress",
+      title: "in progress later due",
+      status: "in_progress",
+      priority: "medium",
+      due_date: "2026-02-10",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-retry",
+      title: "retry pending latest due",
+      status: "retry_pending",
+      priority: "medium",
+      due_date: "2026-02-12",
+      workstream_id: "wsA",
+    },
+  ];
+
+  const queue = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: [],
+  });
+
+  assert.deepEqual(
+    queue.map((task) => task.id),
+    ["t-active", "t-progress", "t-retry"]
+  );
+});
+
+test("buildTaskQueue prioritizes todo first, then blocked, then active aliases", () => {
+  const tasks = [
+    {
+      id: "t-active",
+      title: "currently active",
+      status: "active",
+      priority: "high",
+      due_date: "2026-02-01",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-blocked",
+      title: "blocked dependency",
+      status: "blocked",
+      priority: "high",
+      due_date: "2026-02-02",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-todo",
+      title: "fresh todo item",
+      status: "todo",
+      priority: "low",
+      due_date: "2026-02-03",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-running",
+      title: "running alias",
+      status: "running",
+      priority: "high",
+      due_date: "2026-02-04",
+      workstream_id: "wsA",
+    },
+  ];
+
+  const queue = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: [],
+  });
+
+  assert.deepEqual(
+    queue.map((task) => task.id),
+    ["t-todo", "t-blocked", "t-active", "t-running"]
+  );
+});
+
+test("buildTaskQueue keeps tie-breakers deterministic when due dates are missing", () => {
+  const tasks = [
+    {
+      id: "t-low-priority",
+      title: "low priority item",
+      status: "todo",
+      priority: "low",
+      due_date: null,
+      sequence: 30,
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-critical",
+      title: "critical item",
+      status: "todo",
+      priority: "urgent",
+      due_date: undefined,
+      sequence: 20,
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-high-seq",
+      title: "high sequence item",
+      status: "todo",
+      priority: "high",
+      due_date: "",
+      sequence: 40,
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-high-seq-earlier",
+      title: "high sequence earlier",
+      status: "todo",
+      priority: "high",
+      sequence: 10,
+      workstream_id: "wsA",
+    },
+  ];
+
+  const queue = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: [],
+  });
+
+  assert.deepEqual(queue.map((task) => task.id), [
+    "t-critical",
+    "t-high-seq-earlier",
+    "t-high-seq",
+    "t-low-priority",
+  ]);
+});
+
+test("buildTaskQueue prioritizes blocked work ahead of active/running items", () => {
+  const tasks = [
+    {
+      id: "t-running",
+      title: "running task",
+      status: "running",
+      priority: "high",
+      due_date: "2026-02-09",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-blocked",
+      title: "blocked task",
+      status: "blocked",
+      priority: "low",
+      due_date: "2026-02-12",
+      workstream_id: "wsA",
+    },
+    {
+      id: "t-todo",
+      title: "todo task",
+      status: "todo",
+      priority: "low",
+      due_date: "2026-02-15",
+      workstream_id: "wsA",
+    },
+  ];
+
+  const queue = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: [],
+  });
+
+  assert.deepEqual(
+    queue.map((task) => task.id),
+    ["t-todo", "t-blocked", "t-running"]
+  );
+});
+
+test("buildTaskQueue keeps explicitly selected task_ids even outside selected workstreams", () => {
+  const tasks = [
+    {
+      id: "t-selected",
+      title: "explicit task in different workstream",
+      status: "todo",
+      priority: "high",
+      due_date: "2026-02-12",
+      workstream_id: "wsB",
+    },
+    {
+      id: "t-wsa",
+      title: "in selected workstream",
+      status: "todo",
+      priority: "medium",
+      due_date: "2026-02-11",
+      workstream_id: "wsA",
+    },
+  ];
+
+  const queue = buildTaskQueue({
+    tasks,
+    selectedWorkstreamIds: ["wsA"],
+    selectedTaskIds: ["t-selected"],
+  });
+
+  assert.deepEqual(
+    queue.map((task) => task.id),
+    ["t-selected"]
+  );
 });
 
 test("extractPlanContext prefers task/workstream match", () => {
@@ -420,8 +686,11 @@ test("classifyTaskState buckets task lifecycle states", () => {
   assert.equal(classifyTaskState("done"), "done");
   assert.equal(classifyTaskState("completed"), "done");
   assert.equal(classifyTaskState("blocked"), "blocked");
+  assert.equal(classifyTaskState("at-risk"), "blocked");
   assert.equal(classifyTaskState("in_progress"), "active");
+  assert.equal(classifyTaskState("in-progress"), "active");
   assert.equal(classifyTaskState("retry_pending"), "active");
+  assert.equal(classifyTaskState("retry pending"), "active");
   assert.equal(classifyTaskState("todo"), "todo");
 });
 
@@ -483,6 +752,21 @@ test("computeExecutionProgress counts blocked tasks as processed", () => {
   assert.equal(computeExecutionProgress(0, 0, 5), 0);
   assert.equal(computeExecutionProgress(2, 1, 5), 60);
   assert.equal(computeExecutionProgress(2, 3, 5), 100);
+});
+
+test("phaseFromJobOutcome maps final phase by terminal state", () => {
+  assert.equal(
+    phaseFromJobOutcome({ pausedBySupervisedGate: true, blockedCount: 0 }),
+    "execution"
+  );
+  assert.equal(
+    phaseFromJobOutcome({ pausedBySupervisedGate: false, blockedCount: 2 }),
+    "blocked"
+  );
+  assert.equal(
+    phaseFromJobOutcome({ pausedBySupervisedGate: false, blockedCount: 0 }),
+    "completed"
+  );
 });
 
 test("evaluateResourceGuard throttles when load or memory exceeds thresholds", () => {
@@ -709,4 +993,35 @@ test("deriveResumePlan retries previously blocked tasks once they are unblocked"
     selectedOverrides.pending.map((task) => task.id),
     ["t1", "t2", "t3", "t4"]
   );
+});
+
+test("deriveResumePlan canonicalizes prior statuses from resume state", () => {
+  const queue = [
+    { id: "t1", title: "already complete", status: "todo" },
+    { id: "t2", title: "still blocked alias", status: "at_risk" },
+    { id: "t3", title: "normal todo", status: "todo" },
+  ];
+
+  const resumeState = {
+    taskStates: {
+      t1: { status: "completed", attempts: 1 },
+      t2: { status: "at_risk", attempts: 2 },
+    },
+  };
+
+  const noRetry = deriveResumePlan({
+    queue,
+    resumeState,
+    retryBlocked: false,
+    selectedTaskIds: [],
+  });
+  assert.deepEqual(noRetry.pending.map((task) => task.id), ["t3"]);
+
+  const withRetry = deriveResumePlan({
+    queue,
+    resumeState,
+    retryBlocked: true,
+    selectedTaskIds: [],
+  });
+  assert.deepEqual(withRetry.pending.map((task) => task.id), ["t2", "t3"]);
 });

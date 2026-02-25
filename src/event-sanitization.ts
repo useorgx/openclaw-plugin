@@ -77,35 +77,43 @@ type OutboxEventLike = {
 };
 
 export function classifyOutboxReplaySkip(event: OutboxEventLike): string | null {
+  const eventType = typeof event.type === "string" ? event.type.trim().toLowerCase() : "";
   const payload = toRecord(event.payload);
   const activity = toRecord(event.activityItem);
   const payloadMetadata = toRecord(payload?.metadata);
   const activityMetadata = toRecord(activity?.metadata);
+  const skipMockOutboxReplay =
+    String(process.env.ORGX_SKIP_MOCK_OUTBOX_REPLAY ?? "false")
+      .trim()
+      .toLowerCase() === "true";
 
   if (
-    isMockTaggedMetadata(payloadMetadata) ||
-    isMockTaggedMetadata(activityMetadata) ||
-    pickBool(payload, "mock", "is_mock", "isMock")
+    skipMockOutboxReplay &&
+    (isMockTaggedMetadata(payloadMetadata) ||
+      isMockTaggedMetadata(activityMetadata) ||
+      pickBool(payload, "mock", "is_mock", "isMock"))
   ) {
     return "mock_event";
   }
 
-  const eventType =
-    typeof event.type === "string" ? event.type.trim().toLowerCase() : "";
-
-  const initiativeId =
-    pickString(payload, "initiative_id", "initiativeId") ??
-    pickString(payloadMetadata, "initiative_id", "initiativeId");
-  if (initiativeId && (isSyntheticIdentifier(initiativeId) || !isUuid(initiativeId))) {
-    return "synthetic_initiative_id";
-  }
-
   if (eventType === "artifact") {
-    const entityId =
-      pickString(payload, "entity_id", "entityId") ??
-      pickString(payloadMetadata, "entity_id", "entityId");
-    if (!entityId) return "missing_artifact_entity_id";
-    if (isSyntheticIdentifier(entityId) || !isUuid(entityId)) {
+    const initiativeId = pickString(payload, "initiative_id", "initiativeId");
+    const entityId = pickString(payload, "entity_id", "entityId");
+    const sourceClient = pickString(payload, "source_client", "sourceClient");
+    const payloadEvent = pickString(payloadMetadata, "event");
+    const activityEvent = pickString(activityMetadata, "event");
+    const allowSyntheticArtifact =
+      sourceClient === "openclaw" ||
+      payloadEvent === "autopilot_slice_artifact_buffered" ||
+      activityEvent === "autopilot_slice_artifact_buffered";
+
+    if (!allowSyntheticArtifact && isSyntheticIdentifier(initiativeId)) {
+      return "synthetic_initiative_id";
+    }
+    if (!allowSyntheticArtifact && !entityId) {
+      return "missing_artifact_entity_id";
+    }
+    if (!allowSyntheticArtifact && isSyntheticIdentifier(entityId)) {
       return "synthetic_artifact_entity_id";
     }
   }
@@ -115,17 +123,11 @@ export function classifyOutboxReplaySkip(event: OutboxEventLike): string | null 
 
 export function shouldHideActivityItem(item: LiveActivityItem): boolean {
   const metadata = toRecord(item.metadata);
-  if (isMockTaggedMetadata(metadata)) return true;
-  if (containsMockMarker(item.title)) return true;
-  if (containsMockMarker(item.description)) return true;
-
-  const initiativeId =
-    (typeof item.initiativeId === "string" ? item.initiativeId : null) ??
-    pickString(metadata, "initiative_id", "initiativeId");
-  if (initiativeId && isSyntheticIdentifier(initiativeId)) return true;
-
-  const entityId = pickString(metadata, "entity_id", "entityId");
-  if (entityId && isSyntheticIdentifier(entityId)) return true;
+  const hideMockActivity =
+    String(process.env.ORGX_HIDE_MOCK_ACTIVITY ?? "false")
+      .trim()
+      .toLowerCase() === "true";
+  if (hideMockActivity && isMockTaggedMetadata(metadata)) return true;
 
   return false;
 }

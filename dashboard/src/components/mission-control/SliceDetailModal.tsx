@@ -82,6 +82,50 @@ function queueStateDotColor(state: string): string {
   }
 }
 
+function workSnapshotHeading(queueState: string): string {
+  if (queueState === 'running') return 'Current Work';
+  if (queueState === 'blocked') return 'Blocked Work';
+  return 'Next Work';
+}
+
+function workSnapshotFallback(input: {
+  queueState: string;
+  blockReason: string | null;
+  sliceScope: string | null;
+  sliceTaskCount: number | null;
+}): string {
+  const scopeLabel =
+    input.sliceScope === 'task'
+      ? 'task'
+      : input.sliceScope === 'milestone'
+        ? 'milestone slice'
+        : 'workstream slice';
+  const countLabel =
+    typeof input.sliceTaskCount === 'number' && input.sliceTaskCount > 0
+      ? `${input.sliceTaskCount} ${input.sliceTaskCount === 1 ? 'task' : 'tasks'}`
+      : null;
+
+  if (input.queueState === 'running') {
+    return countLabel
+      ? `Execution is in progress across ${countLabel} in this ${scopeLabel}.`
+      : 'Execution is in progress. Task detail will appear when scheduler state updates.';
+  }
+  if (input.queueState === 'blocked') {
+    return input.blockReason
+      ? input.blockReason
+      : 'Work is blocked pending a dependency or decision.';
+  }
+  if (input.queueState === 'queued') {
+    return countLabel
+      ? `Queued with ${countLabel} ready in this ${scopeLabel}.`
+      : 'Queued at workstream scope. Task detail appears after dispatch.';
+  }
+  if (input.queueState === 'completed') {
+    return 'Work is completed. No pending queued tasks.';
+  }
+  return 'Work is idle and ready to start.';
+}
+
 function priorityColor(priority: number | null): string {
   if (priority === 0) return colors.red;
   if (priority === 1) return colors.amber;
@@ -164,6 +208,11 @@ function extractData(target: SliceDetailTarget) {
       agentSource: item.runnerSource,
       queueState: item.queueState,
       blockReason: item.blockReason ? sanitizeDisplayText(item.blockReason) : null,
+      sliceScope: item.sliceScope ?? null,
+      sliceTaskCount:
+        typeof item.sliceTaskCount === 'number' && Number.isFinite(item.sliceTaskCount)
+          ? Math.max(0, Math.floor(item.sliceTaskCount))
+          : item.sliceTaskIds?.length ?? null,
       autoContinue: item.autoContinue,
       sliceRun: linkedSliceRun,
       sessionId: null as string | null,
@@ -188,6 +237,14 @@ function extractData(target: SliceDetailTarget) {
       agentSource: null as string | null,
       queueState: row.status === 'running' ? 'running' : 'queued',
       blockReason: null as string | null,
+      sliceScope: sliceRun?.scope ?? null,
+      sliceTaskCount:
+        typeof sliceRun?.scopeProgress?.totalTasks === 'number'
+          ? Math.max(
+              0,
+              Math.floor(sliceRun.scopeProgress.totalTasks - sliceRun.scopeProgress.completedTasks)
+            )
+          : sliceRun?.taskIds?.length ?? null,
       autoContinue: null as NextUpQueueItem['autoContinue'] | null,
       sliceRun: sliceRun,
       sessionId: row.session?.id ?? null,
@@ -212,6 +269,14 @@ function extractData(target: SliceDetailTarget) {
     agentSource: null as string | null,
     queueState: 'blocked' as string,
     blockReason: sliceRun.statusExplainer || null,
+    sliceScope: sliceRun.scope ?? null,
+    sliceTaskCount:
+      typeof sliceRun.scopeProgress?.totalTasks === 'number'
+        ? Math.max(
+            0,
+            Math.floor(sliceRun.scopeProgress.totalTasks - sliceRun.scopeProgress.completedTasks)
+          )
+        : sliceRun.taskIds?.length ?? null,
     autoContinue: null as NextUpQueueItem['autoContinue'] | null,
     sliceRun: sliceRun,
     sessionId: null as string | null,
@@ -591,8 +656,8 @@ export function SliceDetailModal({
               </motion.div>
             )}
 
-            {/* ───── 3. Next Task card ───── */}
-            {d.nextTaskTitle && (
+            {/* ───── 3. Work Snapshot card ───── */}
+            {(d.nextTaskTitle || d.sliceTaskCount !== null || d.sliceScope || d.queueState) && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -601,14 +666,40 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-1.5"
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
                 >
-                  <p className="section-kicker">Next Task</p>
-                  <div className="flex items-start gap-2">
-                    <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
-                    <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
-                  </div>
+                  <p className="section-kicker">Work Snapshot</p>
+                  {d.nextTaskTitle ? (
+                    <div className="flex items-start gap-2">
+                      <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
+                      <div className="min-w-0">
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">
+                          {workSnapshotHeading(d.queueState)}
+                        </p>
+                        <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-body text-secondary">
+                      {workSnapshotFallback({
+                        queueState: d.queueState,
+                        blockReason: d.blockReason,
+                        sliceScope: d.sliceScope,
+                        sliceTaskCount: d.sliceTaskCount,
+                      })}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
+                    {d.sliceScope ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro uppercase tracking-[0.08em] text-secondary">
+                        {d.sliceScope} slice
+                      </span>
+                    ) : null}
+                    {typeof d.sliceTaskCount === 'number' ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro text-secondary">
+                        {d.sliceTaskCount} {d.sliceTaskCount === 1 ? 'task' : 'tasks'} in scope
+                      </span>
+                    ) : null}
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span
                         className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"

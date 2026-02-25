@@ -36,9 +36,8 @@ test("isUuid and isSyntheticIdentifier correctly classify ids", async () => {
   assert.equal(mod.isSyntheticIdentifier("11111111-1111-1111-1111-111111111111"), false);
 });
 
-test("classifyOutboxReplaySkip flags mock and invalid artifact events", async () => {
+test("classifyOutboxReplaySkip only skips mock events when explicitly enabled", async () => {
   const mod = await importFreshEventSanitization();
-
   assert.equal(
     mod.classifyOutboxReplaySkip({
       type: "progress",
@@ -46,9 +45,8 @@ test("classifyOutboxReplaySkip flags mock and invalid artifact events", async ()
         metadata: { mock: true },
       },
     }),
-    "mock_event"
+    null
   );
-
   assert.equal(
     mod.classifyOutboxReplaySkip({
       type: "artifact",
@@ -58,44 +56,29 @@ test("classifyOutboxReplaySkip flags mock and invalid artifact events", async ()
     }),
     "synthetic_initiative_id"
   );
-
   assert.equal(
     mod.classifyOutboxReplaySkip({
       type: "artifact",
       payload: {
-        initiative_id: "11111111-1111-1111-1111-111111111111",
+        source_client: "openclaw",
+        initiative_id: "init-local-1",
+        entity_type: "workstream",
+        entity_id: "ws-1",
       },
+      activityItem: baseActivity({
+        id: "evt-local-artifact",
+        metadata: { event: "autopilot_slice_artifact_buffered" },
+      }),
     }),
-    "missing_artifact_entity_id"
-  );
-
-  assert.equal(
-    mod.classifyOutboxReplaySkip({
-      type: "artifact",
-      payload: {
-        initiative_id: "11111111-1111-1111-1111-111111111111",
-        entity_id: "artifact-local-1",
-      },
-    }),
-    "synthetic_artifact_entity_id"
+    null
   );
 });
 
-test("shouldHideActivityItem hides synthetic and mock activity while preserving valid events", async () => {
+test("shouldHideActivityItem hides mock activity only when env toggle is enabled", async () => {
   const mod = await importFreshEventSanitization();
-
   assert.equal(
     mod.shouldHideActivityItem(baseActivity({ metadata: { is_mock: true } })),
-    true
+    false
   );
-  assert.equal(
-    mod.shouldHideActivityItem(baseActivity({ initiativeId: "task-local-123" })),
-    true
-  );
-  assert.equal(
-    mod.shouldHideActivityItem(baseActivity({ metadata: { entity_id: "artifact-local-1" } })),
-    true
-  );
-
   assert.equal(mod.shouldHideActivityItem(baseActivity()), false);
 });

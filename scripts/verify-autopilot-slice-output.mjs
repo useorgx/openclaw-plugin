@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -27,10 +28,31 @@ function isObject(value) {
 }
 
 function parseRequiredSkills(value) {
-  const unique = new Set();
-  for (const entry of String(value || "").split(/[\s,]+/)) {
+  const addSkill = (target, entry) => {
     const skill = String(entry || "").replace(/^\$/, "").trim();
-    if (skill) unique.add(skill);
+    if (skill) target.add(skill);
+  };
+
+  const unique = new Set();
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) {
+          addSkill(unique, entry);
+        }
+        return [...unique];
+      }
+    } catch {
+      // Fall back to whitespace/comma parsing below.
+    }
+  }
+
+  for (const entry of raw.split(/[\s,]+/)) {
+    addSkill(unique, entry);
   }
   return [...unique];
 }
@@ -44,9 +66,12 @@ function assertKnownFields(record, requiredFields, label) {
   }
 }
 
-function assertOptionalString(value, label) {
+function assertOptionalNonEmptyString(value, label) {
   if (value != null) {
-    assert(typeof value === "string", `${label} must be a string or null`);
+    assert(
+      typeof value === "string" && value.trim().length > 0,
+      `${label} must be a non-empty string or null`
+    );
   }
 }
 
@@ -54,7 +79,75 @@ function assertStringArrayOrNull(value, label) {
   if (value == null) return;
   assert(Array.isArray(value), `${label} must be an array or null`);
   for (const item of value) {
-    assert(typeof item === "string", `${label} entries must be strings`);
+    assert(
+      typeof item === "string" && item.trim().length > 0,
+      `${label} entries must be non-empty strings`
+    );
+  }
+}
+
+function assertNonEmptyStringArrayValuesOrNull(value, label) {
+  if (value == null) return;
+  assert(Array.isArray(value), `${label} must be an array or null`);
+  for (const item of value) {
+    assert(
+      typeof item === "string" && item.trim().length > 0,
+      `${label} entries must be non-empty strings`
+    );
+  }
+}
+
+function assertNonEmptyStringArrayOrNull(value, label) {
+  if (value == null) return;
+  assert(Array.isArray(value), `${label} must be an array or null`);
+  for (const item of value) {
+    assert(
+      typeof item === "string" && item.trim().length > 0,
+      `${label} entries must be non-empty strings`
+    );
+  }
+}
+
+function sha256File(pathname) {
+  try {
+    const stat = statSync(pathname);
+    assert(stat.isFile(), `skill_evidence.skill_file must point to a readable file: ${pathname}`);
+    const content = readFileSync(pathname);
+    return createHash("sha256").update(content).digest("hex");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`cannot read skill file for verification at ${pathname}: ${message}`);
+  }
+}
+
+function extractSkillHeading(pathname) {
+  try {
+    const content = readFileSync(pathname, "utf8");
+    const lines = content.split(/\r?\n/);
+    // Ignore YAML frontmatter so heading/non-empty matching stays stable for skill files.
+    let startIndex = 0;
+    if (lines[0]?.trim() === "---") {
+      for (let index = 1; index < lines.length; index += 1) {
+        if (lines[index].trim() === "---") {
+          startIndex = index + 1;
+          break;
+        }
+      }
+    }
+    for (let index = startIndex; index < lines.length; index += 1) {
+      const line = lines[index];
+      const trimmed = line.trim();
+      if (trimmed.startsWith("#")) return trimmed;
+    }
+    for (let index = startIndex; index < lines.length; index += 1) {
+      const line = lines[index];
+      const trimmed = line.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+    return "";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`cannot read skill file heading at ${pathname}: ${message}`);
   }
 }
 
@@ -96,12 +189,20 @@ function main() {
       status === "error",
     "status must be one of completed|blocked|needs_decision|error"
   );
+  assert(
+    status !== "error",
+    "error status is not allowed for autonomous slice outputs; use blocked or needs_decision"
+  );
   assert(typeof output.summary === "string" && output.summary.trim().length > 0, "summary is required");
   assert(
     typeof output.workstream_id === "string" && output.workstream_id.trim().length > 0,
     "workstream_id is required"
   );
 
+  assert(
+    output.decisions_needed == null || Array.isArray(output.decisions_needed),
+    "decisions_needed must be an array or null"
+  );
   const decisions = Array.isArray(output.decisions_needed) ? output.decisions_needed : [];
   const blockingDecisions = decisions.filter(
     (decision) => isObject(decision) && decision.blocking === true
@@ -110,8 +211,8 @@ function main() {
     assert(isObject(decision), "decisions_needed entries must be objects");
     assertKnownFields(decision, ["question", "summary", "options", "urgency", "blocking"], "decision");
     assert(typeof decision.question === "string" && decision.question.trim().length > 0, "decision.question is required");
-    assertOptionalString(decision.summary, "decision.summary");
-    assertStringArrayOrNull(decision.options, "decision.options");
+    assertOptionalNonEmptyString(decision.summary, "decision.summary");
+    assertNonEmptyStringArrayValuesOrNull(decision.options, "decision.options");
     assert(
       ["low", "medium", "high", "urgent", null].includes(decision.urgency ?? null),
       "decision.urgency must be low|medium|high|urgent|null"
@@ -125,16 +226,32 @@ function main() {
       "completed status is invalid when any decisions_needed entry is blocking=true"
     );
   }
-  if (status === "blocked" || status === "needs_decision" || status === "error") {
+  if (status === "blocked" || status === "needs_decision") {
     assert(
       blockingDecisions.length > 0,
       `${status} status requires at least one decisions_needed entry with blocking=true`
     );
   }
+  if (blockingDecisions.length > 0) {
+    assert(
+      status === "blocked" || status === "needs_decision",
+      "blocking decisions are only valid with blocked or needs_decision status"
+    );
+  }
 
+  assert(output.artifacts == null || Array.isArray(output.artifacts), "artifacts must be an array or null");
+  assert(
+    output.task_updates == null || Array.isArray(output.task_updates),
+    "task_updates must be an array or null"
+  );
+  assert(
+    output.milestone_updates == null || Array.isArray(output.milestone_updates),
+    "milestone_updates must be an array or null"
+  );
   const artifacts = Array.isArray(output.artifacts) ? output.artifacts : [];
   const taskUpdates = Array.isArray(output.task_updates) ? output.task_updates : [];
   const milestoneUpdates = Array.isArray(output.milestone_updates) ? output.milestone_updates : [];
+  assertNonEmptyStringArrayOrNull(output.next_actions, "next_actions");
   const hasOutcome = artifacts.length > 0 || taskUpdates.length > 0 || milestoneUpdates.length > 0;
   if (status === "completed") {
     assert(hasOutcome, "completed status requires artifacts/task_updates/milestone_updates");
@@ -175,20 +292,29 @@ function main() {
       confidence == null || (typeof confidence === "number" && confidence >= 0 && confidence <= 1),
       "artifact.confidence_score must be null or a number in [0,1]"
     );
-    assertOptionalString(artifact.description, "artifact.description");
-    assertOptionalString(artifact.url, "artifact.url");
-    assertOptionalString(artifact.milestone_id, "artifact.milestone_id");
+    assertOptionalNonEmptyString(artifact.description, "artifact.description");
+    assert(
+      typeof artifact.url === "string" && artifact.url.trim().length > 0,
+      "artifact.url is required for verifiable artifacts"
+    );
+    assertOptionalNonEmptyString(artifact.milestone_id, "artifact.milestone_id");
     assertStringArrayOrNull(artifact.task_ids, "artifact.task_ids");
-    if (Array.isArray(artifact.verification_steps)) {
-      for (const step of artifact.verification_steps) {
-        assert(typeof step === "string" && step.trim().length > 0, "artifact.verification_steps must contain non-empty strings");
-      }
-    } else {
-      assert(artifact.verification_steps == null, "artifact.verification_steps must be an array or null");
+    assert(
+      Array.isArray(artifact.verification_steps) && artifact.verification_steps.length > 0,
+      "artifact.verification_steps must be a non-empty array for verifiable artifacts"
+    );
+    for (const step of artifact.verification_steps) {
+      assert(
+        typeof step === "string" && step.trim().length > 0,
+        "artifact.verification_steps must contain non-empty strings"
+      );
     }
   }
 
-  const skillEvidence = Array.isArray(output.skill_evidence) ? output.skill_evidence : [];
+  assert(Array.isArray(output.skill_evidence), "skill_evidence must be an array");
+  const skillEvidence = output.skill_evidence;
+  assert(skillEvidence.length > 0, "skill_evidence must include at least one entry");
+  const normalizedSkillCounts = new Map();
   for (const item of skillEvidence) {
     assert(isObject(item), "skill_evidence entries must be objects");
     assertKnownFields(item, ["skill", "skill_file", "skill_sha256", "skill_heading"], "skill_evidence");
@@ -209,6 +335,24 @@ function main() {
       typeof item.skill_heading === "string" && item.skill_heading.trim().length > 0,
       "skill_evidence.skill_heading is required"
     );
+    const skillFilePath = resolve(item.skill_file);
+    const actualDigest = sha256File(skillFilePath);
+    assert(
+      actualDigest === item.skill_sha256,
+      `skill_evidence.skill_sha256 does not match file digest for ${skillFilePath}`
+    );
+    const expectedHeading = extractSkillHeading(skillFilePath);
+    assert(expectedHeading.length > 0, `skill_evidence.skill_file has no readable heading content: ${skillFilePath}`);
+    assert(
+      item.skill_heading.trim() === expectedHeading,
+      `skill_evidence.skill_heading must match the first heading/non-empty line in ${skillFilePath}`
+    );
+    const normalizedSkill = item.skill.replace(/^\$/, "").trim();
+    normalizedSkillCounts.set(normalizedSkill, (normalizedSkillCounts.get(normalizedSkill) || 0) + 1);
+  }
+
+  for (const [skill, count] of normalizedSkillCounts.entries()) {
+    assert(count === 1, `skill_evidence contains duplicate entries for skill "${skill}"`);
   }
 
   for (const taskUpdate of taskUpdates) {
@@ -222,7 +366,7 @@ function main() {
       ["todo", "in_progress", "done", "blocked"].includes(taskUpdate.status),
       "task_updates[].status must be one of todo|in_progress|done|blocked"
     );
-    assertOptionalString(taskUpdate.reason, "task_updates[].reason");
+    assertOptionalNonEmptyString(taskUpdate.reason, "task_updates[].reason");
   }
 
   for (const milestoneUpdate of milestoneUpdates) {
@@ -239,21 +383,12 @@ function main() {
       ),
       "milestone_updates[].status must be one of planned|in_progress|completed|at_risk|cancelled"
     );
-    assertOptionalString(milestoneUpdate.reason, "milestone_updates[].reason");
+    assertOptionalNonEmptyString(milestoneUpdate.reason, "milestone_updates[].reason");
   }
 
   if (requiredSkills.length > 0) {
-    assert(Array.isArray(output.skill_evidence), "skill_evidence must be an array when ORGX_REQUIRED_SKILLS is set");
-    const normalizedEvidence = skillEvidence.map((item) =>
-      isObject(item) && typeof item.skill === "string" ? item.skill.replace(/^\$/, "").trim() : ""
-    );
-    const seen = new Map();
-    for (const skill of normalizedEvidence) {
-      if (!skill) continue;
-      seen.set(skill, (seen.get(skill) || 0) + 1);
-    }
     for (const requiredSkill of requiredSkills) {
-      const count = seen.get(requiredSkill) || 0;
+      const count = normalizedSkillCounts.get(requiredSkill) || 0;
       assert(count === 1, `skill_evidence must include exactly one entry for required skill "${requiredSkill}"`);
     }
   }

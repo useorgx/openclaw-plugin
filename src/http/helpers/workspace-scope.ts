@@ -8,7 +8,10 @@ type ScopeResolution = {
   workspaceId: string | null;
   error?: string;
   usedLegacyProjectScope?: boolean;
+  isAll?: boolean;
 };
+
+const ALL_SCOPE_TOKENS = new Set(["all", "__all__", "*"]);
 
 function normalizeScopeId(value: unknown): string | null {
   if (Array.isArray(value)) {
@@ -38,6 +41,12 @@ function readScopeValue(input: ScopeLike, keys: string[]): string | null {
     if (value) return value;
   }
   return null;
+}
+
+function isAllScopeToken(value: string | null | undefined): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().toLowerCase();
+  return ALL_SCOPE_TOKENS.has(normalized);
 }
 
 function readWorkspaceCandidates(input: ScopeLike): {
@@ -151,6 +160,13 @@ export function resolveWorkspaceScope(
     };
   }
 
+  if (canonical && isAllScopeToken(canonical)) {
+    return {
+      workspaceId: null,
+      isAll: true,
+    };
+  }
+
   if (canonical) {
     return { workspaceId: canonical };
   }
@@ -174,10 +190,26 @@ export function resolveWorkspaceScope(
 
 export function setCanonicalWorkspaceScopeParams(
   params: URLSearchParams,
-  workspaceId: string | null | undefined
+  workspaceId: string | null | undefined,
+  options?: {
+    allTokenWhenMissing?: boolean;
+  }
 ): void {
+  params.delete("project_id");
+  params.delete("projectId");
   const normalized = normalizeScopeId(workspaceId);
-  if (!normalized) return;
+  if (!normalized) {
+    if (options?.allTokenWhenMissing) {
+      params.set("workspace_id", "all");
+      params.set("command_center_id", "all");
+      params.set("center", "all");
+    } else {
+      params.delete("workspace_id");
+      params.delete("command_center_id");
+      params.delete("center");
+    }
+    return;
+  }
   params.set("workspace_id", normalized);
   params.set("command_center_id", normalized);
   params.set("center", normalized);

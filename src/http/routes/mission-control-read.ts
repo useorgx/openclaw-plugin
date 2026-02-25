@@ -24,6 +24,8 @@ type NextUpQueueItem = {
   initiativeId: string;
   initiativeTitle: string;
   initiativeStatus: string;
+  initiativePriority?: string | null;
+  initiativePriorityNum?: number | null;
   workstreamId: string;
   workstreamTitle: string;
   workstreamStatus: string;
@@ -37,6 +39,7 @@ type NextUpQueueItem = {
   runnerAgents?: SliceRunnerAgent[];
   runnerSource?: "assigned" | "inferred" | "fallback";
   queueState: "queued" | "running" | "blocked" | "idle" | "completed";
+  blockReason?: string | null;
   sliceScope?: "task" | "milestone" | "workstream" | null;
   sliceTaskIds?: string[];
   sliceTaskCount?: number | null;
@@ -223,6 +226,20 @@ function asStringArray(value: unknown): string[] {
   return dedupeStrings(values);
 }
 
+function isCanonicalAllScopeMismatch(
+  canonicalRecord: Record<string, unknown>,
+  useAllScope: boolean
+): boolean {
+  if (!useAllScope) return false;
+  const workspaceRaw =
+    asString(canonicalRecord.workspaceId) ??
+    asString(canonicalRecord.workspace_id);
+  if (!workspaceRaw) return false;
+  const normalized = workspaceRaw.trim().toLowerCase();
+  if (!normalized) return false;
+  return normalized !== "all" && normalized !== "__all__" && normalized !== "*";
+}
+
 function dedupeStrings(values: string[]): string[] {
   const output: string[] = [];
   const seen = new Set<string>();
@@ -312,6 +329,238 @@ function applySliceSearchAndPagination<T>(input: {
       hasMore,
     },
   };
+}
+
+function parsePaginationEnvelope(
+  value: unknown,
+  fallback: { offset: number; limit: number; total: number }
+): {
+  offset: number;
+  limit: number;
+  total: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+} {
+  const record = asRecord(value);
+  const offset = Math.max(
+    0,
+    Math.min(
+      100_000,
+      Math.floor(asNumber(record?.offset) ?? fallback.offset)
+    )
+  );
+  const limit = Math.max(
+    1,
+    Math.min(300, Math.floor(asNumber(record?.limit) ?? fallback.limit))
+  );
+  const total = Math.max(
+    0,
+    Math.floor(asNumber(record?.total) ?? fallback.total)
+  );
+  const nextCursor = asString(record?.nextCursor);
+  const hasMore =
+    typeof record?.hasMore === "boolean"
+      ? record.hasMore
+      : offset + limit < total;
+  return { offset, limit, total, nextCursor, hasMore };
+}
+
+const WARMUP_MIN_INTERVAL_MS = 12_000;
+const NEXT_UP_DEFAULT_PAGE_SIZE = 24;
+const SLICES_DEFAULT_PAGE_SIZE = 24;
+const CANONICAL_NEXT_UP_TIMEOUT_MS = 1_800;
+const CANONICAL_SLICES_TIMEOUT_MS = 1_200;
+const CANONICAL_READ_CACHE_TTL_MS = 9_000;
+const CANONICAL_READ_STALE_TTL_MS = 45_000;
+const CANONICAL_AUTH_BYPASS_MS = 60_000;
+const CANONICAL_TIMEOUT_BYPASS_MS = 12_000;
+const warmupByKey = new Map<string, number>();
+const canonicalReadCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    staleUntil: number;
+    payload: Record<string, unknown>;
+  }
+>();
+const canonicalBypassState = new Map<
+  "next-up" | "slices",
+  { until: number; reason: string }
+>();
+
+function shouldRunWarmup(key: string): boolean {
+  const now = Date.now();
+  const previous = warmupByKey.get(key);
+  if (typeof previous === "number" && now - previous < WARMUP_MIN_INTERVAL_MS) {
+    return false;
+  }
+  warmupByKey.set(key, now);
+  return true;
+}
+
+function canonicalReadCacheKey(input: {
+  route: "next-up" | "slices";
+  workspaceId: string | null;
+  initiativeId: string | null;
+  includeCompleted: boolean;
+  offset: number;
+  limit: number;
+  scope?: string | null;
+  order?: string | null;
+  mixPolicy?: string | null;
+  search?: string | null;
+}): string {
+  return [
+    input.route,
+    input.workspaceId ?? "__all__",
+    input.initiativeId ?? "__any__",
+    input.includeCompleted ? "include_completed" : "exclude_completed",
+    String(input.offset),
+    String(input.limit),
+    input.scope ?? "__none__",
+    input.order ?? "__none__",
+    input.mixPolicy ?? "__none__",
+    input.search ?? "__none__",
+  ].join("|");
+}
+
+function cloneCanonicalReadPayload(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const clone: Record<string, unknown> = { ...payload };
+  if (Array.isArray(payload.items)) clone.items = [...payload.items];
+  if (Array.isArray(payload.degraded)) clone.degraded = [...payload.degraded];
+  const pagination = asRecord(payload.pagination);
+  if (pagination) clone.pagination = { ...pagination };
+  return clone;
+}
+
+function readCanonicalReadCache(
+  key: string,
+  opts?: { allowStale?: boolean }
+): Record<string, unknown> | null {
+  const cached = canonicalReadCache.get(key);
+  if (!cached) return null;
+  const now = Date.now();
+  const allowStale = Boolean(opts?.allowStale);
+  const stillFresh = cached.expiresAt > now;
+  const stillStale = cached.staleUntil > now;
+  if (!stillFresh && !stillStale) {
+    canonicalReadCache.delete(key);
+    return null;
+  }
+  if (!stillFresh && !allowStale) return null;
+  return cloneCanonicalReadPayload(cached.payload);
+}
+
+function writeCanonicalReadCache(
+  key: string,
+  payload: Record<string, unknown>
+): void {
+  const now = Date.now();
+  canonicalReadCache.set(key, {
+    expiresAt: now + CANONICAL_READ_CACHE_TTL_MS,
+    staleUntil: now + CANONICAL_READ_STALE_TTL_MS,
+    payload: cloneCanonicalReadPayload(payload),
+  });
+}
+
+function readCanonicalBypass(
+  route: "next-up" | "slices"
+): { reason: string } | null {
+  const record = canonicalBypassState.get(route);
+  if (!record) return null;
+  if (record.until <= Date.now()) {
+    canonicalBypassState.delete(route);
+    return null;
+  }
+  return { reason: record.reason };
+}
+
+function setCanonicalBypass(
+  route: "next-up" | "slices",
+  reason: string,
+  durationMs: number
+): void {
+  canonicalBypassState.set(route, {
+    until: Date.now() + Math.max(1_000, durationMs),
+    reason,
+  });
+}
+
+function isCanonicalAuthFailure(error: unknown): boolean {
+  const message = String(
+    error instanceof Error ? error.message : error ?? ""
+  ).toLowerCase();
+  return (
+    message.includes("401") ||
+    message.includes("403") ||
+    message.includes("unauthorized") ||
+    message.includes("forbidden") ||
+    message.includes("authentication required")
+  );
+}
+
+function isCanonicalTimeoutFailure(error: unknown): boolean {
+  const message = String(
+    error instanceof Error ? error.message : error ?? ""
+  ).toLowerCase();
+  return message.includes("timed out") || message.includes("timeout");
+}
+
+async function withSoftTimeout<T>(
+  request: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function shouldRetryLegacyCanonicalPath(error: unknown): boolean {
+  const message = String(
+    error instanceof Error ? error.message : error ?? ""
+  ).toLowerCase();
+  return (
+    message.includes("404") ||
+    message.includes("not found") ||
+    message.includes("unknown api endpoint")
+  );
+}
+
+async function requestCanonicalWithLegacyFallback(
+  deps: RegisterMissionControlReadRoutesDeps<any>,
+  input: {
+    timeoutMs: number;
+    label: string;
+    modernPath: string;
+    legacyPath: string;
+  }
+): Promise<unknown> {
+  try {
+    return await withSoftTimeout(
+      deps.rawRequest!("GET", input.modernPath),
+      input.timeoutMs,
+      input.label
+    );
+  } catch (error) {
+    if (!shouldRetryLegacyCanonicalPath(error)) throw error;
+  }
+  return await withSoftTimeout(
+    deps.rawRequest!("GET", input.legacyPath),
+    Math.min(input.timeoutMs, 1_500),
+    `${input.label} (legacy fallback)`
+  );
 }
 
 function normalizeQueueState(value: unknown): NextUpQueueItem["queueState"] {
@@ -452,11 +701,19 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
     const runnerAgentName = runnerPrimary?.name ?? "Unassigned";
     const runnerSourceHint = normalizeRunnerSource(record.runnerSource);
     const runnerSource = runnerSourceHint ?? (runnerAgentId ? "inferred" : "fallback");
+    const queueState = normalizeQueueState(record.queueState);
+    const blockReason =
+      asString(record.blockReason) ??
+      (queueState === "blocked"
+        ? `Waiting on dependency ${asString(record.nextTaskTitle) ?? asString(record.nextTaskId) ?? "task"}`
+        : null);
 
     output.push({
       initiativeId,
       initiativeTitle: asString(record.initiativeTitle) ?? initiativeId,
       initiativeStatus: asString(record.initiativeStatus) ?? "active",
+      initiativePriority: asString(record.initiativePriority),
+      initiativePriorityNum: asNumber(record.initiativePriorityNum),
       workstreamId,
       workstreamTitle: asString(record.workstreamTitle) ?? workstreamId,
       workstreamStatus: asString(record.workstreamStatus) ?? "active",
@@ -469,7 +726,8 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       runnerAgentName,
       runnerAgents,
       runnerSource,
-      queueState: normalizeQueueState(record.queueState),
+      queueState,
+      blockReason,
       sliceScope:
         asString(record.sliceScope) === "task" ||
         asString(record.sliceScope) === "milestone" ||
@@ -512,217 +770,16 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       (left.nextTaskPriority ?? Number.MAX_SAFE_INTEGER) -
       (right.nextTaskPriority ?? Number.MAX_SAFE_INTEGER);
     if (priorityDelta !== 0) return priorityDelta;
+    const initiativePriorityDelta =
+      (left.initiativePriorityNum ?? Number.MAX_SAFE_INTEGER) -
+      (right.initiativePriorityNum ?? Number.MAX_SAFE_INTEGER);
+    if (initiativePriorityDelta !== 0) return initiativePriorityDelta;
     const dueDelta = dueEpoch(left.nextTaskDueAt) - dueEpoch(right.nextTaskDueAt);
     if (dueDelta !== 0) return dueDelta;
     const titleDelta = left.initiativeTitle.localeCompare(right.initiativeTitle);
     if (titleDelta !== 0) return titleDelta;
     return left.workstreamTitle.localeCompare(right.workstreamTitle);
   });
-}
-
-function mapCanonicalSlicesToQueueItems(input: {
-  payload: unknown;
-  initiativeId?: string | null;
-}): NextUpQueueItem[] {
-  const root = asRecord(input.payload);
-  const rawItems = Array.isArray(root?.items) ? root.items : [];
-  if (rawItems.length === 0) return [];
-
-  const requestedInitiativeId = input.initiativeId?.trim() || null;
-  const grouped = new Map<
-    string,
-    {
-      base: NextUpQueueItem;
-      states: NextUpQueueItem["queueState"][];
-      taskIds: Set<string>;
-      runnerAgents: SliceRunnerAgent[];
-      rank: number;
-    }
-  >();
-
-  const resolveRank = (record: Record<string, unknown>, fallback: number): number => {
-    const candidates = [
-      asNumber(record.finalRank),
-      asNumber(record.manualRank),
-      asNumber(record.algorithmRank),
-      asNumber(record.iwmtRank),
-      asNumber(record.rank),
-      asNumber(record.iwmt_rank),
-    ].filter((value): value is number => typeof value === "number");
-    if (candidates.length === 0) return fallback;
-    return candidates[0];
-  };
-
-  rawItems.forEach((entry, index) => {
-    const record = asRecord(entry);
-    if (!record) return;
-
-    const initiativeId = asString(record.initiativeId);
-    const workstreamId = asString(record.workstreamId);
-    if (!initiativeId || !workstreamId) return;
-    if (requestedInitiativeId && initiativeId !== requestedInitiativeId) return;
-
-    const queueState = normalizeQueueState(
-      record.queueState ?? record.status ?? record.state
-    );
-    const nextTaskId = asString(record.nextTaskId) ?? asString(record.taskId);
-    const scope = asString(record.scope) ?? asString(record.level);
-    const normalizedScope =
-      scope === "task" || scope === "milestone" || scope === "workstream"
-        ? (scope as "task" | "milestone" | "workstream")
-        : null;
-    const taskIds = dedupeStrings([
-      ...asStringArray(record.sliceTaskIds),
-      ...(nextTaskId ? [nextTaskId] : []),
-      ...(asString(record.taskId) ? [asString(record.taskId)!] : []),
-    ]);
-    const runnerAgentsRaw = normalizeRunnerAgents(record.runnerAgents);
-    const runnerAgentIdRaw =
-      normalizeRunnerValue(record.runnerAgentId) ??
-      normalizeRunnerValue(record.agentId);
-    const runnerAgentNameRaw =
-      normalizeRunnerValue(record.runnerAgentName) ??
-      normalizeRunnerValue(record.agentName) ??
-      normalizeRunnerValue(record.runner);
-    const runnerAgents = mergeRunnerAgents(
-      runnerAgentsRaw,
-      runnerAgentIdRaw || runnerAgentNameRaw
-        ? [
-            {
-              id: runnerAgentIdRaw ?? runnerAgentNameRaw ?? "Unassigned",
-              name: runnerAgentNameRaw ?? runnerAgentIdRaw ?? "Unassigned",
-            },
-          ]
-        : []
-    );
-    const runnerPrimary = runnerAgents[0] ?? null;
-    const runnerAgentId = runnerPrimary?.id ?? null;
-    const runnerAgentName = runnerPrimary?.name ?? "Unassigned";
-    const runnerSourceHint = normalizeRunnerSource(record.runnerSource);
-    const runnerSource = runnerSourceHint ?? (runnerAgentId ? "inferred" : "fallback");
-    const candidate: NextUpQueueItem = {
-      initiativeId,
-      initiativeTitle: asString(record.initiativeTitle) ?? initiativeId,
-      initiativeStatus: asString(record.initiativeStatus) ?? "active",
-      workstreamId,
-      workstreamTitle:
-        asString(record.workstreamTitle) ??
-        (normalizedScope === "workstream" ? asString(record.title) : null) ??
-        workstreamId,
-      workstreamStatus:
-        asString(record.workstreamStatus) ??
-        (queueState === "running"
-          ? "active"
-          : queueState === "blocked"
-            ? "blocked"
-            : queueState === "completed"
-              ? "completed"
-              : "queued"),
-      nextTaskId,
-      nextTaskTitle:
-        asString(record.nextTaskTitle) ??
-        asString(record.taskTitle) ??
-        (normalizedScope === "task" ? asString(record.title) : null),
-      nextTaskPriority:
-        asNumber(record.nextTaskPriority) ??
-        asNumber(record.taskPriority) ??
-        asNumber(record.priorityNum),
-      nextTaskDueAt:
-        asString(record.nextTaskDueAt) ??
-        asString(record.taskDueAt) ??
-        asString(record.dueDate),
-      nextTaskMilestoneId:
-        asString(record.nextTaskMilestoneId) ?? asString(record.milestoneId),
-      runnerAgentId,
-      runnerAgentName,
-      runnerAgents,
-      runnerSource,
-      queueState,
-      sliceScope: normalizedScope,
-      sliceTaskIds: taskIds,
-      sliceTaskCount:
-        asNumber(record.sliceTaskCount) !== null
-          ? Math.max(0, Math.floor(asNumber(record.sliceTaskCount)!))
-          : taskIds.length,
-      sliceMilestoneId: asString(record.sliceMilestoneId) ?? asString(record.milestoneId),
-      compositeScore: asNumber(record.compositeScore) ?? undefined,
-      scoringTier:
-        asString(record.scoringTier) === "urgent" ||
-        asString(record.scoringTier) === "ready" ||
-        asString(record.scoringTier) === "waiting" ||
-        asString(record.scoringTier) === "deferred"
-          ? (asString(record.scoringTier) as "urgent" | "ready" | "waiting" | "deferred")
-          : undefined,
-      updatedAt: asString(record.updatedAt) ?? asString(record.lastEventAt) ?? null,
-      isPinned: false,
-      pinnedRank: null,
-    };
-
-    const key = `${initiativeId}:${workstreamId}`;
-    const rank = resolveRank(record, index + 1);
-    const existing = grouped.get(key);
-    if (!existing) {
-      grouped.set(key, {
-        base: candidate,
-        states: [queueState],
-        taskIds: new Set(taskIds),
-        runnerAgents: candidate.runnerAgents ?? [],
-        rank,
-      });
-      return;
-    }
-
-    existing.states.push(queueState);
-    for (const taskId of taskIds) {
-      if (taskId.trim().length > 0) existing.taskIds.add(taskId.trim());
-    }
-    existing.runnerAgents = mergeRunnerAgents(
-      existing.runnerAgents,
-      candidate.runnerAgents ?? []
-    );
-    if (rank < existing.rank) {
-      existing.base = candidate;
-      existing.rank = rank;
-    }
-  });
-
-  const output: NextUpQueueItem[] = [];
-  for (const bucket of grouped.values()) {
-    const taskIds = Array.from(bucket.taskIds.values());
-    const runnerAgents = mergeRunnerAgents(bucket.runnerAgents, bucket.base.runnerAgents ?? []);
-    const runnerPrimary = runnerAgents[0] ?? null;
-    output.push({
-      ...bucket.base,
-      runnerAgentId: runnerPrimary?.id ?? null,
-      runnerAgentName: runnerPrimary?.name ?? "Unassigned",
-      runnerAgents,
-      runnerSource:
-        bucket.base.runnerSource ??
-        (runnerPrimary ? "inferred" : "fallback"),
-      queueState: combinedQueueState(bucket.states),
-      sliceTaskIds: taskIds,
-      sliceTaskCount:
-        typeof bucket.base.sliceTaskCount === "number"
-          ? Math.max(bucket.base.sliceTaskCount, taskIds.length)
-          : taskIds.length,
-    });
-  }
-
-  output.sort((left, right) => {
-    const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
-    if (queueDelta !== 0) return queueDelta;
-    const priorityDelta =
-      (left.nextTaskPriority ?? Number.MAX_SAFE_INTEGER) -
-      (right.nextTaskPriority ?? Number.MAX_SAFE_INTEGER);
-    if (priorityDelta !== 0) return priorityDelta;
-    const dueDelta = dueEpoch(left.nextTaskDueAt) - dueEpoch(right.nextTaskDueAt);
-    if (dueDelta !== 0) return dueDelta;
-    const initiativeDelta = left.initiativeTitle.localeCompare(right.initiativeTitle);
-    if (initiativeDelta !== 0) return initiativeDelta;
-    return left.workstreamTitle.localeCompare(right.workstreamTitle);
-  });
-
-  return output;
 }
 
 async function loadInitiativeGraphIndex(
@@ -863,59 +920,266 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       return;
     }
     const projectId = scope.workspaceId;
+    const useAllScope = scope.isAll === true;
+    const includeCompleted = parseBoolean(query.get("include_completed"));
+    const offset = parsePositiveInt(
+      query.get("cursor") ?? query.get("offset"),
+      0,
+      100_000
+    );
+    const pageSize = parsePositiveInt(
+      query.get("page_size") ?? query.get("pageSize") ?? query.get("limit"),
+      NEXT_UP_DEFAULT_PAGE_SIZE,
+      300
+    );
+    const requestedSliceLevelContext =
+      query.get("slice_level_context") ?? query.get("sliceLevelContext");
+    const requestedMixPolicy =
+      query.get("mix_policy") ?? query.get("mixPolicy");
+    const requestedOrderMode =
+      query.get("order_mode") ?? query.get("orderMode");
+    const includeLineage = parseBoolean(
+      query.get("include_lineage") ?? query.get("includeLineage")
+    );
+    const nextUpCanonicalCacheKey = canonicalReadCacheKey({
+      route: "next-up",
+      workspaceId: projectId,
+      initiativeId,
+      includeCompleted,
+      offset,
+      limit: pageSize,
+      scope: requestedSliceLevelContext,
+      order: requestedOrderMode,
+      mixPolicy: requestedMixPolicy,
+      search: includeLineage ? "lineage:1" : null,
+    });
+
+    const cachedCanonicalNextUp = readCanonicalReadCache(nextUpCanonicalCacheKey, {
+      allowStale: false,
+    });
+    if (cachedCanonicalNextUp) {
+      deps.sendJson(res, 200, cachedCanonicalNextUp);
+      return;
+    }
+    const canonicalBypass = readCanonicalBypass("next-up");
+    let canonicalFallbackReason: string | null = canonicalBypass
+      ? `canonical next-up bypassed (${canonicalBypass.reason})`
+      : null;
+
+    if (deps.rawRequest && !canonicalBypass) {
+      try {
+        const params = new URLSearchParams();
+        if (initiativeId) params.set("initiative_id", initiativeId);
+        if (projectId) {
+          params.set("workspace_id", projectId);
+          params.set("command_center_id", projectId);
+        } else if (useAllScope) {
+          params.set("workspace_id", "all");
+          params.set("command_center_id", "all");
+        }
+        params.set("offset", String(offset));
+        params.set("limit", String(pageSize));
+        params.set("include_completed", includeCompleted ? "1" : "0");
+        if (requestedSliceLevelContext) {
+          params.set("slice_level_context", requestedSliceLevelContext);
+        }
+        if (requestedMixPolicy) params.set("mix_policy", requestedMixPolicy);
+        if (requestedOrderMode) params.set("order_mode", requestedOrderMode);
+        if (includeLineage) params.set("include_lineage", "1");
+
+        const canonical = await requestCanonicalWithLegacyFallback(deps, {
+          timeoutMs: CANONICAL_NEXT_UP_TIMEOUT_MS,
+          label: "canonical next-up",
+          modernPath: `/api/client/mission-control/next-up?${params.toString()}`,
+          legacyPath: `/api/mission-control/next-up?${params.toString()}`,
+        });
+        const canonicalRecord = asRecord(canonical);
+        if (!canonicalRecord || !Array.isArray(canonicalRecord.items)) {
+          throw new Error("invalid canonical next-up payload");
+        }
+        if (isCanonicalAllScopeMismatch(canonicalRecord, useAllScope)) {
+          throw new Error("canonical next-up all-workspaces scope mismatch");
+        }
+
+        const canonicalItems = normalizeQueueItems(canonicalRecord.items).filter((item) =>
+          includeCompleted ? true : item.queueState !== "completed"
+        );
+        const canonicalTotal =
+          Math.max(
+            canonicalItems.length,
+            Math.floor(asNumber(canonicalRecord.total) ?? canonicalItems.length)
+          ) ?? canonicalItems.length;
+        const canonicalPagination = parsePaginationEnvelope(canonicalRecord.pagination, {
+          offset,
+          limit: pageSize,
+          total: canonicalTotal,
+        });
+        const shouldRepaginateCanonically =
+          canonicalItems.length > pageSize ||
+          canonicalPagination.offset !== offset ||
+          canonicalPagination.limit !== pageSize;
+        const paged = shouldRepaginateCanonically
+          ? applySliceSearchAndPagination({
+              items: canonicalItems,
+              searchTerm: "",
+              offset,
+              limit: pageSize,
+            })
+          : null;
+        const degraded = dedupeStrings(
+          asStringArray(canonicalRecord.degraded)
+        );
+        const responsePayload: Record<string, unknown> = {
+          ok: true,
+          generatedAt:
+            asString(canonicalRecord.generatedAt) ?? new Date().toISOString(),
+          total: paged ? paged.filtered.length : canonicalPagination.total,
+          items: paged ? paged.paged : canonicalItems,
+          pagination: paged ? paged.pagination : canonicalPagination,
+          source: "canonical",
+          degraded,
+        };
+        writeCanonicalReadCache(nextUpCanonicalCacheKey, responsePayload);
+        deps.sendJson(res, 200, responsePayload);
+
+        const paginationForWarmup = paged ? paged.pagination : canonicalPagination;
+        if (paginationForWarmup.hasMore && paginationForWarmup.nextCursor && shouldRunWarmup(
+          `next-up:${projectId ?? "__all__"}:${initiativeId ?? "__all__"}:${paginationForWarmup.nextCursor}:${pageSize}`
+        )) {
+          const nextOffset = parsePositiveInt(
+            paginationForWarmup.nextCursor,
+            offset + pageSize,
+            100_000
+          );
+          const warmParams = new URLSearchParams(params);
+          warmParams.set("offset", String(nextOffset));
+          warmParams.set("limit", String(pageSize));
+          void requestCanonicalWithLegacyFallback(deps, {
+            timeoutMs: CANONICAL_NEXT_UP_TIMEOUT_MS,
+            label: "canonical next-up warmup",
+            modernPath: `/api/client/mission-control/next-up?${warmParams.toString()}`,
+            legacyPath: `/api/mission-control/next-up?${warmParams.toString()}`,
+          }).catch(() => undefined);
+        }
+        if (
+          offset === 0 &&
+          shouldRunWarmup(
+            `next-up->slices:${projectId ?? "__all__"}:${initiativeId ?? "__all__"}:${pageSize}`
+          )
+        ) {
+          const warmSlicesParams = new URLSearchParams();
+          if (initiativeId) warmSlicesParams.set("initiative_id", initiativeId);
+          if (projectId) {
+            warmSlicesParams.set("workspace_id", projectId);
+            warmSlicesParams.set("command_center_id", projectId);
+          } else if (useAllScope) {
+            warmSlicesParams.set("workspace_id", "all");
+            warmSlicesParams.set("command_center_id", "all");
+          }
+          warmSlicesParams.set("level", "initiative");
+          warmSlicesParams.set("include_completed", includeCompleted ? "1" : "0");
+          warmSlicesParams.set("offset", "0");
+          warmSlicesParams.set(
+            "limit",
+            String(Math.max(SLICES_DEFAULT_PAGE_SIZE, Math.min(pageSize, 300)))
+          );
+          void requestCanonicalWithLegacyFallback(deps, {
+            timeoutMs: CANONICAL_SLICES_TIMEOUT_MS,
+            label: "canonical slices warmup",
+            modernPath: `/api/client/mission-control/slices?${warmSlicesParams.toString()}`,
+            legacyPath: `/api/mission-control/slices?${warmSlicesParams.toString()}`,
+          }).catch(() => undefined);
+        }
+        return;
+      } catch (err: unknown) {
+        if (isCanonicalAuthFailure(err)) {
+          setCanonicalBypass("next-up", "authentication unavailable", CANONICAL_AUTH_BYPASS_MS);
+        } else if (isCanonicalTimeoutFailure(err)) {
+          setCanonicalBypass("next-up", "upstream timeout", CANONICAL_TIMEOUT_BYPASS_MS);
+        }
+        const staleCanonical = readCanonicalReadCache(nextUpCanonicalCacheKey, {
+          allowStale: true,
+        });
+        if (staleCanonical) {
+          const staleDegraded = dedupeStrings([
+            ...asStringArray(staleCanonical.degraded),
+            "Using cached canonical queue while sync recovers.",
+          ]);
+          deps.sendJson(res, 200, {
+            ...staleCanonical,
+            degraded: staleDegraded,
+            source: "canonical_cache_stale",
+          });
+          return;
+        }
+        canonicalFallbackReason = `canonical next-up unavailable (${deps.safeErrorMessage(err)})`;
+        // Continue to local fallback.
+        try {
+          const queue = await deps.buildNextUpQueue({
+            initiativeId,
+            projectId,
+          });
+          const items = normalizeQueueItems(queue.items ?? []).filter((item) =>
+            includeCompleted ? true : item.queueState !== "completed"
+          );
+          const paged = applySliceSearchAndPagination({
+            items,
+            searchTerm: "",
+            offset,
+            limit: pageSize,
+          });
+          const degraded = dedupeStrings([
+            ...(Array.isArray(queue.degraded) ? queue.degraded : []),
+            ...(canonicalFallbackReason ? [canonicalFallbackReason] : []),
+          ]);
+          deps.sendJson(res, 200, {
+            ok: true,
+            generatedAt: new Date().toISOString(),
+            total: paged.filtered.length,
+            items: paged.paged,
+            pagination: paged.pagination,
+            source: "local_fallback",
+            degraded,
+          });
+          return;
+        } catch (fallbackErr: unknown) {
+          sendRouteException(
+            res,
+            "mission-control.read.next-up.handler",
+            fallbackErr
+          );
+          return;
+        }
+      }
+    }
 
     try {
       const queue = await deps.buildNextUpQueue({
         initiativeId,
         projectId,
       });
-      let items = Array.isArray(queue.items) ? queue.items : [];
-      const degraded = dedupeStrings(
-        Array.isArray(queue.degraded) ? queue.degraded : []
+      const items = normalizeQueueItems(queue.items ?? []).filter((item) =>
+        includeCompleted ? true : item.queueState !== "completed"
       );
-
-      if (items.length === 0 && deps.rawRequest) {
-        try {
-          const params = new URLSearchParams();
-          if (initiativeId) params.set("initiative_id", initiativeId);
-          if (projectId) {
-            params.set("workspace_id", projectId);
-            params.set("command_center_id", projectId);
-          }
-          params.set("level", "workstream");
-          params.set("include_completed", "0");
-          params.set("limit", "250");
-          params.set(
-            "mix_policy",
-            query.get("mix_policy") ?? query.get("mixPolicy") ?? "iwmt_v1"
-          );
-          const orderMode = query.get("order_mode") ?? query.get("orderMode");
-          if (orderMode) params.set("order_mode", orderMode);
-
-          const canonical = await deps.rawRequest(
-            "GET",
-            `/api/client/mission-control/slices?${params.toString()}`
-          );
-          const fallbackItems = mapCanonicalSlicesToQueueItems({
-            payload: canonical,
-            initiativeId,
-          });
-          if (fallbackItems.length > 0) {
-            items = fallbackItems;
-            degraded.push("Using canonical slices fallback for Next Up queue.");
-          }
-        } catch (err: unknown) {
-          degraded.push(
-            `canonical next-up fallback unavailable (${deps.safeErrorMessage(err)})`
-          );
-        }
-      }
-
+      const paged = applySliceSearchAndPagination({
+        items,
+        searchTerm: "",
+        offset,
+        limit: pageSize,
+      });
+      const degraded = dedupeStrings(
+        [
+          ...(Array.isArray(queue.degraded) ? queue.degraded : []),
+          ...(canonicalFallbackReason ? [canonicalFallbackReason] : []),
+        ]
+      );
       deps.sendJson(res, 200, {
         ok: true,
         generatedAt: new Date().toISOString(),
-        total: items.length,
-        items,
+        total: paged.filtered.length,
+        items: paged.paged,
+        pagination: paged.pagination,
+        source: "local",
         degraded: dedupeStrings(degraded),
       });
     } catch (err: unknown) {
@@ -943,6 +1207,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       return;
     }
     const projectId = workspaceScope.workspaceId;
+    const useAllScope = workspaceScope.isAll === true;
     const includeCompleted = parseBoolean(query.get("include_completed"));
     const sliceScope = parseSliceScope(query.get("scope") ?? query.get("level"));
     const order = parseSliceOrder(query.get("order"));
@@ -956,49 +1221,162 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     );
     const pageSize = parsePositiveInt(
       query.get("page_size") ?? query.get("pageSize") ?? query.get("limit"),
-      50,
+      SLICES_DEFAULT_PAGE_SIZE,
       300
     );
+    const requestedMixPolicy =
+      query.get("mix_policy") ?? query.get("mixPolicy") ?? "iwmt_v1";
+    const requestedOrderMode =
+      query.get("order_mode") ?? query.get("orderMode");
+    const slicesCanonicalCacheKey = canonicalReadCacheKey({
+      route: "slices",
+      workspaceId: projectId,
+      initiativeId,
+      includeCompleted,
+      offset,
+      limit: pageSize,
+      scope: sliceScope,
+      order: requestedOrderMode ?? order,
+      mixPolicy: requestedMixPolicy,
+      search: searchTerm || null,
+    });
 
-    let canonicalFallbackReason: string | null = null;
-    if (deps.rawRequest) {
+    const cachedCanonicalSlices = readCanonicalReadCache(slicesCanonicalCacheKey, {
+      allowStale: false,
+    });
+    if (cachedCanonicalSlices) {
+      deps.sendJson(res, 200, cachedCanonicalSlices);
+      return;
+    }
+
+    const canonicalBypass = readCanonicalBypass("slices");
+    let canonicalFallbackReason: string | null = canonicalBypass
+      ? `canonical slices bypassed (${canonicalBypass.reason})`
+      : null;
+    if (deps.rawRequest && !canonicalBypass) {
       try {
         const params = new URLSearchParams();
         if (initiativeId) params.set("initiative_id", initiativeId);
         if (projectId) {
           params.set("workspace_id", projectId);
           params.set("command_center_id", projectId);
+        } else if (useAllScope) {
+          params.set("workspace_id", "all");
+          params.set("command_center_id", "all");
         }
         params.set("level", sliceScope);
         params.set("include_completed", includeCompleted ? "1" : "0");
-        params.set(
-          "mix_policy",
-          query.get("mix_policy") ?? query.get("mixPolicy") ?? "iwmt_v1"
-        );
-        const requestedOrderMode =
-          query.get("order_mode") ?? query.get("orderMode");
+        params.set("mix_policy", requestedMixPolicy);
         if (requestedOrderMode) params.set("order_mode", requestedOrderMode);
-        params.set(
-          "limit",
-          String(Math.min(300, Math.max(pageSize + offset, pageSize)))
-        );
+        const canonicalSupportsDirectPaging = searchTerm.length === 0;
+        if (canonicalSupportsDirectPaging) {
+          params.set("offset", String(offset));
+          params.set("limit", String(pageSize));
+        } else {
+          params.set(
+            "offset",
+            "0"
+          );
+          params.set(
+            "limit",
+            String(Math.min(300, Math.max(pageSize + offset, pageSize)))
+          );
+        }
 
-        const canonical = await deps.rawRequest(
-          "GET",
-          `/api/client/mission-control/slices?${params.toString()}`
-        );
+        const canonical = await requestCanonicalWithLegacyFallback(deps, {
+          timeoutMs: CANONICAL_SLICES_TIMEOUT_MS,
+          label: "canonical slices",
+          modernPath: `/api/client/mission-control/slices?${params.toString()}`,
+          legacyPath: `/api/mission-control/slices?${params.toString()}`,
+        });
         const canonicalRecord = asRecord(canonical);
         if (!canonicalRecord || !Array.isArray(canonicalRecord.items)) {
           throw new Error("invalid canonical slices payload");
         }
+        if (isCanonicalAllScopeMismatch(canonicalRecord, useAllScope)) {
+          throw new Error("canonical slices all-workspaces scope mismatch");
+        }
         const canonicalItems = canonicalRecord.items;
+        const canonicalTotal =
+          Math.max(
+            canonicalItems.length,
+            Math.floor(asNumber(canonicalRecord.total) ?? canonicalItems.length)
+          ) ?? canonicalItems.length;
+        const canonicalPagination = parsePaginationEnvelope(
+          canonicalRecord.pagination,
+          {
+            offset,
+            limit: pageSize,
+            total: canonicalTotal,
+          }
+        );
+        const shouldRepaginateCanonically =
+          canonicalItems.length > pageSize ||
+          canonicalPagination.offset !== offset ||
+          canonicalPagination.limit !== pageSize;
+        const canonicalPaged = shouldRepaginateCanonically
+          ? applySliceSearchAndPagination({
+              items: canonicalItems,
+              searchTerm: "",
+              offset,
+              limit: pageSize,
+            })
+          : null;
+
+        if (searchTerm.length === 0) {
+          const responsePayload: Record<string, unknown> = {
+            ...canonicalRecord,
+            level: asString(canonicalRecord.level) ?? sliceScope,
+            scope: asString(canonicalRecord.level) ?? sliceScope,
+            order:
+              asString(canonicalRecord.orderMode) ??
+              asString(canonicalRecord.order) ??
+              order,
+            total: canonicalPaged ? canonicalPaged.filtered.length : canonicalPagination.total,
+            items: canonicalPaged ? canonicalPaged.paged : canonicalItems,
+            pagination: canonicalPaged ? canonicalPaged.pagination : canonicalPagination,
+            source: "canonical",
+          };
+          writeCanonicalReadCache(slicesCanonicalCacheKey, responsePayload);
+          deps.sendJson(res, 200, responsePayload);
+          if (
+            offset === 0 &&
+            shouldRunWarmup(
+              `slices->next-up:${projectId ?? "__all__"}:${initiativeId ?? "__all__"}:${pageSize}`
+            )
+          ) {
+            const warmNextUpParams = new URLSearchParams();
+            if (initiativeId) warmNextUpParams.set("initiative_id", initiativeId);
+            if (projectId) {
+              warmNextUpParams.set("workspace_id", projectId);
+              warmNextUpParams.set("command_center_id", projectId);
+            } else if (useAllScope) {
+              warmNextUpParams.set("workspace_id", "all");
+              warmNextUpParams.set("command_center_id", "all");
+            }
+            warmNextUpParams.set("offset", "0");
+            warmNextUpParams.set(
+              "limit",
+              String(Math.max(NEXT_UP_DEFAULT_PAGE_SIZE, Math.min(pageSize, 300)))
+            );
+            warmNextUpParams.set("include_completed", includeCompleted ? "1" : "0");
+            void requestCanonicalWithLegacyFallback(deps, {
+              timeoutMs: CANONICAL_NEXT_UP_TIMEOUT_MS,
+              label: "canonical next-up warmup",
+              modernPath: `/api/client/mission-control/next-up?${warmNextUpParams.toString()}`,
+              legacyPath: `/api/mission-control/next-up?${warmNextUpParams.toString()}`,
+            }).catch(() => undefined);
+          }
+          return;
+        }
+
         const paged = applySliceSearchAndPagination({
           items: canonicalItems,
           searchTerm,
           offset,
           limit: pageSize,
         });
-        deps.sendJson(res, 200, {
+        const responsePayload: Record<string, unknown> = {
           ...canonicalRecord,
           level: asString(canonicalRecord.level) ?? sliceScope,
           scope: asString(canonicalRecord.level) ?? sliceScope,
@@ -1010,9 +1388,59 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           items: paged.paged,
           pagination: paged.pagination,
           source: "canonical",
-        });
+        };
+        writeCanonicalReadCache(slicesCanonicalCacheKey, responsePayload);
+        deps.sendJson(res, 200, responsePayload);
+        if (
+          offset === 0 &&
+          shouldRunWarmup(
+            `slices->next-up:${projectId ?? "__all__"}:${initiativeId ?? "__all__"}:${pageSize}:search`
+          )
+        ) {
+          const warmNextUpParams = new URLSearchParams();
+          if (initiativeId) warmNextUpParams.set("initiative_id", initiativeId);
+          if (projectId) {
+            warmNextUpParams.set("workspace_id", projectId);
+            warmNextUpParams.set("command_center_id", projectId);
+          } else if (useAllScope) {
+            warmNextUpParams.set("workspace_id", "all");
+            warmNextUpParams.set("command_center_id", "all");
+          }
+          warmNextUpParams.set("offset", "0");
+          warmNextUpParams.set(
+            "limit",
+            String(Math.max(NEXT_UP_DEFAULT_PAGE_SIZE, Math.min(pageSize, 300)))
+          );
+          warmNextUpParams.set("include_completed", includeCompleted ? "1" : "0");
+          void requestCanonicalWithLegacyFallback(deps, {
+            timeoutMs: CANONICAL_NEXT_UP_TIMEOUT_MS,
+            label: "canonical next-up warmup",
+            modernPath: `/api/client/mission-control/next-up?${warmNextUpParams.toString()}`,
+            legacyPath: `/api/mission-control/next-up?${warmNextUpParams.toString()}`,
+          }).catch(() => undefined);
+        }
         return;
       } catch (err: unknown) {
+        if (isCanonicalAuthFailure(err)) {
+          setCanonicalBypass("slices", "authentication unavailable", CANONICAL_AUTH_BYPASS_MS);
+        } else if (isCanonicalTimeoutFailure(err)) {
+          setCanonicalBypass("slices", "upstream timeout", CANONICAL_TIMEOUT_BYPASS_MS);
+        }
+        const staleCanonical = readCanonicalReadCache(slicesCanonicalCacheKey, {
+          allowStale: true,
+        });
+        if (staleCanonical) {
+          const staleDegraded = dedupeStrings([
+            ...asStringArray(staleCanonical.degraded),
+            "Using cached canonical slices while sync recovers.",
+          ]);
+          deps.sendJson(res, 200, {
+            ...staleCanonical,
+            degraded: staleDegraded,
+            source: "canonical_cache_stale",
+          });
+          return;
+        }
         canonicalFallbackReason = `canonical slices unavailable (${deps.safeErrorMessage(err)})`;
       }
     }
