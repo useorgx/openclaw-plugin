@@ -51,6 +51,20 @@ test("parseSliceResult unwraps final_output object envelopes", () => {
   assert.equal(parsed?.workstream_id, "ws_test");
 });
 
+test("parseSliceResult unwraps final_output object text envelopes", () => {
+  const expected = sampleSliceResult({ summary: "Final output object text" });
+  const raw = JSON.stringify({
+    type: "result",
+    final_output: {
+      type: "output_text",
+      text: [{ type: "text", value: JSON.stringify(expected) }],
+    },
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "Final output object text");
+  assert.equal(parsed?.workstream_id, "ws_test");
+});
+
 test("parseSliceResult unwraps final_output string envelopes", () => {
   const expected = sampleSliceResult({ summary: "Final output string" });
   const raw = JSON.stringify({
@@ -83,6 +97,21 @@ test("parseSliceResult unwraps Claude structured_output when JSON is fenced", ()
   });
   const parsed = parseSliceResult(raw);
   assert.equal(parsed?.summary, "Claude structured fenced json");
+  assert.equal(parsed?.status, "completed");
+});
+
+test("parseSliceResult unwraps Claude structured_output object text payloads", () => {
+  const expected = sampleSliceResult({ summary: "Claude structured object text json" });
+  const raw = JSON.stringify({
+    type: "result",
+    subtype: "success",
+    structured_output: {
+      type: "output_text",
+      text: [{ type: "text", value: JSON.stringify(expected) }],
+    },
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "Claude structured object text json");
   assert.equal(parsed?.status, "completed");
 });
 
@@ -127,6 +156,32 @@ test("parseSliceResult unwraps output message content text envelopes", () => {
   assert.equal(parsed?.workstream_id, "ws_test");
 });
 
+test("parseSliceResult unwraps output message content object and array text envelopes", () => {
+  const expected = sampleSliceResult({ summary: "output message object text envelope" });
+  const raw = JSON.stringify({
+    type: "response",
+    output: [
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: { value: "Not JSON yet" },
+          },
+          {
+            type: "output_text",
+            text: [{ type: "text", value: JSON.stringify(expected) }],
+          },
+        ],
+      },
+    ],
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "output message object text envelope");
+  assert.equal(parsed?.status, "completed");
+});
+
 test("parseSliceResult parses markdown-fenced JSON payloads", () => {
   const expected = sampleSliceResult({ summary: "fenced json" });
   const raw = ["```json", JSON.stringify(expected, null, 2), "```"].join("\n");
@@ -146,6 +201,22 @@ test("parseSliceResult parses markdown-fenced JSON wrapped with prose", () => {
   ].join("\n");
   const parsed = parseSliceResult(raw);
   assert.equal(parsed?.summary, "fenced json in prose");
+  assert.equal(parsed?.status, "completed");
+});
+
+test("parseSliceResult prefers the last valid fenced JSON payload", () => {
+  const expected = sampleSliceResult({ summary: "last fenced json wins" });
+  const raw = [
+    "```json",
+    "{",
+    "```",
+    "Intermediary commentary",
+    "```json",
+    JSON.stringify(expected, null, 2),
+    "```",
+  ].join("\n");
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "last fenced json wins");
   assert.equal(parsed?.status, "completed");
 });
 
@@ -222,6 +293,19 @@ test("parseSliceResult normalizes completed payloads without outcomes to error",
   assert.equal(parsed?.status, "error");
 });
 
+test("parseSliceResult normalizes completed payloads with only decisions to error", () => {
+  const raw = JSON.stringify(
+    sampleSliceResult({
+      artifacts: [],
+      task_updates: [],
+      milestone_updates: [],
+      decisions_needed: [{ question: "Need follow-up", blocking: false }],
+    })
+  );
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.status, "error");
+});
+
 test("parseSliceResult normalizes completed payloads with blocking decisions", () => {
   const raw = JSON.stringify(
     sampleSliceResult({
@@ -247,7 +331,7 @@ test("parseSliceResult accepts decisions without explicit blocking fields", () =
   assert.equal(parsed?.decisions_needed?.[0]?.blocking, false);
 });
 
-test("parseSliceResult accepts blocked payloads without blocking decisions", () => {
+test("parseSliceResult preserves blocked payloads without blocking decisions", () => {
   const raw = JSON.stringify(
     sampleSliceResult({
       status: "blocked",
@@ -272,7 +356,7 @@ test("parseSliceResult rejects invalid structured_output envelopes", () => {
   assert.equal(parsed, null);
 });
 
-test("parseSliceResult accepts needs_decision payloads without blocking decisions", () => {
+test("parseSliceResult preserves needs_decision payloads without blocking decisions in result envelopes", () => {
   const raw = JSON.stringify({
     type: "result",
     result: JSON.stringify(
@@ -314,6 +398,18 @@ test("parseSliceResult accepts needs_decision payloads with blocking decisions",
   assert.equal(parsed?.decisions_needed?.[0]?.blocking, true);
 });
 
+test("parseSliceResult preserves needs_decision payloads without blocking decisions", () => {
+  const raw = JSON.stringify(
+    sampleSliceResult({
+      status: "needs_decision",
+      decisions_needed: [{ question: "Need input", blocking: false }],
+    })
+  );
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.status, "needs_decision");
+  assert.equal(parsed?.decisions_needed?.[0]?.blocking, false);
+});
+
 test("parseSliceResult accepts error payloads without blocking decisions", () => {
   const raw = JSON.stringify(
     sampleSliceResult({
@@ -326,7 +422,7 @@ test("parseSliceResult accepts error payloads without blocking decisions", () =>
   assert.equal(parsed?.decisions_needed?.[0]?.blocking, false);
 });
 
-test("parseSliceResult accepts error payloads with blocking decisions", () => {
+test("parseSliceResult preserves error payloads with blocking decisions", () => {
   const raw = JSON.stringify(
     sampleSliceResult({
       status: "error",
