@@ -29,6 +29,7 @@ import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext'
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 import { ActivityTimelineItem } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
+import { ActivityDetailSummary } from './ActivityDetailSummary';
 import { ChatDockProvider } from './chat/ChatDockContext';
 import { ActivityChatDock } from './chat/ActivityChatDock';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
@@ -956,6 +957,7 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
   if (
     !event ||
     (!isAutopilotSliceEvent &&
+      event !== 'auto_continue_started' &&
       event !== 'auto_continue_stopped' &&
       event !== 'next_up_manual_dispatch_started')
   ) {
@@ -1863,6 +1865,7 @@ function inferLifecycleProgress(detail: AutopilotSliceDetail): number | null {
   if (statusKey === 'blocked' || statusKey === 'error' || statusKey === 'failed') return 100;
 
   const event = detail.event;
+  if (event === 'auto_continue_started') return 3;
   if (event === 'next_up_manual_dispatch_started') return 8;
   if (event === 'autopilot_slice_dispatched') return 14;
   if (event === 'autopilot_slice_status_updates_buffered') return 72;
@@ -1983,6 +1986,17 @@ function describeDetailOutcome(
     Boolean(blockedReason && /rate limit/i.test(blockedReason));
   const spawnGuardBlocked = eventName.includes('spawn_guard_blocked');
 
+  if (eventName === 'auto_continue_started') {
+    return {
+      label: 'Autopilot on',
+      summary:
+        humanizeActivityBody(item.title) ??
+        'Autopilot is active and will continue dispatching work from the Next Up queue.',
+      hint: 'Watch Activity and Next Up for newly dispatched slices.',
+      tone: 'positive',
+    };
+  }
+
   if (eventName === 'auto_continue_stopped') {
     if (stopReason === 'budget_exhausted') {
       return {
@@ -2039,6 +2053,35 @@ function describeDetailOutcome(
         tone: 'critical',
       };
     }
+  }
+
+  // ── autopilot_transition ──
+  if (eventName === "autopilot_transition") {
+    const oldState = String(metadata?.old_state ?? "");
+    const newState = String(metadata?.new_state ?? "");
+    const reason = String(metadata?.reason ?? "");
+    if (newState === "running") {
+      return {
+        label: "Autopilot activated",
+        summary: `State changed from ${oldState} to running.`,
+        hint: "Autopilot will dispatch work from the Next Up queue.",
+        tone: "positive" as const,
+      };
+    }
+    if (newState === "blocked" || newState === "error") {
+      return {
+        label: newState === "error" ? "Autopilot error" : "Autopilot blocked",
+        summary: `State changed from ${oldState} to ${newState}${reason ? `: ${reason}` : ""}.`,
+        hint: "Review the triage queue for actionable items.",
+        tone: "critical" as const,
+      };
+    }
+    return {
+      label: "Autopilot state change",
+      summary: `${oldState} → ${newState}${reason ? ` (${reason})` : ""}.`,
+      hint: null,
+      tone: "neutral" as const,
+    };
   }
 
   if (spawnGuardRateLimited) {
@@ -4835,6 +4878,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </Pill>
                       {activeIsSyncReplay && <Pill tone="lime">Sync replay</Pill>}
                     </div>
+
+                    {/* Activity summary card */}
+                    <ActivityDetailSummary item={activeDecorated.item} className="mb-3" />
 
                     {activeOutcome && (
                       <div

@@ -5,6 +5,8 @@ import { useLiveData } from '@/hooks/useLiveData';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import { useTriageQueue } from '@/hooks/useTriageQueue';
 import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
@@ -42,6 +44,8 @@ import type { SettingsTab } from '@/components/settings/SettingsModal';
 import type { BulkSessionsMode } from '@/components/bulk/BulkSessionsModal';
 import { ArtifactViewerProvider, useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { ContextualStatus } from '@/components/shared/ContextualStatus';
+import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
+import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -57,20 +61,17 @@ const LazySessionInspector = lazy(async () => {
   return { default: mod.SessionInspector };
 });
 
-const LazyAgentsChatsPanel = lazy(async () => {
-  const mod = await import('@/components/sessions/AgentsChatsPanel');
-  return { default: mod.AgentsChatsPanel };
-});
-
-const LazyActivityTimeline = lazy(async () => {
-  const mod = await import('@/components/activity/ActivityTimeline');
-  return { default: mod.ActivityTimeline };
-});
-
 const LazyDecisionQueue = lazy(async () => {
   const mod = await import('@/components/decisions/DecisionQueue');
   return { default: mod.DecisionQueue };
 });
+
+const LazyTriageQueue = lazy(() =>
+  import('@/components/triage/TriageQueue').then((m) => ({ default: m.TriageQueue }))
+);
+const LazyTriageDetailModal = lazy(() =>
+  import('@/components/triage/TriageDetailModal').then((m) => ({ default: m.TriageDetailModal }))
+);
 
 const LazyNextUpPanel = lazy(async () => {
   const mod = await import('@/components/mission-control/NextUpPanel');
@@ -317,6 +318,15 @@ function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number 
   return (
     toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt) -
     toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt)
+  );
+}
+
+function selectStartableQueueItem(items: NextUpQueueItem[]): NextUpQueueItem | null {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  return (
+    items.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
+    items.find((item) => item.queueState !== 'blocked') ??
+    null
   );
 }
 
@@ -665,6 +675,7 @@ function DashboardShell({
     rejectDecision,
     approveAllDecisions,
     bulkDecisionAction,
+    decisionMutation,
   } = useLiveData({
     useMock: demoMode,
     enabled: true,
@@ -743,7 +754,9 @@ function DashboardShell({
       return;
     }
     if (tab === 'decisions') {
-      setExpandedRightPanel('decisions');
+      setExpandedRightPanel('initiatives');
+      setInitiativesSidebarTab('in_progress');
+      setInProgressSubFilter('needs_attention');
     }
   }, []);
   const [inProgressSubFilter, setInProgressSubFilter] = useState<'all' | 'needs_attention'>('all');
@@ -764,7 +777,7 @@ function DashboardShell({
     () => selectNeedsInputRows(actionableSliceRuns),
     [actionableSliceRuns]
   );
-  const needsInputCount = needsInputRows.length;
+  const needsInputCount = needsInputRows.length + (decisionsVisible ? data.decisions.length : 0);
 
   const [sliceDetailTarget, setSliceDetailTarget] = useState<SliceDetailTarget | null>(null);
 
@@ -792,20 +805,47 @@ function DashboardShell({
     setSliceDetailTarget({ source: 'needs_input', sliceRun });
   }, []);
 
-  const activityNextUpQueue = useNextUpQueue({
+  const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
     authToken: null,
     embedMode: false,
     enabled: true,
+    snapshotVersion: data.snapshotVersion,
   });
+  const sharedNextUpActions = useNextUpQueueActions({ authToken: null, embedMode: false });
+
+  // Triage queue
+  const { model: triageModel, actions: triageActions } = useTriageQueue({
+    enabled: true,
+    workspaceId: selectedWorkspaceId,
+    authToken: null,
+    embedMode: false,
+  });
+  const [triageDetailItem, setTriageDetailItem] = useState<import('@/types').LiveTriageItem | null>(null);
+  const [triageDetailIndex, setTriageDetailIndex] = useState(0);
+
+  const openTriageDetail = useCallback((item: import('@/types').LiveTriageItem) => {
+    setTriageDetailItem(item);
+    const idx = triageModel.items.findIndex((i) => i.id === item.id);
+    setTriageDetailIndex(idx >= 0 ? idx : 0);
+  }, [triageModel.items]);
+
+  const navigateTriageDetail = useCallback((direction: 1 | -1) => {
+    if (triageModel.items.length === 0) return;
+    const nextIdx = (triageDetailIndex + direction + triageModel.items.length) % triageModel.items.length;
+    setTriageDetailIndex(nextIdx);
+    setTriageDetailItem(triageModel.items[nextIdx] ?? null);
+  }, [triageDetailIndex, triageModel.items]);
+
+  const activityNextUpQueue = sharedNextUpQueue;
   const activityAutopilotRun = useMemo(
     () =>
-      activityNextUpQueue.items.find(
+      sharedNextUpQueue.items.find(
         (item) =>
           item.autoIntentEnabled === true &&
           (item.autoRuntimeState === 'running' || item.autoRuntimeState === 'stopping')
       ) ?? null,
-    [activityNextUpQueue.items]
+    [sharedNextUpQueue.items]
   );
   const activityAutopilotActive = Boolean(activityAutopilotRun);
 
@@ -1682,129 +1722,47 @@ function DashboardShell({
     []
   );
 
-  const fetchNextUpCandidate = useCallback(async (): Promise<NextUpQueueItem | null> => {
-    const query = new URLSearchParams();
-    if (selectedWorkspaceId && selectedWorkspaceId.trim().length > 0) {
-      setWorkspaceScopeParams(query, selectedWorkspaceId);
-    }
-    const response = await fetch(
-      query.toString().length > 0
-        ? `/orgx/api/mission-control/next-up?${query.toString()}`
-        : '/orgx/api/mission-control/next-up'
-    );
-    const body = (await response.json().catch(() => null)) as
-      | { ok?: boolean; items?: NextUpQueueItem[]; error?: string; message?: string }
-      | null;
-
-    if (!response.ok) {
-      const message =
-        (typeof body?.error === 'string' && body.error.trim().length > 0
-          ? body.error
-          : typeof body?.message === 'string' && body.message.trim().length > 0
-            ? body.message
-            : `Failed to load Next Up queue (${response.status})`);
-      throw new Error(message);
-    }
-
-    const items = Array.isArray(body?.items) ? body.items : [];
-    if (items.length === 0) return null;
-
-    return (
-      items.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
-      items.find((item) => item.queueState !== 'blocked') ??
-      null
-    );
-  }, [selectedWorkspaceId]);
-
   const playNextUpFromActivity = useCallback(async () => {
-    const candidate = await fetchNextUpCandidate();
+    const candidate = selectStartableQueueItem(sharedNextUpQueue.items);
     if (!candidate) {
       setOpsNotice('No startable Next Up workstream is available.');
       switchDashboardView('mission-control');
       return;
     }
 
-    const response = await fetch('/orgx/api/mission-control/next-up/play', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initiativeId: candidate.initiativeId,
-        workstreamId: candidate.workstreamId,
-        agentId: candidate.runnerAgentId,
-        fastAck: true,
-        ignoreSpawnGuardRateLimit: true,
-      }),
+    await sharedNextUpQueue.playWorkstream({
+      initiativeId: candidate.initiativeId,
+      workstreamId: candidate.workstreamId,
+      agentId: candidate.runnerAgentId,
     });
-
-    const body = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string }
-      | null;
-    if (!response.ok) {
-      throw new Error(
-        formatOpsNoticeError(
-          body?.error ?? body?.message ?? null,
-          `Failed to dispatch Next Up (${response.status})`
-        )
-      );
-    }
 
     setActivityFilterSessionId(null);
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
     setOpsNotice(`Dispatched Next Up: ${candidate.workstreamTitle}`);
-    await refetch();
-  }, [fetchNextUpCandidate, refetch, switchDashboardView]);
+    await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+  }, [refetch, sharedNextUpQueue, switchDashboardView]);
 
   const startAutopilotFromActivity = useCallback(async () => {
-    const candidate = await fetchNextUpCandidate();
+    const candidate = selectStartableQueueItem(sharedNextUpQueue.items);
     if (!candidate) {
       setOpsNotice('No startable initiative is ready for Autopilot yet.');
       switchDashboardView('mission-control');
       return;
     }
 
-    const moveResponse = await fetch('/orgx/api/mission-control/next-up/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initiativeId: candidate.initiativeId,
-        workstreamId: candidate.workstreamId,
-        placement: 'top',
-      }),
+    await sharedNextUpActions.move({
+      initiativeId: candidate.initiativeId,
+      workstreamId: candidate.workstreamId,
+      placement: 'top',
     });
-    if (!moveResponse.ok) {
-      const moveBody = (await moveResponse.json().catch(() => null)) as
-        | { error?: string; message?: string }
-        | null;
-      throw new Error(
-        moveBody?.error ??
-          moveBody?.message ??
-          `Failed to prioritize selected workstream (${moveResponse.status})`
-      );
-    }
-
-    const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initiativeId: candidate.initiativeId,
-        agentId: candidate.runnerAgentId,
-        ignoreSpawnGuardRateLimit: true,
-      }),
+    await sharedNextUpQueue.startWorkstreamAutoContinue({
+      initiativeId: candidate.initiativeId,
+      workstreamId: candidate.workstreamId,
+      agentId: candidate.runnerAgentId,
+      scope: 'initiative',
     });
-
-    const body = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string }
-      | null;
-    if (!response.ok) {
-      throw new Error(
-        formatOpsNoticeError(
-          body?.error ?? body?.message ?? null,
-          `Failed to start Autopilot (${response.status})`
-        )
-      );
-    }
 
     setActivityFilterSessionId(null);
     setActivityFilterWorkstreamId(candidate.workstreamId);
@@ -1813,8 +1771,8 @@ function DashboardShell({
     setOpsNotice(
       `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
     );
-    await refetch();
-  }, [fetchNextUpCandidate, refetch, switchDashboardView]);
+    await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+  }, [refetch, sharedNextUpActions, sharedNextUpQueue, switchDashboardView]);
 
   const toggleSidebarAutopilot = useCallback(async () => {
     setSidebarAutopilotBusy(true);
@@ -1823,25 +1781,19 @@ function DashboardShell({
         await startAutopilotFromActivity();
         return;
       }
-
-      const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initiativeId: activityAutopilotRun.initiativeId }),
+      await sharedNextUpQueue.stopInitiativeAutoContinue({
+        initiativeId: activityAutopilotRun.initiativeId,
       });
-      if (!response.ok) {
-        throw new Error(await readApiErrorMessage(response, 'Failed to stop Autopilot'));
-      }
 
       setOpsNotice(`Autopilot stopped for ${activityAutopilotRun.initiativeTitle}.`);
-      await refetch();
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     } finally {
       setSidebarAutopilotBusy(false);
     }
   }, [
     activityAutopilotRun,
-    readApiErrorMessage,
     refetch,
+    sharedNextUpQueue,
     startAutopilotFromActivity,
   ]);
 
@@ -1874,9 +1826,9 @@ function DashboardShell({
       setActivityFilterWorkstreamId(workstreamId);
       setActivityFilterWorkstreamLabel(session.title);
       setOpsNotice(`Dispatched ${session.title}.`);
-      await refetch();
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
-    [readApiErrorMessage, refetch]
+    [readApiErrorMessage, refetch, sharedNextUpQueue]
   );
 
   const pauseSessionWorkstream = useCallback(
@@ -1923,9 +1875,9 @@ function DashboardShell({
       }
 
       setOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
-      await refetch();
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
-    [readApiErrorMessage, refetch]
+    [readApiErrorMessage, refetch, sharedNextUpQueue]
   );
 
   const submitSessionIntervention = useCallback(
@@ -2229,13 +2181,15 @@ function DashboardShell({
     (decisionId?: string | null) => {
       const normalizedDecisionId = (decisionId ?? '').trim();
       switchDashboardView('activity');
-      setExpandedRightPanel('decisions');
-      setMobileTab('decisions');
+      setExpandedRightPanel('initiatives');
+      setMobileTab('initiatives');
+      setInitiativesSidebarTab('in_progress');
+      setInProgressSubFilter('needs_attention');
       setRequestedDecisionId(normalizedDecisionId.length > 0 ? normalizedDecisionId : null);
       setOpsNotice(
         normalizedDecisionId.length > 0
           ? 'Reviewing pending decision.'
-          : 'Review pending decisions.'
+          : 'Review needs attention.'
       );
     },
     [switchDashboardView]
@@ -2448,8 +2402,10 @@ function DashboardShell({
                 completedToday={completedToday}
                 onDecisionsClick={() => {
                   switchDashboardView('activity');
-                  setExpandedRightPanel('decisions');
-                  setMobileTab('decisions');
+                  setExpandedRightPanel('initiatives');
+                  setMobileTab('initiatives');
+                  setInitiativesSidebarTab('in_progress');
+                  setInProgressSubFilter('needs_attention');
                 }}
                 onBlockedClick={() => {
                   if (actionableSliceRuns.length > 0) {
@@ -2647,8 +2603,10 @@ function DashboardShell({
                     completedToday={completedToday}
                     onDecisionsClick={() => {
                       switchDashboardView('activity');
-                      setMobileTab('decisions');
-                      setExpandedRightPanel('decisions');
+                      setMobileTab('initiatives');
+                      setExpandedRightPanel('initiatives');
+                      setInitiativesSidebarTab('in_progress');
+                      setInProgressSubFilter('needs_attention');
                       setNotificationTrayOpen(false);
                     }}
                     onBlockedClick={() => {
@@ -2818,77 +2776,68 @@ function DashboardShell({
                 onCreateInitiative={startInitiative}
                 onPlayNextUp={playNextUpFromActivity}
                 onStartAutopilot={startAutopilotFromActivity}
+                nextUpQueueModel={sharedNextUpQueue}
+                nextUpActionsModel={sharedNextUpActions}
+                snapshotVersion={data.snapshotVersion}
 		            />
 	          </Suspense>
 	        </div>
 	      ) : (
       <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
         <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
-          <Suspense
-            fallback={
-              <PremiumCard className="h-full p-4 text-body text-secondary">Loading agents…</PremiumCard>
-            }
-          >
-            <LazyAgentsChatsPanel
-              sessions={data.sessions}
-              activity={activityInScope}
-              runtimeInstances={data.runtimeInstances ?? []}
-              showSyntheticEntities={demoMode || showSyntheticEntities}
-              selectedSessionId={selectedSessionId}
-              onSelectSession={handleSelectSession}
-              onAgentFilter={setAgentFilter}
-              agentFilter={agentFilter}
-              timeFilterId={activityTimeFilterId}
-              onReconnect={handleReconnect}
-              onLaunched={refetch}
-              connectionStatus={data.connection}
-            />
-          </Suspense>
+          <AgentsChatsPanel
+            sessions={data.sessions}
+            activity={activityInScope}
+            runtimeInstances={data.runtimeInstances ?? []}
+            showSyntheticEntities={demoMode || showSyntheticEntities}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={handleSelectSession}
+            onAgentFilter={setAgentFilter}
+            agentFilter={agentFilter}
+            timeFilterId={activityTimeFilterId}
+            onReconnect={handleReconnect}
+            onLaunched={refetch}
+            connectionStatus={data.connection}
+          />
         </section>
 
         <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
-          <Suspense
-            fallback={
-              <PremiumCard className="h-full p-4 text-body text-secondary">Loading activity…</PremiumCard>
-            }
-          >
-            <LazyActivityTimeline
-              activity={activityFeed.items}
-              sessions={sessionNodesInScope}
-              sliceRuns={actionableSliceRuns}
-              initiatives={initiatives}
-              timelineNarrative={data.timelineNarrative ?? []}
-              workspaceId={selectedWorkspaceId}
-              chatSnapshot={data.chat}
-              selectedRunIds={selectedActivityRunIds}
-              selectedSessionLabel={selectedActivitySessionLabel}
-              selectedWorkstreamId={activityFilterWorkstreamId}
-              selectedWorkstreamLabel={activityFilterWorkstreamLabel}
-              agentFilter={agentFilter}
-              timeFilterId={activityTimeFilterId}
-              onTimeFilterChange={handleActivityTimeFilterChange}
-              customTimeRange={activityCustomTimeRange}
-              onCustomTimeRangeChange={setActivityCustomTimeRange}
-              hasMore={activityFeed.hasMore}
-              isLoadingMore={activityFeed.isLoadingMore}
-              onLoadMore={activityFeed.loadMore}
-              onClearSelection={clearActivitySessionFilter}
-              onClearWorkstreamFilter={clearActivityWorkstreamFilter}
-              onClearAgentFilter={clearAgentFilter}
-              onFocusRunId={focusActivityRunId}
-              onOpenDecision={openDecisionsFromActivity}
-              requestedActivityItemId={requestedActivityItemId}
-              onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
-              onPlayNextUp={playNextUpFromActivity}
-              onStartAutopilot={startAutopilotFromActivity}
-              onPauseWorkstream={pauseSessionWorkstream}
-              onCreateInitiative={startInitiative}
-              onOpenMissionControl={() => switchDashboardView('mission-control')}
-              onOpenSettings={() => openSettings('orgx')}
-              onRefreshData={refetch}
-              isLoading={isLoading}
-            />
-          </Suspense>
+          <ActivityTimeline
+            activity={activityFeed.items}
+            sessions={sessionNodesInScope}
+            sliceRuns={actionableSliceRuns}
+            initiatives={initiatives}
+            timelineNarrative={data.timelineNarrative ?? []}
+            workspaceId={selectedWorkspaceId}
+            chatSnapshot={data.chat}
+            selectedRunIds={selectedActivityRunIds}
+            selectedSessionLabel={selectedActivitySessionLabel}
+            selectedWorkstreamId={activityFilterWorkstreamId}
+            selectedWorkstreamLabel={activityFilterWorkstreamLabel}
+            agentFilter={agentFilter}
+            timeFilterId={activityTimeFilterId}
+            onTimeFilterChange={handleActivityTimeFilterChange}
+            customTimeRange={activityCustomTimeRange}
+            onCustomTimeRangeChange={setActivityCustomTimeRange}
+            hasMore={activityFeed.hasMore}
+            isLoadingMore={activityFeed.isLoadingMore}
+            onLoadMore={activityFeed.loadMore}
+            onClearSelection={clearActivitySessionFilter}
+            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
+            onClearAgentFilter={clearAgentFilter}
+            onFocusRunId={focusActivityRunId}
+            onOpenDecision={openDecisionsFromActivity}
+            requestedActivityItemId={requestedActivityItemId}
+            onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
+            onPlayNextUp={playNextUpFromActivity}
+            onStartAutopilot={startAutopilotFromActivity}
+            onPauseWorkstream={pauseSessionWorkstream}
+            onCreateInitiative={startInitiative}
+            onOpenMissionControl={() => switchDashboardView('mission-control')}
+            onOpenSettings={() => openSettings('orgx')}
+            onRefreshData={refetch}
+            isLoading={isLoading}
+          />
         </section>
 
         <section className={`flex min-h-0 flex-col gap-3 lg:col-span-3 lg:gap-3 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
@@ -2960,13 +2909,18 @@ function DashboardShell({
                       });
                     }}
                     disabled={sidebarAutopilotBusy}
-                    className="control-pill flex h-8 w-8 items-center justify-center p-0 text-caption font-semibold disabled:opacity-45"
+                    className="control-pill inline-flex h-8 items-center gap-1.5 px-2.5 text-caption font-semibold disabled:opacity-45"
                     data-tone="teal"
                     data-state={activityAutopilotActive ? 'active' : 'idle'}
                     title={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
                     aria-label={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
                   >
-                    <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      className={cn('h-3.5 w-3.5', activityAutopilotActive ? 'animate-pulse' : '')}
+                      aria-hidden
+                    >
                       <path
                         d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
                         stroke="currentColor"
@@ -2975,6 +2929,17 @@ function DashboardShell({
                         strokeLinejoin="round"
                       />
                     </svg>
+                    <span className="text-micro uppercase tracking-[0.12em]">Auto</span>
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                        activityAutopilotActive
+                          ? 'bg-[#BFFF00]/18 text-[#E3FFAE]'
+                          : 'bg-white/[0.08] text-secondary'
+                      )}
+                    >
+                      {activityAutopilotActive ? 'On' : 'Off'}
+                    </span>
                   </button>
                 </div>
 
@@ -3012,17 +2977,67 @@ function DashboardShell({
                 <div className="min-h-0 flex-1" key={`${initiativesSidebarTab}:${inProgressSubFilter}`}>
                   {initiativesSidebarTab === 'in_progress' ? (
                     inProgressSubFilter === 'needs_attention' ? (
-                      <NeedsInputPanel
-                        className="h-full min-h-0"
-                        showHeader={false}
-                        panelStyle="flat"
-                        sliceRuns={actionableSliceRuns}
-                        initiatives={initiatives}
-                        onOpenDecisions={() => openDecisionsFromActivity()}
-                        onFocusRunId={focusActivityRunId}
-                        onReviewActivity={openReviewActivityForSlice}
-                        onOpenSliceDetail={openSliceDetailFromNeedsInput}
-                      />
+                      <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2">
+                        {/* Triage Queue - unified view */}
+                        {triageModel.items.length > 0 && (
+                          <div className="min-h-[200px] max-h-[40%]">
+                            <Suspense fallback={<div className="p-4 text-body text-secondary">Loading triage…</div>}>
+                              <LazyTriageQueue
+                                model={triageModel}
+                                actions={triageActions}
+                                onOpenDetail={openTriageDetail}
+                              />
+                            </Suspense>
+                          </div>
+                        )}
+
+                        {decisionsVisible ? (
+                          <div
+                            className={cn(
+                              'min-h-[240px]',
+                              needsInputRows.length === 0 ? 'flex-1' : 'max-h-[58%]'
+                            )}
+                          >
+                            <Suspense
+                              fallback={
+                                <PremiumCard className="h-full min-h-[220px] p-4 text-body text-secondary">
+                                  Loading decisions…
+                                </PremiumCard>
+                              }
+                            >
+                              <LazyDecisionQueue
+                                decisions={data.decisions}
+                                focusDecisionId={requestedDecisionId}
+                                onFocusDecisionHandled={() => setRequestedDecisionId(null)}
+                                onApproveDecision={approveDecision}
+                                onRejectDecision={rejectDecision}
+                                onApproveAll={approveAllDecisions}
+                                onBulkDecisionAction={bulkDecisionAction}
+                                mutationState={decisionMutation}
+                              />
+                            </Suspense>
+                          </div>
+                        ) : (
+                          <PremiumCard className="border border-subtle bg-white/[0.02] px-4 py-3 text-body text-secondary">
+                            OrgX is not connected. Decision actions are hidden until connectivity returns.
+                          </PremiumCard>
+                        )}
+
+                        <NeedsInputPanel
+                          className={cn(
+                            decisionsVisible ? 'min-h-[200px] flex-1' : 'h-full min-h-0'
+                          )}
+                          title={decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
+                          showHeader={decisionsVisible}
+                          panelStyle={decisionsVisible ? 'card' : 'flat'}
+                          sliceRuns={actionableSliceRuns}
+                          initiatives={initiatives}
+                          onOpenDecisions={() => openDecisionsFromActivity()}
+                          onFocusRunId={focusActivityRunId}
+                          onReviewActivity={openReviewActivityForSlice}
+                          onOpenSliceDetail={openSliceDetailFromNeedsInput}
+                        />
+                      </div>
                     ) : (
                       <InProgressPanel
                         className="h-full min-h-0"
@@ -3056,6 +3071,9 @@ function DashboardShell({
                         compact={false}
                         selectionEnabled
                         showQueueSettings
+                        queueModel={sharedNextUpQueue}
+                        queueActions={sharedNextUpActions}
+                        snapshotVersion={data.snapshotVersion}
                         onOpenInitiative={openInitiativeFromNextUp}
                         onOpenSliceDetail={openSliceDetailFromQueue}
                       />
@@ -3071,71 +3089,6 @@ function DashboardShell({
                 >
                   <div className="flex items-center gap-2">
                     <h2 className="text-heading font-semibold text-white">Initiatives</h2>
-                  </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-muted">
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-              </PremiumCard>
-            )}
-          </div>
-
-          {/* Decisions — accordion panel */}
-          <div className={`min-h-0 ${expandedRightPanel === 'decisions' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'initiatives' ? 'hidden lg:block' : ''}`}>
-            {expandedRightPanel === 'decisions' ? (
-              decisionsVisible ? (
-                <Suspense
-                  fallback={
-                    <PremiumCard className="h-full min-h-[220px] p-4 text-body text-secondary">
-                      Loading decisions…
-                    </PremiumCard>
-                  }
-                >
-                  <LazyDecisionQueue
-                    decisions={data.decisions}
-                    focusDecisionId={requestedDecisionId}
-                    onFocusDecisionHandled={() => setRequestedDecisionId(null)}
-                    onApproveDecision={approveDecision}
-                    onRejectDecision={rejectDecision}
-                    onApproveAll={approveAllDecisions}
-                    onBulkDecisionAction={bulkDecisionAction}
-                  />
-                </Suspense>
-              ) : (
-                <PremiumCard className="flex h-full min-h-[220px] flex-col card-enter">
-                  <div className="space-y-2 border-b border-subtle px-4 py-3.5">
-                    <h2 className="text-heading font-semibold text-white">Decisions</h2>
-                    <p className="text-body text-secondary">
-                      OrgX is not connected. Pending decision data is hidden in local-only mode.
-                    </p>
-                  </div>
-                  <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-                    <p className="text-body text-secondary">Connect OrgX to review and approve live decisions.</p>
-                    <button
-                      onClick={handleReconnect}
-                      className="rounded-md border border-lime/25 bg-lime/10 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/20"
-                    >
-                      Connect OrgX
-                    </button>
-                  </div>
-                </PremiumCard>
-              )
-            ) : (
-              <PremiumCard className="card-enter">
-                <button
-                  onClick={() => setExpandedRightPanel('decisions')}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
-                >
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-heading font-semibold text-white">Decisions</h2>
-                    {decisionsVisible && data.decisions.length > 0 && (
-                      <span className="chip text-micro" style={{ borderColor: `${colors.amber}44`, color: colors.amber }}>
-                        {data.decisions.length}
-                      </span>
-                    )}
-                    {!decisionsVisible && (
-                      <span className="text-micro text-muted">disconnected</span>
-                    )}
                   </div>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="-rotate-90 text-muted">
                     <path d="m6 9 6 6 6-6" />
@@ -3375,6 +3328,24 @@ function DashboardShell({
       )}
 
       <DeferredArtifactViewerModal />
+
+      {/* Triage Detail Modal */}
+      {triageDetailItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg max-h-[80vh] overflow-hidden rounded-xl border border-subtle bg-[#0E0F11] shadow-2xl">
+            <Suspense fallback={<div className="p-8 text-center text-secondary">Loading…</div>}>
+              <LazyTriageDetailModal
+                item={triageDetailItem}
+                actions={triageActions}
+                onClose={() => setTriageDetailItem(null)}
+                onNavigate={navigateTriageDetail}
+                currentIndex={triageDetailIndex}
+                totalCount={triageModel.items.length}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {sliceDetailTarget && (
         <Suspense fallback={null}>

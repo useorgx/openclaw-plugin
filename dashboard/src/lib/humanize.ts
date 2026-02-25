@@ -240,3 +240,58 @@ export function formatTokens(used: number | null, budget: number | null): string
   if (b > 0) return `${fmtNum(u)} / ${fmtNum(b)} (${Math.round((u / b) * 100)}%)`;
   return fmtNum(u);
 }
+
+// -----------------------------------------------------------------------------
+// Activity Summary Humanization
+// -----------------------------------------------------------------------------
+
+export interface HumanizedActivitySummary {
+  taskDescription: string | null;
+  outcomeDescription: string | null;
+  nextStep: string | null;
+}
+
+/**
+ * Extract a human-readable 3-part summary from a LiveActivityItem.
+ * Returns task description, outcome, and next step by reading structured metadata.
+ */
+export function humanizeActivitySummary(item: {
+  title?: string | null;
+  description?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+}): HumanizedActivitySummary {
+  const meta = item.metadata ?? {};
+
+  // Task description: what was supposed to happen
+  const taskTitle = readMeta(meta, 'task_title') ?? readMeta(meta, 'workstream_title');
+  const taskDescription = taskTitle
+    ? sanitizeDisplayText(String(taskTitle))
+    : item.title
+      ? sanitizeDisplayText(item.title)
+      : null;
+
+  // Outcome: what actually happened
+  const userSummary = readMeta(meta, 'user_summary') ?? readMeta(meta, 'summary');
+  const outcomeDescription = userSummary
+    ? sanitizeDisplayText(String(userSummary))
+    : item.summary
+      ? sanitizeDisplayText(item.summary)
+      : item.description
+        ? sanitizeDisplayText(item.description)
+        : null;
+
+  // Next step
+  const nextStepRaw = readMeta(meta, 'next_step') ?? readMeta(meta, 'nextStep');
+  const nextStep = nextStepRaw
+    ? sanitizeDisplayText(String(nextStepRaw))
+    : null;
+
+  return { taskDescription, outcomeDescription, nextStep };
+}
+
+function readMeta(meta: Record<string, unknown>, key: string): string | null {
+  const value = meta[key];
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  return null;
+}

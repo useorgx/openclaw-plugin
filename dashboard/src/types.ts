@@ -1,19 +1,41 @@
 export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
 
+export type DecisionMutationPhase = 'idle' | 'pending' | 'success' | 'error';
+
+export interface DecisionMutationState {
+  phase: DecisionMutationPhase;
+  action: 'approve' | 'reject' | null;
+  targetCount: number;
+  message: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
 import type {
   HandoffSummary,
   LiveActivityItem,
   LiveActivityType,
   LiveDecision,
   LiveDecisionOption,
+  LiveTriageItem,
   OnboardingState,
   OnboardingStatus,
+  ProofBundle,
   RunPhase,
   RuntimeInstance,
   RuntimeProviderLogo,
   RuntimeSourceClient,
   SessionTreeNode,
   SessionTreeResponse,
+  TriageAction,
+  TriageActionRequest,
+  TriageActionResponse,
+  TriageActionType,
+  TriageImpact,
+  TriageItemKind,
+  TriageItemStatus,
+  TriageListResponse,
+  TriageSeverity,
 } from '@shared/shared-types';
 
 export type {
@@ -23,10 +45,12 @@ export type {
   LiveActivityType,
   LiveDecision,
   LiveDecisionOption,
+  LiveTriageItem,
   OnboardingKeySource,
   OnboardingNextAction,
   OnboardingState,
   OnboardingStatus,
+  ProofBundle,
   RunPhase,
   RuntimeInstance,
   RuntimeInstanceState,
@@ -38,12 +62,22 @@ export type {
   SessionTreeGroup,
   SessionTreeNode,
   SessionTreeResponse,
+  TriageAction,
+  TriageActionRequest,
+  TriageActionResponse,
+  TriageActionType,
+  TriageImpact,
+  TriageItemKind,
+  TriageItemStatus,
+  TriageListResponse,
+  TriageSeverity,
 } from '@shared/shared-types';
 
 export interface LiveData {
   connection: ConnectionStatus;
   lastActivity: string | null;
   lastSnapshotAt: string | null;
+  snapshotVersion: number;
   sessions: SessionTreeResponse;
   activity: LiveActivityItem[];
   handoffs: HandoffSummary[];

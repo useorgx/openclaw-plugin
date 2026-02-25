@@ -102,6 +102,7 @@ export const queryKeys = {
     authToken?: string | null;
     embedMode?: boolean;
     projectId?: string | null;
+    snapshotVersion?: number | null;
   }) =>
     [
       'mission-control-next-up',
@@ -110,6 +111,11 @@ export const queryKeys = {
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
         projectId: params.projectId ?? null,
+        snapshotVersion:
+          typeof params.snapshotVersion === 'number' &&
+          Number.isFinite(params.snapshotVersion)
+            ? params.snapshotVersion
+            : null,
       },
     ] as const,
   autoContinueStatus: (params: {
@@ -165,6 +171,21 @@ export const queryKeys = {
       'artifact-detail',
       {
         artifactId: params.artifactId,
+        authToken: params.authToken ?? null,
+        embedMode: params.embedMode ?? false,
+      },
+    ] as const,
+  triageQueue: (params: {
+    workspaceId?: string | null;
+    status?: string;
+    authToken?: string | null;
+    embedMode?: boolean;
+  }) =>
+    [
+      'triage-queue',
+      {
+        workspaceId: params.workspaceId ?? null,
+        status: params.status ?? 'open',
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
       },

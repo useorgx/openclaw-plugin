@@ -289,3 +289,110 @@ export interface HandoffSummary {
   updatedAt: string;
   events: HandoffEvent[];
 }
+
+// -----------------------------------------------------------------------------
+// Triage Queue (unified decisions + blockers + review items)
+// -----------------------------------------------------------------------------
+
+export type TriageItemKind =
+  | 'decision_required'
+  | 'blocked_intervention'
+  | 'review_required'
+  | 'failure_diagnostic';
+
+export type TriageItemStatus = 'open' | 'snoozed' | 'resolved' | 'dismissed';
+
+export type TriageSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export type TriageActionType =
+  | 'approve'
+  | 'reject'
+  | 'retry'
+  | 'autofix'
+  | 'defer'
+  | 'snooze'
+  | 'dismiss';
+
+export interface TriageAction {
+  action: TriageActionType;
+  label: string;
+  description: string;
+  consequences: string;
+  requiresNote: boolean;
+  available: boolean;
+}
+
+export interface ProofBundle {
+  artifactRefs: string[];
+  fileChanges: string[];
+  prRefs: string[];
+  logRefs: string[];
+  decisionRefs: string[];
+}
+
+export interface TriageImpact {
+  initiativeCount: number;
+  workstreamCount: number;
+  downstreamBlockedCount: number;
+}
+
+export interface LiveTriageItem {
+  id: string;
+  kind: TriageItemKind;
+  status: TriageItemStatus;
+  title: string;
+  summary: string;
+  // Scope context
+  initiativeId: string | null;
+  initiativeTitle: string | null;
+  workstreamId: string | null;
+  workstreamTitle: string | null;
+  taskId: string | null;
+  taskTitle: string | null;
+  // Enrichment
+  sourceSystem: string | null;
+  conflictSource: string | null;
+  dedupeKey: string | null;
+  occurrenceCount: number;
+  severity: TriageSeverity;
+  blocking: boolean;
+  recommendedAction: string | null;
+  agentId: string | null;
+  // Impact
+  impact: TriageImpact;
+  // Proof
+  proofBundle: ProofBundle;
+  // Action contract
+  actionContract: TriageAction[];
+  // Timestamps
+  createdAt: string;
+  updatedAt: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  snoozedUntil: string | null;
+  // Legacy interop
+  sourceDecisionId: string | null;
+  sourceActivityId: string | null;
+}
+
+export interface TriageActionRequest {
+  action: string;
+  note?: string;
+  optionId?: string;
+  snoozeDurationMinutes?: number;
+}
+
+export interface TriageActionResponse {
+  ok: boolean;
+  itemStatus: TriageItemStatus;
+  continuationPlan: string | null;
+  sideEffects: string[];
+}
+
+export interface TriageListResponse {
+  ok: boolean;
+  items: LiveTriageItem[];
+  total: number;
+  generatedAt: string;
+  degraded?: string[];
+}
