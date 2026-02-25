@@ -188,6 +188,7 @@ import { registerSummaryRoutes } from "./routes/summary.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
 import { registerLiveTriageRoutes } from "./routes/live-triage.js";
+import { registerRealtimeOrchestratorRoutes } from "./routes/realtime-orchestrator.js";
 
 // =============================================================================
 // Helpers
@@ -1415,7 +1416,7 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob:",
   "font-src 'self' data: https://fonts.gstatic.com",
   "media-src 'self'",
-  "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai http://127.0.0.1:* http://localhost:*",
+  "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai https://api.openai.com https://*.openai.com http://127.0.0.1:* http://localhost:*",
 ].join("; ");
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -1423,7 +1424,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "same-origin",
   "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet, noimageindex",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=(), magnetometer=(), gyroscope=()",
+  "Permissions-Policy": "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), midi=(), magnetometer=(), gyroscope=()",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
   "Origin-Agent-Cluster": "?1",
@@ -3456,6 +3457,15 @@ export function createHttpHandler(
     }
   }
 
+  // Prime queue cache shortly after boot so first dashboard paint is not cold.
+  const prewarmNextUpQueue = () => {
+    void buildNextUpQueue({ initiativeId: null, projectId: null }).catch(() => {
+      // best effort prewarm only
+    });
+  };
+  const nextUpPrewarmTimer = setTimeout(prewarmNextUpQueue, 75);
+  nextUpPrewarmTimer.unref?.();
+
   const autoContinueTimer = setInterval(() => {
     void tickAllAutoContinue();
   }, AUTO_CONTINUE_TICK_MS);
@@ -3778,6 +3788,13 @@ export function createHttpHandler(
     pickString,
     parsePositiveInt,
     emitActivitySafe,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerRealtimeOrchestratorRoutes(apiRouter, {
+    parseJsonRequest,
+    rawRequest: (requestMethod, requestPath, body) =>
+      client.rawRequest(requestMethod, requestPath, body),
     sendJson,
     safeErrorMessage,
   });

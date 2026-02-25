@@ -83,6 +83,35 @@ function matchesStatusScope(statusKey: string, scope: StatusScope): boolean {
   return statusKey !== 'blocked' && statusKey !== 'done';
 }
 
+function renderPriorityBadge(priorityNum: number): {
+  label: string;
+  toneClass: string;
+} {
+  const safe = Number.isFinite(priorityNum) ? Math.max(1, Math.min(100, Math.round(priorityNum))) : 50;
+  if (safe <= 12) {
+    return {
+      label: `P1 Urgent`,
+      toneClass: 'border-red-300/35 bg-red-500/[0.14] text-red-100',
+    };
+  }
+  if (safe <= 30) {
+    return {
+      label: `P2 High`,
+      toneClass: 'border-amber-300/35 bg-amber-500/[0.14] text-amber-100',
+    };
+  }
+  if (safe <= 60) {
+    return {
+      label: `P3 Medium`,
+      toneClass: 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2]',
+    };
+  }
+  return {
+    label: `P4 Low`,
+    toneClass: 'border-white/[0.2] bg-white/[0.08] text-white/70',
+  };
+}
+
 function ancestorIds(nodeId: string, nodes: MissionControlNode[]): Set<string> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const ancestors = new Set<string>();
@@ -1240,6 +1269,7 @@ export function HierarchyTreeTable({
                 .slice(0, 3)
                 .join(', ');
               const completion = progressByNodeId.get(node.id);
+              const priorityBadge = renderPriorityBadge(node.priorityNum);
               const editableRow = editMode && selected;
               const canQueueNode =
                 node.type === 'initiative' ||
@@ -1478,7 +1508,12 @@ export function HierarchyTreeTable({
                         className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                       />
                     ) : (
-                      <span>P{node.priorityNum}</span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${priorityBadge.toneClass}`}
+                        title={`Priority ${priorityBadge.label}`}
+                      >
+                        {priorityBadge.label}
+                      </span>
                     )}
                   </td>
 

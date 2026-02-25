@@ -165,12 +165,23 @@ function usage() {
 
 export function parseArgs(argv) {
   const args = {};
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (!arg.startsWith("--")) continue;
+    const next = argv[index + 1];
     const [rawKey, ...rest] = arg.slice(2).split("=");
     const key = rawKey.trim();
     if (!key) continue;
-    args[key] = rest.length > 0 ? rest.join("=") : "true";
+    if (rest.length > 0) {
+      args[key] = rest.join("=");
+      continue;
+    }
+    if (typeof next === "string" && !next.startsWith("--")) {
+      args[key] = next;
+      index += 1;
+      continue;
+    }
+    args[key] = "true";
   }
   return args;
 }
@@ -226,7 +237,7 @@ function splitShellArgs(value, fallback = ["--full-auto"]) {
     .filter(Boolean);
 }
 
-function normalizeCodexArgs(args) {
+export function normalizeCodexArgs(args) {
   const normalized = Array.isArray(args) ? [...args] : [];
   const first = normalized[0];
   const looksLikeFlag = typeof first === "string" && first.startsWith("-");
@@ -249,14 +260,23 @@ function normalizeCodexArgs(args) {
     normalized.unshift("exec");
   }
 
+  const insertBeforePassthrough = (...values) => {
+    const passthroughIndex = normalized.indexOf("--");
+    if (passthroughIndex > -1) {
+      normalized.splice(passthroughIndex, 0, ...values);
+      return;
+    }
+    normalized.push(...values);
+  };
+
   // Many tasks run outside a git repo; avoid hard failures.
   if (!normalized.includes("--skip-git-repo-check")) {
-    normalized.push("--skip-git-repo-check");
+    insertBeforePassthrough("--skip-git-repo-check");
   }
 
   // Default to a safe reasoning effort (some models reject xhigh).
   if (!normalized.some((arg) => String(arg).includes("model_reasoning_effort"))) {
-    normalized.push("-c", 'model_reasoning_effort="high"');
+    insertBeforePassthrough("-c", 'model_reasoning_effort="high"');
   }
 
   return normalized;
@@ -428,36 +448,37 @@ function priorityWeight(value) {
 }
 
 function stateWeight(status) {
-  const normalized = String(status ?? "").toLowerCase();
+  const bucket = classifyTaskState(status);
   // Default dispatch behavior: prefer fresh TODO work before re-dispatching
   // tasks already marked in-progress elsewhere. Blocked tasks come next, then
   // anything already running/in_progress.
-  if (normalized === "todo") return 0;
-  if (normalized === "blocked") return 1;
-  if (normalized === "in_progress") return 2;
+  if (bucket === "todo") return 0;
+  if (bucket === "blocked") return 1;
+  if (bucket === "active") return 2;
   return 9;
 }
 
 export function classifyTaskState(status) {
   const normalized = String(status ?? "").trim().toLowerCase();
+  const canonical = normalized.replace(/[\s-]+/g, "_");
   if (
-    normalized === "done" ||
-    normalized === "completed" ||
-    normalized === "cancelled" ||
-    normalized === "archived" ||
-    normalized === "deleted"
+    canonical === "done" ||
+    canonical === "completed" ||
+    canonical === "cancelled" ||
+    canonical === "archived" ||
+    canonical === "deleted"
   ) {
     return "done";
   }
-  if (normalized === "blocked" || normalized === "at_risk") {
+  if (canonical === "blocked" || canonical === "at_risk") {
     return "blocked";
   }
   if (
-    normalized === "in_progress" ||
-    normalized === "active" ||
-    normalized === "running" ||
-    normalized === "queued" ||
-    normalized === "retry_pending"
+    canonical === "in_progress" ||
+    canonical === "active" ||
+    canonical === "running" ||
+    canonical === "queued" ||
+    canonical === "retry_pending"
   ) {
     return "active";
   }
@@ -1488,6 +1509,12 @@ export function computeExecutionProgress(completedCount, blockedCount, totalCoun
   return toPercent(completed + blocked, totalCount);
 }
 
+export function phaseFromJobOutcome({ pausedBySupervisedGate, blockedCount }) {
+  if (pausedBySupervisedGate) return "execution";
+  if (Number.isFinite(blockedCount) && blockedCount > 0) return "blocked";
+  return "completed";
+}
+
 function collectTaskStatuses(taskIds, taskStatusById) {
   return taskIds.map((taskId) => taskStatusById.get(taskId) ?? "todo");
 }
@@ -1771,7 +1798,8 @@ export function deriveResumePlan({
 
   for (const task of queue) {
     const prior = previousStates?.[task.id];
-    const priorStatus = pickString(prior?.status)?.toLowerCase() ?? null;
+    const priorStatusRaw = pickString(prior?.status);
+    const priorStatus = priorStatusRaw ? classifyTaskState(priorStatusRaw) : null;
     const currentStatus = classifyTaskState(task.status);
     const priorAttempts = Number.isFinite(prior?.attempts) ? prior.attempts : 0;
     attempts.set(task.id, priorAttempts);
@@ -3109,7 +3137,10 @@ export async function main({
       : success
         ? `Dispatch job completed successfully. ${completed.size}/${totalTasks} tasks completed.`
         : `Dispatch job finished with blockers. ${completed.size}/${totalTasks} completed, ${failed.size} blocked.`,
-    phase: PHASE_BY_EVENT.complete,
+    phase: phaseFromJobOutcome({
+      pausedBySupervisedGate,
+      blockedCount: failed.size,
+    }),
     level: pausedBySupervisedGate || success ? "info" : "warn",
     progressPct: computeExecutionProgress(completed.size, failed.size, totalTasks),
     metadata: {

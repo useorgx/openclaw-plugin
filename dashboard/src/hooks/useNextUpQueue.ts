@@ -22,6 +22,8 @@ import { humanizeWarning } from '@/lib/humanize';
 interface UseNextUpQueueOptions {
   initiativeId?: string | null;
   projectId?: string | null;
+  offset?: number;
+  limit?: number;
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
@@ -130,6 +132,8 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
       initiativeId: 'init-1',
       initiativeTitle: 'Q4 Feature Ship',
       initiativeStatus: 'active',
+      initiativePriority: 'high',
+      initiativePriorityNum: 25,
       workstreamId: 'ws-4',
       workstreamTitle: 'Dashboard UI pass',
       workstreamStatus: 'active',
@@ -156,6 +160,8 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
       initiativeId: 'init-2',
       initiativeTitle: 'Black Friday Email',
       initiativeStatus: 'active',
+      initiativePriority: 'medium',
+      initiativePriorityNum: 50,
       workstreamId: 'ws-9',
       workstreamTitle: 'Email campaign generation',
       workstreamStatus: 'queued',
@@ -190,6 +196,13 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
     generatedAt: nowIso,
     total: scopedItems.length,
     items: scopedItems,
+    pagination: {
+      offset: 0,
+      limit: scopedItems.length || 1,
+      total: scopedItems.length,
+      nextCursor: null,
+      hasMore: false,
+    },
     degraded: [],
   });
 }
@@ -340,10 +353,45 @@ function decorateQueueItem(item: NextUpQueueItem): NextUpQueueItem {
 
 function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueResponse {
   const items = response.items.map((item) => decorateQueueItem(item));
+  const total =
+    typeof response.total === 'number' && Number.isFinite(response.total)
+      ? Math.max(response.total, items.length)
+      : items.length;
+  const rawPagination =
+    response.pagination && typeof response.pagination === 'object'
+      ? response.pagination
+      : null;
+  const offset =
+    rawPagination && Number.isFinite(rawPagination.offset)
+      ? Math.max(0, Math.floor(rawPagination.offset))
+      : 0;
+  const limit =
+    rawPagination && Number.isFinite(rawPagination.limit)
+      ? Math.max(1, Math.floor(rawPagination.limit))
+      : Math.max(1, items.length);
+  const fallbackHasMore = offset + limit < total;
+  const hasMore =
+    rawPagination && typeof rawPagination.hasMore === 'boolean'
+      ? rawPagination.hasMore
+      : fallbackHasMore;
+  const nextCursor =
+    rawPagination && typeof rawPagination.nextCursor === 'string'
+      ? rawPagination.nextCursor
+      : hasMore
+        ? String(offset + limit)
+        : null;
+
   return {
     ...response,
     items,
-    total: items.length,
+    total,
+    pagination: {
+      offset,
+      limit,
+      total,
+      nextCursor,
+      hasMore,
+    },
   };
 }
 
@@ -423,6 +471,8 @@ function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | n
     initiativeId,
     initiativeTitle: item.initiativeTitle?.trim() || lineageInitiativeIds[0] || initiativeId,
     initiativeStatus: 'active',
+    initiativePriority: null,
+    initiativePriorityNum: null,
     workstreamId,
     workstreamTitle:
       item.workstreamTitle?.trim() ||
@@ -455,6 +505,8 @@ function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | n
 export function useNextUpQueue({
   initiativeId = null,
   projectId = null,
+  offset = 0,
+  limit = 24,
   authToken = null,
   embedMode = false,
   enabled = true,
@@ -462,6 +514,8 @@ export function useNextUpQueue({
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
   const demoMode = isDemoModeEnabled();
+  const normalizedOffset = Math.max(0, offset);
+  const normalizedLimit = Math.max(1, Math.min(300, limit));
   const liveDataInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -474,8 +528,23 @@ export function useNextUpQueue({
   }, []);
 
   const queryKey = useMemo(
-    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
-    [initiativeId, projectId, authToken, embedMode]
+    () =>
+      queryKeys.nextUpQueue({
+        initiativeId,
+        projectId,
+        offset: normalizedOffset,
+        limit: normalizedLimit,
+        authToken,
+        embedMode,
+      }),
+    [
+      initiativeId,
+      projectId,
+      normalizedOffset,
+      normalizedLimit,
+      authToken,
+      embedMode,
+    ]
   );
 
   // When the SSE snapshot version bumps, invalidate the cache so the next
@@ -519,19 +588,21 @@ export function useNextUpQueue({
     scheduleLiveDataInvalidate();
   };
 
-  const query = useQuery<NextUpQueueResponse, Error>({
-    queryKey,
-    enabled,
-    queryFn: async () => {
+  const loadQueuePage = async (
+    targetOffset: number,
+    targetLimit: number
+  ): Promise<NextUpQueueResponse> => {
       if (demoMode) {
         return buildDemoQueueResponse(initiativeId);
       }
 
       const params = new URLSearchParams();
       if (initiativeId) params.set('initiative_id', initiativeId);
-      if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(params, projectId);
-      }
+      appendWorkspaceScopeParams(params, projectId, {
+        allTokenWhenMissing: true,
+      });
+      params.set('offset', String(targetOffset));
+      params.set('limit', String(targetLimit));
       let response: Response;
       try {
         response = await fetch(`/orgx/api/mission-control/next-up?${params.toString()}`, {
@@ -559,6 +630,13 @@ export function useNextUpQueue({
           generatedAt: new Date().toISOString(),
           total: 0,
           items: [],
+          pagination: {
+            offset: targetOffset,
+            limit: targetLimit,
+            total: 0,
+            nextCursor: null,
+            hasMore: false,
+          },
           degraded: ['next-up queue response missing expected payload'],
         } satisfies NextUpQueueResponse;
       }
@@ -579,12 +657,13 @@ export function useNextUpQueue({
 
       const sliceParams = new URLSearchParams();
       if (initiativeId) sliceParams.set('initiative_id', initiativeId);
-      if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(sliceParams, projectId);
-      }
+      appendWorkspaceScopeParams(sliceParams, projectId, {
+        allTokenWhenMissing: true,
+      });
       sliceParams.set('level', 'workstream');
       sliceParams.set('include_completed', '0');
-      sliceParams.set('limit', '120');
+      sliceParams.set('offset', String(targetOffset));
+      sliceParams.set('limit', String(Math.max(targetLimit, 24)));
 
       try {
         const slicesRes = await fetch(`/orgx/api/mission-control/slices?${sliceParams.toString()}`, {
@@ -600,8 +679,36 @@ export function useNextUpQueue({
             responsePayload = normalizeQueueResponse({
               ok: true,
               generatedAt: new Date().toISOString(),
-              total: sliceItems.length,
+              total:
+                typeof slicesBody.total === 'number' && Number.isFinite(slicesBody.total)
+                  ? Math.max(slicesBody.total, sliceItems.length)
+                  : sliceItems.length,
               items: sliceItems,
+              pagination:
+                slicesBody.pagination && typeof slicesBody.pagination === 'object'
+                  ? {
+                      offset:
+                        typeof slicesBody.pagination.offset === 'number'
+                          ? Math.max(0, Math.floor(slicesBody.pagination.offset))
+                          : targetOffset,
+                      limit:
+                        typeof slicesBody.pagination.limit === 'number'
+                          ? Math.max(1, Math.floor(slicesBody.pagination.limit))
+                          : Math.max(targetLimit, 24),
+                      total:
+                        typeof slicesBody.pagination.total === 'number'
+                          ? Math.max(0, Math.floor(slicesBody.pagination.total))
+                          : sliceItems.length,
+                      nextCursor:
+                        typeof slicesBody.pagination.nextCursor === 'string'
+                          ? slicesBody.pagination.nextCursor
+                          : null,
+                      hasMore:
+                        typeof slicesBody.pagination.hasMore === 'boolean'
+                          ? slicesBody.pagination.hasMore
+                          : false,
+                    }
+                  : undefined,
               degraded: Array.from(
                 new Set([
                   ...(normalized.degraded ?? []),
@@ -616,7 +723,12 @@ export function useNextUpQueue({
       }
 
       return responsePayload;
-    },
+  };
+
+  const query = useQuery<NextUpQueueResponse, Error>({
+    queryKey,
+    enabled,
+    queryFn: async () => loadQueuePage(normalizedOffset, normalizedLimit),
     refetchInterval: (state) => {
       const payload = state.state.data;
       if (!payload || !Array.isArray(payload.items) || payload.items.length === 0) return 10_000;
@@ -624,6 +736,38 @@ export function useNextUpQueue({
       return hasRunning ? 2_500 : 8_000;
     },
   });
+
+  const warmedNextCursorRef = useRef<string | null>(null);
+  useEffect(() => {
+    const pagination = query.data?.pagination;
+    if (!enabled || !pagination?.hasMore || !pagination.nextCursor) return;
+    if (warmedNextCursorRef.current === pagination.nextCursor) return;
+    const nextOffset = Number.parseInt(pagination.nextCursor, 10);
+    if (!Number.isFinite(nextOffset)) return;
+    warmedNextCursorRef.current = pagination.nextCursor;
+    void queryClient.prefetchQuery({
+      queryKey: queryKeys.nextUpQueue({
+        initiativeId,
+        projectId,
+        offset: nextOffset,
+        limit: normalizedLimit,
+        authToken,
+        embedMode,
+      }),
+      queryFn: () => loadQueuePage(nextOffset, normalizedLimit),
+      staleTime: 15_000,
+    });
+  }, [
+    enabled,
+    query.data?.pagination?.hasMore,
+    query.data?.pagination?.nextCursor,
+    initiativeId,
+    projectId,
+    normalizedLimit,
+    authToken,
+    embedMode,
+    queryClient,
+  ]);
 
   const playMutation = useMutation({
     mutationFn: async (input: NextUpActionInput) => {
@@ -755,6 +899,7 @@ export function useNextUpQueue({
   return {
     items: query.data?.items ?? [],
     total: query.data?.total ?? 0,
+    pagination: query.data?.pagination ?? null,
     generatedAt: query.data?.generatedAt ?? null,
     degraded: query.data?.degraded ?? [],
     isLoading: query.isLoading,
@@ -775,6 +920,7 @@ export type { NextUpQueueItem };
 export interface UseNextUpQueueResult {
   items: NextUpQueueItem[];
   total: number;
+  pagination?: NextUpQueueResponse['pagination'] | null;
   generatedAt: string | null;
   degraded: string[];
   isLoading: boolean;

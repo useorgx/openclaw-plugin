@@ -113,6 +113,11 @@ const LazySliceDetailModal = lazy(async () => {
   return { default: mod.SliceDetailModal };
 });
 
+const LazyRealtimeOrchestratorModal = lazy(async () => {
+  const mod = await import('@/components/activity/RealtimeOrchestratorModal');
+  return { default: mod.RealtimeOrchestratorModal };
+});
+
 const CONNECTION_LABEL: Record<string, string> = {
   connected: 'Live',
   reconnecting: 'Reconnecting',
@@ -736,6 +741,7 @@ function DashboardShell({
     tab: 'orgx',
     focusAgentDomain: null,
   });
+  const [realtimeOrchestratorOpen, setRealtimeOrchestratorOpen] = useState(false);
   const [bulkModal, setBulkModal] = useState<
     BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs' | null
   >(null);
@@ -2529,6 +2535,18 @@ function DashboardShell({
             </button>
             <button
               type="button"
+              onClick={() => setRealtimeOrchestratorOpen(true)}
+              title="Realtime orchestrator"
+              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 18a2.5 2.5 0 0 0 2.5-2.5v-7a2.5 2.5 0 1 0-5 0v7A2.5 2.5 0 0 0 12 18z" />
+                <path d="M6 12.5v2a6 6 0 0 0 12 0v-2" />
+                <path d="M12 20.5v2" />
+              </svg>
+            </button>
+            <button
+              type="button"
               onClick={() => openSettings('orgx')}
               title="Settings"
               className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
@@ -3248,6 +3266,16 @@ function DashboardShell({
             onboarding={onboarding}
             authToken={null}
             embedMode={false}
+          />
+        </Suspense>
+      )}
+
+      {realtimeOrchestratorOpen && (
+        <Suspense fallback={null}>
+          <LazyRealtimeOrchestratorModal
+            open={realtimeOrchestratorOpen}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onClose={() => setRealtimeOrchestratorOpen(false)}
           />
         </Suspense>
       )}

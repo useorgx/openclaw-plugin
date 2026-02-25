@@ -180,6 +180,98 @@ function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
   return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
 }
 
+function queueTaskHeading(queueState: NextUpQueueItem['queueState']): string {
+  if (queueState === 'running') return 'Current';
+  if (queueState === 'blocked') return 'Blocked on';
+  return 'Next';
+}
+
+function queueTaskFallback(item: NextUpQueueItem): string {
+  const sliceCount =
+    typeof item.sliceTaskCount === 'number' && Number.isFinite(item.sliceTaskCount)
+      ? Math.max(0, Math.floor(item.sliceTaskCount))
+      : null;
+  const scopeLabel =
+    item.sliceScope === 'task'
+      ? 'task'
+      : item.sliceScope === 'milestone'
+        ? 'milestone slice'
+        : 'workstream slice';
+  const sliceCountLabel =
+    sliceCount && sliceCount > 0
+      ? `${sliceCount} ${sliceCount === 1 ? 'task' : 'tasks'}`
+      : null;
+
+  if (item.queueState === 'running') {
+    return sliceCountLabel
+      ? `Executing ${sliceCountLabel} in ${scopeLabel}.`
+      : 'Execution in progress. Task detail will appear as the scheduler advances.';
+  }
+  if (item.queueState === 'blocked') {
+    return item.blockReason
+      ? 'Blocked while waiting for dependency resolution.'
+      : 'Blocked. Waiting for dependency or review.';
+  }
+  if (item.queueState === 'queued') {
+    return sliceCountLabel
+      ? `Queued with ${sliceCountLabel} in ${scopeLabel}.`
+      : 'Queued at workstream scope. Task detail will populate after dispatch.';
+  }
+  if (item.queueState === 'completed') {
+    return 'Completed. No queued tasks remain.';
+  }
+  return 'Idle. Ready to dispatch when started.';
+}
+
+function toInitiativePriorityLabel(item: NextUpQueueItem): {
+  shortLabel: string;
+  longLabel: string;
+  toneClass: string;
+} | null {
+  const rawLabel = typeof item.initiativePriority === 'string'
+    ? item.initiativePriority.trim().toLowerCase()
+    : '';
+  const rawNum =
+    typeof item.initiativePriorityNum === 'number' && Number.isFinite(item.initiativePriorityNum)
+      ? Math.max(1, Math.min(100, Math.round(item.initiativePriorityNum)))
+      : null;
+
+  const normalized =
+    rawLabel === 'urgent' || rawLabel === 'high' || rawLabel === 'medium' || rawLabel === 'low'
+      ? rawLabel
+      : rawNum !== null
+        ? rawNum <= 12
+          ? 'urgent'
+          : rawNum <= 30
+            ? 'high'
+            : rawNum <= 60
+              ? 'medium'
+              : 'low'
+        : null;
+
+  if (!normalized) return null;
+
+  const pLevel =
+    normalized === 'urgent' ? 'P1' : normalized === 'high' ? 'P2' : normalized === 'medium' ? 'P3' : 'P4';
+  const titleCase =
+    normalized === 'urgent' ? 'Urgent' : normalized === 'high' ? 'High' : normalized === 'medium' ? 'Medium' : 'Low';
+
+  const toneClass =
+    normalized === 'urgent'
+      ? 'border-red-300/35 bg-red-500/[0.14] text-red-100'
+      : normalized === 'high'
+        ? 'border-amber-300/35 bg-amber-500/[0.14] text-amber-100'
+        : normalized === 'medium'
+          ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2]'
+          : 'border-white/[0.2] bg-white/[0.08] text-white/70';
+
+  return {
+    shortLabel: `${pLevel} ${titleCase}`,
+    longLabel: `Initiative priority ${titleCase} (${pLevel})`,
+    toneClass,
+  };
+}
+
 function formatQueueErrorMessage(raw: string): string {
   const normalized = raw.trim().toLowerCase();
   if (
@@ -1142,6 +1234,7 @@ export function NextUpPanel({
                   item.workstreamId,
                   'Workstream'
                 );
+              const initiativePriority = toInitiativePriorityLabel(item);
               const nextTaskTitle = item.nextTaskTitle
                   ? sanitizeDisplayText(item.nextTaskTitle)
                   : null;
@@ -1186,22 +1279,40 @@ export function NextUpPanel({
                           onClick={() =>
                             onOpenInitiative?.(item.initiativeId, item.initiativeTitle)
                           }
-                          className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
+                          className="block min-w-0 flex-1 truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
                           title={initiativeTitle}
                         >
                           {initiativeTitle}
                         </button>
+                        {initiativePriority ? (
+                          <span
+                            className={cn(
+                              'inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]',
+                              initiativePriority.toneClass
+                            )}
+                            title={initiativePriority.longLabel}
+                          >
+                            {initiativePriority.shortLabel}
+                          </span>
+                        ) : null}
                       </div>
                       <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption font-semibold leading-snug text-white" title={workstreamTitle}>
                         <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
                         <span className="line-clamp-2">{workstreamTitle}</span>
                       </p>
                       {nextTaskTitle ? (
-                        <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary" title={`Next: ${nextTaskTitle}${dueText ? ` · ${dueText}` : ''}`}>
-                          Next: {nextTaskTitle}
+                        <p
+                          className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary"
+                          title={`${queueTaskHeading(item.queueState)}: ${nextTaskTitle}${dueText ? ` · ${dueText}` : ''}`}
+                        >
+                          {queueTaskHeading(item.queueState)}: {nextTaskTitle}
                           {dueText ? ` · ${dueText}` : ''}
                         </p>
-                      ) : null}
+                      ) : (
+                        <p className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary" title={queueTaskFallback(item)}>
+                          {queueTaskFallback(item)}
+                        </p>
+                      )}
                       {runnerSourceBadge ? (
                         <p className="mt-0.5 text-micro text-muted">Runner {runnerSourceBadge}</p>
                       ) : null}
@@ -1477,6 +1588,7 @@ function NextUpReorderRow({
     item.workstreamId,
     'Workstream'
   );
+  const initiativePriority = toInitiativePriorityLabel(item);
   const nextTaskTitle = item.nextTaskTitle ? sanitizeDisplayText(item.nextTaskTitle) : null;
   const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
   const runnerName = resolveRunnerName(item);
@@ -1583,11 +1695,22 @@ function NextUpReorderRow({
                 <button
                   type="button"
                   onClick={() => onOpenInitiative?.(item.initiativeId, item.initiativeTitle)}
-                  className="block w-full truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
+                  className="block min-w-0 flex-1 truncate text-left text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-white/72"
                   title={initiativeTitle}
                 >
                   {initiativeTitle}
                 </button>
+                {initiativePriority ? (
+                  <span
+                    className={cn(
+                      'inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]',
+                      initiativePriority.toneClass
+                    )}
+                    title={initiativePriority.longLabel}
+                  >
+                    {initiativePriority.shortLabel}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-0.5 flex min-w-0 items-start gap-1.5">
                 <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-95" />
@@ -1614,7 +1737,7 @@ function NextUpReorderRow({
             <div className="space-y-1">
               <div className="flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-white/44">
                 <EntityIcon type="task" size={10} className="flex-shrink-0 opacity-80" />
-                <span>Next</span>
+                <span>{queueTaskHeading(item.queueState)}</span>
                 {dueText ? (
                   <span className="truncate text-micro normal-case tracking-normal text-muted">
                     · {dueText}
@@ -1626,7 +1749,7 @@ function NextUpReorderRow({
               </p>
             </div>
           ) : (
-            <span className="text-secondary">No task currently queued.</span>
+            <span className="text-secondary">{queueTaskFallback(item)}</span>
           )}
         </div>
 

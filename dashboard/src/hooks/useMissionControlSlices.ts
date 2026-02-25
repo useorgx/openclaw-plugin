@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
   MissionControlSliceItem,
@@ -375,9 +376,9 @@ export function useMissionControlSlices({
       }
 
       const params = new URLSearchParams();
-      if (workspaceId) {
-        appendWorkspaceScopeParams(params, workspaceId);
-      }
+      appendWorkspaceScopeParams(params, workspaceId, {
+        allTokenWhenMissing: true,
+      });
       if (initiativeId) params.set('initiative_id', initiativeId);
       params.set('level', level);
       params.set('include_completed', includeCompleted ? '1' : '0');
@@ -462,6 +463,44 @@ export function useMissionControlSlices({
       };
     },
   });
+
+  const warmedNextCursorRef = useRef<string | null>(null);
+  useEffect(() => {
+    const pagination = query.data?.pagination;
+    if (!enabled || !pagination?.hasMore || !pagination.nextCursor) return;
+    if (warmedNextCursorRef.current === pagination.nextCursor) return;
+    const nextOffset = Number.parseInt(pagination.nextCursor, 10);
+    if (!Number.isFinite(nextOffset)) return;
+    warmedNextCursorRef.current = pagination.nextCursor;
+    const params = new URLSearchParams();
+    appendWorkspaceScopeParams(params, workspaceId, {
+      allTokenWhenMissing: true,
+    });
+    if (initiativeId) params.set('initiative_id', initiativeId);
+    params.set('level', level);
+    params.set('include_completed', includeCompleted ? '1' : '0');
+    params.set('offset', String(nextOffset));
+    params.set('limit', String(normalizedLimit));
+    params.set('mix_policy', 'iwmt_v1');
+    if (orderMode) params.set('order_mode', orderMode);
+    if (normalizedSearch.length > 0) params.set('q', normalizedSearch);
+    void fetch(`/orgx/api/mission-control/slices?${params.toString()}`, {
+      headers: buildOrgxHeaders({ authToken, embedMode }),
+    }).catch(() => undefined);
+  }, [
+    enabled,
+    query.data?.pagination?.hasMore,
+    query.data?.pagination?.nextCursor,
+    workspaceId,
+    initiativeId,
+    level,
+    orderMode,
+    includeCompleted,
+    normalizedSearch,
+    normalizedLimit,
+    authToken,
+    embedMode,
+  ]);
 
   return {
     ...query,

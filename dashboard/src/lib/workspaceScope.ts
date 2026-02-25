@@ -1,3 +1,5 @@
+const ALL_WORKSPACE_SCOPE_TOKEN = 'all';
+
 function normalizeWorkspaceScopeId(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -25,10 +27,20 @@ export function readWorkspaceScopeIdFromLocation(): string | null {
 export function appendWorkspaceScopeParams(
   params: URLSearchParams,
   workspaceId: string | null | undefined,
+  options?: { allTokenWhenMissing?: boolean },
 ): void {
   const normalized = normalizeWorkspaceScopeId(workspaceId);
-  if (!normalized) return;
+  if (!normalized) {
+    if (options?.allTokenWhenMissing) {
+      params.set('workspace_id', ALL_WORKSPACE_SCOPE_TOKEN);
+      params.set('command_center_id', ALL_WORKSPACE_SCOPE_TOKEN);
+      params.set('center', ALL_WORKSPACE_SCOPE_TOKEN);
+    }
+    return;
+  }
   params.set('workspace_id', normalized);
+  params.set('command_center_id', normalized);
+  params.set('center', normalized);
 }
 
 export function buildWorkspaceScopeHeaders(

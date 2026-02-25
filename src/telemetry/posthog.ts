@@ -1,5 +1,3 @@
-const POSTHOG_DEFAULT_API_KEY =
-  "phc_s4KPgkYEFZgvkMYw4zXG41H5FN6haVwbEWPYHfNjxOc";
 const POSTHOG_DEFAULT_HOST = "https://us.i.posthog.com";
 
 function isTruthyEnv(value: string | undefined): boolean {
@@ -17,6 +15,8 @@ function isTruthyEnv(value: string | undefined): boolean {
 }
 
 export function isOrgxTelemetryDisabled(): boolean {
+  const explicitEnable = isTruthyEnv(process.env.ORGX_TELEMETRY_ENABLED);
+  if (!explicitEnable) return true;
   return (
     isTruthyEnv(process.env.ORGX_TELEMETRY_DISABLED) ||
     isTruthyEnv(process.env.OPENCLAW_TELEMETRY_DISABLED) ||
@@ -35,7 +35,7 @@ export function resolvePosthogApiKey(): string | null {
   const trimmed = fromEnv.trim();
   if (trimmed) return trimmed;
 
-  return POSTHOG_DEFAULT_API_KEY;
+  return null;
 }
 
 export function resolvePosthogHost(): string {
@@ -96,4 +96,3 @@ export async function posthogCapture(input: {
     body: JSON.stringify(body),
   }).then(() => undefined);
 }
-

@@ -102,6 +102,8 @@ export const queryKeys = {
     authToken?: string | null;
     embedMode?: boolean;
     projectId?: string | null;
+    offset?: number;
+    limit?: number;
     snapshotVersion?: number | null;
   }) =>
     [
@@ -111,6 +113,8 @@ export const queryKeys = {
         authToken: params.authToken ?? null,
         embedMode: params.embedMode ?? false,
         projectId: params.projectId ?? null,
+        offset: Math.max(0, params.offset ?? 0),
+        limit: Math.max(1, Math.min(300, params.limit ?? 24)),
         // NOTE: snapshotVersion intentionally excluded from the query key.
         // Including it caused new cache entries on every SSE snapshot bump,
         // orphaning in-flight fetches and creating a perpetual loading state.
