@@ -474,9 +474,24 @@ export function useNextUpQueue({
   }, []);
 
   const queryKey = useMemo(
-    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode, snapshotVersion }),
-    [initiativeId, projectId, authToken, embedMode, snapshotVersion]
+    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
+    [initiativeId, projectId, authToken, embedMode]
   );
+
+  // When the SSE snapshot version bumps, invalidate the cache so the next
+  // poll picks up fresh data — but keep the same query key to avoid orphaning
+  // in-flight fetches (which caused the perpetual-loading bug).
+  const prevSnapshotRef = useRef(snapshotVersion);
+  useEffect(() => {
+    if (
+      snapshotVersion !== null &&
+      prevSnapshotRef.current !== null &&
+      snapshotVersion !== prevSnapshotRef.current
+    ) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+    prevSnapshotRef.current = snapshotVersion;
+  }, [snapshotVersion, queryClient, queryKey]);
 
   const scheduleLiveDataInvalidate = () => {
     if (liveDataInvalidateTimerRef.current) {
@@ -515,10 +530,7 @@ export function useNextUpQueue({
       const params = new URLSearchParams();
       if (initiativeId) params.set('initiative_id', initiativeId);
       if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(params, projectId, {
-          includeCenterAlias: true,
-          includeProjectAlias: false,
-        });
+        appendWorkspaceScopeParams(params, projectId);
       }
       let response: Response;
       try {
@@ -568,10 +580,7 @@ export function useNextUpQueue({
       const sliceParams = new URLSearchParams();
       if (initiativeId) sliceParams.set('initiative_id', initiativeId);
       if (projectId && projectId.trim().length > 0) {
-        appendWorkspaceScopeParams(sliceParams, projectId, {
-          includeCenterAlias: true,
-          includeProjectAlias: false,
-        });
+        appendWorkspaceScopeParams(sliceParams, projectId);
       }
       sliceParams.set('level', 'workstream');
       sliceParams.set('include_completed', '0');

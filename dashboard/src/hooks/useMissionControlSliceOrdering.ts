@@ -17,8 +17,6 @@ function appendWorkspaceScope(payload: Record<string, unknown>, workspaceId: str
   if (!workspaceId || workspaceId.trim().length === 0) return;
   const normalized = workspaceId.trim();
   payload.workspace_id = normalized;
-  payload.command_center_id = normalized;
-  payload.center = normalized;
 }
 
 async function readResponseOrThrow(response: Response): Promise<Record<string, unknown>> {

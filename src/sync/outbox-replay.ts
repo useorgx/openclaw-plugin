@@ -1,14 +1,26 @@
 import type { OrgXClient } from "../api.js";
 import { registerArtifact } from "../artifacts/register-artifact.js";
 import type { OutboxEvent } from "../outbox.js";
-import { readOutbox, readOutboxSummary, replaceOutbox } from "../outbox.js";
+import {
+  appendOutboxDeadLetter,
+  readOutbox,
+  readOutboxSummary,
+  replaceOutbox,
+} from "../outbox.js";
 import { extractProgressOutboxMessage } from "../reporting/outbox-replay.js";
 import { RETRO_ARTIFACT_SCHEMA_VERSION } from "../contracts/retro-schema.js";
+import { classifyOutboxReplaySkip } from "../event-sanitization.js";
 import type {
   ChangesetOperation,
   ReportingPhase,
   ReportingSourceClient,
 } from "../types.js";
+
+const OUTBOX_MAX_REPLAY_FAILURES = (() => {
+  const raw = Number(process.env.ORGX_OUTBOX_MAX_REPLAY_FAILURES ?? "");
+  if (!Number.isFinite(raw)) return 3;
+  return Math.max(1, Math.min(20, Math.floor(raw)));
+})();
 
 export type ReplayStatus = "idle" | "running" | "success" | "error";
 
@@ -715,15 +727,63 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
 
       const remaining: OutboxEvent[] = [];
       for (const event of pending) {
+        const skipReason = classifyOutboxReplaySkip(event);
+        if (skipReason) {
+          await appendOutboxDeadLetter(
+            queue,
+            event,
+            `dropped_before_replay:${skipReason}`,
+            null
+          );
+          logger.warn?.("[orgx] Dropping non-replayable outbox event", {
+            queue,
+            eventId: event.id,
+            reason: skipReason,
+          });
+          continue;
+        }
+
         try {
           await replayOutboxEvent(event);
         } catch (err: unknown) {
           hadReplayFailure = true;
           lastReplayError = toErrorMessage(err);
-          remaining.push(event);
+          const nextFailures =
+            typeof event.replayFailures === "number" && Number.isFinite(event.replayFailures)
+              ? Math.max(0, Math.floor(event.replayFailures)) + 1
+              : 1;
+          if (nextFailures >= OUTBOX_MAX_REPLAY_FAILURES) {
+            await appendOutboxDeadLetter(
+              queue,
+              {
+                ...event,
+                replayFailures: nextFailures,
+                lastReplayError,
+                lastReplayAt: new Date().toISOString(),
+              },
+              "max_replay_failures",
+              lastReplayError
+            );
+            logger.warn?.("[orgx] Dead-lettering outbox event after max replay failures", {
+              queue,
+              eventId: event.id,
+              failures: nextFailures,
+              maxFailures: OUTBOX_MAX_REPLAY_FAILURES,
+              error: lastReplayError,
+            });
+            continue;
+          }
+
+          remaining.push({
+            ...event,
+            replayFailures: nextFailures,
+            lastReplayError,
+            lastReplayAt: new Date().toISOString(),
+          });
           logger.warn?.("[orgx] Outbox replay failed", {
             queue,
             eventId: event.id,
+            replayFailures: nextFailures,
             error: lastReplayError,
           });
         }

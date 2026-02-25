@@ -1887,10 +1887,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           include_idle: 'true',
         });
         if (normalizedProjectId) {
-          appendWorkspaceScopeParams(query, normalizedProjectId, {
-            includeCenterAlias: true,
-            includeProjectAlias: false,
-          });
+          appendWorkspaceScopeParams(query, normalizedProjectId);
         }
         if (normalizedInitiativeId) {
           query.set('initiative', normalizedInitiativeId);
@@ -2380,10 +2377,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     const streamQuery = new URLSearchParams();
     if (normalizedProjectId) {
-      appendWorkspaceScopeParams(streamQuery, normalizedProjectId, {
-        includeCenterAlias: true,
-        includeProjectAlias: false,
-      });
+      appendWorkspaceScopeParams(streamQuery, normalizedProjectId);
     }
     if (normalizedInitiativeId) {
       streamQuery.set('initiative', normalizedInitiativeId);

@@ -18,6 +18,30 @@ const DEFAULT_PROBE_TIMEOUT_MS = 2_500;
 
 const WATCHDOG_PID_FILE = join(getOpenClawDir(), "orgx-gateway-watchdog.pid");
 
+function sendSignal(pid: number, signal: NodeJS.Signals): void {
+  try {
+    // Detached child uses its own process group on Unix.
+    process.kill(-pid, signal);
+    return;
+  } catch {
+    // Fall through to direct pid kill.
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // best effort
+  }
+}
+
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + Math.max(100, timeoutMs);
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isPidAlive(pid);
+}
+
 function readEnvNumber(name: string, fallback: number, min: number): number {
   const raw = (process.env[name] ?? "").trim();
   if (!raw) return fallback;
@@ -254,4 +278,36 @@ export function ensureGatewayWatchdog(logger: Logger): { started: boolean; pid: 
   child.unref();
 
   return { started: true, pid: child.pid ?? null };
+}
+
+export async function stopGatewayWatchdog(
+  logger: Logger = console,
+  timeoutMs = 1_500
+): Promise<{ pid: number | null; wasRunning: boolean; stopped: boolean }> {
+  const pid = readWatchdogPid();
+  if (!pid) {
+    clearWatchdogPid();
+    return { pid: null, wasRunning: false, stopped: true };
+  }
+
+  if (!isPidAlive(pid)) {
+    clearWatchdogPid();
+    return { pid, wasRunning: false, stopped: true };
+  }
+
+  sendSignal(pid, "SIGTERM");
+  let stopped = await waitForExit(pid, timeoutMs);
+  if (!stopped) {
+    sendSignal(pid, "SIGKILL");
+    stopped = await waitForExit(pid, 500);
+  }
+
+  if (stopped) {
+    clearWatchdogPid();
+    logger.info?.("[orgx] Gateway watchdog stopped", { pid });
+  } else {
+    logger.warn?.("[orgx] Gateway watchdog did not exit after stop attempt", { pid });
+  }
+
+  return { pid, wasRunning: true, stopped };
 }

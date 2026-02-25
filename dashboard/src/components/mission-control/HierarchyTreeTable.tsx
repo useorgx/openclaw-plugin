@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
@@ -157,6 +157,11 @@ export function HierarchyTreeTable({
   const [bulkNotice, setBulkNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const selectAllRef = useRef<HTMLInputElement | null>(null);
   const hierarchyFilterRef = useRef<HTMLDivElement | null>(null);
+  const headerScrollRef = useRef<HTMLDivElement | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableViewportRef = useRef<HTMLDivElement | null>(null);
+  const syncingScrollRef = useRef<'header' | 'body' | null>(null);
+  const [useInternalTableScroll, setUseInternalTableScroll] = useState(false);
 
   useEffect(() => {
     if (!bulkNotice) return;
@@ -780,12 +785,84 @@ export function HierarchyTreeTable({
     return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  // Only the table header should stick. The Hierarchy section header, search/filter row,
-  // and bulk selection bar scroll normally with the table content.
-  const tableHeaderStickyTop =
-    'calc(var(--mc-toolbar-offset, 88px) + var(--mc-initiative-header-offset, 52px) + 1px)';
-  const stickyHeaderCellClass =
-    'border-b border-subtle bg-[#090B11] px-2 py-1.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]';
+  const tableHeaderStickyTop = useInternalTableScroll
+    ? '0px'
+    : 'calc(var(--mc-toolbar-offset, 0px) + 12px)';
+
+  const handleHeaderScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (syncingScrollRef.current === 'body') {
+      syncingScrollRef.current = null;
+      return;
+    }
+    const nextLeft = event.currentTarget.scrollLeft;
+    const body = bodyScrollRef.current;
+    if (!body || body.scrollLeft === nextLeft) return;
+    syncingScrollRef.current = 'header';
+    body.scrollLeft = nextLeft;
+  };
+
+  const handleBodyScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (syncingScrollRef.current === 'header') {
+      syncingScrollRef.current = null;
+      return;
+    }
+    const nextLeft = event.currentTarget.scrollLeft;
+    const header = headerScrollRef.current;
+    if (!header || header.scrollLeft === nextLeft) return;
+    syncingScrollRef.current = 'body';
+    header.scrollLeft = nextLeft;
+  };
+
+  useEffect(() => {
+    const body = bodyScrollRef.current;
+    const header = headerScrollRef.current;
+    if (!body || !header) return;
+    if (header.scrollLeft !== body.scrollLeft) {
+      header.scrollLeft = body.scrollLeft;
+    }
+  }, [rows.length]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const viewport = tableViewportRef.current;
+    if (!viewport) return;
+
+    const recompute = () => {
+      const maxHeight = Math.min(window.innerHeight * 0.62, 560);
+      const contentHeight = viewport.scrollHeight;
+      setUseInternalTableScroll(contentHeight > maxHeight + 1);
+    };
+
+    recompute();
+
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => recompute())
+        : null;
+    resizeObserver?.observe(viewport);
+
+    window.addEventListener('resize', recompute);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', recompute);
+    };
+  }, [rows.length]);
+
+  const renderColumnGroup = () => (
+    <colgroup>
+      <col style={{ width: 40 }} />
+      <col style={{ width: 360 }} />
+      <col style={{ width: 188 }} />
+      <col style={{ width: 124 }} />
+      <col style={{ width: 120 }} />
+      <col style={{ width: 96 }} />
+      <col style={{ width: 156 }} />
+      <col style={{ width: 100 }} />
+      <col style={{ width: 100 }} />
+      <col style={{ width: 180 }} />
+    </colgroup>
+  );
 
   return (
     <section className="space-y-2.5">
@@ -1091,67 +1168,68 @@ export function HierarchyTreeTable({
         </div>
       )}
 
-      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
-        <table className="w-full min-w-[1180px] border-separate border-spacing-y-1.5">
-          <thead className="sticky z-20" style={{ top: tableHeaderStickyTop }}>
-            <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
-              <th
-                className={`w-10 ${stickyHeaderCellClass}`}
-              >
-                <span className="sr-only">Select rows</span>
-              </th>
-              <th
-                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
-                onClick={() => toggleSort('title')}
-              >
-                Item <SortChevron field="title" />
-              </th>
-              <th
-                className={`w-[188px] ${stickyHeaderCellClass}`}
-              >
-                Assigned
-              </th>
-              <th
-                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
-                onClick={() => toggleSort('status')}
-              >
-                Status <SortChevron field="status" />
-              </th>
-              <th
-                className={stickyHeaderCellClass}
-              >
-                Progress
-              </th>
-              <th
-                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
-                onClick={() => toggleSort('priority')}
-              >
-                Priority <SortChevron field="priority" />
-              </th>
-              <th
-                className={`cursor-pointer select-none ${stickyHeaderCellClass}`}
-                onClick={() => toggleSort('eta')}
-              >
-                ETA <SortChevron field="eta" />
-              </th>
-              <th
-                className={stickyHeaderCellClass}
-              >
-                Duration (h)
-              </th>
-              <th
-                className={stickyHeaderCellClass}
-              >
-                Budget ($)
-              </th>
-              <th
-                className={stickyHeaderCellClass}
-              >
-                Dependencies
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="relative min-w-0 max-w-full overflow-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
+        <div
+          ref={tableViewportRef}
+          data-hierarchy-table-viewport
+          className={`${useInternalTableScroll ? 'max-h-[min(62vh,560px)] overflow-y-auto' : 'overflow-visible'} overflow-x-hidden rounded-lg`}
+        >
+          <div
+            data-hierarchy-table-header
+            className="sticky z-30 rounded-t-lg border-b border-subtle bg-[#090B11]/92 backdrop-blur-xl"
+            style={{ top: tableHeaderStickyTop }}
+          >
+            <div
+              ref={headerScrollRef}
+              onScroll={handleHeaderScroll}
+              className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <table className="w-full min-w-[1464px] table-fixed border-separate border-spacing-y-0">
+                {renderColumnGroup()}
+                <thead>
+                  <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
+                    <th className="px-2 py-1.5">
+                      <span className="sr-only">Select rows</span>
+                    </th>
+                    <th
+                      className="px-2 py-1.5 cursor-pointer select-none"
+                      onClick={() => toggleSort('title')}
+                    >
+                      Item <SortChevron field="title" />
+                    </th>
+                    <th className="px-2 py-1.5">Assigned</th>
+                    <th
+                      className="px-2 py-1.5 cursor-pointer select-none"
+                      onClick={() => toggleSort('status')}
+                    >
+                      Status <SortChevron field="status" />
+                    </th>
+                    <th className="px-2 py-1.5">Progress</th>
+                    <th
+                      className="px-2 py-1.5 cursor-pointer select-none"
+                      onClick={() => toggleSort('priority')}
+                    >
+                      Priority <SortChevron field="priority" />
+                    </th>
+                    <th
+                      className="px-2 py-1.5 cursor-pointer select-none"
+                      onClick={() => toggleSort('eta')}
+                    >
+                      ETA <SortChevron field="eta" />
+                    </th>
+                    <th className="px-2 py-1.5">Duration (h)</th>
+                    <th className="px-2 py-1.5">Budget ($)</th>
+                    <th className="px-2 py-1.5">Dependencies</th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          </div>
+
+          <div ref={bodyScrollRef} onScroll={handleBodyScroll} className="overflow-x-auto">
+            <table className="w-full min-w-[1464px] table-fixed border-separate border-spacing-y-1.5">
+              {renderColumnGroup()}
+              <tbody>
             {rows.map(({ node, depth, canCollapse }) => {
               const selected = selectedNodeId === node.id;
               const highlighted = highlightedNodeIds.has(node.id);
@@ -1492,8 +1570,10 @@ export function HierarchyTreeTable({
                 </tr>
               );
             })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
+      </div>
       </div>
 
       {rows.length === 0 && (

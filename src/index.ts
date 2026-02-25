@@ -45,7 +45,7 @@ import {
 } from "./outbox.js";
 import { getAgentContext, readAgentContexts } from "./agent-context-store.js";
 import { readAgentRuns, markAgentRunStopped } from "./agent-run-store.js";
-import { ensureGatewayWatchdog } from "./gateway-watchdog.js";
+import { ensureGatewayWatchdog, stopGatewayWatchdog } from "./gateway-watchdog.js";
 import {
   createMcpHttpHandler,
   type RegisteredPrompt,
@@ -72,6 +72,7 @@ import {
 import { registerOrgxCli } from "./cli/orgx.js";
 import { instrumentPluginApi } from "./services/instrumentation.js";
 import { registerSyncService } from "./services/background.js";
+import { stopDetachedProcess } from "./http/helpers/openclaw-cli.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
 import {
   buildLocalAgentMirrorsFromSnapshot,
@@ -1627,10 +1628,58 @@ export default function register(api: PluginAPI): void {
     });
   }
 
+  async function stopTrackedAgentRunsOnPluginStop(): Promise<{
+    attempted: number;
+    stopped: number;
+    failed: number;
+    markedStopped: number;
+  }> {
+    const runs = Object.values(readAgentRuns().runs ?? {}).filter(
+      (run) => run?.status === "running"
+    );
+    let attempted = 0;
+    let stopped = 0;
+    let failed = 0;
+    let markedStopped = 0;
+
+    for (const run of runs) {
+      if (!run || typeof run !== "object") continue;
+      attempted += 1;
+
+      let runStopped = false;
+      if (typeof run.pid === "number" && Number.isFinite(run.pid) && run.pid > 0) {
+        try {
+          const result = await stopDetachedProcess(run.pid);
+          runStopped = Boolean(result.stopped);
+        } catch {
+          runStopped = false;
+        }
+      } else {
+        // No tracked PID means there is no local process to stop.
+        runStopped = true;
+      }
+
+      if (runStopped) {
+        stopped += 1;
+      } else {
+        failed += 1;
+      }
+
+      const marked = markAgentRunStopped(run.runId);
+      if (marked) {
+        markedStopped += 1;
+      }
+    }
+
+    return { attempted, stopped, failed, markedStopped };
+  }
+
   registerSyncService({
     api,
     syncIntervalMs: config.syncIntervalMs,
     ensureGatewayWatchdog: (logger) => ensureGatewayWatchdog(logger as any),
+    stopGatewayWatchdog: () => stopGatewayWatchdog((api.log ?? {}) as any),
+    stopTrackedAgentRuns: stopTrackedAgentRunsOnPluginStop,
     doSync,
     scheduleNextSync,
     setSyncServiceRunning: (running) => {

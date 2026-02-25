@@ -376,10 +376,7 @@ export function useMissionControlSlices({
 
       const params = new URLSearchParams();
       if (workspaceId) {
-        appendWorkspaceScopeParams(params, workspaceId, {
-          includeCenterAlias: true,
-          includeProjectAlias: false,
-        });
+        appendWorkspaceScopeParams(params, workspaceId);
       }
       if (initiativeId) params.set('initiative_id', initiativeId);
       params.set('level', level);

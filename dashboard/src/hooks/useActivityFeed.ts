@@ -218,10 +218,7 @@ export function useActivityFeed(options: {
           search.set('initiative', initiativeId.trim());
         }
         if (projectId && projectId.trim().length > 0) {
-          appendWorkspaceScopeParams(search, projectId, {
-            includeCenterAlias: true,
-            includeProjectAlias: false,
-          });
+          appendWorkspaceScopeParams(search, projectId);
         }
 
         const resp = await fetch(`/orgx/api/live/activity/page?${search.toString()}`, {

@@ -13,9 +13,11 @@ import {
   rename,
   unlink,
   readdir,
+  appendFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { LiveActivityItem } from "./types.js";
+import { classifyOutboxReplaySkip } from "./event-sanitization.js";
 
 import { getOrgxOutboxDir } from "./paths.js";
 
@@ -57,6 +59,10 @@ export interface OutboxEvent {
   payload: Record<string, unknown>;
   /** Converted to a LiveActivityItem for dashboard display. */
   activityItem: LiveActivityItem;
+  /** Internal replay diagnostics for bounded retry/dead-letter handling. */
+  replayFailures?: number;
+  lastReplayError?: string | null;
+  lastReplayAt?: string | null;
 }
 
 export interface OutboxSummary {
@@ -70,6 +76,7 @@ export interface OutboxSummary {
 const OUTBOX_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
 /** Hard cap per session to prevent unbounded growth if sync repeatedly fails. */
 const OUTBOX_MAX_EVENTS_PER_SESSION = 500;
+const DEAD_LETTER_DIRNAME = "_dead-letter";
 
 async function ensureDir(): Promise<void> {
   const dir = outboxDir();
@@ -79,6 +86,14 @@ async function ensureDir(): Promise<void> {
   } catch {
     // Directory may already exist
   }
+}
+
+function deadLetterDir(): string {
+  return join(outboxDir(), DEAD_LETTER_DIRNAME);
+}
+
+function deadLetterPath(sessionId: string): string {
+  return join(deadLetterDir(), `${normalizeSessionId(sessionId)}.jsonl`);
 }
 
 function outboxPath(sessionId: string): string {
@@ -130,6 +145,38 @@ async function writeFileAtomic(
   await hardenPath(targetPath, mode);
 }
 
+async function appendOutboxDeadLetterRecord(
+  sessionId: string,
+  record: Record<string, unknown>
+): Promise<void> {
+  await ensureDir();
+  const dir = deadLetterDir();
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await hardenPath(dir, 0o700);
+  const targetPath = deadLetterPath(sessionId);
+  await appendFile(targetPath, `${JSON.stringify(record)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await hardenPath(targetPath, 0o600);
+}
+
+export async function appendOutboxDeadLetter(
+  sessionId: string,
+  event: OutboxEvent,
+  reason: string,
+  error?: string | null
+): Promise<void> {
+  const droppedAt = new Date().toISOString();
+  await appendOutboxDeadLetterRecord(sessionId, {
+    droppedAt,
+    queueId: normalizeSessionId(sessionId),
+    reason,
+    error: error ?? null,
+    event,
+  });
+}
+
 /** Drop stale events and enforce per-session cap. Returns true if any were removed. */
 function pruneOutboxEvents(events: OutboxEvent[]): { pruned: OutboxEvent[]; changed: boolean } {
   const cutoff = Date.now() - OUTBOX_EVENT_TTL_MS;
@@ -152,15 +199,31 @@ export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
       const parsed = JSON.parse(raw) as unknown;
       const events = Array.isArray(parsed) ? (parsed as OutboxEvent[]) : [];
       const { pruned, changed } = pruneOutboxEvents(events);
+      const filtered: OutboxEvent[] = [];
+      let filteredChanged = changed;
+      for (const event of pruned) {
+        const skipReason = classifyOutboxReplaySkip(event);
+        if (!skipReason) {
+          filtered.push(event);
+          continue;
+        }
+        filteredChanged = true;
+        await appendOutboxDeadLetter(
+          sessionId,
+          event,
+          `pruned_on_read:${skipReason}`,
+          null
+        );
+      }
       // Write back if stale events were dropped.
-      if (changed) {
-        if (pruned.length === 0) {
+      if (filteredChanged) {
+        if (filtered.length === 0) {
           try { await unlink(targetPath); } catch { /* ok */ }
         } else {
-          await writeFileAtomic(targetPath, JSON.stringify(pruned), 0o600);
+          await writeFileAtomic(targetPath, JSON.stringify(filtered), 0o600);
         }
       }
-      return pruned;
+      return filtered;
     } catch {
       await backupCorruptOutboxFile(targetPath);
       return [];
@@ -174,6 +237,17 @@ export async function appendToOutbox(
   sessionId: string,
   event: OutboxEvent
 ): Promise<void> {
+  const skipReason = classifyOutboxReplaySkip(event);
+  if (skipReason) {
+    await appendOutboxDeadLetter(
+      sessionId,
+      event,
+      `suppressed_on_append:${skipReason}`,
+      null
+    );
+    return;
+  }
+
   await ensureDir();
   const targetPath = outboxPath(sessionId);
   const existing = await readOutbox(sessionId);

@@ -77,10 +77,7 @@ export function useLiveInitiatives(enabled: boolean, projectId: string | null = 
           offset: String(offset),
         });
         if (projectId && projectId.trim().length > 0) {
-          appendWorkspaceScopeParams(params, projectId, {
-            includeCenterAlias: true,
-            includeProjectAlias: false,
-          });
+          appendWorkspaceScopeParams(params, projectId);
         }
         const response = await fetch(`/orgx/api/live/initiatives?${params.toString()}`, {
           headers: buildOrgxHeaders({ workspaceId: projectId }),
