@@ -2,10 +2,29 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 function normalizeDirOverride(value: string | undefined): string | null {
-  const trimmed = (value ?? "").trim();
+  let trimmed = (value ?? "").trim();
   if (!trimmed) return null;
-  if (trimmed.includes("\0")) return null;
+  // `.env` values are often quoted; normalize them before validation.
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+    if (!trimmed) return null;
+  }
+  // Reject control characters to avoid malformed or ambiguous filesystem paths.
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  // Reject common escaped/encoded null-byte sequences as well.
+  if (/\\0|\\x00|\\u0000|%00/i.test(trimmed)) return null;
   return trimmed;
+}
+
+function resolveOverridePath(override: string): string {
+  if (override === "~") return homedir();
+  if (override.startsWith("~/") || override.startsWith("~\\")) {
+    return resolve(homedir(), override.slice(2));
+  }
+  return resolve(override);
 }
 
 /**
@@ -16,7 +35,7 @@ function normalizeDirOverride(value: string | undefined): string | null {
  */
 export function getOrgxPluginConfigDir(): string {
   const override = normalizeDirOverride(process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR);
-  if (override) return resolve(override);
+  if (override) return resolveOverridePath(override);
   return join(homedir(), ".config", "useorgx", "openclaw-plugin");
 }
 
@@ -32,7 +51,7 @@ export function getOrgxPluginConfigPath(filename: string): string {
  */
 export function getOpenClawDir(): string {
   const override = normalizeDirOverride(process.env.OPENCLAW_HOME);
-  if (override) return resolve(override);
+  if (override) return resolveOverridePath(override);
   return join(homedir(), ".openclaw");
 }
 
@@ -44,7 +63,6 @@ export function getOpenClawDir(): string {
  */
 export function getOrgxOutboxDir(): string {
   const override = normalizeDirOverride(process.env.ORGX_OUTBOX_DIR);
-  if (override) return resolve(override);
+  if (override) return resolveOverridePath(override);
   return join(getOpenClawDir(), "orgx-outbox");
 }
-

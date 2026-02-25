@@ -1,0 +1,102 @@
+{
+  "campaign_name": "OrgX Twitter Ads Discovery Sprint (Q1 2026)",
+  "objective": "By 2026-03-31, identify one repeatable Twitter/X acquisition path that delivers >= 40 qualified trials at <= $120 CAC and >= 12% trial-to-activation rate.",
+  "target_audience": {
+    "primary_icp": "Technical founders and engineering leads running multi-agent workflows who need execution visibility, approvals, and continuity in one control surface.",
+    "pain_points": [
+      "Agent execution status is fragmented across chats and terminals.",
+      "Decisions and blockers are easy to miss, causing stalled workstreams.",
+      "Manual orchestration and handoffs create avoidable overhead as runs scale.",
+      "Teams need auditability and reliable progress data even during connectivity issues."
+    ]
+  },
+  "messaging_pillars": [
+    {
+      "pillar": "See execution in one place",
+      "proof_points": [
+        "Mission Control view maps initiatives, workstreams, milestones, and tasks.",
+        "Live activity timeline provides continuous run-level signal."
+      ]
+    },
+    {
+      "pillar": "Unblock execution quickly",
+      "proof_points": [
+        "Decision queue centralizes approval prompts and status.",
+        "Next-up queue helps teams keep work moving without manual triage."
+      ]
+    },
+    {
+      "pillar": "Reliability under real operating conditions",
+      "proof_points": [
+        "Outbox buffering and replay preserve event continuity during API downtime.",
+        "Dashboard surfaces pending/replayed events to maintain operator trust."
+      ]
+    }
+  ],
+  "channels": [
+    "twitter",
+    "landing_page"
+  ],
+  "success_metrics": [
+    {
+      "metric": "Qualified trials from Twitter/X ads",
+      "target": ">= 40 by 2026-03-31"
+    },
+    {
+      "metric": "Blended CAC",
+      "target": "<= $120 by 2026-03-31"
+    },
+    {
+      "metric": "Trial-to-activation rate",
+      "target": ">= 12% by 2026-03-31"
+    }
+  ],
+  "timeline": [
+    {
+      "milestone": "Discovery setup complete (tracking, audiences, creative hypotheses)",
+      "date": "2026-02-26"
+    },
+    {
+      "milestone": "Round 1 test launch (3 audiences x 2 creatives)",
+      "date": "2026-03-03"
+    },
+    {
+      "milestone": "Winner selection and spend concentration",
+      "date": "2026-03-17"
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesis": "Problem-first copy focused on blocked execution will outperform feature-first copy on CTR by >= 20%."
+    },
+    {
+      "hypothesis": "Follower-lookalike targeting around agent tooling accounts will deliver lower CAC than broad keyword targeting."
+    }
+  ],
+  "discovery_plan": {
+    "audiences": [
+      "Interest stack: AI tooling, dev productivity, MLOps",
+      "Keyword intent: \"agent orchestration\", \"multi-agent\", \"MCP\"",
+      "Follower lookalikes: OpenClaw/Codex/agent tooling adjacent accounts"
+    ],
+    "creative_matrix": [
+      "Variant A: mission-control screenshot + pain-led hook",
+      "Variant B: GIF demo + operator-led CTA",
+      "Variant C: social-proof quote + setup simplicity CTA"
+    ],
+    "budget_framework_usd": {
+      "daily_test_budget": 120,
+      "test_window_days": 14,
+      "total_discovery_budget_cap": 1680
+    },
+    "tracking_requirements": [
+      "UTM naming by audience and creative variant",
+      "Post-click events: visit, onboarding start, workspace connected",
+      "Weekly cohort readout for CAC and activation quality"
+    ]
+  },
+  "assumptions": [
+    "Primary destination remains the OrgX OpenClaw integration landing surface.",
+    "Conversion tracking can attribute onboarding starts and successful connects."
+  ]
+}

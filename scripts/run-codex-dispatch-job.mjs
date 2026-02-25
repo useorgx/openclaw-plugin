@@ -614,6 +614,143 @@ export function extractPlanContext(planText, task, maxChars = 2_800) {
   return planText.slice(0, maxChars).trim();
 }
 
+function normalizePlanLabel(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/`/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function parseDependencyList(rawValue) {
+  return dedupeStrings(
+    String(rawValue ?? "")
+      .split(",")
+      .map((entry) =>
+        entry
+          .replace(/`/g, "")
+          .replace(/\.$/, "")
+          .trim()
+      )
+      .filter(Boolean)
+  );
+}
+
+function parsePlanDependencyMap(planText) {
+  const text = pickString(planText);
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) =>
+    /^##\s+Workstream Dependency Map\s*$/i.test(line.trim())
+  );
+  if (headerIndex < 0) return [];
+
+  const entries = [];
+  let current = null;
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (/^##\s+/.test(line)) break;
+    if (!line) continue;
+
+    const numberedMatch = line.match(/^\d+\.\s+`([^`]+)`\s*$/);
+    const numberedFallbackMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (numberedMatch || numberedFallbackMatch) {
+      if (current?.title) entries.push(current);
+      current = {
+        title: pickString(numberedMatch?.[1], numberedFallbackMatch?.[1]) ?? "",
+        dependencies: [],
+      };
+      continue;
+    }
+
+    const dependsOnMatch = line.match(/^-+\s*Depends on:\s+(.+)$/i);
+    if (dependsOnMatch && current) {
+      current.dependencies = parseDependencyList(dependsOnMatch[1]);
+    }
+  }
+  if (current?.title) entries.push(current);
+
+  const mergedByTitle = new Map();
+  for (const entry of entries) {
+    const normalized = normalizePlanLabel(entry.title);
+    if (!normalized) continue;
+    const existing = mergedByTitle.get(normalized);
+    if (!existing) {
+      mergedByTitle.set(normalized, {
+        title: entry.title,
+        dependencies: [...entry.dependencies],
+      });
+      continue;
+    }
+    existing.dependencies = dedupeStrings([
+      ...existing.dependencies,
+      ...entry.dependencies,
+    ]);
+  }
+
+  return [...mergedByTitle.values()];
+}
+
+export function buildPlanScaffold(planText, { workstreams = [], tasks = [] } = {}) {
+  const planUnits = parsePlanDependencyMap(planText);
+  const workstreamByLabel = new Map();
+  for (const workstream of workstreams) {
+    const name =
+      pickString(workstream?.name, workstream?.title, workstream?.id) ?? "";
+    const normalized = normalizePlanLabel(name);
+    if (!normalized || workstreamByLabel.has(normalized)) continue;
+    workstreamByLabel.set(normalized, workstream);
+  }
+
+  const taskCountByWorkstreamId = new Map();
+  for (const task of tasks) {
+    const workstreamId = pickString(task?.workstream_id);
+    if (!workstreamId) continue;
+    taskCountByWorkstreamId.set(
+      workstreamId,
+      (taskCountByWorkstreamId.get(workstreamId) ?? 0) + 1
+    );
+  }
+
+  const units = planUnits.map((unit) => {
+    const unitLabel = normalizePlanLabel(unit.title);
+    const matchedWorkstream = workstreamByLabel.get(unitLabel) ?? null;
+    const missingDependencies = unit.dependencies.filter(
+      (dependency) => !workstreamByLabel.has(normalizePlanLabel(dependency))
+    );
+    return {
+      title: unit.title,
+      dependencies: unit.dependencies,
+      missingDependencies,
+      matchedWorkstreamId: matchedWorkstream?.id ?? null,
+      matchedWorkstreamName: matchedWorkstream
+        ? pickString(matchedWorkstream.name, matchedWorkstream.title, matchedWorkstream.id)
+        : null,
+      taskCount: matchedWorkstream
+        ? taskCountByWorkstreamId.get(matchedWorkstream.id) ?? 0
+        : 0,
+    };
+  });
+
+  const matched = units.filter((unit) => unit.matchedWorkstreamId).length;
+  const blockedByDependencies = units.filter(
+    (unit) => unit.missingDependencies.length > 0
+  ).length;
+  const withTasks = units.filter((unit) => unit.taskCount > 0).length;
+
+  return {
+    source: planUnits.length > 0 ? "workstream_dependency_map" : "none",
+    generatedAt: nowIso(),
+    planWorkstreamCount: units.length,
+    matchedWorkstreamCount: matched,
+    missingWorkstreamCount: units.length - matched,
+    blockedByDependencyCount: blockedByDependencies,
+    matchedWithTasksCount: withTasks,
+    matchedWithoutTasksCount: matched - withTasks,
+    units,
+  };
+}
+
 function toWorkerCwd(task, jobConfig) {
   const override = jobConfig.workstreamCwds?.[task.workstream_id];
   if (override) return resolve(override);
@@ -1226,6 +1363,7 @@ function buildInitialState({
   initiativeId,
   planPath,
   planHash,
+  scaffold,
   selectedWorkstreamIds,
   totalTasks,
 }) {
@@ -1234,6 +1372,7 @@ function buildInitialState({
     initiativeId,
     planPath,
     planHash,
+    scaffold: scaffold ?? null,
     selectedWorkstreamIds,
     totalTasks,
     startedAt: nowIso(),
@@ -1341,6 +1480,12 @@ export function buildTaskQueue({
 function toPercent(doneCount, totalCount) {
   if (totalCount <= 0) return 0;
   return clampProgress((doneCount / totalCount) * 100) ?? 0;
+}
+
+export function computeExecutionProgress(completedCount, blockedCount, totalCount) {
+  const completed = Number.isFinite(completedCount) ? completedCount : 0;
+  const blocked = Number.isFinite(blockedCount) ? blockedCount : 0;
+  return toPercent(completed + blocked, totalCount);
 }
 
 function collectTaskStatuses(taskIds, taskStatusById) {
@@ -1627,6 +1772,7 @@ export function deriveResumePlan({
   for (const task of queue) {
     const prior = previousStates?.[task.id];
     const priorStatus = pickString(prior?.status)?.toLowerCase() ?? null;
+    const currentStatus = classifyTaskState(task.status);
     const priorAttempts = Number.isFinite(prior?.attempts) ? prior.attempts : 0;
     attempts.set(task.id, priorAttempts);
 
@@ -1635,7 +1781,12 @@ export function deriveResumePlan({
       continue;
     }
 
-    if (priorStatus === "blocked" && !retryBlocked && !selected.has(task.id)) {
+    if (
+      priorStatus === "blocked" &&
+      currentStatus === "blocked" &&
+      !retryBlocked &&
+      !selected.has(task.id)
+    ) {
       skipped.blocked.push(task.id);
       continue;
     }
@@ -1803,6 +1954,53 @@ export async function main({
     }),
   ]);
 
+  await reporter.emit({
+    message: "Plan scaffold stage started.",
+    phase: "intent",
+    level: "info",
+    progressPct: 0,
+    metadata: {
+      event: "scaffold_started",
+      has_plan_text: Boolean(planText.trim()),
+      workstream_count: workstreams.length,
+      task_count: tasks.length,
+    },
+    nextStep: "Normalize plan workstream dependencies into scaffold-ready units.",
+  }).catch((error) => {
+    console.warn(`[job] scaffold start emit failed: ${error.message}`);
+  });
+
+  const scaffold = buildPlanScaffold(planText, {
+    workstreams,
+    tasks,
+  });
+
+  await reporter.emit({
+    message: `Plan scaffold completed: ${scaffold.matchedWorkstreamCount}/${scaffold.planWorkstreamCount} plan workstreams matched.`,
+    phase: "intent",
+    level:
+      scaffold.missingWorkstreamCount > 0 || scaffold.blockedByDependencyCount > 0
+        ? "warn"
+        : "info",
+    progressPct: 0,
+    metadata: {
+      event: "scaffold_completed",
+      scaffold_source: scaffold.source,
+      scaffold_plan_workstreams: scaffold.planWorkstreamCount,
+      scaffold_matched_workstreams: scaffold.matchedWorkstreamCount,
+      scaffold_missing_workstreams: scaffold.missingWorkstreamCount,
+      scaffold_missing_dependencies: scaffold.blockedByDependencyCount,
+      scaffold_matched_with_tasks: scaffold.matchedWithTasksCount,
+      scaffold_matched_without_tasks: scaffold.matchedWithoutTasksCount,
+    },
+    nextStep:
+      scaffold.missingWorkstreamCount > 0
+        ? "Review missing scaffold mappings before full auto dispatch."
+        : "Continue dispatch with scaffolded workstream coverage summary.",
+  }).catch((error) => {
+    console.warn(`[job] scaffold completion emit failed: ${error.message}`);
+  });
+
   let queue = buildTaskQueue({
     tasks,
     selectedWorkstreamIds,
@@ -1849,13 +2047,16 @@ export async function main({
         metadata: {
           queue_size: 0,
           selected_workstreams: selectedWorkstreamIds,
+          scaffold_source: scaffold.source,
+          scaffold_plan_workstreams: scaffold.planWorkstreamCount,
+          scaffold_matched_workstreams: scaffold.matchedWorkstreamCount,
         },
       })
       .catch((error) => {
         console.warn(`[job] final emit failed (no tasks): ${error.message}`);
       });
     console.log("[job] no tasks to run");
-    return { ok: true, jobId, totalTasks: 0 };
+    return { ok: true, jobId, totalTasks: 0, scaffold };
   }
 
   const selectedWorkstreamSet =
@@ -1892,6 +2093,7 @@ export async function main({
     initiativeId,
     planPath,
     planHash,
+    scaffold,
     selectedWorkstreamIds,
     totalTasks,
   });
@@ -1904,6 +2106,7 @@ export async function main({
         result: "running",
         activeWorkers: {},
         taskStates: resumeState.taskStates ?? {},
+        scaffold: resumeState.scaffold ?? baselineState.scaffold,
         rollups: resumeState.rollups ?? baselineState.rollups,
       }
     : baselineState;
@@ -2085,7 +2288,7 @@ export async function main({
         : `Codex dispatch job started for ${totalTasks} tasks.`,
       phase: "intent",
       level: "info",
-      progressPct: toPercent(completedCount, totalTasks),
+      progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
       metadata: {
         total_tasks: totalTasks,
         pending_tasks: pending.length,
@@ -2128,7 +2331,7 @@ export async function main({
         )}.`,
         phase: "execution",
         level: "warn",
-        progressPct: toPercent(completedCount, totalTasks),
+        progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
         metadata: {
           event: "resource_throttle",
           reasons: resourceDecision.reasons,
@@ -2217,7 +2420,7 @@ export async function main({
           message: `Task blocked by behavior automation level (manual): ${summarizeTask(task)}.`,
           phase: PHASE_BY_EVENT.failure,
           level: "warn",
-          progressPct: toPercent(completedCount, totalTasks),
+          progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
           metadata: {
             event: "behavior_automation_manual_blocked",
             task_id: task.id,
@@ -2277,7 +2480,7 @@ export async function main({
             `Supervised automation level active for ${summarizeTask(task)}; this run will stop after one slice.`,
           phase: "execution",
           level: "info",
-          progressPct: toPercent(completedCount, totalTasks),
+          progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
           metadata: {
             event: "behavior_automation_supervised_one_shot",
             task_id: task.id,
@@ -2308,7 +2511,7 @@ export async function main({
             : `Spawn guard check failed for ${summarizeTask(task)}. Continuing with local policy.`,
           phase: "blocked",
           level: unsupported ? "warn" : "error",
-          progressPct: toPercent(completedCount, totalTasks),
+          progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
           metadata: {
             event: "spawn_guard_warning",
             task_id: task.id,
@@ -2343,7 +2546,7 @@ export async function main({
             message: `Spawn guard deferred ${summarizeTask(task)} (retry ${nextAttempt + 1}/${maxAttempts}).`,
             phase: PHASE_BY_EVENT.retry,
             level: "warn",
-            progressPct: toPercent(completedCount, totalTasks),
+            progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
             metadata: {
               event: "spawn_guard_retry",
               task_id: task.id,
@@ -2390,7 +2593,7 @@ export async function main({
           message: `Task blocked by spawn guard: ${summarizeTask(task)}.`,
           phase: PHASE_BY_EVENT.failure,
           level: "error",
-          progressPct: toPercent(completedCount, totalTasks),
+          progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
           metadata: {
             event: "spawn_guard_blocked",
             task_id: task.id,
@@ -2465,7 +2668,7 @@ export async function main({
         message: `Dispatching ${summarizeTask(task)} (attempt ${nextAttempt}/${maxAttempts})`,
         phase: PHASE_BY_EVENT.dispatch,
         level: "info",
-        progressPct: toPercent(completedCount, totalTasks),
+        progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
         metadata: {
           event: "dispatch",
           task_id: task.id,
@@ -2626,7 +2829,7 @@ export async function main({
           message: `Completed ${summarizeTask(task)} (attempt ${attempt})`,
           phase: PHASE_BY_EVENT.success,
           level: "info",
-          progressPct: toPercent(completedCount, totalTasks),
+          progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
           metadata: {
             event: "success",
             task_id: task.id,
@@ -2662,7 +2865,7 @@ export async function main({
             message: `Retry scheduled for ${summarizeTask(task)} after ${retryReason}.`,
             phase: PHASE_BY_EVENT.retry,
             level: "warn",
-            progressPct: toPercent(completedCount, totalTasks),
+            progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
             metadata: {
               event: "retry",
               task_id: task.id,
@@ -2708,7 +2911,7 @@ export async function main({
             message: `Task blocked after ${attempt} attempts: ${summarizeTask(task)}.`,
             phase: PHASE_BY_EVENT.failure,
             level: "error",
-            progressPct: toPercent(completedCount, totalTasks),
+            progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
             metadata: {
               event: "failed",
               task_id: task.id,
@@ -2818,7 +3021,7 @@ export async function main({
             message: `Worker stuck, terminating ${summarizeTask(entry.task)}: ${killDecision.reason}.`,
             phase: "blocked",
             level: "warn",
-            progressPct: toPercent(completedCount, totalTasks),
+            progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
             metadata: {
               event: "worker_kill_requested",
               task_id: taskId,
@@ -2863,7 +3066,7 @@ export async function main({
         message: `Heartbeat: ${completed.size}/${totalTasks} completed, ${runningIds.length} running, ${pending.length} queued, ${failed.size} blocked.`,
         phase: PHASE_BY_EVENT.heartbeat,
         level: failed.size > 0 ? "warn" : "info",
-        progressPct: toPercent(completedCount, totalTasks),
+        progressPct: computeExecutionProgress(completedCount, failed.size, totalTasks),
         metadata: {
           event: "heartbeat",
           completed: completed.size,
@@ -2908,7 +3111,7 @@ export async function main({
         : `Dispatch job finished with blockers. ${completed.size}/${totalTasks} completed, ${failed.size} blocked.`,
     phase: PHASE_BY_EVENT.complete,
     level: pausedBySupervisedGate || success ? "info" : "warn",
-    progressPct: toPercent(completed.size, totalTasks),
+    progressPct: computeExecutionProgress(completed.size, failed.size, totalTasks),
     metadata: {
       event: "job_complete",
       completed: completed.size,
@@ -2920,6 +3123,11 @@ export async function main({
       state_file: stateFile,
       run_id: reporter.getRunId(),
       decision_on_block: decisionOnBlock,
+      scaffold_source: scaffold.source,
+      scaffold_plan_workstreams: scaffold.planWorkstreamCount,
+      scaffold_matched_workstreams: scaffold.matchedWorkstreamCount,
+      scaffold_missing_workstreams: scaffold.missingWorkstreamCount,
+      scaffold_missing_dependencies: scaffold.blockedByDependencyCount,
     },
     nextStep: pausedBySupervisedGate
       ? "Review this supervised slice, then resume dispatch to continue queued tasks."
@@ -2947,6 +3155,7 @@ export async function main({
     queuedRemaining: pending.length,
     pausedBySupervisedGate,
     stateFile,
+    scaffold,
   };
 }
 

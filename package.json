@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -39,6 +39,7 @@
     "agents:refresh": "node ./scripts/daily-agents-refresh.mjs",
     "agents:install": "node ./scripts/install-daily-agents-refresh.mjs",
     "verify:clean-install": "node ./scripts/verify-clean-install.mjs",
+    "verify:package-budget": "node ./scripts/verify-package-budget.mjs",
     "verify:agent-suite": "npm run build:core && node ./scripts/verify-agent-suite-install.mjs",
     "verify:billing": "npm run build:core && node ./scripts/verify-billing-scenarios.mjs",
     "verify:autopilot-e2e:local": "npm run build:core && node ./scripts/verify-autopilot-e2e-local.mjs",

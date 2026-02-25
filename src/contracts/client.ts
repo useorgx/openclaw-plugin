@@ -441,10 +441,14 @@ export class OrgXClient {
   // ===========================================================================
 
   async getClientAgentRuntimeSettings(input?: {
+    workspaceId?: string | null;
+    /** Legacy alias retained for backward compatibility */
     projectId?: string | null;
   }): Promise<ClientRuntimeSettingsResponse> {
+    const workspaceScope = input?.workspaceId ?? input?.projectId ?? null;
     const query = this.buildQuery({
-      project_id: input?.projectId ?? null,
+      workspace_id: workspaceScope,
+      command_center_id: workspaceScope,
     });
     return this.get<ClientRuntimeSettingsResponse>(
       `/api/client/agents/runtime-settings${query}`
@@ -631,7 +635,8 @@ export class OrgXClient {
     }
     if (filters?.limit) params.set("limit", String(filters.limit));
     if (filters?.initiative_id) params.set("initiative_id", String(filters.initiative_id));
-    if (filters?.project_id) params.set("project_id", String(filters.project_id));
+    const legacyProjectIdRaw =
+      filters?.project_id != null ? String(filters.project_id) : null;
     const workspaceIdRaw =
       filters?.workspace_id != null ? String(filters.workspace_id) : null;
     const commandCenterIdRaw =
@@ -647,7 +652,17 @@ export class OrgXClient {
         "workspace_id and command_center_id must match when both are provided"
       );
     }
-    const workspaceId = workspaceIdRaw ?? commandCenterIdRaw;
+    if (
+      legacyProjectIdRaw &&
+      workspaceIdRaw &&
+      legacyProjectIdRaw.trim() !== workspaceIdRaw.trim()
+    ) {
+      throw new Error(
+        "project_id cannot differ from workspace_id; use workspace_id as canonical scope"
+      );
+    }
+
+    const workspaceId = workspaceIdRaw ?? commandCenterIdRaw ?? legacyProjectIdRaw;
     if (workspaceId) {
       // Canonical scope param. Keep legacy alias for backward compatibility.
       params.set("workspace_id", workspaceId);

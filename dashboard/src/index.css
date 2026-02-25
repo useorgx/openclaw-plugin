@@ -678,6 +678,55 @@
   animation: successGlow 600ms var(--orgx-ease-standard) both;
 }
 
+/* ── Autopilot rail animations ──────────────────────────────── */
+
+@keyframes autopilotActivate {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10, 212, 196, 0); }
+  50% { transform: scale(1.08); box-shadow: 0 0 16px 4px rgba(10, 212, 196, 0.25); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10, 212, 196, 0); }
+}
+
+@keyframes autopilotRailPulse {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 1; }
+}
+
+.autopilot-activate {
+  animation: autopilotActivate 600ms var(--orgx-ease-standard) both;
+}
+
+.autopilot-rail-pulse {
+  animation: autopilotRailPulse 4s ease-in-out infinite;
+}
+
+.autopilot-rail {
+  backdrop-filter: blur(8px);
+  background: linear-gradient(
+    135deg,
+    rgba(10, 212, 196, 0.08) 0%,
+    rgba(10, 212, 196, 0.03) 100%
+  );
+  border: 1px solid rgba(10, 212, 196, 0.2);
+}
+
+.autopilot-rail[data-state='blocked'] {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 107, 107, 0.08) 0%,
+    rgba(255, 107, 107, 0.03) 100%
+  );
+  border-color: rgba(255, 107, 107, 0.2);
+}
+
+.autopilot-rail[data-state='error'] {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 107, 107, 0.08) 0%,
+    rgba(255, 107, 107, 0.03) 100%
+  );
+  border-color: rgba(255, 107, 107, 0.2);
+}
+
 /* Agent glow ring for active slice execution */
 @keyframes pulseGlow {
   0%, 100% {

@@ -399,9 +399,15 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
     let patchPayload = null;
     const client = {
       getBaseUrl: () => config.baseUrl,
-      getClientAgentRuntimeSettings: async () => ({
-        ok: true,
-        project_id: projectId,
+      getClientAgentRuntimeSettings: async (input) => {
+        if (input?.workspaceId != null) {
+          assert.equal(input.workspaceId, projectId);
+        }
+        return {
+          ok: true,
+          workspace_id: projectId,
+          command_center_id: projectId,
+          project_id: projectId,
         agents: [
           {
             id: "11111111-1111-1111-1111-111111111111",
@@ -418,12 +424,16 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
             },
           },
         ],
-      }),
+      };
+      },
       updateClientAgentRuntimeSettings: async (input) => {
         patchPayload = input;
         return {
           ok: true,
-          project_id: input.project_id ?? projectId,
+          workspace_id: input.workspace_id ?? input.project_id ?? projectId,
+          command_center_id:
+            input.command_center_id ?? input.workspace_id ?? input.project_id ?? projectId,
+          project_id: input.project_id ?? input.workspace_id ?? projectId,
           agent: {
             id: input.agent_id,
             name: "OrgX Engineering",
@@ -445,7 +455,7 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
     assert.equal(getRes.status, 200);
     const getBody = JSON.parse(getRes.body);
     assert.equal(getBody?.ok, true);
-    assert.equal(getBody?.data?.project_id, projectId);
+    assert.equal(getBody?.data?.workspace_id, projectId);
     assert.equal(getBody?.data?.agents?.length, 1);
     assert.equal(
       getBody?.data?.agents?.[0]?.runtime_settings?.decision_v2_enabled,
@@ -480,7 +490,8 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
       true
     );
     assert.deepEqual(patchPayload, {
-      project_id: projectId,
+      workspace_id: projectId,
+      command_center_id: projectId,
       agent_id: "11111111-1111-1111-1111-111111111111",
       runtime_settings: {
         decision_v2_enabled: false,

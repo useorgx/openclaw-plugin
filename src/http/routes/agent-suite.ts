@@ -25,6 +25,7 @@ type RegisterAgentSuiteRoutesDeps<TReq, TRes> = {
   updateSkillPackPolicy: UpdateSkillPackPolicyFn;
   rollbackSkillPackPolicy: RollbackSkillPackPolicyFn;
   fetchAgentRuntimeSettings: (input?: {
+    workspaceId?: string | null;
     projectId?: string | null;
   }) => Promise<ClientRuntimeSettingsResponse>;
   updateAgentRuntimeSettings: (
@@ -198,9 +199,15 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
           String((req as any).url ?? "/"),
           "http://localhost"
         );
-        const projectId = toOptionalUuid(requestUrl.searchParams.get("project_id"));
+        const workspaceId = toOptionalUuid(
+          requestUrl.searchParams.get("workspace_id") ??
+            requestUrl.searchParams.get("workspaceId") ??
+            requestUrl.searchParams.get("command_center_id") ??
+            requestUrl.searchParams.get("commandCenterId") ??
+            requestUrl.searchParams.get("project_id")
+        );
         const response = await deps.fetchAgentRuntimeSettings({
-          projectId: projectId ?? null,
+          workspaceId: workspaceId ?? null,
         });
         if (!response?.ok) {
           deps.sendJson(res, 502, {
@@ -247,10 +254,22 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
           return;
         }
 
-        const projectId = toOptionalUuid(payload.project_id ?? payload.projectId);
+        const workspaceId = toOptionalUuid(
+          payload.workspace_id ??
+            payload.workspaceId ??
+            payload.command_center_id ??
+            payload.commandCenterId ??
+            payload.project_id ??
+            payload.projectId
+        );
         const response = await deps.updateAgentRuntimeSettings({
           agent_id: agentId,
-          ...(projectId ? { project_id: projectId } : {}),
+          ...(workspaceId
+            ? {
+                workspace_id: workspaceId,
+                command_center_id: workspaceId,
+              }
+            : {}),
           runtime_settings:
             runtimeSettingsPatch as ClientRuntimeSettingsUpdateRequest["runtime_settings"],
         });

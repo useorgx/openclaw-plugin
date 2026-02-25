@@ -10,7 +10,7 @@ import type {
 } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
-import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import { useNextUpQueue, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useInitiativeSearch } from '@/hooks/useInitiativeSearch';
@@ -50,6 +50,9 @@ interface MissionControlViewProps {
   onCreateInitiative?: () => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
+  nextUpQueueModel?: UseNextUpQueueResult;
+  nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
+  snapshotVersion?: number | null;
 }
 
 function toStatusKey(value: string | null | undefined): string {
@@ -280,6 +283,9 @@ export function MissionControlView({
   onCreateInitiative,
   onPlayNextUp,
   onStartAutopilot,
+  nextUpQueueModel,
+  nextUpActionsModel,
+  snapshotVersion = null,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
 
@@ -304,6 +310,9 @@ export function MissionControlView({
         onCreateInitiative={onCreateInitiative}
         onPlayNextUp={onPlayNextUp}
         onStartAutopilot={onStartAutopilot}
+        nextUpQueueModel={nextUpQueueModel}
+        nextUpActionsModel={nextUpActionsModel}
+        snapshotVersion={snapshotVersion}
       />
     </MissionControlProvider>
   );
@@ -353,6 +362,9 @@ function MissionControlInner({
   onCreateInitiative,
   onPlayNextUp,
   onStartAutopilot,
+  nextUpQueueModel,
+  nextUpActionsModel,
+  snapshotVersion = null,
 }: {
   initiatives: Initiative[];
   runtimeInstances: RuntimeInstance[];
@@ -368,6 +380,9 @@ function MissionControlInner({
   onCreateInitiative?: () => void;
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
+  nextUpQueueModel?: UseNextUpQueueResult;
+  nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
+  snapshotVersion?: number | null;
 }) {
   const {
     searchQuery,
@@ -774,13 +789,16 @@ function MissionControlInner({
       null,
     [sortedInitiatives]
   );
-  const nextActionQueue = useNextUpQueue({
+  const internalNextActionQueue = useNextUpQueue({
     projectId: workspaceInitiativeId,
     authToken,
     embedMode,
-    enabled: initiatives.length > 0,
+    enabled: nextUpQueueModel ? false : initiatives.length > 0,
+    snapshotVersion,
   });
-  const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const nextActionQueue = nextUpQueueModel ?? internalNextActionQueue;
+  const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const nextUpActions = nextUpActionsModel ?? internalNextUpActions;
   const nextActionQueueItem = nextActionQueue.items[0] ?? null;
   const nowWorkingItem = useMemo(
     () =>
@@ -1726,6 +1744,29 @@ function MissionControlInner({
                       <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
                     )}
                   </button>
+                  {/* Autopilot Rail - persistent status banner */}
+                  {autopilot.isRunning && (
+                    <div
+                      className="autopilot-rail autopilot-rail-pulse flex items-center gap-2 rounded-lg px-3 py-1.5 mt-1.5"
+                      data-state={
+                        autopilot.run?.lastError ? 'error' :
+                        autopilot.run?.stopReason === 'blocked' ? 'blocked' : 'running'
+                      }
+                    >
+                      <span className="relative flex h-2 w-2 flex-shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#0AD4C4] opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#0AD4C4]" />
+                      </span>
+                      <span className="text-micro font-semibold text-[#7AEDE5]">
+                        Autopilot Active
+                      </span>
+                      {autopilot.run?.tokensUsed != null && autopilot.run?.tokenBudget != null && autopilot.run.tokenBudget > 0 && (
+                        <span className="text-micro text-[#7AEDE5]/60 tabular-nums">
+                          {Math.round((autopilot.run.tokensUsed / autopilot.run.tokenBudget) * 100)}% budget
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {embedMode && (
                     <a
                       href={installOrgxHref}
@@ -2420,6 +2461,9 @@ function MissionControlInner({
                                 projectId={workspaceInitiativeId}
                                 authToken={authToken}
                                 embedMode={embedMode}
+                                queueModel={nextActionQueue}
+                                queueActions={nextUpActions}
+                                snapshotVersion={snapshotVersion}
                                 onOpenInitiative={openInitiativeFromNextUp}
                                 onOpenSettings={onOpenSettings}
                                 onUpgradeGate={setAutopilotUpgradeGate}
@@ -2528,6 +2572,9 @@ function MissionControlInner({
                                 projectId={workspaceInitiativeId}
                                 authToken={authToken}
                                 embedMode={embedMode}
+                                queueModel={nextActionQueue}
+                                queueActions={nextUpActions}
+                                snapshotVersion={snapshotVersion}
                                 onOpenInitiative={(initiativeId, initiativeTitle) => {
                                   openInitiativeFromNextUp(initiativeId, initiativeTitle);
                                   setNextUpDrawerOpen(false);

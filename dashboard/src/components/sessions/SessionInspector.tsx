@@ -452,12 +452,12 @@ export const SessionInspector = memo(function SessionInspector({
   const canResume =
     canonicalProjection.status === 'needs_attention' &&
     ['paused', 'blocked', 'queued', 'pending'].includes(sessionStatus);
-  const canStart = canonicalProjection.status !== 'in_progress';
   const canCancel = !['completed', 'archived', 'cancelled'].includes(sessionStatus);
   const canRollback = !['archived', 'cancelled'].includes(sessionStatus);
   const statusLabel = canonicalProjection.label;
   const statusTone = statusToneClassFromCanonical(canonicalProjection.status);
   const isRunning = ['running', 'active', 'working', 'in_progress', 'planning', 'review'].includes(sessionStatus);
+  const canStart = canonicalProjection.status !== 'in_progress' && !isRunning;
   const progressBarColor =
     canonicalProjection.tone === 'critical'
       ? colors.red

@@ -5,7 +5,7 @@ import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeText, humanizeModel, humanizeActorName, formatTokens } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens } from '@/lib/humanize';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   Initiative,
@@ -29,6 +29,7 @@ import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext'
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
 import { ActivityTimelineItem } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
+import { ActivityDetailSummary } from './ActivityDetailSummary';
 import { ChatDockProvider } from './chat/ChatDockContext';
 import { ActivityChatDock } from './chat/ActivityChatDock';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
@@ -956,6 +957,7 @@ function extractAutopilotSliceDetail(item: LiveActivityItem | null): AutopilotSl
   if (
     !event ||
     (!isAutopilotSliceEvent &&
+      event !== 'auto_continue_started' &&
       event !== 'auto_continue_stopped' &&
       event !== 'next_up_manual_dispatch_started')
   ) {
@@ -1520,6 +1522,21 @@ function inferAgentNameFromSkills(requiredSkills: string[]): string | null {
   return null;
 }
 
+function isGenericOrgxDomainLabel(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized.startsWith("orgx ")) return false;
+  return (
+    normalized === "orgx engineering" ||
+    normalized === "orgx product" ||
+    normalized === "orgx marketing" ||
+    normalized === "orgx sales" ||
+    normalized === "orgx operations" ||
+    normalized === "orgx design" ||
+    normalized === "orgx orchestrator"
+  );
+}
+
 function formatAgentLabel(
   explicitName: string | null,
   explicitId: string | null,
@@ -1532,7 +1549,10 @@ function formatAgentLabel(
     ? explicitId.trim()
     : null;
   const inferredFromId = normalizedId ? namesById?.get(normalizedId) ?? null : null;
-  const resolvedName = normalizedName ?? inferredFromId;
+  const resolvedName =
+    normalizedName && inferredFromId && isGenericOrgxDomainLabel(normalizedName)
+      ? inferredFromId
+      : normalizedName ?? inferredFromId;
   if (resolvedName) return humanizeActorName(resolvedName);
   if (!normalizedId) return 'OrgX';
   const idKey = normalizedId.toLowerCase();
@@ -1845,6 +1865,7 @@ function inferLifecycleProgress(detail: AutopilotSliceDetail): number | null {
   if (statusKey === 'blocked' || statusKey === 'error' || statusKey === 'failed') return 100;
 
   const event = detail.event;
+  if (event === 'auto_continue_started') return 3;
   if (event === 'next_up_manual_dispatch_started') return 8;
   if (event === 'autopilot_slice_dispatched') return 14;
   if (event === 'autopilot_slice_status_updates_buffered') return 72;
@@ -1965,6 +1986,17 @@ function describeDetailOutcome(
     Boolean(blockedReason && /rate limit/i.test(blockedReason));
   const spawnGuardBlocked = eventName.includes('spawn_guard_blocked');
 
+  if (eventName === 'auto_continue_started') {
+    return {
+      label: 'Autopilot on',
+      summary:
+        humanizeActivityBody(item.title) ??
+        'Autopilot is active and will continue dispatching work from the Next Up queue.',
+      hint: 'Watch Activity and Next Up for newly dispatched slices.',
+      tone: 'positive',
+    };
+  }
+
   if (eventName === 'auto_continue_stopped') {
     if (stopReason === 'budget_exhausted') {
       return {
@@ -2021,6 +2053,35 @@ function describeDetailOutcome(
         tone: 'critical',
       };
     }
+  }
+
+  // ── autopilot_transition ──
+  if (eventName === "autopilot_transition") {
+    const oldState = String(metadata?.old_state ?? "");
+    const newState = String(metadata?.new_state ?? "");
+    const reason = String(metadata?.reason ?? "");
+    if (newState === "running") {
+      return {
+        label: "Autopilot activated",
+        summary: `State changed from ${oldState} to running.`,
+        hint: "Autopilot will dispatch work from the Next Up queue.",
+        tone: "positive" as const,
+      };
+    }
+    if (newState === "blocked" || newState === "error") {
+      return {
+        label: newState === "error" ? "Autopilot error" : "Autopilot blocked",
+        summary: `State changed from ${oldState} to ${newState}${reason ? `: ${reason}` : ""}.`,
+        hint: "Review the triage queue for actionable items.",
+        tone: "critical" as const,
+      };
+    }
+    return {
+      label: "Autopilot state change",
+      summary: `${oldState} → ${newState}${reason ? ` (${reason})` : ""}.`,
+      hint: null,
+      tone: "neutral" as const,
+    };
   }
 
   if (spawnGuardRateLimited) {
@@ -3309,7 +3370,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
   const activeResultItems = useMemo(() => {
     if (!activeExecutionBreakdown) return [];
-    const resultItems: Array<{ label: string; value: number | string }> = [];
+    const resultItems: Array<{ label: string; value: number | string; tone?: 'neutral' | 'critical' }> = [];
+    if (activeOutcome) {
+      resultItems.push({ label: 'Status', value: activeOutcome.label });
+    }
     if (activeExecutionBreakdown.scopedTaskCount > 0) {
       resultItems.push({ label: 'Tasks', value: activeExecutionBreakdown.scopedTaskCount });
     }
@@ -3325,7 +3389,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       resultItems.push({ label: 'Decisions', value: decisionCount });
     }
     if (activeExecutionBreakdown.blockingDecisions && activeExecutionBreakdown.blockingDecisions > 0) {
-      resultItems.push({ label: 'Blocking', value: activeExecutionBreakdown.blockingDecisions });
+      resultItems.push({
+        label: 'Blocking',
+        value: activeExecutionBreakdown.blockingDecisions,
+        tone: 'critical',
+      });
+    }
+    if (activeExecutionBreakdown.stopReason) {
+      resultItems.push({ label: 'Stop reason', value: humanizeText(activeExecutionBreakdown.stopReason) });
     }
     const tokenLabel = formatTokens(
       activeExecutionBreakdown.tokensUsed,
@@ -3333,9 +3404,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     );
     if (tokenLabel) {
       resultItems.push({ label: 'Token usage', value: tokenLabel });
-    }
-    if (resultItems.length === 0 && activeOutcome) {
-      resultItems.push({ label: 'Status', value: activeOutcome.label });
     }
     return resultItems;
   }, [activeExecutionBreakdown, activeOutcome]);
@@ -3565,7 +3633,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to schedule auto-fix";
-      setAutoFixNotice(message);
+      setAutoFixNotice(humanizeWarning(message) || message);
     } finally {
       setAutoFixPending(false);
     }
@@ -4818,6 +4886,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       {activeIsSyncReplay && <Pill tone="lime">Sync replay</Pill>}
                     </div>
 
+                    {/* Activity summary card */}
+                    <ActivityDetailSummary item={activeDecorated.item} className="mb-3" />
+
                     {activeOutcome && (
                       <div
                         className={cn(
@@ -4990,9 +5061,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </p>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary sm:grid-cols-3">
                           {activeResultItems.map((item) => (
-                            <div key={item.label} className="rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2">
+                            <div
+                              key={item.label}
+                              className={
+                                item.tone === 'critical'
+                                  ? 'rounded-lg border border-red-300/28 bg-red-400/[0.08] px-2.5 py-2'
+                                  : 'rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2'
+                              }
+                            >
                               <div className="text-micro text-secondary">{item.label}</div>
-                              <div className="mt-1 tabular-nums">{item.value}</div>
+                              <div className="mt-1 break-words tabular-nums">{item.value}</div>
                             </div>
                           ))}
                         </div>

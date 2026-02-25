@@ -25,6 +25,7 @@ interface UseNextUpQueueOptions {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
+  snapshotVersion?: number | null;
 }
 
 interface NextUpActionInput {
@@ -189,7 +190,7 @@ function buildDemoQueueResponse(initiativeId: string | null): NextUpQueueRespons
     generatedAt: nowIso,
     total: scopedItems.length,
     items: scopedItems,
-    degraded: ['Demo mode: queue is rendered from local fixture data.'],
+    degraded: [],
   });
 }
 
@@ -205,11 +206,22 @@ function hasExplicitAutoIntent(item: NextUpQueueItem): boolean {
   if (!item.autoContinue) return false;
   const status = item.autoContinue.status;
   if (status !== 'running' && status !== 'stopping') return false;
+  // Runtime status is the source of truth. Pointer fields can lag by one
+  // polling cycle right after start/stop transitions.
+  if (item.autoContinue.stopReason === 'error') return false;
+  if (item.queueState === 'running' || item.queueState === 'blocked') return true;
+
   const hasLegacyPointer = Boolean(item.autoContinue.activeRunId || item.autoContinue.activeTaskId);
   const hasLanePointer = Boolean(
     Array.isArray(item.autoContinue.activeRunIds) && item.autoContinue.activeRunIds.length > 0
   );
-  return hasLegacyPointer || hasLanePointer;
+  if (hasLegacyPointer || hasLanePointer) return true;
+
+  const updatedAtEpoch = Date.parse(item.autoContinue.updatedAt ?? '');
+  if (Number.isFinite(updatedAtEpoch)) {
+    return Date.now() - updatedAtEpoch <= 45_000;
+  }
+  return false;
 }
 
 function normalizeRunnerId(value: string | null | undefined): string {
@@ -446,6 +458,7 @@ export function useNextUpQueue({
   authToken = null,
   embedMode = false,
   enabled = true,
+  snapshotVersion = null,
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
   const demoMode = isDemoModeEnabled();
@@ -461,8 +474,8 @@ export function useNextUpQueue({
   }, []);
 
   const queryKey = useMemo(
-    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode }),
-    [initiativeId, projectId, authToken, embedMode]
+    () => queryKeys.nextUpQueue({ initiativeId, projectId, authToken, embedMode, snapshotVersion }),
+    [initiativeId, projectId, authToken, embedMode, snapshotVersion]
   );
 
   const scheduleLiveDataInvalidate = () => {
@@ -733,6 +746,7 @@ export function useNextUpQueue({
   return {
     items: query.data?.items ?? [],
     total: query.data?.total ?? 0,
+    generatedAt: query.data?.generatedAt ?? null,
     degraded: query.data?.degraded ?? [],
     isLoading: query.isLoading,
     isFetching: query.isFetching,
@@ -748,3 +762,20 @@ export function useNextUpQueue({
 }
 
 export type { NextUpQueueItem };
+
+export interface UseNextUpQueueResult {
+  items: NextUpQueueItem[];
+  total: number;
+  generatedAt: string | null;
+  degraded: string[];
+  isLoading: boolean;
+  isFetching: boolean;
+  error: string | null;
+  refetch: () => Promise<unknown>;
+  playWorkstream: (input: NextUpActionInput) => Promise<unknown>;
+  startWorkstreamAutoContinue: (input: StartAutoContinueInput) => Promise<unknown>;
+  stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;
+  isPlaying: boolean;
+  isStartingAutoContinue: boolean;
+  isStoppingAutoContinue: boolean;
+}

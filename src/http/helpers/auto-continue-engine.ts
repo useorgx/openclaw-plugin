@@ -1168,6 +1168,28 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         error_location: errorLocation,
       },
     });
+
+    // Emit autopilot_transition event for state observers.
+    try {
+      await emitActivitySafe({
+        initiativeId: input.run.initiativeId,
+        runId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
+        correlationId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
+        phase,
+        level: "info",
+        message: `Autopilot state: running → ${input.reason === "completed" ? "idle" : input.reason === "stopped" ? "idle" : input.reason}.`,
+        metadata: {
+          event: "autopilot_transition",
+          old_state: "running",
+          new_state: input.reason === "completed" || input.reason === "stopped" ? "idle" : input.reason === "blocked" ? "blocked" : input.reason === "error" ? "error" : "idle",
+          reason: input.reason,
+          initiative_id: input.run.initiativeId,
+          workspace_id: input.run.allowedWorkstreamIds?.[0] ?? null,
+        },
+      });
+    } catch {
+      // best effort
+    }
   }
 
   const codexBinResolver = createCodexBinResolver();
@@ -1756,6 +1778,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               reported_skill_sha256_count: reportedSkillSha256Count,
               reported_skill_names: reportedSkillNames,
               ...mockMeta(slice),
+              user_summary: parsed?.summary ?? null,
             },
           });
         } catch {
@@ -1815,6 +1838,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             log_path: slice.logPath,
             error: slice.lastError,
             ...mockMeta(slice),
+            user_summary: parsed?.summary ?? null,
           },
         });
 
@@ -3658,6 +3682,57 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }).catch(() => {
       // best effort
     });
+
+    if (!existingIsLive || forceFreshRun) {
+      try {
+        await emitActivitySafe({
+          initiativeId: input.initiativeId,
+          runId: run.lastRunId ?? undefined,
+          correlationId: run.lastRunId ?? undefined,
+          phase: "intent",
+          level: "info",
+          message: "Autopilot enabled. Dispatch will continue from Next Up automatically.",
+          metadata: {
+            event: "auto_continue_started",
+            initiative_id: input.initiativeId,
+            requested_by_agent_id: run.agentId,
+            requested_by_agent_name: run.agentName,
+            token_budget: run.tokenBudget,
+            include_verification: run.includeVerification,
+            allowed_workstream_ids: run.allowedWorkstreamIds,
+            max_parallel_slices: run.maxParallelSlices,
+            parallel_mode: run.parallelMode,
+            scope: run.scope,
+            ignore_spawn_guard_rate_limit: run.ignoreSpawnGuardRateLimit,
+          },
+          nextStep: "Watch Activity for dispatch and slice-complete updates.",
+        });
+      } catch {
+        // best effort
+      }
+
+      // Emit transition: idle → running
+      try {
+        await emitActivitySafe({
+          initiativeId: input.initiativeId,
+          runId: run.lastRunId ?? undefined,
+          correlationId: run.lastRunId ?? undefined,
+          phase: "intent",
+          level: "info",
+          message: "Autopilot state: idle → running.",
+          metadata: {
+            event: "autopilot_transition",
+            old_state: "idle",
+            new_state: "running",
+            reason: "started",
+            initiative_id: input.initiativeId,
+            workspace_id: run.allowedWorkstreamIds?.[0] ?? null,
+          },
+        });
+      } catch {
+        // best effort
+      }
+    }
 
     return run;
   }

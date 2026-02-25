@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import type { LiveDecision } from '@/types';
+import type { DecisionMutationState, LiveDecision } from '@/types';
 import { formatRelativeTime, formatDurationWithUrgency } from '@/lib/time';
 import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,7 @@ interface DecisionQueueProps {
     action: 'approve' | 'reject',
     note?: string
   ) => Promise<DecisionActionSummary>;
+  mutationState?: DecisionMutationState;
 }
 
 function composeBulkActionId(
@@ -89,6 +90,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   onRejectDecision,
   onApproveAll,
   onBulkDecisionAction,
+  mutationState,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);

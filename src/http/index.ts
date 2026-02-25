@@ -187,6 +187,7 @@ import { registerSettingsByokRoutes } from "./routes/settings-byok.js";
 import { registerSummaryRoutes } from "./routes/summary.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
+import { registerLiveTriageRoutes } from "./routes/live-triage.js";
 
 // =============================================================================
 // Helpers
@@ -861,6 +862,7 @@ function mergeActivities(
 
   const semanticEvents = new Set([
     "autopilot_slice_result",
+    "auto_continue_started",
     "auto_continue_stopped",
     "next_up_manual_dispatch_started",
     "autopilot_slice_mcp_handshake_failed",
@@ -2385,6 +2387,12 @@ export function createHttpHandler(
     const listLiveInitiativesWithFilters = async (
       filters: Record<string, unknown>
     ): Promise<unknown[]> => {
+      // Fast path: request once without status fan-out. Upstream often returns
+      // all relevant rows and this avoids 5x paginated round-trips.
+      const broadRows = await listInitiativesWithFilters(filters);
+      if (broadRows.length > 0) return broadRows;
+
+      // Backward-compat fallback for upstreams that require explicit status.
       const rows: unknown[] = [];
       for (const status of LIVE_WORKSPACE_INITIATIVE_STATUSES) {
         const statusRows = await listInitiativesWithFilters({
@@ -2421,11 +2429,14 @@ export function createHttpHandler(
     }
 
     try {
-      const byProjectIds = mapInitiativeIds(
-        await listLiveInitiativesWithFilters({ project_id: projectId }),
+      const byWorkspaceFallback = mapInitiativeIds(
+        await listLiveInitiativesWithFilters({
+          workspace_id: projectId,
+          command_center_id: projectId,
+        }),
         { projectId }
       );
-      if (byProjectIds.length > 0) return cacheAndReturn(byProjectIds);
+      if (byWorkspaceFallback.length > 0) return cacheAndReturn(byWorkspaceFallback);
     } catch {
       // continue to empty fallback
     }
@@ -3505,9 +3516,9 @@ export function createHttpHandler(
     generateAgentSuiteOperationId,
     updateSkillPackPolicy,
     rollbackSkillPackPolicy,
-    fetchAgentRuntimeSettings: ({ projectId } = {}) =>
+    fetchAgentRuntimeSettings: ({ workspaceId, projectId } = {}) =>
       client.getClientAgentRuntimeSettings({
-        projectId: projectId ?? null,
+        workspaceId: workspaceId ?? projectId ?? null,
       }),
     updateAgentRuntimeSettings: (payload) =>
       client.updateClientAgentRuntimeSettings(payload),
@@ -4002,6 +4013,43 @@ export function createHttpHandler(
     hasApiKey: Boolean(config.apiKey),
     sendJson,
     safeErrorMessage,
+  });
+  registerLiveTriageRoutes(apiRouter, {
+    parseJsonRequest,
+    sendJson,
+    getDecisions: (_workspaceId) => {
+      // Return cached decisions from latest snapshot, or empty array
+      try {
+        const cached = readSnapshotResponseCache("live-snapshot");
+        if (cached && typeof cached === "object" && "decisions" in cached) {
+          const decisions = (cached as Record<string, unknown>).decisions;
+          if (Array.isArray(decisions)) return decisions;
+        }
+      } catch {
+        // best effort
+      }
+      return [];
+    },
+    getBlockerEvents: () => {
+      // Extract blocker events from recent activity
+      // In future, this will read from a dedicated blocker store
+      return [];
+    },
+    resolveDecisionAction: async (decisionId, action, note, optionId) => {
+      try {
+        await client.bulkDecideDecisions(
+          [decisionId],
+          action as "approve" | "reject",
+          { note: note ?? undefined, optionId: optionId ?? undefined }
+        );
+        return { ok: true };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : "Decision action failed",
+        };
+      }
+    },
   });
 
   return async function handler(

@@ -391,7 +391,6 @@ export function registerEntitiesRoutes<TReq, TRes>(
         search,
         status,
         initiative_id: initiativeId,
-        project_id: projectId,
         workspace_id: workspaceId,
         command_center_id: workspaceId,
         limit: Number.isFinite(limit) ? limit : undefined,

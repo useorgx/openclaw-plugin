@@ -219,13 +219,20 @@ export interface ClientRuntimeSettingsAgent {
 export type ClientRuntimeSettingsResponse =
   | {
       ok: true;
-      project_id: string | null;
+      workspace_id?: string | null;
+      /** Legacy alias retained for backward compatibility */
+      project_id?: string | null;
       agents?: ClientRuntimeSettingsAgent[];
       agent?: ClientRuntimeSettingsAgent;
     }
   | { ok: false; error: string };
 
 export interface ClientRuntimeSettingsUpdateRequest {
+  /** Canonical workspace scope */
+  workspace_id?: string;
+  /** Legacy alias retained for backward compatibility */
+  command_center_id?: string;
+  /** Legacy alias retained for backward compatibility */
   project_id?: string;
   agent_id: string;
   runtime_settings: AgentRuntimeSettingsPayload;

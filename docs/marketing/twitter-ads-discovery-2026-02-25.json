@@ -1,0 +1,116 @@
+{
+  "campaign_name": "OrgX Twitter Ads Discovery Sprint (Q1 2026) - Iteration 2",
+  "objective": "By 2026-03-31, validate one repeatable Twitter/X paid acquisition path that yields >= 45 qualified trials at <= $115 CAC and >= 14% trial-to-activation rate.",
+  "target_audience": {
+    "primary_icp": "Technical founders and engineering managers operating multi-agent workflows who need clear execution state, decision routing, and reliable handoff continuity.",
+    "pain_points": [
+      "Execution state is fragmented across terminals and chat threads.",
+      "Approval blockers are detected too late, stalling delivery windows.",
+      "Agent handoffs lose context and create rework.",
+      "Teams need trustworthy progress telemetry during API instability."
+    ]
+  },
+  "messaging_pillars": [
+    {
+      "pillar": "Operate all agent workstreams from one control plane",
+      "proof_points": [
+        "Mission Control centralizes initiatives, workstreams, milestones, and tasks.",
+        "Live activity stream gives run-by-run execution visibility."
+      ]
+    },
+    {
+      "pillar": "Reduce blocker time-to-resolution",
+      "proof_points": [
+        "Decision queue surfaces approval prompts with urgency and status.",
+        "Next-up queue highlights highest-leverage execution steps."
+      ]
+    },
+    {
+      "pillar": "Maintain continuity under failure conditions",
+      "proof_points": [
+        "Outbox buffering preserves events when upstream APIs degrade.",
+        "Replay and snapshot merge keep operators informed after reconnect."
+      ]
+    }
+  ],
+  "channels": [
+    "twitter",
+    "retargeting",
+    "landing_page"
+  ],
+  "success_metrics": [
+    {
+      "metric": "Qualified trials attributed to Twitter/X ads",
+      "target": ">= 45 by 2026-03-31"
+    },
+    {
+      "metric": "Blended CAC",
+      "target": "<= $115 by 2026-03-31"
+    },
+    {
+      "metric": "Trial-to-activation rate",
+      "target": ">= 14% by 2026-03-31"
+    },
+    {
+      "metric": "Cost per onboarding start",
+      "target": "<= $40 by 2026-03-31"
+    }
+  ],
+  "timeline": [
+    {
+      "milestone": "Tracking + audience + creative setup complete",
+      "date": "2026-02-27"
+    },
+    {
+      "milestone": "Discovery launch (3 audiences x 3 creatives)",
+      "date": "2026-03-02"
+    },
+    {
+      "milestone": "Mid-test readout and budget reallocation",
+      "date": "2026-03-12"
+    },
+    {
+      "milestone": "Winner lock + scale recommendation",
+      "date": "2026-03-24"
+    }
+  ],
+  "hypotheses": [
+    {
+      "hypothesis": "Pain-led copy centered on stalled execution will outperform feature-led copy by >= 25% CTR."
+    },
+    {
+      "hypothesis": "Follower-lookalike targeting of agent-tooling audiences will cut CAC by >= 15% versus broad keyword targeting."
+    },
+    {
+      "hypothesis": "Retargeting onboarding starters with social-proof creative will increase activation rate by >= 2.5 percentage points."
+    }
+  ],
+  "discovery_plan": {
+    "audiences": [
+      "Follower lookalikes for AI agent infrastructure and developer workflow accounts",
+      "Keyword intent cluster: agent orchestration, multi-agent operations, MCP workflows",
+      "Interest stack: engineering leadership, dev tooling buyers, AI ops practitioners"
+    ],
+    "creative_matrix": [
+      "Variant A: dashboard screenshot + blocker-time hook",
+      "Variant B: workflow GIF + continuity proof",
+      "Variant C: execution KPI stat card + CTA"
+    ],
+    "budget_framework_usd": {
+      "daily_test_budget": 140,
+      "test_window_days": 16,
+      "total_discovery_budget_cap": 2240,
+      "retargeting_share_pct": 20
+    },
+    "tracking_requirements": [
+      "UTM taxonomy includes campaign, audience, creative, and placement",
+      "Post-click events: landing visit, onboarding start, workspace connected, first run created",
+      "Weekly cohort readout across CAC, activation, and blocker-resolution proxy metrics"
+    ]
+  },
+  "assumptions": [
+    "Destination flow can reliably track onboarding start, workspace connect, and first run creation events.",
+    "Creative production support is available for one static image set and one short GIF set this week.",
+    "No legal or policy constraints block technical claims used in ad copy."
+  ]
+}

@@ -25,6 +25,7 @@ export type ActivityIconName =
   | 'route'
   | 'terminal'
   | 'compass'
+  | 'infinity'
   | 'message';
 
 export interface ActivityVisual {
@@ -123,6 +124,43 @@ export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
   const haystack = textHaystack(item, meta);
   const source = normalizeText(readMetaString(meta, ['source']));
   const action = normalizeText(readMetaString(meta, ['action']));
+
+  // Autopilot lifecycle events
+  const eventName = readMetaString(meta, ['event', 'event_name', 'eventName']);
+  if (
+    eventName === 'auto_continue_started' ||
+    eventName === 'auto_continue_stopped' ||
+    eventName === 'autopilot_transition' ||
+    eventName === 'autopilot_slice_result' ||
+    eventName === 'autopilot_slice_finished'
+  ) {
+    if (eventName === 'auto_continue_started' || (eventName === 'autopilot_transition' && readMetaString(meta, ['new_state']) === 'running')) {
+      return { icon: 'infinity', label: 'Autopilot started', color: colors.teal };
+    }
+    if (eventName === 'auto_continue_stopped') {
+      const stopReason = readMetaString(meta, ['stop_reason']);
+      if (stopReason === 'error' || stopReason === 'blocked') {
+        return { icon: 'infinity', label: 'Autopilot blocked', color: colors.red };
+      }
+      if (stopReason === 'budget_exhausted') {
+        return { icon: 'infinity', label: 'Budget exhausted', color: colors.amber };
+      }
+      return { icon: 'infinity', label: 'Autopilot stopped', color: colors.amber };
+    }
+    if (eventName === 'autopilot_transition') {
+      const newState = readMetaString(meta, ['new_state']);
+      if (newState === 'blocked' || newState === 'error') {
+        return { icon: 'infinity', label: 'Autopilot blocked', color: colors.red };
+      }
+      return { icon: 'infinity', label: 'Autopilot transition', color: colors.teal };
+    }
+    // slice result/finished
+    const sliceStatus = readMetaString(meta, ['parsed_status', 'status']);
+    if (sliceStatus === 'completed' || sliceStatus === 'success') {
+      return { icon: 'check_circle', label: 'Slice completed', color: colors.lime };
+    }
+    return { icon: 'infinity', label: 'Autopilot slice', color: colors.teal };
+  }
 
   if (/heartbeat|heart beat|alive signal/.test(haystack)) {
     return { icon: 'heartbeat', label: 'Heartbeat', color: colors.teal };
@@ -241,6 +279,8 @@ export function ActivityEventIcon({
       return <svg {...commonProps}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3" /><path d="M13 15h4" /></svg>;
     case 'compass':
       return <svg {...commonProps}><circle cx="12" cy="12" r="9" /><path d="m10 10 6-2-2 6-6 2z" /></svg>;
+    case 'infinity':
+      return <svg {...commonProps}><path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.74-8z" /></svg>;
     case 'message':
     default:
       return <svg {...commonProps}><path d="M21 12a8 8 0 0 1-8 8H7l-4 2 1.5-4A8 8 0 1 1 21 12z" /></svg>;

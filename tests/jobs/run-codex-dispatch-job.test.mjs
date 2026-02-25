@@ -18,6 +18,7 @@ import {
   summarizeTaskStatuses,
   computeMilestoneRollup,
   computeWorkstreamRollup,
+  computeExecutionProgress,
 } from "../../scripts/run-codex-dispatch-job.mjs";
 
 test("parseArgs parses --key=value pairs", () => {
@@ -478,6 +479,12 @@ test("computeWorkstreamRollup derives status + percent from task states", () => 
   assert.equal(complete.progressPct, 100);
 });
 
+test("computeExecutionProgress counts blocked tasks as processed", () => {
+  assert.equal(computeExecutionProgress(0, 0, 5), 0);
+  assert.equal(computeExecutionProgress(2, 1, 5), 60);
+  assert.equal(computeExecutionProgress(2, 3, 5), 100);
+});
+
 test("evaluateResourceGuard throttles when load or memory exceeds thresholds", () => {
   const throttled = evaluateResourceGuard(
     {
@@ -654,17 +661,19 @@ test("shouldKillWorker triggers when timeout or log stall is exceeded", () => {
   assert.equal(ok.kill, false);
 });
 
-test("deriveResumePlan skips done/blocked tasks unless selected or retry_blocked", () => {
+test("deriveResumePlan retries previously blocked tasks once they are unblocked", () => {
   const queue = [
     { id: "t1", title: "done", status: "todo" },
     { id: "t2", title: "blocked", status: "todo" },
     { id: "t3", title: "todo", status: "todo" },
+    { id: "t4", title: "still blocked", status: "blocked" },
   ];
 
   const resumeState = {
     taskStates: {
       t1: { status: "done", attempts: 1 },
       t2: { status: "blocked", attempts: 2 },
+      t4: { status: "blocked", attempts: 1 },
     },
   };
 
@@ -676,7 +685,7 @@ test("deriveResumePlan skips done/blocked tasks unless selected or retry_blocked
   });
   assert.deepEqual(
     noRetry.pending.map((task) => task.id),
-    ["t3"]
+    ["t2", "t3"]
   );
 
   const withRetry = deriveResumePlan({
@@ -687,17 +696,17 @@ test("deriveResumePlan skips done/blocked tasks unless selected or retry_blocked
   });
   assert.deepEqual(
     withRetry.pending.map((task) => task.id),
-    ["t2", "t3"]
+    ["t2", "t3", "t4"]
   );
 
   const selectedOverrides = deriveResumePlan({
     queue,
     resumeState,
     retryBlocked: false,
-    selectedTaskIds: ["t1", "t2"],
+    selectedTaskIds: ["t1", "t2", "t4"],
   });
   assert.deepEqual(
     selectedOverrides.pending.map((task) => task.id),
-    ["t1", "t2", "t3"]
+    ["t1", "t2", "t3", "t4"]
   );
 });

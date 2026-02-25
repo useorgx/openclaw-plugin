@@ -37,8 +37,14 @@ type SnapshotPersistState = {
 
 const LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS = (() => {
   const raw = Number(process.env.ORGX_LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS ?? "");
-  if (!Number.isFinite(raw)) return 8_000;
+  if (!Number.isFinite(raw)) return 3_500;
   return Math.max(500, Math.min(60_000, Math.floor(raw)));
+})();
+
+const LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.ORGX_LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS ?? "");
+  if (!Number.isFinite(raw)) return 1_200;
+  return Math.max(250, Math.min(15_000, Math.floor(raw)));
 })();
 
 async function withSoftTimeout<T>(
@@ -846,7 +852,11 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     let nextUpItems: Array<Record<string, unknown>> = [];
     if (typeof deps.buildNextUpQueue === "function") {
       try {
-        const nextUp = await deps.buildNextUpQueue({ initiativeId: initiative, projectId });
+        const nextUp = await withSoftTimeout(
+          deps.buildNextUpQueue({ initiativeId: initiative, projectId }),
+          LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS,
+          "next-up queue"
+        );
         nextUpItems = Array.isArray(nextUp.items)
           ? nextUp.items.filter((item): item is Record<string, unknown> => Boolean(item))
           : [];
