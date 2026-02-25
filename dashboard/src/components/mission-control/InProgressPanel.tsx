@@ -40,7 +40,7 @@ export function isInProgressSession(session: SessionTreeNode): boolean {
 }
 
 function statusLabel(status: string): string {
-  return status.replace(/_/g, ' ');
+  return status.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 }
 
 function statusTone(status: string): string {
@@ -555,7 +555,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                           <div className="mb-1 flex items-center justify-between text-micro">
                             <span className="text-secondary">Progress</span>
                             <span className="font-semibold text-primary tabular-nums">
-                              {progressValue === null ? 'Tracking…' : `${progressValue}%`}
+                              {progressValue === null ? 'In progress' : `${progressValue}%`}
                             </span>
                           </div>
                           <div className={`h-1.5 overflow-hidden rounded-full bg-white/[0.09]${progressValue === 100 ? ' shimmer-on-complete' : ''}`}>
@@ -628,12 +628,6 @@ export const InProgressPanel = memo(function InProgressPanel({
                                   Needs input {row.decisionCount}
                                 </span>
                               </div>
-                              {row.taskIds.length > 0 ? (
-                                <p className="text-micro text-secondary">
-                                  Task IDs: {row.taskIds.slice(0, 5).join(', ')}
-                                  {row.taskIds.length > 5 ? ` +${row.taskIds.length - 5} more` : ''}
-                                </p>
-                              ) : null}
                             </div>
                           ) : null}
                         </div>

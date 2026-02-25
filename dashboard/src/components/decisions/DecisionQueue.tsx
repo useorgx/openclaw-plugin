@@ -106,17 +106,25 @@ export const DecisionQueue = memo(function DecisionQueue({
   const focusHandledRef = useRef<string | null>(null);
 
   const sorted = useMemo(
-    () =>
-      [...decisions].sort((a, b) => {
-        if (a.waitingMinutes !== b.waitingMinutes) {
-          return b.waitingMinutes - a.waitingMinutes;
-        }
-        const aEpoch = Date.parse(a.requestedAt ?? a.updatedAt ?? '');
-        const bEpoch = Date.parse(b.requestedAt ?? b.updatedAt ?? '');
-        const safeA = Number.isFinite(aEpoch) ? aEpoch : 0;
-        const safeB = Number.isFinite(bEpoch) ? bEpoch : 0;
-        return safeB - safeA;
-      }),
+    () => {
+      const seen = new Set<string>();
+      return [...decisions]
+        .filter((d) => {
+          if (seen.has(d.id)) return false;
+          seen.add(d.id);
+          return true;
+        })
+        .sort((a, b) => {
+          if (a.waitingMinutes !== b.waitingMinutes) {
+            return b.waitingMinutes - a.waitingMinutes;
+          }
+          const aEpoch = Date.parse(a.requestedAt ?? a.updatedAt ?? '');
+          const bEpoch = Date.parse(b.requestedAt ?? b.updatedAt ?? '');
+          const safeA = Number.isFinite(aEpoch) ? aEpoch : 0;
+          const safeB = Number.isFinite(bEpoch) ? bEpoch : 0;
+          return safeB - safeA;
+        });
+    },
     [decisions]
   );
 
@@ -671,6 +679,18 @@ export const DecisionQueue = memo(function DecisionQueue({
                           >
                             {isApproving ? 'Approving…' : 'Approve'}
                           </button>
+                          {onRejectDecision && (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDetailDecisionId(decision.id);
+                              }}
+                              disabled={isApproving || hasInFlightMutations}
+                              className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Reject
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -739,6 +759,18 @@ export const DecisionQueue = memo(function DecisionQueue({
                           >
                             {isApproving ? 'Approving…' : 'Approve'}
                           </button>
+                          {onRejectDecision && (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setDetailDecisionId(decision.id);
+                              }}
+                              disabled={isApproving || hasInFlightMutations}
+                              className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Reject
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

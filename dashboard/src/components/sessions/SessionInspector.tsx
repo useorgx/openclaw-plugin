@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { sanitizeDisplayText } from '@/lib/humanize';
+import { sanitizeDisplayText, humanizeId, isOpaqueId, humanizePath, humanizeBlockerContextValue } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
 import { projectRunStatus, type CanonicalRunStatus } from '@/lib/runStatusModel';
 import type { Initiative, LiveActivityItem, SessionTreeNode, SliceRunProjection } from '@/types';
@@ -284,6 +284,8 @@ export const SessionInspector = memo(function SessionInspector({
         output.push({ label: 'Initiative', value: match.name });
       } else if (session.groupLabel && session.groupLabel.trim().length > 0) {
         output.push({ label: 'Initiative', value: session.groupLabel });
+      } else if (isOpaqueId(initiativeId)) {
+        output.push({ label: 'Initiative', value: humanizeId(initiativeId) });
       }
     }
 
@@ -297,8 +299,10 @@ export const SessionInspector = memo(function SessionInspector({
           break;
         }
       }
-      // Suppress raw UUIDs
-      if (!wsName && !UUID_RE.test(session.workstreamId)) {
+      // Humanize opaque IDs instead of suppressing
+      if (!wsName && isOpaqueId(session.workstreamId)) {
+        wsName = humanizeId(session.workstreamId);
+      } else if (!wsName && !UUID_RE.test(session.workstreamId)) {
         wsName = session.workstreamId;
       }
       if (wsName) {
@@ -309,7 +313,8 @@ export const SessionInspector = memo(function SessionInspector({
     // Milestone from phase
     const milestone = session.phase ?? null;
     if (milestone) {
-      output.push({ label: 'Milestone', value: String(milestone) });
+      const milestoneStr = String(milestone);
+      output.push({ label: 'Milestone', value: isOpaqueId(milestoneStr) ? humanizeId(milestoneStr) : milestoneStr });
     }
 
     // Task
@@ -497,17 +502,15 @@ export const SessionInspector = memo(function SessionInspector({
     if (Array.isArray(blockerContext.initiativeIds) && blockerContext.initiativeIds.length > 0) {
       blockerContextRows.push({
         label: 'Initiatives',
-        value: compactList(blockerContext.initiativeIds, 4),
+        value: compactList(blockerContext.initiativeIds.map((id: string) => isOpaqueId(id) ? humanizeId(id) : id), 4),
       });
     } else if (hasText(blockerContext.initiativeId)) {
-      blockerContextRows.push({ label: 'Initiative', value: blockerContext.initiativeId.trim() });
+      blockerContextRows.push({ label: 'Initiative', value: humanizeBlockerContextValue('Initiative', blockerContext.initiativeId.trim()) });
     }
     if (hasText(blockerContext.workstreamTitle)) {
       blockerContextRows.push({
         label: 'Workstream',
-        value: hasText(blockerContext.workstreamId)
-          ? `${blockerContext.workstreamTitle.trim()} (${blockerContext.workstreamId.trim()})`
-          : blockerContext.workstreamTitle.trim(),
+        value: blockerContext.workstreamTitle.trim(),
       });
     } else if (Array.isArray(blockerContext.workstreamIds) && blockerContext.workstreamIds.length > 0) {
       blockerContextRows.push({
@@ -518,7 +521,7 @@ export const SessionInspector = memo(function SessionInspector({
       blockerContextRows.push({ label: 'Workstream', value: blockerContext.workstreamId.trim() });
     }
     if (hasText(blockerContext.sliceRunId)) {
-      blockerContextRows.push({ label: 'Slice run', value: blockerContext.sliceRunId.trim() });
+      blockerContextRows.push({ label: 'Slice run', value: humanizeId(blockerContext.sliceRunId.trim()) });
     }
     if (hasText(blockerContext.parallelMode)) {
       blockerContextRows.push({ label: 'Mode', value: blockerContext.parallelMode.trim().toUpperCase() });
@@ -526,28 +529,28 @@ export const SessionInspector = memo(function SessionInspector({
     if (Array.isArray(blockerContext.taskIds) && blockerContext.taskIds.length > 0) {
       blockerContextRows.push({
         label: 'Tasks',
-        value: compactList(blockerContext.taskIds),
+        value: compactList(blockerContext.taskIds.map((id: string) => isOpaqueId(id) ? humanizeId(id) : id)),
       });
     }
     if (Array.isArray(blockerContext.milestoneIds) && blockerContext.milestoneIds.length > 0) {
       blockerContextRows.push({
         label: 'Milestones',
-        value: compactList(blockerContext.milestoneIds),
+        value: compactList(blockerContext.milestoneIds.map((id: string) => isOpaqueId(id) ? humanizeId(id) : id)),
       });
     }
     if (Array.isArray(blockerContext.iwmtIds) && blockerContext.iwmtIds.length > 0) {
       blockerContextRows.push({
-        label: 'IWMT IDs',
-        value: compactList(blockerContext.iwmtIds, 4),
+        label: 'Scope IDs',
+        value: compactList(blockerContext.iwmtIds.map((id: string) => isOpaqueId(id) ? humanizeId(id) : id), 4),
       });
     } else if (hasText(blockerContext.iwmtId)) {
-      blockerContextRows.push({ label: 'IWMT ID', value: blockerContext.iwmtId.trim() });
+      blockerContextRows.push({ label: 'Scope ID', value: isOpaqueId(blockerContext.iwmtId.trim()) ? humanizeId(blockerContext.iwmtId.trim()) : blockerContext.iwmtId.trim() });
     }
     if (hasText(blockerContext.logPath)) {
-      blockerContextRows.push({ label: 'Log path', value: blockerContext.logPath.trim() });
+      blockerContextRows.push({ label: 'Log path', value: humanizePath(blockerContext.logPath.trim()) });
     }
     if (hasText(blockerContext.outputPath)) {
-      blockerContextRows.push({ label: 'Output path', value: blockerContext.outputPath.trim() });
+      blockerContextRows.push({ label: 'Output path', value: humanizePath(blockerContext.outputPath.trim()) });
     }
   }
   const showBlockedContext =
@@ -591,13 +594,8 @@ export const SessionInspector = memo(function SessionInspector({
   const timelineInfo = [
     { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '—' },
     { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '—' },
-    { label: 'ETA', value: session.eta ?? '—' },
-    {
-      label: 'Checkpoints',
-      value: session.checkpointCount !== null && session.checkpointCount !== undefined
-        ? String(session.checkpointCount)
-        : '—',
-    },
+    ...(session.eta ? [{ label: 'ETA', value: session.eta }] : []),
+    ...(session.checkpointCount ? [{ label: 'Checkpoints', value: String(session.checkpointCount) }] : []),
   ];
   const relatedSliceStatusLabel = relatedSlice ? relatedSlice.status.replace(/_/g, ' ') : null;
   const relatedSliceInitiativeIds = normalizeLineageIds(
@@ -780,12 +778,12 @@ export const SessionInspector = memo(function SessionInspector({
                 <div>
                   <dt className="text-muted">Workstream</dt>
                   <dd className="text-body font-semibold text-white">
-                    {relatedSlice.workstreamTitle ?? relatedSliceWorkstreamIds[0] ?? '—'}
+                    {relatedSlice.workstreamTitle ?? (relatedSliceWorkstreamIds[0] ? humanizeId(relatedSliceWorkstreamIds[0]) : '—')}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted">Run</dt>
-                  <dd className="break-all text-body font-semibold text-white">{relatedSlice.runId ?? relatedSlice.sliceRunId}</dd>
+                  <dd className="break-all text-body font-semibold text-white">{humanizeId(relatedSlice.runId ?? relatedSlice.sliceRunId)}</dd>
                 </div>
                 <div>
                   <dt className="text-muted">Updated</dt>
@@ -820,17 +818,7 @@ export const SessionInspector = memo(function SessionInspector({
               </div>
               {relatedSlice.taskIds.length > 0 ? (
                 <p className="mt-2 text-micro text-secondary">
-                  Task IDs: {compactList(relatedSlice.taskIds, 5)}
-                </p>
-              ) : null}
-              {relatedSlice.milestoneIds.length > 0 ? (
-                <p className="mt-1 text-micro text-secondary">
-                  Milestones: {compactList(relatedSlice.milestoneIds, 4)}
-                </p>
-              ) : null}
-              {relatedSliceIwmtIds.length > 0 ? (
-                <p className="mt-1 text-micro text-secondary">
-                  IWMT: {compactList(relatedSliceIwmtIds, 3)}
+                  Tasks: {relatedSlice.taskIds.length}
                 </p>
               ) : null}
             </div>

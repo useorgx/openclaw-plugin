@@ -1,17 +1,7 @@
-import { normalizeStatus } from '@/lib/tokens';
-
-const DONE_STATUSES = new Set([
-  'done',
-  'completed',
-  'complete',
-  'cancelled',
-  'canceled',
-  'archived',
-  'deleted',
-]);
+import { isTerminalStatus } from '@/lib/status-taxonomy';
 
 export function isDoneStatus(status: string): boolean {
-  return DONE_STATUSES.has(normalizeStatus(status));
+  return isTerminalStatus(status);
 }
 
 export function clampPercent(value: number): number {

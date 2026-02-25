@@ -14,6 +14,7 @@ import type {
   TriageImpact,
   LiveDecision,
 } from "../../contracts/shared-types.js";
+import { callLlmJson } from "./llm-client.js";
 
 // ---------------------------------------------------------------------------
 // Failure type → triage mapping table
@@ -300,13 +301,52 @@ const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
 };
 
 // ---------------------------------------------------------------------------
-// Public API
+// LLM fallback for unknown failure types
 // ---------------------------------------------------------------------------
+
+interface LlmTriageClassification {
+  kind: TriageItemKind;
+  severity: TriageSeverity;
+  title: string;
+  summary: string;
+  recommendedAction: string;
+}
+
+const VALID_KINDS = new Set<string>([
+  "blocked_intervention",
+  "decision_required",
+  "failure_diagnostic",
+  "review_required",
+]);
+const VALID_SEVERITIES = new Set<string>(["critical", "high", "medium", "low"]);
+
+function parseLlmClassification(raw: string): LlmTriageClassification | null {
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      typeof obj.kind !== "string" ||
+      typeof obj.severity !== "string" ||
+      typeof obj.title !== "string" ||
+      typeof obj.summary !== "string" ||
+      typeof obj.recommendedAction !== "string"
+    )
+      return null;
+    if (!VALID_KINDS.has(obj.kind) || !VALID_SEVERITIES.has(obj.severity)) return null;
+    return obj as unknown as LlmTriageClassification;
+  } catch {
+    return null;
+  }
+}
+
+const LLM_CACHE_TTL_MS = 6 * 60 * 60_000; // 6 hours
 
 /**
  * Map a raw failure event to a LiveTriageItem.
+ *
+ * Known failure types are mapped deterministically. Unknown types are
+ * classified via LLM with a safe heuristic fallback.
  */
-export function mapFailureToTriageItem(input: {
+export async function mapFailureToTriageItem(input: {
   id: string;
   failureType: string;
   reason?: string | null;
@@ -325,9 +365,8 @@ export function mapFailureToTriageItem(input: {
   outputPath?: string | null;
   metadata?: Record<string, unknown>;
   timestamp?: string;
-}): LiveTriageItem | null {
+}): Promise<LiveTriageItem> {
   const mapping = FAILURE_MAPPINGS[input.failureType];
-  if (!mapping) return null;
 
   const ctx: MappingContext = {
     failureType: input.failureType,
@@ -365,12 +404,99 @@ export function mapFailureToTriageItem(input: {
     downstreamBlockedCount: 0,
   };
 
+  // --- Resolve kind / severity / title / summary / recommendedAction / actions ---
+  let kind: TriageItemKind;
+  let severity: TriageSeverity;
+  let title: string;
+  let summary: string;
+  let recommendedAction: string;
+  let actionContract: TriageAction[];
+
+  if (mapping) {
+    // Deterministic path for known failure types
+    kind = mapping.kind;
+    severity = mapping.severity;
+    title = mapping.defaultTitle(ctx);
+    summary = mapping.defaultSummary(ctx);
+    recommendedAction = mapping.recommendedAction;
+    actionContract = mapping.actions(ctx);
+  } else {
+    // LLM classification for unknown failure types
+    const genericFallback = (): LlmTriageClassification => ({
+      kind: "review_required",
+      severity: "medium",
+      title: "Unclassified issue",
+      summary:
+        input.reason || "An issue occurred that requires review.",
+      recommendedAction: "Review the failure details and take appropriate action",
+    });
+
+    const llmResult = await callLlmJson<LlmTriageClassification>(
+      {
+        taskId: "triage_unknown",
+        systemPrompt:
+          'Classify this operational failure for a triage queue. Return JSON: {"kind": "blocked_intervention" | "decision_required" | "review_required" | "failure_diagnostic", "severity": "critical" | "high" | "medium" | "low", "title": "...", "summary": "...", "recommendedAction": "..."}. Be concise and actionable.',
+        userPrompt: [
+          `Failure type: ${input.failureType}`,
+          input.reason ? `Reason: ${input.reason}` : null,
+          input.workstreamTitle
+            ? `Workstream: ${input.workstreamTitle}`
+            : null,
+          input.agentId ? `Agent: ${input.agentId}` : null,
+          input.domain ? `Domain: ${input.domain}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        model: "openai/gpt-4.1-mini",
+        maxTokens: 256,
+        cacheTtlMs: LLM_CACHE_TTL_MS,
+      },
+      parseLlmClassification,
+      genericFallback,
+    );
+
+    const classified = llmResult.result;
+    kind = classified.kind;
+    severity = classified.severity;
+    title = classified.title;
+    summary = classified.summary;
+    recommendedAction = classified.recommendedAction;
+
+    // Generic action set for LLM-classified items
+    actionContract = [
+      {
+        action: "retry",
+        label: "Retry",
+        description: "Retry the failed operation",
+        consequences: "Will re-attempt the operation.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "snooze",
+        label: "Snooze",
+        description: "Defer for later review",
+        consequences: "Item reappears after snooze period.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "dismiss",
+        label: "Dismiss",
+        description: "Dismiss this item",
+        consequences: "Will not reappear unless a new failure occurs.",
+        requiresNote: true,
+        available: true,
+      },
+    ];
+  }
+
   return {
     id: input.id,
-    kind: mapping.kind,
+    kind,
     status: "open",
-    title: mapping.defaultTitle(ctx),
-    summary: mapping.defaultSummary(ctx),
+    title,
+    summary,
     initiativeId: input.initiativeId ?? null,
     initiativeTitle: input.initiativeTitle ?? null,
     workstreamId: input.workstreamId ?? null,
@@ -388,13 +514,13 @@ export function mapFailureToTriageItem(input: {
       .filter(Boolean)
       .join(":"),
     occurrenceCount: 1,
-    severity: mapping.severity,
-    blocking: mapping.kind === "blocked_intervention" || mapping.kind === "decision_required",
-    recommendedAction: mapping.recommendedAction,
+    severity,
+    blocking: kind === "blocked_intervention" || kind === "decision_required",
+    recommendedAction,
     agentId: input.agentId ?? null,
     impact,
     proofBundle,
-    actionContract: mapping.actions(ctx),
+    actionContract,
     createdAt: now,
     updatedAt: now,
     firstSeenAt: now,

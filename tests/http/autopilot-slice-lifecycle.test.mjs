@@ -1438,6 +1438,18 @@ test("autopilot slice lifecycle: completed + unspecified decision defaults to no
   assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
 });
 
+test("autopilot slice lifecycle: invalid artifact_type defaults to other", async () => {
+  const result = await runPlayTickStatus({ scenario: "completed_invalid_artifact_type" });
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "completed");
+
+  const artifactCreate = result.calls.createEntity.find((c) => c.type === "artifact");
+  assert.ok(artifactCreate, "expected artifact.create");
+  assert.equal(artifactCreate.payload?.name, "Mock malformed artifact");
+  assert.equal(artifactCreate.payload?.artifact_type, "other");
+});
+
 test("autopilot slice lifecycle: buffered artifact activity preserves requester/executor provenance", async () => {
   const result = await runPlayTickStatus({
     scenario: "success",

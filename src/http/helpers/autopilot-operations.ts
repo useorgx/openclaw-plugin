@@ -109,9 +109,15 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     isMockWorker?: boolean;
   }): Promise<{ ok: boolean; id: string | null }> {
     const now = new Date().toISOString();
-    const name = (input.artifact.name ?? "").trim();
+    const name =
+      typeof input.artifact.name === "string" && input.artifact.name.trim().length > 0
+        ? input.artifact.name.trim()
+        : "";
     if (!name) return { ok: false, id: null };
-    const artifactType = (input.artifact.artifact_type ?? "other").trim() || "other";
+    const artifactType =
+      typeof input.artifact.artifact_type === "string" && input.artifact.artifact_type.trim().length > 0
+        ? input.artifact.artifact_type.trim()
+        : "other";
     const confidenceScore =
       typeof input.artifact.confidence_score === "number" &&
       Number.isFinite(input.artifact.confidence_score) &&
@@ -236,6 +242,10 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     initiativeId: string;
     runId: string;
     correlationId: string;
+    agentId?: string | null;
+    agentName?: string | null;
+    outputPath?: string | null;
+    logPath?: string | null;
     taskUpdates: Array<{ task_id: string; status: string; reason?: string | null }>;
     milestoneUpdates: Array<{ milestone_id: string; status: string; reason?: string | null }>;
     isMockWorker?: boolean;
@@ -332,20 +342,35 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
       };
     }
 
+    const normalizedAgentId =
+      typeof input.agentId === "string" && input.agentId.trim().length > 0
+        ? input.agentId.trim()
+        : null;
+    const normalizedAgentName =
+      typeof input.agentName === "string" && input.agentName.trim().length > 0
+        ? input.agentName.trim()
+        : null;
+
+    const runIdForApply = input.runId?.trim() ?? "";
+    const correlationIdForApply = input.correlationId?.trim() ?? "";
+    const applyPayloadBase = {
+      initiative_id: input.initiativeId,
+      source_client: "openclaw" as const,
+      idempotency_key: deps.idempotencyKey([
+        "openclaw",
+        "autopilot",
+        "slice_status",
+        input.initiativeId,
+        input.correlationId,
+      ]),
+      operations: operations as any,
+    };
+
     try {
       await deps.client.applyChangeset({
-        initiative_id: input.initiativeId,
-        run_id: input.runId,
-        correlation_id: input.correlationId,
-        source_client: "openclaw",
-        idempotency_key: deps.idempotencyKey([
-          "openclaw",
-          "autopilot",
-          "slice_status",
-          input.initiativeId,
-          input.correlationId,
-        ]),
-        operations: operations as any,
+        ...applyPayloadBase,
+        run_id: runIdForApply || undefined,
+        correlation_id: correlationIdForApply || undefined,
       });
       return {
         applied: operations.length,
@@ -354,6 +379,34 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
         milestoneUpdates: normalizedMilestoneUpdates,
       };
     } catch (err: unknown) {
+      const errMsg = deps.safeErrorMessage(err);
+
+      // Common local-path case: run_id is only known locally. Retry with
+      // correlation_id-only semantics so OrgX can attach deterministically.
+      if (
+        runIdForApply &&
+        /^404\b/.test(errMsg) &&
+        /\brun\b/i.test(errMsg) &&
+        /not found/i.test(errMsg)
+      ) {
+        try {
+          await deps.client.applyChangeset({
+            ...applyPayloadBase,
+            run_id: undefined,
+            correlation_id:
+              correlationIdForApply || `openclaw_run_${runIdForApply.replace(/-/g, "").slice(0, 24)}`,
+          });
+          return {
+            applied: operations.length,
+            buffered: false,
+            taskUpdates: normalizedTaskUpdates,
+            milestoneUpdates: normalizedMilestoneUpdates,
+          };
+        } catch {
+          // Fall through to local outbox buffering.
+        }
+      }
+
       const timestamp = new Date().toISOString();
       try {
         await appendToOutbox(input.initiativeId, {
@@ -379,12 +432,12 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
             type: "run_started",
             title: `Buffered status updates for slice ${input.runId}`,
             description: null,
-            agentId: null,
-            agentName: null,
-            requesterAgentId: null,
-            requesterAgentName: null,
-            executorAgentId: null,
-            executorAgentName: null,
+            agentId: normalizedAgentId,
+            agentName: normalizedAgentName,
+            requesterAgentId: normalizedAgentId,
+            requesterAgentName: normalizedAgentName,
+            executorAgentId: normalizedAgentId,
+            executorAgentName: normalizedAgentName,
             runId: input.runId,
             initiativeId: input.initiativeId,
             timestamp,
@@ -393,7 +446,31 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
             metadata: {
               source: "openclaw_local_fallback",
               event: "autopilot_slice_status_updates_buffered",
-              error: deps.safeErrorMessage(err),
+              error: errMsg,
+              run_id: input.runId,
+              correlation_id: input.correlationId,
+              output_path:
+                typeof input.outputPath === "string" && input.outputPath.trim().length > 0
+                  ? input.outputPath.trim()
+                  : null,
+              log_path:
+                typeof input.logPath === "string" && input.logPath.trim().length > 0
+                  ? input.logPath.trim()
+                  : null,
+              task_update_count: normalizedTaskUpdates.length,
+              milestone_update_count: normalizedMilestoneUpdates.length,
+              task_updates: normalizedTaskUpdates.map((entry) => ({
+                task_id: entry.taskId,
+                status: entry.status,
+                reason: entry.reason,
+              })),
+              milestone_updates: normalizedMilestoneUpdates.map((entry) => ({
+                milestone_id: entry.milestoneId,
+                status: entry.status,
+                reason: entry.reason,
+              })),
+              ...(normalizedAgentId ? { agent_id: normalizedAgentId } : {}),
+              ...(normalizedAgentName ? { agent_name: normalizedAgentName } : {}),
               ...(input.isMockWorker ? { mock: true } : {}),
             },
           } satisfies LiveActivityItem,

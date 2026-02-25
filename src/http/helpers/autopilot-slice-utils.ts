@@ -239,16 +239,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       nextRecord = { ...nextRecord, status: "needs_decision" };
     }
 
-    const hasOutcome =
-      (Array.isArray(nextRecord.artifacts) && nextRecord.artifacts.length > 0) ||
-      (Array.isArray(nextRecord.task_updates) && nextRecord.task_updates.length > 0) ||
-      (Array.isArray(nextRecord.milestone_updates) && nextRecord.milestone_updates.length > 0);
-
-    if (status === "completed" && !hasOutcome) {
-      changed = true;
-      nextRecord = { ...nextRecord, status: "error" };
-    }
-
     return changed ? (nextRecord as T) : value;
   };
 

@@ -5,7 +5,7 @@ import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId } from '@/lib/humanize';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   Initiative,
@@ -3396,7 +3396,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       });
     }
     if (activeExecutionBreakdown.stopReason) {
-      resultItems.push({ label: 'Stop reason', value: humanizeText(activeExecutionBreakdown.stopReason) });
+      resultItems.push({ label: 'Stop reason', value: humanizeStopReason(activeExecutionBreakdown.stopReason) ?? humanizeText(activeExecutionBreakdown.stopReason) });
     }
     const tokenLabel = formatTokens(
       activeExecutionBreakdown.tokensUsed,
@@ -3880,7 +3880,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const headline = summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null);
-    const initiativeName = item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null;
+    const initiativeName = item.initiativeId
+      ? initiativeNameById.get(item.initiativeId) ?? humanizeText(item.initiativeId)
+      : null;
     const workstreamId =
       extractWorkstreamId(item) ?? (runId ? sessionWorkstreamByRunId.get(runId) ?? null : null);
     const workstreamName = workstreamId
@@ -5147,12 +5149,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                            {activeRelatedAutopilotSlice ? 'Related session status' : 'Session status'}
 	                          </p>
 	                          <span className="rounded-full border border-lime/30 bg-black/20 px-2 py-0.5 text-micro font-semibold text-lime/85">
-	                            {humanizeText(activeAutopilotContext.event)}
+	                            {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
 	                          </span>
 	                        </div>
 	                        {activeRelatedAutopilotSlice && (
 	                          <p className="mt-1 text-micro text-lime/70">
-	                            Derived from nearest related slice event ({humanizeText(activeRelatedAutopilotSlice.relation)}).
+	                            Based on related activity ({humanizeText(activeRelatedAutopilotSlice.relation)}).
 	                          </p>
 	                        )}
 
@@ -5224,15 +5226,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                  : 'OrgX'}
 	                              </div>
 	                            </div>
+	                            {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
 	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
 	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
 	                              <div className="mt-1 text-body text-primary">
-	                                {activeAutopilotContext.domain ?? '—'}
+	                                {activeAutopilotContext.domain ?? ''}
 	                                {activeAutopilotContext.requiredSkills.length > 0
-	                                  ? ` · ${activeAutopilotContext.requiredSkills.join(', ')}`
+	                                  ? `${activeAutopilotContext.domain ? ' · ' : ''}${activeAutopilotContext.requiredSkills.join(', ')}`
 	                                  : ''}
 	                              </div>
 	                            </div>
+	                            )}
 	                          </div>
 	                        </div>
 
@@ -5254,7 +5258,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                    )}
 	                                  </div>
 	                                  <p className="mt-1 text-body text-primary">
-	                                    {activeExecutionBreakdown.initiativeTitle ?? activeExecutionBreakdown.initiativeId ?? '—'}
+	                                    {activeExecutionBreakdown.initiativeTitle ?? (activeExecutionBreakdown.initiativeId ? humanizeId(activeExecutionBreakdown.initiativeId) : '—')}
 	                                  </p>
 	                                </div>
 	                                <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
@@ -5267,7 +5271,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                    )}
 	                                  </div>
 	                                  <p className="mt-1 text-body text-primary">
-	                                    {activeExecutionBreakdown.workstreamTitle ?? activeExecutionBreakdown.workstreamId ?? '—'}
+	                                    {activeExecutionBreakdown.workstreamTitle ?? (activeExecutionBreakdown.workstreamId ? humanizeId(activeExecutionBreakdown.workstreamId) : '—')}
 	                                  </p>
 	                                </div>
 	                              </div>
@@ -5316,7 +5320,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                              )}
 	                              {activeExecutionBreakdown.phase && (
 	                                <p>
-	                                  <span className="text-secondary">Phase:</span> {humanizeText(activeExecutionBreakdown.phase)}
+	                                  <span className="text-secondary">Phase:</span> {humanizeStopReason(activeExecutionBreakdown.phase) ?? humanizeText(activeExecutionBreakdown.phase)}
 	                                </p>
 	                              )}
 	                              {activeExecutionBreakdown.nextStep && (
@@ -5324,16 +5328,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                                  <span className="text-secondary">Next step:</span> {activeExecutionBreakdown.nextStep}
 	                                </p>
 	                              )}
-	                              {activeExecutionBreakdown.parsedStatus && (
+	                              {activeExecutionBreakdown.parsedStatus &&
+	                                activeExecutionBreakdown.parsedStatus !== activeExecutionBreakdown.phase && (
 	                                <p>
-	                                  <span className="text-secondary">Slice status:</span>{' '}
-	                                  {humanizeText(activeExecutionBreakdown.parsedStatus)}
+	                                  <span className="text-secondary">Status:</span>{' '}
+	                                  {humanizeStopReason(activeExecutionBreakdown.parsedStatus) ?? humanizeText(activeExecutionBreakdown.parsedStatus)}
 	                                </p>
 	                              )}
-	                              {activeExecutionBreakdown.stopReason && (
+	                              {activeExecutionBreakdown.stopReason &&
+	                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown.phase &&
+	                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown.parsedStatus && (
 	                                <p>
 	                                  <span className="text-secondary">Stop reason:</span>{' '}
-	                                  {humanizeText(activeExecutionBreakdown.stopReason)}
+	                                  {humanizeStopReason(activeExecutionBreakdown.stopReason) ?? humanizeText(activeExecutionBreakdown.stopReason)}
 	                                </p>
 	                              )}
 	                            </div>
@@ -5351,22 +5358,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                            <div className="mt-2 space-y-2">
 	                              {activeExecutionBreakdown?.initiativeId && (
 	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  initiative: {activeExecutionBreakdown.initiativeId}
+	                                  initiative: {humanizeId(activeExecutionBreakdown.initiativeId)}
 	                                </p>
 	                              )}
 	                              {activeExecutionBreakdown?.workstreamId && (
 	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  workstream: {activeExecutionBreakdown.workstreamId}
+	                                  workstream: {humanizeId(activeExecutionBreakdown.workstreamId)}
 	                                </p>
 	                              )}
 	                              {activeAutopilotContext.logPath && (
 	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  log: {activeAutopilotContext.logPath}
+	                                  log: {humanizePath(activeAutopilotContext.logPath)}
 	                                </p>
 	                              )}
 	                              {activeAutopilotContext.outputPath && (
 	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  output: {activeAutopilotContext.outputPath}
+	                                  output: {humanizePath(activeAutopilotContext.outputPath)}
 	                                </p>
 	                              )}
 	                              <div className="flex flex-wrap gap-2">
@@ -5514,7 +5521,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      </div>
 	                    )}
 
-	                    {humanizeActivityBody(activeDecorated.item.description) && (
+	                    {humanizeActivityBody(activeDecorated.item.description) &&
+	                      humanizeActivityBody(activeDecorated.item.description) !== activeSummaryText && (
 			                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
 			                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
 		                        <MarkdownText
@@ -5557,7 +5565,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                    {activeFileEvidence.length > 0 && (
 	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                         <p className="text-caption font-semibold tracking-[0.02em] text-secondary">
-                          Filesystem evidence
+                          Evidence files
                         </p>
 	                        <div className="mt-2 space-y-2">
 	                          {activeFileEvidence.map((entry, index) => {
@@ -5571,7 +5579,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 {humanizeText(entry.key)}
                               </p>
 	                              <p className="mt-1 break-all font-mono text-caption text-primary">
-	                                {entry.path}
+	                                {humanizePath(entry.path)}
 	                              </p>
 	                              <div className="mt-2 flex flex-wrap gap-2">
 	                                {evidenceHref ? (

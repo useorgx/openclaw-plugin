@@ -13,6 +13,7 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision_optional
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_optional_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_unspecified_decision
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_invalid_artifact_type
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=error
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=invalid_json
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=stall (sleeps; prints nothing)
@@ -278,6 +279,37 @@ async function main() {
           description: "A simulated artifact emitted by the worker.",
           url: "file://mock/artifact.txt",
           verification_steps: ["Open the artifact file", "Verify contents match expected output"],
+          task_ids: taskId ? [taskId] : null,
+        },
+      ],
+      task_updates: taskId
+        ? [
+            {
+              task_id: taskId,
+              status: "done",
+              reason: "Mock worker completed the task.",
+            },
+          ]
+        : null,
+    });
+    return;
+  }
+
+  if (scenario === "completed_invalid_artifact_type") {
+    emitResult({
+      status: "completed",
+      summary: "Mock slice completed with an invalid artifact_type payload.",
+      workstream_id: workstreamId,
+      workstream_title: workstreamTitle,
+      slice_id: runId,
+      artifacts: [
+        {
+          name: "Mock malformed artifact",
+          artifact_type: 42,
+          confidence_score: 0.77,
+          description: "Used to verify artifact_type coercion fallback.",
+          url: "file://mock/malformed-artifact.txt",
+          verification_steps: ["Run lifecycle test", "Confirm artifact_type defaults to other"],
           task_ids: taskId ? [taskId] : null,
         },
       ],

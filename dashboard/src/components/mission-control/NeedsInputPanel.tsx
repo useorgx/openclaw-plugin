@@ -95,7 +95,7 @@ function valueSummary(item: SliceRunProjection): string {
   }
   if (item.status === 'failed') return 'Execution stopped before finishing.';
   if (item.status === 'needs_review') return 'Output is available and needs a quick review.';
-  return 'Execution is waiting on your next action.';
+  return 'This work needs your attention to continue.';
 }
 
 function compactEntityLabel(value: string | null | undefined, prefix: string): string {
@@ -282,9 +282,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                       <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={summaryText}>
                         {summaryText}
                       </p>
-                      <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted" title={subtitleText}>
-                        {subtitleText}
-                      </p>
+                      {subtitleText && subtitleText !== summaryText && (
+                        <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted" title={subtitleText}>
+                          {subtitleText}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
                       <span
