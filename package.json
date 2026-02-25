@@ -59,7 +59,7 @@
     "ops:launch-checklist": "node ./scripts/run-launch-checklist.mjs",
     "seo:plan": "node ./scripts/apply-seo-plan-v1.mjs",
     "seo:run": "node ./scripts/seo/run.mjs",
-    "install:dashboard": "npm --prefix dashboard ci",
+    "install:dashboard": "npm --prefix dashboard ci --include=dev",
     "build:dashboard": "npm run install:dashboard && npm --prefix dashboard run build",
     "build:core": "rm -rf dist && tsc && node ./scripts/copy-manifest.mjs",
     "build": "npm run build:dashboard && npm run build:core",

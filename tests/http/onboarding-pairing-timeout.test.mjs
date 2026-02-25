@@ -121,6 +121,20 @@ test("Onboarding pairing start uses an extended timeout for /api/plugin/openclaw
     const payload = JSON.parse(res.body);
     assert.equal(payload.ok, true);
     assert.equal(payload.data.pairingId, "pair-1");
+    assert.equal(
+      payload.data.connectUrl,
+      "https://example.useorgx.com/connect/openclaw?pairingId=pair-1"
+    );
+    assert.ok(payload.data.expiresAt, "expected onboarding start to include expiresAt");
+    assert.equal(payload.data.pollIntervalMs, 1500);
+    assert.equal(typeof payload.data.state, "object");
+    assert.ok(
+      ["pairing_pending", "awaiting_browser_auth"].includes(payload.data.state.status),
+      `unexpected onboarding status: ${String(payload.data.state.status)}`
+    );
+    assert.ok(
+      typeof payload.data.state.nextAction === "string" && payload.data.state.nextAction.length > 0
+    );
 
     // The first timer created in fetchOrgxJson must be >= 30s for pairing start.
     assert.ok(

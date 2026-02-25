@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { readFile, stat, writeFile } from "node:fs/promises";
 
 import type { LiveActivityItem, SessionTreeResponse } from "./types.js";
+import { callLlm } from "./http/helpers/llm-client.js";
 
 type OpenClawConfig = {
   agents?: {
@@ -693,10 +694,10 @@ function groupEventsIntoTurns(
 }
 
 // ---------------------------------------------------------------------------
-// Rule-based turn summarization (fallback — LLM digest in Phase 1B)
+// Turn summarization — LLM with heuristic fallback
 // ---------------------------------------------------------------------------
 
-function summarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
+function heuristicSummarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
   const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
 
   if (turn.errorMessage) {
@@ -727,6 +728,34 @@ function summarizeTurn(turn: SessionTurn, _agentLabel?: string): string {
   }
 
   return "Activity";
+}
+
+async function summarizeTurnWithLlm(
+  turn: SessionTurn,
+  agentLabel?: string,
+): Promise<string> {
+  const parts: string[] = [];
+  if (turn.userPrompt) parts.push(`User: ${turn.userPrompt}`);
+  if (turn.toolNames.length > 0) parts.push(`Tools: ${turn.toolNames.join(", ")}`);
+  if (turn.assistantResponse) parts.push(`Assistant: ${turn.assistantResponse}`);
+  if (turn.errorMessage) parts.push(`Error: ${turn.errorMessage}`);
+  const compact = parts.join("\n").slice(0, 4000);
+
+  const response = await callLlm(
+    {
+      taskId: "turn_summary",
+      systemPrompt:
+        "You summarize agent session turns for a dashboard activity feed. " +
+        "Write one clear sentence (max 120 chars) describing what happened. " +
+        "Focus on the action and outcome, not internal details. No markdown.",
+      userPrompt: compact,
+      maxTokens: 64,
+      temperature: 0.15,
+    },
+    () => heuristicSummarizeTurn(turn, agentLabel),
+  );
+
+  return response.result;
 }
 
 function isDigestSummaryStale(cached: string | null, fresh: string): boolean {
@@ -788,14 +817,14 @@ async function writeDigestCache(
 // Turn → LiveActivityItem mapping
 // ---------------------------------------------------------------------------
 
-function turnToActivity(
+async function turnToActivity(
   turn: SessionTurn,
   session: LocalSession,
   cachedSummary: string | null,
   index: number
-): LiveActivityItem {
+): Promise<LiveActivityItem> {
   const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
-  const summary = cachedSummary ?? summarizeTurn(turn, agentLabel);
+  const summary = cachedSummary ?? await summarizeTurnWithLlm(turn, agentLabel);
 
   // Determine activity type
   let type: LiveActivityItem["type"] = "delegation";
@@ -914,12 +943,12 @@ export async function toLocalLiveActivity(
         const turn = turns[i];
         const cached = cachedMap.get(turn.id) ?? null;
         const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
-        const computedSummary = summarizeTurn(turn, agentLabel);
+        const computedSummary = await summarizeTurnWithLlm(turn, agentLabel);
         const fallbackSummary = isDigestSummaryStale(cached, computedSummary)
           ? computedSummary
           : (cached as string);
 
-        allActivities.push(turnToActivity(turn, session, fallbackSummary, i));
+        allActivities.push(await turnToActivity(turn, session, fallbackSummary, i));
 
         // Track for cache
         if (isDigestSummaryStale(cached, computedSummary)) {

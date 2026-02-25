@@ -104,10 +104,9 @@ export function registerLiveTriageRoutes<TReq, TRes>(
       let blockerItems: LiveTriageItem[] = [];
       try {
         const blockerEvents = deps.getBlockerEvents(workspaceId);
-        for (const event of blockerEvents) {
-          const item = mapFailureToTriageItem(event);
-          if (item) blockerItems.push(item);
-        }
+        blockerItems = await Promise.all(
+          blockerEvents.map((event) => mapFailureToTriageItem(event)),
+        );
       } catch {
         degraded.push("blockers");
       }

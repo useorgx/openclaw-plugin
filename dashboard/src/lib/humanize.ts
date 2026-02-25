@@ -220,6 +220,21 @@ export function humanizeWarning(raw: string): string {
   if (/mcp handshake failed/i.test(raw)) {
     return 'The agent connection handshake failed. Retry after reconnecting.';
   }
+  if (/run not found/i.test(raw)) {
+    return 'This session is no longer available.';
+  }
+  if (/500|internal server error/i.test(raw)) {
+    return 'Something went wrong on the server. Retrying automatically.';
+  }
+  if (/ECONNREFUSED|network error|fetch failed/i.test(raw)) {
+    return 'Connection issue. Retrying automatically.';
+  }
+  if (/40[13]/.test(raw)) {
+    return 'Access issue. You may need to reconnect your workspace.';
+  }
+  if (/blocked without an explicit reason/i.test(raw)) {
+    return 'This item was paused without a specific reason.';
+  }
   return sanitizeDisplayText(humanizeText(raw));
 }
 
@@ -287,11 +302,88 @@ export function humanizeActivitySummary(item: {
     ? sanitizeDisplayText(String(nextStepRaw))
     : null;
 
-  return { taskDescription, outcomeDescription, nextStep };
+  // Deduplicate: if outcome or nextStep repeats task/outcome, suppress it
+  const dedupedOutcome =
+    outcomeDescription && outcomeDescription === taskDescription
+      ? null
+      : outcomeDescription;
+  const dedupedNextStep =
+    nextStep && (nextStep === taskDescription || nextStep === outcomeDescription)
+      ? null
+      : nextStep;
+
+  return {
+    taskDescription,
+    outcomeDescription: dedupedOutcome,
+    nextStep: dedupedNextStep,
+  };
 }
 
 function readMeta(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Stop Reason / Lane State / Blocker Context Humanization
+// ---------------------------------------------------------------------------
+
+const STOP_REASON_MAP: Record<string, string> = {
+  auto_continue_stopped: 'Autopilot paused',
+  budget_exhausted: 'Token budget reached',
+  error: 'Encountered an error',
+  blocked: 'Waiting for input',
+  stopped: 'Manually stopped',
+  rate_limited: 'Rate limited — retrying shortly',
+  timeout: 'Timed out',
+  timed_out: 'Timed out',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+};
+
+/** Translate internal stop reason enums to human-readable text. */
+export function humanizeStopReason(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const lower = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return STOP_REASON_MAP[lower] ?? raw.replace(/_/g, ' ');
+}
+
+const LANE_STATE_MAP: Record<string, string> = {
+  running: 'Active',
+  waiting_for_capacity: 'Waiting for capacity',
+  rate_limited: 'Rate limited',
+  idle: 'Idle',
+  blocked: 'Blocked',
+  queued: 'Queued',
+};
+
+/** Translate lane state to user-friendly label. */
+export function humanizeLaneState(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const lower = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return LANE_STATE_MAP[lower] ?? raw.replace(/_/g, ' ');
+}
+
+/** Humanize a value shown in blocker context diagnostics. Strips raw IDs and paths. */
+export function humanizeBlockerContextValue(label: string, value: string): string {
+  const lower = label.toLowerCase();
+  if (lower.includes('path')) {
+    return humanizePath(value);
+  }
+  // For individual IDs
+  if (isOpaqueId(value)) {
+    return humanizeId(value);
+  }
+  // For comma-separated lists of IDs
+  if (value.includes(',')) {
+    return value
+      .split(',')
+      .map((v) => {
+        const trimmed = v.trim();
+        return isOpaqueId(trimmed) ? humanizeId(trimmed) : trimmed;
+      })
+      .join(', ');
+  }
+  return sanitizeDisplayText(value);
 }

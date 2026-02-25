@@ -1674,9 +1674,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
   const applySnapshot = useCallback(
     (
-      sessionsInput: SessionTreeResponse,
-      activityInput: LiveActivityItem[],
-      handoffInput: HandoffSummary[],
+      sessionsInput: SessionTreeResponse | null,
+      activityInput: LiveActivityItem[] | null,
+      handoffInput: HandoffSummary[] | null,
       decisionInput: LiveDecision[] | null = null,
       sliceRunsInput: SliceRunProjection[] | null = null,
       outboxInput: OutboxStatus | null = null,
@@ -1697,18 +1697,31 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     ) => {
       lastSuccessAtRef.current = Date.now();
       authBlockedRef.current = false;
-      const activity = normalizeActivity(activityInput, maxActivityItems);
-      const handoffs = trimHandoffs(handoffInput, maxHandoffs);
-
       setData((prev) => {
         const resetScope = resetScopeOnNextSnapshotRef.current;
         if (resetScope) {
           resetScopeOnNextSnapshotRef.current = false;
         }
+        const activity =
+          activityInput === null
+            ? resetScope
+              ? []
+              : prev.activity
+            : normalizeActivity(activityInput, maxActivityItems);
+        const handoffs =
+          handoffInput === null
+            ? resetScope
+              ? []
+              : prev.handoffs
+            : trimHandoffs(handoffInput, maxHandoffs);
         const sessions = trimSessions(
-          resetScope
-            ? trimSessions(sessionsInput, maxSessions)
-            : mergeSessionSnapshots(prev.sessions, trimSessions(sessionsInput, maxSessions)),
+          sessionsInput === null
+            ? resetScope
+              ? { nodes: [], edges: [], groups: [] }
+              : prev.sessions
+            : resetScope
+              ? trimSessions(sessionsInput, maxSessions)
+              : mergeSessionSnapshots(prev.sessions, trimSessions(sessionsInput, maxSessions)),
           maxSessions
         );
         const decisions =
@@ -1923,32 +1936,76 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         if (scopeKeyRef.current !== requestScopeKey) {
           return;
         }
-        const activity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
-        const handoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
-        const decisions = enableDecisions && Array.isArray(snapshot.decisions)
-          ? snapshot.decisions
+        const degradedRaw = Array.isArray(snapshot.degraded)
+          ? snapshot.degraded.filter((entry): entry is string => typeof entry === 'string')
           : [];
-        const workSliceProjections = normalizeWorkSliceProjections(
+        const degradedLower = degradedRaw.map((entry) => entry.toLowerCase());
+        const hasDegradedReason = (...terms: string[]) =>
+          degradedLower.some((entry) => terms.some((term) => entry.includes(term)));
+
+        const rawActivity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
+        const rawHandoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
+        const rawDecisions =
+          enableDecisions && Array.isArray(snapshot.decisions) ? snapshot.decisions : [];
+
+        const shouldPreserveActivity =
+          rawActivity.length === 0 &&
+          hasDegradedReason('activity unavailable', 'activity local fallback failed');
+        const shouldPreserveSessions = hasDegradedReason(
+          'sessions unavailable',
+          'sessions local fallback failed'
+        );
+        const shouldPreserveHandoffs =
+          rawHandoffs.length === 0 && hasDegradedReason('handoffs unavailable');
+        const shouldPreserveDecisions =
+          enableDecisions &&
+          rawDecisions.length === 0 &&
+          hasDegradedReason('decisions unavailable');
+
+        const workSliceProjectionsRaw = normalizeWorkSliceProjections(
           Array.isArray(snapshot.projections) ? snapshot.projections : []
         );
         const chat = normalizeChatSnapshot(snapshot.chat ?? null);
         const timelineNarrative = normalizeTimelineNarrative(
           Array.isArray(snapshot.timelineNarrative) ? snapshot.timelineNarrative : []
         );
-        const nextUpByInitiative = normalizeNextUpByInitiative(
+        const nextUpByInitiativeRaw = normalizeNextUpByInitiative(
           Array.isArray(snapshot.nextUpByInitiative) ? snapshot.nextUpByInitiative : []
         );
-        const sliceRuns =
-          workSliceProjections.length > 0
-            ? sliceRunsFromWorkSliceProjections(workSliceProjections)
+        const sliceRunsRaw =
+          workSliceProjectionsRaw.length > 0
+            ? sliceRunsFromWorkSliceProjections(workSliceProjectionsRaw)
             : normalizeSliceRuns(Array.isArray(snapshot.sliceRuns) ? snapshot.sliceRuns : []);
-        const sessions =
+        const sessionsRaw =
           snapshot.sessions &&
           Array.isArray(snapshot.sessions.nodes) &&
           Array.isArray(snapshot.sessions.edges) &&
           Array.isArray(snapshot.sessions.groups)
             ? snapshot.sessions
-            : deriveSessionsFromFallbacks(activity, snapshot.agents, maxSessions);
+            : deriveSessionsFromFallbacks(rawActivity, snapshot.agents, maxSessions);
+        const shouldPreserveSliceRuns =
+          sliceRunsRaw.length === 0 &&
+          workSliceProjectionsRaw.length === 0 &&
+          hasDegradedReason(
+            'activity unavailable',
+            'sessions unavailable',
+            'decisions unavailable',
+            'next-up unavailable',
+            'next-up queue'
+          );
+        const shouldPreserveNextUp =
+          nextUpByInitiativeRaw.length === 0 &&
+          hasDegradedReason('next-up unavailable', 'next-up queue');
+
+        const activity = shouldPreserveActivity ? null : rawActivity;
+        const handoffs = shouldPreserveHandoffs ? null : rawHandoffs;
+        const decisions = shouldPreserveDecisions ? null : rawDecisions;
+        const sessions =
+          shouldPreserveSessions && sessionsRaw.nodes.length === 0 ? null : sessionsRaw;
+        const workSliceProjections = shouldPreserveSliceRuns ? null : workSliceProjectionsRaw;
+        const timelineNarrativeInput = shouldPreserveSliceRuns ? null : timelineNarrative;
+        const sliceRuns = shouldPreserveSliceRuns ? null : sliceRunsRaw;
+        const nextUpByInitiative = shouldPreserveNextUp ? null : nextUpByInitiativeRaw;
 
         applySnapshot(
           sessions,
@@ -1962,12 +2019,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           chat,
           {
             workSliceProjections,
-            timelineNarrative,
+            timelineNarrative: timelineNarrativeInput,
             nextUpByInitiative,
-            runningWorkSlices: snapshot.runningWorkSlices ?? null,
-            needsInputTotal: snapshot.needsInput ?? null,
-            failedActionableTotal: snapshot.failedActionable ?? null,
-            completedTodayTotal: snapshot.completedToday ?? null,
+            runningWorkSlices: shouldPreserveSliceRuns ? null : snapshot.runningWorkSlices ?? null,
+            needsInputTotal: shouldPreserveSliceRuns ? null : snapshot.needsInput ?? null,
+            failedActionableTotal: shouldPreserveSliceRuns ? null : snapshot.failedActionable ?? null,
+            completedTodayTotal: shouldPreserveSliceRuns ? null : snapshot.completedToday ?? null,
             consistencyFlags: Array.isArray(snapshot.consistencyFlags)
               ? snapshot.consistencyFlags
               : null,
@@ -1975,8 +2032,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           }
         );
 
-        const degradedReasons = Array.isArray(snapshot.degraded)
-          ? summarizeDegradedReasons(snapshot.degraded)
+        const degradedReasons = degradedRaw.length > 0
+          ? summarizeDegradedReasons(degradedRaw)
           : [];
 
         if (degradedReasons.length > 0) {

@@ -80,7 +80,7 @@ import {
 import { registerCoreTools } from "./tools/core-tools.js";
 import { stableHash } from "./hash-utils.js";
 import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
-import { buildRetroTemplateForAgent } from "./retro/domain-templates.js";
+import { buildRetroWithLlm } from "./retro/domain-templates.js";
 import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 
 // Re-export types for consumers
@@ -968,7 +968,7 @@ export default function register(api: PluginAPI): void {
         const completedAt = stopped.stoppedAt ?? new Date().toISOString();
         const success = !summary.hadError;
         const correlationId = stopped.runId;
-        const retroTemplate = buildRetroTemplateForAgent({
+        const retroTemplate = await buildRetroWithLlm({
           agentId: stopped.agentId,
           success,
           taskId: stopped.taskId,

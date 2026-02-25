@@ -6,8 +6,7 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { formatRelativeTime } from '@/lib/time';
-import { sanitizeDisplayText } from '@/lib/humanize';
-import { statusColor, formatEntityStatus } from '@/lib/entityStatusColors';
+import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
 import { colors, motion as motionTokens } from '@/lib/tokens';
 import { projectRunStatus } from '@/lib/runStatusModel';
 import type { NextUpQueueItem, SliceRunProjection } from '@/types';
@@ -305,10 +304,7 @@ export function SliceDetailModal({
         : canonicalProjection.tone === 'positive'
           ? 'border-lime/24 bg-lime/[0.08]'
           : 'border-subtle bg-white/[0.02]';
-  const rawWorkstreamStatusLabel = d.workstreamStatus ? formatEntityStatus(d.workstreamStatus) : null;
-  const showRawWorkstreamStatus =
-    Boolean(rawWorkstreamStatusLabel) &&
-    rawWorkstreamStatusLabel!.toLowerCase() !== canonicalProjection.label.toLowerCase();
+  // Single canonical badge — no duplicate raw status badges
 
   const breadcrumbs = [
     ...(d.initiativeTitle
@@ -425,7 +421,7 @@ export function SliceDetailModal({
           }}
           className="control-pill h-8 px-3 text-caption font-semibold"
         >
-          Focus in Activity
+          View in timeline
         </button>
       )}
       <div className="flex-1" />
@@ -443,7 +439,11 @@ export function SliceDetailModal({
           <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
             <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
           </svg>
-          {canonicalProjection.status === 'completed' ? 'Restart' : 'Start'}
+          {canonicalProjection.status === 'completed'
+            ? 'Restart'
+            : canonicalProjection.status === 'needs_attention'
+              ? 'Retry'
+              : 'Start'}
         </button>
       )}
     </div>
@@ -495,28 +495,11 @@ export function SliceDetailModal({
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
                   >
-                    {canonicalProjection.label}
-                  </span>
-                  {showRawWorkstreamStatus && d.workstreamStatus && (
                     <span
-                      className="inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em]"
-                      style={{
-                        color: statusColor(d.workstreamStatus),
-                        borderColor: `${statusColor(d.workstreamStatus)}33`,
-                        backgroundColor: `${statusColor(d.workstreamStatus)}14`,
-                      }}
-                    >
-                      {rawWorkstreamStatusLabel}
-                    </span>
-                  )}
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] text-secondary"
-                  >
-                    <span
-                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
                       style={{ backgroundColor: queueStateDotColor(d.queueState) }}
                     />
-                    {queueStateLabel(d.queueState)}
+                    {canonicalProjection.label}
                   </span>
                 </div>
               </div>
@@ -557,71 +540,56 @@ export function SliceDetailModal({
               </>
             ) : null}
 
-            {/* ───── 2. Status & Context card ───── */}
-            <motion.div
-              variants={sectionVariants}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              custom={sectionIndex++}
-              className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
-            >
-              <p className="section-kicker">Status &amp; Context</p>
-              <p className="text-caption text-secondary">
-                {canonicalProjection.sentence}
-                {canonicalProjection.nextAction ? ` Next: ${canonicalProjection.nextAction}.` : ''}
-              </p>
-              <div className="flex flex-wrap items-center gap-2 text-caption text-primary">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: queueStateDotColor(d.queueState) }}
-                  />
-                  {queueStateLabel(d.queueState)}
-                </span>
-                {d.agentSource && d.agentSource !== 'assigned' && (
-                  <span className="text-secondary">· Runner: {d.agentSource}</span>
+            {/* ───── 2. Context & Details card ───── */}
+            {(d.blockReason || d.autoContinue || (d.agentSource && d.agentSource !== 'assigned')) && (
+              <motion.div
+                variants={sectionVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                custom={sectionIndex++}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+              >
+                {d.blockReason && (
+                  <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
+                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Why blocked</p>
+                    {d.blockReason}
+                  </div>
                 )}
-              </div>
 
-              {d.blockReason && (
-                <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
-                  {d.blockReason}
-                </div>
-              )}
+                {d.autoContinue && (
+                  <div className="flex items-center gap-2 text-caption text-secondary">
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-[#0AD4C4]">
+                      <path
+                        d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span>
+                      Auto-continue: <span className="text-primary capitalize">{d.autoContinue.status}</span>
+                      {d.autoContinue.laneState && (
+                        <span className="text-muted"> · {humanizeLaneState(d.autoContinue.laneState)}</span>
+                      )}
+                    </span>
+                  </div>
+                )}
 
-              {d.autoContinue && (
-                <div className="flex items-center gap-2 text-caption text-secondary">
-                  <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-[#0AD4C4]">
-                    <path
-                      d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span>
-                    Auto-continue: <span className="text-primary capitalize">{d.autoContinue.status}</span>
-                    {d.autoContinue.laneState && (
-                      <span className="text-muted"> · Lane: {d.autoContinue.laneState.replace(/_/g, ' ')}</span>
-                    )}
-                  </span>
-                </div>
-              )}
+                {d.autoContinue?.laneBlockedReason && (
+                  <p className="text-micro text-red-100/75">
+                    {d.autoContinue.laneBlockedReason}
+                  </p>
+                )}
 
-              {d.autoContinue?.laneBlockedReason && (
-                <p className="text-micro text-red-100/75">
-                  Lane blocked: {d.autoContinue.laneBlockedReason}
-                </p>
-              )}
-
-              {d.autoContinue?.stopReason && (
-                <p className="text-micro text-amber-100/75">
-                  Stop reason: {d.autoContinue.stopReason.replace(/_/g, ' ')}
-                </p>
-              )}
-            </motion.div>
+                {d.autoContinue?.stopReason && (
+                  <p className="text-micro text-amber-100/75">
+                    {humanizeStopReason(d.autoContinue.stopReason)}
+                  </p>
+                )}
+              </motion.div>
+            )}
 
             {/* ───── 3. Next Task card ───── */}
             {d.nextTaskTitle && (
@@ -663,8 +631,8 @@ export function SliceDetailModal({
               </>
             )}
 
-            {/* ───── 4. Slice Run section ───── */}
-            {sr && (
+            {/* ───── 4. Timeline section ───── */}
+            {sr && (sr.startedAt || sr.updatedAt || sr.completedAt || sr.failedAt) && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -676,51 +644,14 @@ export function SliceDetailModal({
                   className="space-y-3"
                 >
                   <div className="flex items-center gap-2">
-                    <p className="section-kicker">Slice Run</p>
+                    <p className="section-kicker">Timeline</p>
                     {sr.scope && sr.scope !== 'task' && (
                       <Pill tone={sr.scope === 'milestone' ? 'cyan' : 'lime'}>
                         {sr.scope}
                       </Pill>
                     )}
-                  </div>
-
-                  {sr.statusExplainer && (
-                    <p className="text-caption leading-relaxed text-secondary">{sr.statusExplainer}</p>
-                  )}
-
-                  {/* Timestamp grid */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {sr.startedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
-                      </div>
-                    )}
-                    {sr.updatedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
-                      </div>
-                    )}
-                    {sr.completedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
-                      </div>
-                    )}
-                    {sr.failedAt && !sr.completedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
-                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Confidence indicator */}
-                  {sr.confidence && (
-                    <div className="flex items-center gap-2">
-                      <p className="text-micro uppercase tracking-[0.08em] text-muted">Confidence</p>
-                      <div className="flex items-center gap-1">
+                    {sr.confidence && (
+                      <div className="flex items-center gap-1 ml-auto" title={`Confidence: ${sr.confidence}`}>
                         {Array.from({ length: 5 }, (_, i) => {
                           const { filled, color } = confidenceDots(sr.confidence);
                           return (
@@ -733,23 +664,35 @@ export function SliceDetailModal({
                             />
                           );
                         })}
-                        <span className="ml-1 text-micro capitalize text-secondary">{sr.confidence}</span>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  {/* Last event */}
-                  {sr.lastEventSummary && (
-                    <div>
-                      <p className="text-micro uppercase tracking-[0.08em] text-muted">Last Event</p>
-                      <p className="mt-0.5 text-caption leading-snug text-secondary">
-                        {sr.lastEventSummary}
-                        {sr.lastEventAt && (
-                          <span className="text-muted"> · {formatRelativeTime(sr.lastEventAt)}</span>
-                        )}
-                      </p>
-                    </div>
-                  )}
+                  {/* Timestamp grid — deduplicate Updated/Completed if identical */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {sr.startedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
+                      </div>
+                    )}
+                    {sr.completedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
+                      </div>
+                    ) : sr.failedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
+                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
+                      </div>
+                    ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
+                      </div>
+                    ) : null}
+                  </div>
                 </motion.div>
               </>
             )}
@@ -904,20 +847,26 @@ export function SliceDetailModal({
               </>
             )}
 
-            {/* ───── 7. Runtime section ───── */}
+            {/* ───── 7. Technical details (collapsed by default) ───── */}
             {sr && (sr.sourceClient || sr.runtimeState || sr.correlationId || sr.runId) && (
               <>
                 <SectionDivider />
-                <motion.div
-                  variants={sectionVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  custom={sectionIndex++}
-                  className="space-y-2"
-                >
-                  <p className="section-kicker">Runtime</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <details className="group">
+                  <summary className="flex cursor-pointer select-none items-center gap-1.5 py-1 text-micro uppercase tracking-[0.08em] text-muted transition-colors hover:text-secondary">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="transition-transform group-open:rotate-90"
+                    >
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                    Technical details
+                  </summary>
+                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
                     {sr.sourceClient && (
                       <div>
                         <p className="text-micro uppercase tracking-[0.08em] text-muted">Source</p>
@@ -930,21 +879,7 @@ export function SliceDetailModal({
                         <p className="mt-0.5 font-mono text-caption text-primary">{sr.runtimeState}</p>
                       </div>
                     )}
-                    {sr.correlationId && (
-                      <div className="col-span-2">
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Correlation ID</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(sr.correlationId!);
-                          }}
-                          className="mt-0.5 font-mono text-caption text-primary transition-colors hover:text-white"
-                          title="Click to copy"
-                        >
-                          {sr.correlationId}
-                        </button>
-                      </div>
-                    )}
+                    {/* Show Run ID; skip Correlation ID if identical */}
                     {sr.runId && (
                       <div className="col-span-2">
                         <p className="text-micro uppercase tracking-[0.08em] text-muted">Run ID</p>
@@ -960,8 +895,23 @@ export function SliceDetailModal({
                         </button>
                       </div>
                     )}
+                    {sr.correlationId && sr.correlationId !== sr.runId && (
+                      <div className="col-span-2">
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Correlation ID</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(sr.correlationId!);
+                          }}
+                          className="mt-0.5 font-mono text-caption text-primary transition-colors hover:text-white"
+                          title="Click to copy"
+                        >
+                          {sr.correlationId}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </motion.div>
+                </details>
               </>
             )}
 

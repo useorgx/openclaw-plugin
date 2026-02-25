@@ -1,3 +1,5 @@
+import { callLlmJson } from "../http/helpers/llm-client.js";
+
 type RetroFollowUp = {
   title: string;
   priority?: "p0" | "p1" | "p2";
@@ -258,5 +260,134 @@ export function buildRetroTemplateForAgent(input: {
             : `${template.failureFollowUpReason} Error: ${errorMessage}`,
       },
     ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LLM-powered retro generation (falls back to heuristic template above)
+// ---------------------------------------------------------------------------
+
+const RETRO_SYSTEM_PROMPT = `You generate structured retrospectives for autonomous agent runs. Given the run context, produce a JSON object with these fields: domain (one of: engineering, product, design, marketing, sales, operations, orchestration, general), summary (1 sentence), whatWentWell (1-3 specific items), whatWentWrong (0-3 items, empty if success), decisions (1-2 actionable items), followUps (0-2 items, each with title, priority p0/p1/p2, and reason). Be specific to what actually happened — avoid generic template language.`;
+
+const VALID_DOMAINS: ReadonlySet<string> = new Set<OrgxAgentRetroDomain>([
+  "engineering",
+  "product",
+  "design",
+  "marketing",
+  "sales",
+  "operations",
+  "orchestration",
+  "general",
+]);
+
+const VALID_PRIORITIES: ReadonlySet<string> = new Set(["p0", "p1", "p2"]);
+
+/**
+ * Generate a structured retro using an LLM, falling back to the heuristic
+ * template produced by {@link buildRetroTemplateForAgent}.
+ *
+ * Caller: src/index.ts (~line 971) — `buildRetroTemplateForAgent` is invoked
+ * inside the session-stopped handler. Migrate that call site to use this
+ * function when ready to enable LLM-powered retros.
+ */
+export async function buildRetroWithLlm(input: {
+  agentId: string | null | undefined;
+  success: boolean;
+  taskId: string | null | undefined;
+  runId: string;
+  errorMessage: string | null | undefined;
+  executionContext?: string | null;
+}): Promise<{
+  domain: OrgxAgentRetroDomain;
+  summary: string;
+  whatWentWell: string[];
+  whatWentWrong: string[];
+  decisions: string[];
+  followUps: RetroFollowUp[];
+  source: "llm" | "heuristic";
+}> {
+  const lines: string[] = [
+    `Agent ID: ${input.agentId ?? "(unknown)"}`,
+    `Outcome: ${input.success ? "success" : "failure"}`,
+    `Task ID: ${input.taskId ?? "(none)"}`,
+    `Run ID: ${input.runId}`,
+  ];
+  if (input.errorMessage) {
+    lines.push(`Error: ${input.errorMessage}`);
+  }
+  if (input.executionContext) {
+    lines.push(`Execution context: ${input.executionContext}`);
+  }
+  const userPrompt = lines.join("\n");
+
+  type LlmRetroShape = {
+    domain: OrgxAgentRetroDomain;
+    summary: string;
+    whatWentWell: string[];
+    whatWentWrong: string[];
+    decisions: string[];
+    followUps: RetroFollowUp[];
+  };
+
+  function parseRetroJson(raw: string): LlmRetroShape | null {
+    try {
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+
+      if (typeof obj.domain !== "string" || !VALID_DOMAINS.has(obj.domain)) return null;
+      if (typeof obj.summary !== "string" || obj.summary.length === 0) return null;
+      if (!Array.isArray(obj.whatWentWell) || !obj.whatWentWell.every((v: unknown) => typeof v === "string")) return null;
+      if (!Array.isArray(obj.whatWentWrong) || !obj.whatWentWrong.every((v: unknown) => typeof v === "string")) return null;
+      if (!Array.isArray(obj.decisions) || !obj.decisions.every((v: unknown) => typeof v === "string")) return null;
+      if (!Array.isArray(obj.followUps)) return null;
+
+      const followUps: RetroFollowUp[] = [];
+      for (const fu of obj.followUps as unknown[]) {
+        if (!fu || typeof fu !== "object") return null;
+        const rec = fu as Record<string, unknown>;
+        if (typeof rec.title !== "string" || rec.title.length === 0) return null;
+        const entry: RetroFollowUp = { title: rec.title };
+        if (typeof rec.priority === "string" && VALID_PRIORITIES.has(rec.priority)) {
+          entry.priority = rec.priority as "p0" | "p1" | "p2";
+        }
+        if (typeof rec.reason === "string") {
+          entry.reason = rec.reason;
+        }
+        followUps.push(entry);
+      }
+
+      return {
+        domain: obj.domain as OrgxAgentRetroDomain,
+        summary: obj.summary as string,
+        whatWentWell: obj.whatWentWell as string[],
+        whatWentWrong: obj.whatWentWrong as string[],
+        decisions: obj.decisions as string[],
+        followUps,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function heuristicFallback(): LlmRetroShape {
+    return buildRetroTemplateForAgent(input);
+  }
+
+  const response = await callLlmJson<LlmRetroShape>(
+    {
+      taskId: "retro",
+      systemPrompt: RETRO_SYSTEM_PROMPT,
+      userPrompt,
+      model: "openai/gpt-4.1-mini",
+      maxTokens: 512,
+      temperature: 0.2,
+      cacheTtlMs: 6 * 60 * 60_000, // 6 hours
+    },
+    parseRetroJson,
+    heuristicFallback,
+  );
+
+  return {
+    ...response.result,
+    source: response.source,
   };
 }

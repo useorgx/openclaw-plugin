@@ -1,3 +1,5 @@
+import { callLlmJson } from "../http/helpers/llm-client.js";
+
 export type AutoAssignedAgent = {
   id: string;
   name: string;
@@ -5,6 +7,24 @@ export type AutoAssignedAgent = {
 };
 
 type LiveAgent = AutoAssignedAgent & { status: string | null };
+
+const VALID_DOMAINS = new Set([
+  "engineering",
+  "product",
+  "design",
+  "marketing",
+  "sales",
+  "operations",
+]);
+
+function heuristicDomainGuess(title: string, summary: string | null): string[] {
+  const haystack = `${title} ${summary ?? ""}`.toLowerCase();
+  if (/market|campaign|thread|article|tweet|copy/.test(haystack)) return ["marketing"];
+  if (/design|ux|ui|a11y/.test(haystack)) return ["design"];
+  if (/ops|runbook|incident|reliability/.test(haystack)) return ["operations"];
+  if (/sales|deal|pipeline/.test(haystack)) return ["sales"];
+  return ["engineering", "product"];
+}
 
 export async function autoAssignEntityForCreate(input: {
   client: {
@@ -109,19 +129,36 @@ export async function autoAssignEntityForCreate(input: {
   }
 
   if (byKey.size === 0) {
-    const haystack = `${input.title} ${input.summary ?? ""}`.toLowerCase();
-    const domainHints: string[] = [];
-    if (/market|campaign|thread|article|tweet|copy/.test(haystack)) {
-      domainHints.push("marketing");
-    } else if (/design|ux|ui|a11y/.test(haystack)) {
-      domainHints.push("design");
-    } else if (/ops|runbook|incident|reliability/.test(haystack)) {
-      domainHints.push("operations");
-    } else if (/sales|deal|pipeline/.test(haystack)) {
-      domainHints.push("sales");
-    } else {
-      domainHints.push("engineering", "product");
-    }
+    const domainResult = await callLlmJson<{ domains: string[] }>(
+      {
+        taskId: "domain_assignment",
+        systemPrompt:
+          'Classify which agent domain(s) should handle this task. Return JSON: {"domains": [...]} with 1-2 values from: engineering, product, design, marketing, sales, operations. Be precise based on the task content.',
+        userPrompt: `Task: ${input.title}\n${input.summary ? `Details: ${input.summary}` : ""}`,
+        maxTokens: 64,
+        temperature: 0.1,
+        cacheTtlMs: 60 * 60_000, // 1 hour
+      },
+      (raw) => {
+        try {
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          if (
+            Array.isArray(parsed.domains) &&
+            parsed.domains.length > 0 &&
+            parsed.domains.every(
+              (d: unknown) => typeof d === "string" && VALID_DOMAINS.has(d),
+            )
+          ) {
+            return { domains: parsed.domains as string[] };
+          }
+        } catch {
+          // fall through
+        }
+        return null;
+      },
+      () => ({ domains: heuristicDomainGuess(input.title, input.summary ?? null) }),
+    );
+    const domainHints = domainResult.result.domains;
 
     for (const domain of domainHints) {
       const match = liveAgents.find((agent) =>

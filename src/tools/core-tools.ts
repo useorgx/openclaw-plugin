@@ -1879,6 +1879,49 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     return out;
   }
 
+  function deriveAgentIdentity(payload?: unknown): {
+    agentId: string | null;
+    agentName: string | null;
+  } {
+    const envAgentId = pickNonEmptyString(process.env.ORGX_AGENT_ID) ?? null;
+    const envAgentName = pickNonEmptyString(process.env.ORGX_AGENT_NAME) ?? null;
+    const payloadRecord =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : null;
+    const metadataRaw = payloadRecord?.metadata;
+    const metadata =
+      metadataRaw && typeof metadataRaw === "object" && !Array.isArray(metadataRaw)
+        ? (metadataRaw as Record<string, unknown>)
+        : {};
+    const metadataAgentId =
+      pickNonEmptyString(
+        metadata.agent_id,
+        metadata.agentId,
+        metadata.executor_agent_id,
+        metadata.executorAgentId,
+        metadata.requested_by_agent_id,
+        metadata.requestedByAgentId
+      ) ?? null;
+    const metadataAgentName =
+      pickNonEmptyString(
+        metadata.agent_name,
+        metadata.agentName,
+        metadata.executor_agent_name,
+        metadata.executorAgentName,
+        metadata.requested_by_agent_name,
+        metadata.requestedByAgentName
+      ) ?? null;
+    return {
+      agentId: envAgentId ?? metadataAgentId,
+      agentName: envAgentName ?? metadataAgentName,
+    };
+  }
+
+  function deriveCorrelationFromRun(runId: string): string {
+    return `openclaw_run_${runId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`;
+  }
+
   async function emitActivityWithFallback(
     source: string,
     payload: {
@@ -1907,8 +1950,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     const id = `progress:${randomUUID().slice(0, 8)}`;
     const envWorkstreamId = pickNonEmptyString(process.env.ORGX_WORKSTREAM_ID);
     const envTaskId = pickNonEmptyString(process.env.ORGX_TASK_ID);
-    const envAgentId = pickNonEmptyString(process.env.ORGX_AGENT_ID);
-    const envAgentName = pickNonEmptyString(process.env.ORGX_AGENT_NAME);
+    const { agentId, agentName } = deriveAgentIdentity(payload);
     const canonicalMetadata: Record<string, unknown> = {
       initiative_id: context.value.initiativeId,
       run_id: context.value.runId ?? null,
@@ -1917,8 +1959,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       source_client: context.value.sourceClient ?? null,
       ...(envWorkstreamId ? { workstream_id: envWorkstreamId } : {}),
       ...(envTaskId ? { task_id: envTaskId } : {}),
-      ...(envAgentId ? { agent_id: envAgentId } : {}),
-      ...(envAgentName ? { agent_name: envAgentName } : {}),
+      ...(agentId ? { agent_id: agentId } : {}),
+      ...(agentName ? { agent_name: agentName } : {}),
     };
     const normalizedPayload = {
       initiative_id: context.value.initiativeId,
@@ -1942,12 +1984,12 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       type: "delegation",
       title: payload.message,
       description: payload.next_step ?? null,
-      agentId: null,
-      agentName: null,
-      requesterAgentId: null,
-      requesterAgentName: null,
-      executorAgentId: null,
-      executorAgentName: null,
+      agentId,
+      agentName,
+      requesterAgentId: agentId,
+      requesterAgentName: agentName,
+      executorAgentId: agentId,
+      executorAgentName: agentName,
       runId: context.value.runId ?? null,
       initiativeId: context.value.initiativeId,
       timestamp: now,
@@ -1963,7 +2005,35 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           payload.progress_pct != null ? ` ${payload.progress_pct}%` : ""
         }] (run ${result.run_id.slice(0, 8)}...)`
       );
-    } catch {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        normalizedPayload.run_id &&
+        /^404\b/.test(errMsg) &&
+        /\brun\b/i.test(errMsg) &&
+        /not found/i.test(errMsg)
+      ) {
+        try {
+          const retryCorrelation =
+            normalizedPayload.correlation_id ?? deriveCorrelationFromRun(normalizedPayload.run_id);
+          const retryResult = await client.emitActivity({
+            ...normalizedPayload,
+            run_id: undefined,
+            correlation_id: retryCorrelation,
+            metadata: withProvenanceMetadata({
+              ...(normalizedPayload.metadata ?? {}),
+              replay_run_id_as_correlation: true,
+            }),
+          });
+          return text(
+            `Activity emitted: ${payload.message} [${normalizedPayload.phase}${
+              payload.progress_pct != null ? ` ${payload.progress_pct}%` : ""
+            }] (run ${retryResult.run_id.slice(0, 8)}...)`
+          );
+        } catch {
+          // Fall through to local outbox buffering.
+        }
+      }
       await appendToOutbox("progress", {
         id,
         type: "progress",
@@ -2014,6 +2084,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
 
     const now = new Date().toISOString();
     const id = `changeset:${randomUUID().slice(0, 8)}`;
+    const { agentId, agentName } = deriveAgentIdentity();
 
     const activityItem: LiveActivityItem = {
       id,
@@ -2022,12 +2093,12 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       description: `${payload.operations.length} operation${
         payload.operations.length === 1 ? "" : "s"
       }`,
-      agentId: null,
-      agentName: null,
-      requesterAgentId: null,
-      requesterAgentName: null,
-      executorAgentId: null,
-      executorAgentName: null,
+      agentId,
+      agentName,
+      requesterAgentId: agentId,
+      requesterAgentName: agentName,
+      executorAgentId: agentId,
+      executorAgentName: agentName,
       runId: context.value.runId ?? null,
       initiativeId: context.value.initiativeId,
       timestamp: now,
@@ -2038,6 +2109,10 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       metadata: withProvenanceMetadata({
         source,
         idempotency_key: idempotencyKey,
+        run_id: context.value.runId ?? null,
+        correlation_id: context.value.correlationId ?? null,
+        ...(agentId ? { agent_id: agentId } : {}),
+        ...(agentName ? { agent_name: agentName } : {}),
       }),
     };
 
@@ -2048,7 +2123,30 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           result.applied_count === 1 ? "" : "s"
         } (run ${result.run_id.slice(0, 8)}...)`
       );
-    } catch {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (
+        requestPayload.run_id &&
+        /^404\b/.test(errMsg) &&
+        /\brun\b/i.test(errMsg) &&
+        /not found/i.test(errMsg)
+      ) {
+        try {
+          const retryResult = await client.applyChangeset({
+            ...requestPayload,
+            run_id: undefined,
+            correlation_id:
+              requestPayload.correlation_id ?? deriveCorrelationFromRun(requestPayload.run_id),
+          });
+          return text(
+            `Changeset ${retryResult.replayed ? "replayed" : "applied"}: ${retryResult.applied_count} op${
+              retryResult.applied_count === 1 ? "" : "s"
+            } (run ${retryResult.run_id.slice(0, 8)}...)`
+          );
+        } catch {
+          // Fall through to local outbox buffering.
+        }
+      }
       await appendToOutbox("decisions", {
         id,
         type: "changeset",
@@ -2497,18 +2595,19 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
 
         const baseUrl = client.getBaseUrl();
         const artifactId = randomUUID();
+        const { agentId, agentName } = deriveAgentIdentity(params);
 
         const activityItem: LiveActivityItem = {
           id,
           type: "artifact_created",
           title: params.name,
           description: params.description ?? null,
-          agentId: null,
-          agentName: null,
-          requesterAgentId: null,
-          requesterAgentName: null,
-          executorAgentId: null,
-          executorAgentName: null,
+          agentId,
+          agentName,
+          requesterAgentId: agentId,
+          requesterAgentName: agentName,
+          executorAgentId: agentId,
+          executorAgentName: agentName,
           runId: null,
           initiativeId: resolvedEntityType === "initiative" ? resolvedEntityId : null,
           timestamp: now,
@@ -2520,6 +2619,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             url: params.url,
             entity_type: resolvedEntityType,
             entity_id: resolvedEntityId,
+            ...(agentId ? { agent_id: agentId } : {}),
+            ...(agentName ? { agent_name: agentName } : {}),
           }),
         };
 

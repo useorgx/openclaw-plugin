@@ -242,7 +242,11 @@ export function projectRunStatus(input: RunStatusInputs): CanonicalRunProjection
   }
 
   if (inProgress) {
-    return projection('in_progress', 'Execution is in progress.', {
+    const sentence =
+      nonBlockingDecisions > 0
+        ? `Running with ${nonBlockingDecisions} optional decision${nonBlockingDecisions === 1 ? '' : 's'} available.`
+        : 'Running.';
+    return projection('in_progress', sentence, {
       tone: 'neutral',
     });
   }

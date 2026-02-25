@@ -24,6 +24,7 @@ import { DependencyMapPanel } from './DependencyMapPanel';
 import { HierarchyTreeTable } from './HierarchyTreeTable';
 import { RecentTodosRail } from './RecentTodosRail';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+import { humanizeWarning } from '@/lib/humanize';
 import { CollapsibleSection } from './CollapsibleSection';
 import { QueuePlacementControl } from './QueuePlacementControl';
 
@@ -284,22 +285,6 @@ function toTaskEntity(node: MissionControlNode, initiative: Initiative): Initiat
     workstreamId: node.workstreamId,
     createdAt: node.updatedAt,
   };
-}
-
-function humanizeWarning(raw: string): string {
-  if (/cyclic dependency edge/i.test(raw)) {
-    return 'Dependency loop detected in saved links. ETA sequencing excludes the loop until fixed.';
-  }
-  if (/unknown api endpoint/i.test(raw)) return 'Graph API unavailable — showing session-derived data';
-  if (/401|unauthorized/i.test(raw)) return 'Auth expired — reconnect to load full data';
-  if (/failed to list initiative/i.test(raw)) return 'Initiative data unavailable';
-  if (/failed to list workstream/i.test(raw)) return 'Workstream data unavailable';
-  if (/failed to list milestone/i.test(raw)) return 'Milestone data unavailable';
-  if (/failed to list task/i.test(raw)) return 'Task data unavailable';
-  if (/500 internal server/i.test(raw)) return 'Server error — some data may be incomplete';
-  if (/entity data partially unavailable/i.test(raw)) return 'Entity data partially unavailable';
-  if (raw.length > 80) return raw.slice(0, 72).replace(/[^a-zA-Z0-9]$/, '') + '...';
-  return raw;
 }
 
 const staggerItem = {
