@@ -2070,96 +2070,71 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       }
       const note = input?.note?.trim() || undefined;
       const optionId = input?.optionId?.trim() || undefined;
+
+      if (useMock) {
+        const resolvedIds = new Set(ids);
+        setData((prev) => {
+          const approvedDecisions = prev.decisions.filter((decision) =>
+            resolvedIds.has(decision.id)
+          );
+          if (approvedDecisions.length === 0) {
+            return prev;
+          }
+
+          const now = new Date().toISOString();
+          const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
+            id: `decision:${action}:${decision.id}:${Date.now()}`,
+            type: 'decision_resolved',
+            title:
+              action === 'approve'
+                ? `Approved: ${decision.title}`
+                : `Rejected: ${decision.title}`,
+            description: decision.context,
+            agentId: null,
+            agentName: decision.agentName,
+            requesterAgentId: null,
+            requesterAgentName: decision.agentName ?? null,
+            executorAgentId: null,
+            executorAgentName: decision.agentName ?? null,
+            runId: null,
+            initiativeId: null,
+            timestamp: now,
+            metadata: {
+              decisionId: decision.id,
+              action,
+            },
+          }));
+
+          const mergedActivity = normalizeActivity(
+            decisionEvents.concat(prev.activity),
+            maxActivityItems
+          );
+          return {
+            ...prev,
+            decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
+            activity: mergedActivity,
+            lastActivity: formatRelativeTime(now),
+          };
+        });
+        return { updated: resolvedIds.size, failed: 0, firstError: undefined };
+      }
+
       const startedAt = new Date().toISOString();
-      publishDecisionMutation({
-        phase: 'pending',
-        action,
-        targetCount: ids.length,
-        message:
-          action === 'approve'
-            ? `Approving ${ids.length} decision${ids.length === 1 ? '' : 's'}…`
-            : `Rejecting ${ids.length} decision${ids.length === 1 ? '' : 's'}…`,
-        startedAt,
-        completedAt: null,
+      const response = await fetch('/orgx/api/live/decisions/approve', {
+        method: 'POST',
+        headers: buildOrgxHeaders({
+          contentTypeJson: true,
+          workspaceId: normalizedProjectId,
+        }),
+        body: JSON.stringify({
+          ids,
+          action,
+          ...(note ? { note } : {}),
+          ...(optionId ? { option_id: optionId } : {}),
+        }),
       });
 
       try {
-        if (useMock) {
-          const resolvedIds = new Set(ids);
-          setData((prev) => {
-            const approvedDecisions = prev.decisions.filter((decision) =>
-              resolvedIds.has(decision.id)
-            );
-            if (approvedDecisions.length === 0) {
-              return prev;
-            }
-
-            const now = new Date().toISOString();
-            const decisionEvents: LiveActivityItem[] = approvedDecisions.map((decision) => ({
-              id: `decision:${action}:${decision.id}:${Date.now()}`,
-              type: 'decision_resolved',
-              title:
-                action === 'approve'
-                  ? `Approved: ${decision.title}`
-                  : `Rejected: ${decision.title}`,
-              description: decision.context,
-              agentId: null,
-              agentName: decision.agentName,
-              requesterAgentId: null,
-              requesterAgentName: decision.agentName ?? null,
-              executorAgentId: null,
-              executorAgentName: decision.agentName ?? null,
-              runId: null,
-              initiativeId: null,
-              timestamp: now,
-              metadata: {
-                decisionId: decision.id,
-                action,
-              },
-            }));
-
-            const mergedActivity = normalizeActivity(
-              decisionEvents.concat(prev.activity),
-              maxActivityItems
-            );
-            return {
-              ...prev,
-              decisions: prev.decisions.filter((decision) => !resolvedIds.has(decision.id)),
-              activity: mergedActivity,
-              lastActivity: formatRelativeTime(now),
-            };
-          });
-          publishDecisionMutation(
-            {
-              phase: 'success',
-              action,
-              targetCount: resolvedIds.size,
-              message:
-                action === 'approve'
-                  ? `Approved ${resolvedIds.size} decision${resolvedIds.size === 1 ? '' : 's'}.`
-                  : `Rejected ${resolvedIds.size} decision${resolvedIds.size === 1 ? '' : 's'}.`,
-              startedAt,
-              completedAt: new Date().toISOString(),
-            },
-            { autoResetMs: 4_000 }
-          );
-          return { updated: resolvedIds.size, failed: 0, firstError: undefined };
-        }
-
-        const response = await fetch('/orgx/api/live/decisions/approve', {
-          method: 'POST',
-          headers: buildOrgxHeaders({
-            contentTypeJson: true,
-            workspaceId: normalizedProjectId,
-          }),
-          body: JSON.stringify({
-            ids,
-            action,
-            ...(note ? { note } : {}),
-            ...(optionId ? { option_id: optionId } : {}),
-          }),
-        });
-
         const payload = (await response.json().catch(() => null)) as DecisionMutationResponse | null;
         const results = Array.isArray(payload?.results) ? payload.results : [];
         const resolvedIds = new Set(

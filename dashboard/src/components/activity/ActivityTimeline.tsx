@@ -3370,7 +3370,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
   const activeResultItems = useMemo(() => {
     if (!activeExecutionBreakdown) return [];
-    const resultItems: Array<{ label: string; value: number | string }> = [];
+    const resultItems: Array<{ label: string; value: number | string; tone?: 'neutral' | 'critical' }> = [];
+    if (activeOutcome) {
+      resultItems.push({ label: 'Status', value: activeOutcome.label });
+    }
     if (activeExecutionBreakdown.scopedTaskCount > 0) {
       resultItems.push({ label: 'Tasks', value: activeExecutionBreakdown.scopedTaskCount });
     }
@@ -3386,7 +3389,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       resultItems.push({ label: 'Decisions', value: decisionCount });
     }
     if (activeExecutionBreakdown.blockingDecisions && activeExecutionBreakdown.blockingDecisions > 0) {
-      resultItems.push({ label: 'Blocking', value: activeExecutionBreakdown.blockingDecisions });
+      resultItems.push({
+        label: 'Blocking',
+        value: activeExecutionBreakdown.blockingDecisions,
+        tone: 'critical',
+      });
+    }
+    if (activeExecutionBreakdown.stopReason) {
+      resultItems.push({ label: 'Stop reason', value: humanizeText(activeExecutionBreakdown.stopReason) });
     }
     const tokenLabel = formatTokens(
       activeExecutionBreakdown.tokensUsed,
@@ -3394,9 +3404,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     );
     if (tokenLabel) {
       resultItems.push({ label: 'Token usage', value: tokenLabel });
-    }
-    if (resultItems.length === 0 && activeOutcome) {
-      resultItems.push({ label: 'Status', value: activeOutcome.label });
     }
     return resultItems;
   }, [activeExecutionBreakdown, activeOutcome]);
@@ -5054,9 +5061,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </p>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary sm:grid-cols-3">
                           {activeResultItems.map((item) => (
-                            <div key={item.label} className="rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2">
+                            <div
+                              key={item.label}
+                              className={
+                                item.tone === 'critical'
+                                  ? 'rounded-lg border border-red-300/28 bg-red-400/[0.08] px-2.5 py-2'
+                                  : 'rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2'
+                              }
+                            >
                               <div className="text-micro text-secondary">{item.label}</div>
-                              <div className="mt-1 tabular-nums">{item.value}</div>
+                              <div className="mt-1 break-words tabular-nums">{item.value}</div>
                             </div>
                           ))}
                         </div>

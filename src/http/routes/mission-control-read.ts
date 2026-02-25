@@ -891,19 +891,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const projectId = scope.workspaceId;
 
     try {
-      const queue = await withSoftTimeout(
-        deps.buildNextUpQueue({
-          initiativeId,
-          projectId,
-        }),
-        NEXT_UP_LOCAL_QUEUE_TIMEOUT_MS,
-        "local next-up queue"
-      ).catch((err: unknown) => ({
-        items: [] as NextUpQueueItem[],
-        degraded: [
-          `local next-up queue unavailable (${deps.safeErrorMessage(err)})`,
-        ],
-      }));
+      const queue = await deps.buildNextUpQueue({
+        initiativeId,
+        projectId,
+      });
       let items = Array.isArray(queue.items) ? queue.items : [];
       const degraded = dedupeStrings(
         Array.isArray(queue.degraded) ? queue.degraded : []

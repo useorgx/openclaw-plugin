@@ -4,7 +4,6 @@ import { SearchInput } from '@/components/shared/SearchInput';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InlineToast } from '@/components/shared/InlineToast';
 import { EntityIcon } from '@/components/shared/EntityIcon';
-import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { useMissionControlSlices } from '@/hooks/useMissionControlSlices';
 import { useMissionControlSliceOrdering } from '@/hooks/useMissionControlSliceOrdering';
 import type {
@@ -121,8 +120,6 @@ function sliceSubtitle(item: MissionControlSliceItem): string {
 }
 
 function normalizeRunnerName(item: MissionControlSliceItem): string {
-  const resolved = resolveSliceRunnerAgents(item)[0]?.name;
-  if (resolved) return resolved;
   const raw = item.runnerAgentName?.trim() ?? '';
   const idRaw = item.runnerAgentId?.trim().toLowerCase() ?? '';
   if (!raw) return idRaw && idRaw !== 'main' ? sanitizeDisplayText(idRaw) : 'Unassigned';
@@ -132,89 +129,6 @@ function normalizeRunnerName(item: MissionControlSliceItem): string {
     return 'Unassigned';
   }
   return sanitizeDisplayText(raw);
-}
-
-type SliceRunnerDisplay = {
-  id: string;
-  name: string;
-};
-
-function normalizeRunnerToken(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const normalized = trimmed.toLowerCase();
-  if (
-    normalized === 'main' ||
-    normalized === 'unassigned' ||
-    normalized === 'undefined' ||
-    normalized === 'null' ||
-    normalized === 'n/a' ||
-    normalized === 'na'
-  ) {
-    return null;
-  }
-  return sanitizeDisplayText(trimmed);
-}
-
-function resolveSliceRunnerAgents(item: MissionControlSliceItem): SliceRunnerDisplay[] {
-  const output: SliceRunnerDisplay[] = [];
-  const seen = new Set<string>();
-  const pushRunner = (idRaw: string | null | undefined, nameRaw: string | null | undefined) => {
-    const id = normalizeRunnerToken(idRaw);
-    const name = normalizeRunnerToken(nameRaw) ?? id;
-    if (!id && !name) return;
-    const resolvedId = id ?? (name as string);
-    const key = resolvedId.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    output.push({
-      id: resolvedId,
-      name: name ?? resolvedId,
-    });
-  };
-  if (Array.isArray(item.runnerAgents)) {
-    for (const agent of item.runnerAgents) {
-      pushRunner(agent?.id ?? null, agent?.name ?? null);
-    }
-  }
-  pushRunner(item.runnerAgentId ?? null, item.runnerAgentName ?? null);
-  return output;
-}
-
-function SliceRunnerAvatarStack({
-  item,
-  max = 3,
-}: {
-  item: MissionControlSliceItem;
-  max?: number;
-}) {
-  const runners = resolveSliceRunnerAgents(item);
-  if (runners.length === 0) {
-    return <AgentAvatar name="Unassigned" hint="Runner fallback" size="xs" />;
-  }
-  const shown = runners.slice(0, max);
-  const overflow = runners.length - shown.length;
-  return (
-    <div className="inline-flex items-center">
-      <div className="flex items-center -space-x-2">
-        {shown.map((runner, index) => (
-          <div
-            key={`${runner.id}-${index}`}
-            className="relative rounded-full ring-1 ring-[#080808]/90"
-            style={{ zIndex: shown.length - index }}
-          >
-            <AgentAvatar name={runner.name} hint={runner.name} size="xs" />
-          </div>
-        ))}
-      </div>
-      {overflow > 0 ? (
-        <span className="ml-1 rounded-full border border-strong bg-white/[0.03] px-1.5 py-0.5 text-micro text-secondary">
-          +{overflow}
-        </span>
-      ) : null}
-    </div>
-  );
 }
 
 function taskLoadLabel(item: MissionControlSliceItem): string {
@@ -581,7 +495,6 @@ export function SliceExplorerPanel({
               const hasObjective =
                 typeof item.objectiveScore === 'number' && Number.isFinite(item.objectiveScore);
               const runnerName = normalizeRunnerName(item);
-              const runnerCount = resolveSliceRunnerAgents(item).length;
               const subtitle = sliceSubtitle(item);
               return (
                 <Reorder.Item
@@ -641,13 +554,7 @@ export function SliceExplorerPanel({
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
                         <span className="chip text-micro">{levelLabel(item.level)}</span>
                         <span className="chip text-micro">{taskLoadLabel(item)}</span>
-                        <span className="chip inline-flex items-center gap-1 text-micro">
-                          <SliceRunnerAvatarStack item={item} max={3} />
-                          <span>
-                            {runnerCount > 1 ? 'Agents' : 'Agent'} {runnerName}
-                            {runnerCount > 1 ? ` +${runnerCount - 1}` : ''}
-                          </span>
-                        </span>
+                        <span className="chip text-micro">Agent {runnerName}</span>
                         {hasRoi ? (
                           <span className="chip text-micro">ROI/token {formatMetric(item.roiPerToken, 3)}</span>
                         ) : null}
@@ -692,7 +599,6 @@ export function SliceExplorerPanel({
               const hasObjective =
                 typeof item.objectiveScore === 'number' && Number.isFinite(item.objectiveScore);
               const runnerName = normalizeRunnerName(item);
-              const runnerCount = resolveSliceRunnerAgents(item).length;
               const subtitle = sliceSubtitle(item);
               return (
                 <motion.article
@@ -727,13 +633,7 @@ export function SliceExplorerPanel({
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
                         <span className="chip text-micro">{levelLabel(item.level)}</span>
                         <span className="chip text-micro">{taskLoadLabel(item)}</span>
-                        <span className="chip inline-flex items-center gap-1 text-micro">
-                          <SliceRunnerAvatarStack item={item} max={3} />
-                          <span>
-                            {runnerCount > 1 ? 'Agents' : 'Agent'} {runnerName}
-                            {runnerCount > 1 ? ` +${runnerCount - 1}` : ''}
-                          </span>
-                        </span>
+                        <span className="chip text-micro">Agent {runnerName}</span>
                         {hasRoi ? (
                           <span className="chip text-micro">ROI/token {formatMetric(item.roiPerToken, 3)}</span>
                         ) : null}

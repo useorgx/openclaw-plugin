@@ -34,47 +34,6 @@ function normalizeErrorMessage(response: Response, body: any | null, fallback: s
   return humanizeWarning(detail);
 }
 
-export interface UseNextUpQueueActionsResult {
-  pin: (payload: {
-    initiativeId: string;
-    workstreamId: string;
-    taskId?: string | null;
-    milestoneId?: string | null;
-  }) => Promise<unknown>;
-  unpin: (payload: { initiativeId: string; workstreamId: string }) => Promise<unknown>;
-  reorder: (payload: { order: Array<{ initiativeId: string; workstreamId: string }> }) => Promise<unknown>;
-  move: (payload: {
-    initiativeId: string;
-    workstreamId: string;
-    placement?: 'top' | 'bottom';
-  }) => Promise<unknown>;
-  remove: (payload: { initiativeId: string; workstreamId: string }) => Promise<unknown>;
-  stopTriage: (payload: {
-    initiativeId: string;
-    workstreamId: string;
-    placement?: 'top' | 'bottom';
-    resetToTodo?: boolean;
-  }) => Promise<unknown>;
-  clear: (payload: {
-    initiativeId?: string | null;
-    workstreamId?: string | null;
-    states?: Array<'running' | 'blocked'>;
-    placement?: 'top' | 'bottom';
-  }) => Promise<unknown>;
-  bulk: (payload: {
-    action: 'move_top' | 'move_bottom' | 'remove';
-    items: Array<{ initiativeId: string; workstreamId: string }>;
-  }) => Promise<unknown>;
-  isPinning: boolean;
-  isUnpinning: boolean;
-  isReordering: boolean;
-  isMoving: boolean;
-  isRemoving: boolean;
-  isStoppingTriage: boolean;
-  isClearing: boolean;
-  isBulking: boolean;
-}
-
 export function useNextUpQueueActions(input: { authToken?: string | null; embedMode?: boolean }) {
   const authToken = input.authToken ?? null;
   const embedMode = input.embedMode ?? false;

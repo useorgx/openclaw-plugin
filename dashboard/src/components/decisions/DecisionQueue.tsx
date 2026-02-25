@@ -433,32 +433,19 @@ export const DecisionQueue = memo(function DecisionQueue({
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const externalPending = mutationState?.phase === 'pending';
-  const externalError = mutationState?.phase === 'error';
-  const externalSuccess = mutationState?.phase === 'success';
-  const externalTargetCount =
-    mutationState && mutationState.targetCount > 0 ? mutationState.targetCount : 0;
-  const externalMessage = mutationState?.message ?? null;
   const noticeIsSuccess = notice !== null && !notice.toLowerCase().includes('fail');
-  const hasInFlightMutations = externalPending || isApprovingAll || approving.size > 0;
-  const inFlightCount = externalPending
-    ? externalTargetCount
-    : Math.max(approving.size, isApprovingAll ? selectedCount : 0);
+  const hasInFlightMutations = isApprovingAll || approving.size > 0;
+  const inFlightCount = Math.max(approving.size, isApprovingAll ? selectedCount : 0);
   const statusMessage = hasInFlightMutations
-    ? externalMessage ??
-      `Applying ${inFlightCount} decision action${inFlightCount === 1 ? '' : 's'}…`
-    : externalMessage ?? notice ?? null;
+    ? `Applying ${inFlightCount} decision action${inFlightCount === 1 ? '' : 's'}…`
+    : notice ?? null;
   const statusTone: 'processing' | 'success' | 'warning' | 'idle' = hasInFlightMutations
     ? 'processing'
-    : externalError
-      ? 'warning'
-      : externalSuccess
+    : notice
+      ? noticeIsSuccess
         ? 'success'
-        : notice
-          ? noticeIsSuccess
-            ? 'success'
-            : 'warning'
-          : 'idle';
+        : 'warning'
+      : 'idle';
   const enableMotion = !prefersReducedMotion && visible.length <= 32;
   const selectedEnabled = selectedBulkOption !== null && selectedBulkOption.ids.length > 0 && !isApprovingAll;
   const pendingCount = sorted.length;
@@ -602,9 +589,6 @@ export const DecisionQueue = memo(function DecisionQueue({
                   <polyline points="22 4 12 14.01 9 11.01" />
                 </svg>
                 <p className="text-body text-secondary">No pending decisions. All clear.</p>
-                {noticeIsSuccess && statusMessage ? (
-                  <p className="text-caption text-lime">{statusMessage}</p>
-                ) : null}
               </>
             )}
           </div>

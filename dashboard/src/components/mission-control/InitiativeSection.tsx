@@ -405,20 +405,10 @@ export function InitiativeSection({
     const match = /detected\s+(\d+)\s+cyclic dependency edge/i.exec(warning);
     return count + (match ? Number(match[1]) || 0 : 0);
   }, 0);
-  const autoFixRouteUnavailable = warnings.some((warning) =>
-    /unknown api endpoint|route is unavailable|missing required live routes/i.test(warning)
-  );
-  const canAutoFixCycles = cycleWarnings.length > 0 && !autoFixRouteUnavailable;
+  const canAutoFixCycles = cycleWarnings.length > 0;
 
   const autoFixDependencyCycles = async () => {
     if (isAutoFixingCycles) return;
-    if (!canAutoFixCycles) {
-      setQueueNotice({
-        tone: 'error',
-        message: 'Dependency auto-fix is unavailable in this deployment.',
-      });
-      return;
-    }
     setIsAutoFixingCycles(true);
     try {
       const response = await fetch('/orgx/api/mission-control/graph/cycles/auto-fix', {
@@ -458,7 +448,7 @@ export function InitiativeSection({
         tone: 'error',
         message:
           error instanceof Error
-            ? humanizeWarning(error.message)
+            ? error.message
             : 'Failed to auto-fix dependency cycles.',
       });
     } finally {
@@ -1066,17 +1056,15 @@ export function InitiativeSection({
                       variants={staggerItem}
                       className="overflow-hidden rounded-lg border border-amber-300/15 bg-amber-500/[0.06]"
                     >
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 px-3 py-2">
                         <button
                           type="button"
                           onClick={() => setWarningsExpanded((prev) => !prev)}
-                          className="flex min-w-0 items-center gap-2 text-left transition-colors hover:text-white"
+                          className="flex min-w-0 flex-1 items-center justify-between text-left transition-colors hover:text-white"
                         >
                           <span className="truncate text-caption text-amber-100/85">
                             {canAutoFixCycles
                               ? `Dependency loop detected (${cycleEdgeCount || cycleWarnings.length} edges)`
-                              : cycleWarnings.length > 0
-                                ? `Dependency loop detected (${cycleEdgeCount || cycleWarnings.length} edges)`
                               : `${warnings.length} data source${warnings.length > 1 ? 's' : ''} unavailable`}
                           </span>
                           <svg
@@ -1091,16 +1079,11 @@ export function InitiativeSection({
                             <path d="m6 9 6 6 6-6" />
                           </svg>
                         </button>
-                        {cycleWarnings.length > 0 ? (
+                        {canAutoFixCycles ? (
                           <button
                             type="button"
                             onClick={autoFixDependencyCycles}
-                            disabled={!canAutoFixCycles || isAutoFixingCycles}
-                            title={
-                              canAutoFixCycles
-                                ? 'Automatically remove cycle edges and re-queue impacted workstreams'
-                                : 'Auto-fix route unavailable in this deployment'
-                            }
+                            disabled={isAutoFixingCycles}
                             className="control-pill h-7 flex-shrink-0 px-2.5 text-micro font-semibold text-[#D8FFA1] disabled:opacity-45"
                           >
                             {isAutoFixingCycles ? 'Fixing…' : 'Auto-fix'}

@@ -11,10 +11,7 @@ import type {
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { useNextUpQueue, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
-import {
-  useNextUpQueueActions,
-  type UseNextUpQueueActionsResult,
-} from '@/hooks/useNextUpQueueActions';
+import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useInitiativeSearch } from '@/hooks/useInitiativeSearch';
 import { openUpgradeCheckout } from '@/lib/billing';
@@ -54,7 +51,7 @@ interface MissionControlViewProps {
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
   nextUpQueueModel?: UseNextUpQueueResult;
-  nextUpActionsModel?: UseNextUpQueueActionsResult;
+  nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
 }
 
@@ -384,7 +381,7 @@ function MissionControlInner({
   onPlayNextUp?: () => Promise<void> | void;
   onStartAutopilot?: () => Promise<void> | void;
   nextUpQueueModel?: UseNextUpQueueResult;
-  nextUpActionsModel?: UseNextUpQueueActionsResult;
+  nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
 }) {
   const {
