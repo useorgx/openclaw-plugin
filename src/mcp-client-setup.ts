@@ -162,7 +162,7 @@ function upsertCodexMcpServerSection(input: {
   const currentText = input.current;
   const lines = currentText.split(/\r?\n/);
   const escapedKey = escapeRegExp(input.key);
-  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|${escapedKey})\\]\\s*$`);
+  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\]\\s*$`);
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i += 1) {
     if (headerRegex.test(lines[i].trim())) {
@@ -240,13 +240,13 @@ function removeCodexLegacyScopedMcpSections(input: {
   let index = 0;
   while (index < lines.length) {
     const trimmed = lines[index].trim();
-    const headerMatch = trimmed.match(/^\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_]+))\]\s*$/);
+    const headerMatch = trimmed.match(/^\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_]+))\]\s*$/);
     if (!headerMatch) {
       index += 1;
       continue;
     }
 
-    const key = (headerMatch[1] ?? headerMatch[2] ?? "").trim();
+    const key = (headerMatch[1] ?? headerMatch[2] ?? headerMatch[3] ?? "").trim();
     const isLegacyScoped =
       key !== input.baseKey &&
       key.startsWith(scopedPrefix);

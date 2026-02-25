@@ -223,3 +223,39 @@ test("patchCodexConfigToml removes stale scoped entries", async () => {
   assert.ok(!patched.next.includes(legacyScopedA), "scoped entry should be removed");
   assert.ok(!patched.next.includes(legacyScopedB), "scoped entry should be removed");
 });
+
+test("patchCodexConfigToml updates and cleans single-quoted table keys", async () => {
+  const mod = await importFreshModule();
+  const local = "http://127.0.0.1:18789/orgx/mcp";
+  const legacyScoped = "orgx-openclaw-legacy-single";
+  const current = [
+    "model = 'gpt-5.3-codex'",
+    "",
+    "[mcp_servers.'orgx']",
+    "url = 'https://old.example.invalid/mcp'",
+    "",
+    "[mcp_servers.'orgx-openclaw']",
+    "url = 'http://127.0.0.1:9999/old'",
+    "",
+    `[mcp_servers.'${legacyScoped}']`,
+    "url = 'http://127.0.0.1:9999/old-legacy'",
+    "",
+  ].join("\n");
+
+  const patched = mod.patchCodexConfigToml({ current, localMcpUrl: local });
+  assert.equal(patched.updated, true);
+  assert.ok(
+    patched.next.includes("[mcp_servers.orgx]") || patched.next.includes("[mcp_servers.'orgx']"),
+    "hosted orgx header should exist"
+  );
+  assert.ok(patched.next.includes('url = "https://mcp.useorgx.com/mcp"'));
+  assert.ok(
+    patched.next.includes('[mcp_servers."orgx-openclaw"]') ||
+      patched.next.includes("[mcp_servers.'orgx-openclaw']"),
+    "local orgx-openclaw header should exist"
+  );
+  assert.ok(patched.next.includes(`url = "${local}"`));
+  assert.ok(!patched.next.includes("old.example.invalid"), "stale hosted URL should be replaced");
+  assert.ok(!patched.next.includes("127.0.0.1:9999/old"), "stale local URL should be replaced");
+  assert.ok(!patched.next.includes(legacyScoped), "single-quoted scoped entry should be removed");
+});
