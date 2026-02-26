@@ -1,7 +1,12 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { LiveTriageItem, TriageAction } from '@/types';
+import type { LiveTriageItem, LiveDecision, TriageAction } from '@/types';
 import type { TriageQueueActions } from '@/hooks/useTriageQueue';
+import { formatRelativeTime } from '@/lib/time';
+import { colors } from '@/lib/tokens';
+import { EvidenceCard } from '@/components/shared/EvidenceCard';
+import { SectionHeading } from '@/components/shared/SectionHeading';
+import { EntityIcon } from '@/components/shared/EntityIcon';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,15 +44,13 @@ function severityColor(severity: string): string {
 // Section Components
 // ---------------------------------------------------------------------------
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h4 className="text-micro font-semibold uppercase tracking-wider text-muted mb-1.5">
-      {children}
-    </h4>
-  );
-}
-
-function ProofSection({ item }: { item: LiveTriageItem }) {
+function ProofSection({
+  item,
+  onOpenTerminal,
+}: {
+  item: LiveTriageItem;
+  onOpenTerminal?: (logRef: string) => void;
+}) {
   const bundle = item.proofBundle;
   const hasProof =
     bundle.artifactRefs.length > 0 ||
@@ -60,44 +63,60 @@ function ProofSection({ item }: { item: LiveTriageItem }) {
 
   return (
     <div>
-      <SectionHeading>Proof</SectionHeading>
-      <div className="space-y-1">
+      <SectionHeading>Evidence</SectionHeading>
+      <div className="space-y-1.5">
         {bundle.prRefs.map((ref, i) => (
-          <ProofRow key={`pr-${i}`} icon="pr" label={ref} />
+          <EvidenceCard key={`pr-${i}`} icon="pr" label={ref} />
         ))}
         {bundle.fileChanges.map((ref, i) => (
-          <ProofRow key={`file-${i}`} icon="file" label={ref} />
+          <EvidenceCard key={`file-${i}`} icon="file" label={ref} />
         ))}
         {bundle.artifactRefs.map((ref, i) => (
-          <ProofRow key={`art-${i}`} icon="artifact" label={ref} />
+          <EvidenceCard key={`art-${i}`} icon="artifact" label={ref} />
         ))}
         {bundle.logRefs.map((ref, i) => (
-          <ProofRow key={`log-${i}`} icon="log" label={ref} />
+          <EvidenceCard
+            key={`log-${i}`}
+            icon="log"
+            label={ref}
+            onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(ref) : undefined}
+          />
         ))}
         {bundle.decisionRefs.map((ref, i) => (
-          <ProofRow key={`dec-${i}`} icon="decision" label={ref} />
+          <EvidenceCard key={`dec-${i}`} icon="decision" label={ref} />
         ))}
       </div>
     </div>
   );
 }
 
-function ProofRow({ icon, label }: { icon: string; label: string }) {
-  const iconChar =
-    icon === 'pr'
-      ? '⎇'
-      : icon === 'file'
-        ? '◇'
-        : icon === 'log'
-          ? '▸'
-          : icon === 'decision'
-            ? '◈'
-            : '▪';
-
+function ImpactBar({
+  label,
+  value,
+  max,
+  color,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+}) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
-    <div className="flex items-center gap-2 rounded bg-white/[0.03] px-2 py-1 text-caption text-secondary">
-      <span className="text-muted flex-shrink-0 w-4 text-center">{iconChar}</span>
-      <span className="truncate">{label}</span>
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-caption text-secondary">{label}</span>
+        <span className="text-caption font-medium" style={{ color }}>{value}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+        <motion.div
+          className="h-full rounded-full"
+          style={{ backgroundColor: color }}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        />
+      </div>
     </div>
   );
 }
@@ -112,44 +131,43 @@ function ImpactSection({ item }: { item: LiveTriageItem }) {
     return null;
   }
 
+  const max = Math.max(
+    impact.initiativeCount,
+    impact.workstreamCount,
+    impact.downstreamBlockedCount,
+    1
+  );
+
   return (
     <div>
       <SectionHeading>Impact if ignored</SectionHeading>
-      <div className="flex flex-wrap gap-2">
+      <div className="space-y-2.5">
         {impact.initiativeCount > 0 && (
-          <ImpactChip
+          <ImpactBar
             label={`${impact.initiativeCount} initiative${impact.initiativeCount > 1 ? 's' : ''}`}
+            value={impact.initiativeCount}
+            max={max}
+            color={colors.amber}
           />
         )}
         {impact.workstreamCount > 0 && (
-          <ImpactChip
+          <ImpactBar
             label={`${impact.workstreamCount} workstream${impact.workstreamCount > 1 ? 's' : ''}`}
+            value={impact.workstreamCount}
+            max={max}
+            color={colors.amber}
           />
         )}
         {impact.downstreamBlockedCount > 0 && (
-          <ImpactChip
+          <ImpactBar
             label={`${impact.downstreamBlockedCount} blocked downstream`}
-            tone="red"
+            value={impact.downstreamBlockedCount}
+            max={max}
+            color={colors.red}
           />
         )}
       </div>
     </div>
-  );
-}
-
-function ImpactChip({
-  label,
-  tone = 'amber',
-}: {
-  label: string;
-  tone?: 'amber' | 'red';
-}) {
-  const bg = tone === 'red' ? 'bg-[#FF6B6B]/14' : 'bg-[#F5B700]/14';
-  const text = tone === 'red' ? 'text-[#FFA8A8]' : 'text-[#FFE7A8]';
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-micro font-medium ${bg} ${text}`}>
-      {label}
-    </span>
   );
 }
 
@@ -306,6 +324,198 @@ function TechnicalDetails({ item }: { item: LiveTriageItem }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Lifecycle Timeline
+// ---------------------------------------------------------------------------
+
+function LifecycleTimeline({ item }: { item: LiveTriageItem }) {
+  const events: Array<{ label: string; time: string }> = [];
+
+  if (item.firstSeenAt) events.push({ label: 'First seen', time: item.firstSeenAt });
+  if (item.createdAt && item.createdAt !== item.firstSeenAt)
+    events.push({ label: 'Created', time: item.createdAt });
+  if (item.snoozedUntil) events.push({ label: 'Snoozed until', time: item.snoozedUntil });
+  if (item.lastSeenAt && item.lastSeenAt !== item.firstSeenAt)
+    events.push({ label: 'Last seen', time: item.lastSeenAt });
+  if (item.updatedAt && item.updatedAt !== item.createdAt)
+    events.push({ label: 'Updated', time: item.updatedAt });
+
+  // Only render when > 1 distinct timestamp
+  if (events.length <= 1) return null;
+
+  return (
+    <div>
+      <SectionHeading>Timeline</SectionHeading>
+      <div className="relative pl-4">
+        {/* Vertical line */}
+        <div className="absolute left-[5px] top-1 bottom-1 w-px bg-white/[0.08]" />
+        <div className="space-y-2">
+          {events.map((evt, i) => (
+            <div key={i} className="relative flex items-center gap-2.5">
+              {/* Dot */}
+              <div className="absolute left-[-13px] h-2.5 w-2.5 rounded-full border border-white/[0.15] bg-white/[0.06]" />
+              <span className="text-micro text-muted w-20 flex-shrink-0">{evt.label}</span>
+              <span className="text-micro text-secondary">{formatRelativeTime(evt.time)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Embedded Decision Flow
+// ---------------------------------------------------------------------------
+
+function EmbeddedDecisionFlow({
+  decision,
+  onApprove,
+  onReject,
+}: {
+  decision: LiveDecision;
+  onApprove?: (id: string, input?: { note?: string; optionId?: string }) => Promise<{ updated: number; failed: number }>;
+  onReject?: (id: string, input?: { note?: string; optionId?: string }) => Promise<{ updated: number; failed: number }>;
+}) {
+  const [selectedOption, setSelectedOption] = useState<string | null>(
+    decision.selectedOptionId ??
+    (decision.options && decision.options.length === 1 ? decision.options[0].id : null)
+  );
+  const [note, setNote] = useState('');
+  const [showNote, setShowNote] = useState(false);
+  const [acting, setActing] = useState<'approve' | 'reject' | null>(null);
+  const [result, setResult] = useState<'approved' | 'rejected' | null>(null);
+
+  const options = decision.options ?? [];
+  const selectedOptionRecord = options.find((o) => o.id === selectedOption) ?? null;
+
+  const handleAction = async (action: 'approve' | 'reject') => {
+    const handler = action === 'approve' ? onApprove : onReject;
+    if (!handler) return;
+    setActing(action);
+    try {
+      const input: { note?: string; optionId?: string } = {};
+      if (note.trim()) input.note = note.trim();
+      if (selectedOptionRecord?.id) input.optionId = selectedOptionRecord.id;
+      const res = await handler(decision.id, Object.keys(input).length > 0 ? input : undefined);
+      if (res.failed === 0) {
+        setResult(action === 'approve' ? 'approved' : 'rejected');
+      }
+    } catch {
+      // Handled by parent
+    } finally {
+      setActing(null);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center">
+        <p className="text-caption text-secondary">
+          Decision {result}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-cyan-300/[0.2] bg-cyan-500/[0.06] px-4 py-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <EntityIcon type="decision" size={12} />
+        <p className="text-caption font-medium text-primary">{decision.title}</p>
+      </div>
+
+      {/* Recommended action */}
+      {decision.recommendedAction && (
+        <p className="text-micro text-cyan-200">
+          Recommended: {decision.recommendedAction}
+        </p>
+      )}
+
+      {/* Options as selectable cards */}
+      {options.length > 0 && (
+        <div className="space-y-1">
+          {options.map((option) => {
+            const isActive = selectedOption === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setSelectedOption(isActive ? null : option.id)}
+                disabled={acting !== null}
+                className="flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-all"
+                style={{
+                  borderColor: isActive ? `${colors.lime}50` : 'rgba(255,255,255,0.06)',
+                  backgroundColor: isActive ? `${colors.lime}08` : 'rgba(255,255,255,0.02)',
+                }}
+              >
+                <div
+                  className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+                  style={{ borderColor: isActive ? colors.lime : 'rgba(255,255,255,0.2)' }}
+                >
+                  {isActive && (
+                    <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colors.lime }} />
+                  )}
+                </div>
+                <span className={`text-caption ${isActive ? 'font-medium text-white' : 'text-secondary'}`}>
+                  {option.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Note */}
+      {showNote && (
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Add a note..."
+          className="w-full rounded-lg border border-subtle bg-white/[0.04] px-2.5 py-1.5 text-caption text-primary placeholder:text-muted resize-none"
+          rows={2}
+        />
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        {onApprove && (
+          <button
+            type="button"
+            onClick={() => handleAction('approve')}
+            disabled={acting !== null || (options.length > 0 && !selectedOptionRecord)}
+            className="rounded-lg px-3 py-1.5 text-caption font-semibold transition-all disabled:opacity-40"
+            style={{ backgroundColor: colors.lime, color: '#000' }}
+          >
+            {acting === 'approve' ? 'Approving...' : 'Approve'}
+          </button>
+        )}
+        {onReject && (
+          <button
+            type="button"
+            onClick={() => handleAction('reject')}
+            disabled={acting !== null}
+            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-caption font-medium text-secondary transition-colors hover:border-red-400/30 hover:text-red-300 disabled:opacity-40"
+          >
+            {acting === 'reject' ? 'Rejecting...' : 'Reject'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowNote((p) => !p)}
+          className="text-caption text-muted hover:text-secondary transition-colors"
+        >
+          {showNote ? 'Hide note' : 'Note'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Terminal Helper
+// ---------------------------------------------------------------------------
+
 function inferTerminalTarget(item: LiveTriageItem): { runId?: string; logPath?: string } | null {
   const logRef = item.proofBundle.logRefs.find(
     (ref) => typeof ref === 'string' && ref.trim().length > 0
@@ -331,6 +541,11 @@ export interface TriageDetailModalProps {
   onNavigate?: (direction: 1 | -1) => void;
   currentIndex?: number;
   totalCount?: number;
+  // New props
+  decisions?: LiveDecision[];
+  onApproveDecision?: (id: string, input?: { note?: string; optionId?: string }) => Promise<{ updated: number; failed: number }>;
+  onRejectDecision?: (id: string, input?: { note?: string; optionId?: string }) => Promise<{ updated: number; failed: number }>;
+  onFocusRunId?: (runId: string) => void;
 }
 
 export function TriageDetailModal({
@@ -340,10 +555,20 @@ export function TriageDetailModal({
   onNavigate,
   currentIndex,
   totalCount,
+  decisions,
+  onApproveDecision,
+  onRejectDecision,
+  onFocusRunId,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
+
+  // Find linked decision for embedded flow
+  const linkedDecision = useMemo(() => {
+    if (!item || item.kind !== 'decision_required' || !item.sourceDecisionId || !decisions) return null;
+    return decisions.find((d) => d.id === item.sourceDecisionId) ?? null;
+  }, [item, decisions]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -411,6 +636,35 @@ export function TriageDetailModal({
     [item, actions, onNavigate]
   );
 
+  const handleOpenTerminal = useCallback(async (logRef: string) => {
+    const trimmed = logRef.trim();
+    const leaf = trimmed.split(/[\\/]/).pop() ?? '';
+    const runId = leaf.replace(/\.(log|output\.json)$/i, '').trim();
+
+    try {
+      setTerminalError(null);
+      setIsOpeningTerminal(true);
+      const response = await fetch('/orgx/api/live/terminal/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: runId || undefined,
+          logPath: trimmed || undefined,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? `Terminal open failed (${response.status})`
+        );
+      }
+    } catch (error) {
+      setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
+    } finally {
+      setIsOpeningTerminal(false);
+    }
+  }, []);
+
   if (!item) return null;
   const terminalTarget = inferTerminalTarget(item);
 
@@ -475,7 +729,7 @@ export function TriageDetailModal({
           <p className="text-micro text-muted mb-1">
             {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
               .filter(Boolean)
-              .join(' › ')}
+              .join(' \u203A ')}
           </p>
         )}
         <div className="mb-4 space-y-2">
@@ -512,17 +766,47 @@ export function TriageDetailModal({
 
         <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 
-        {/* 2. Proof */}
+        {/* 2. Recommended action callout — promoted above actions */}
+        {item.recommendedAction && (
+          <div className="mb-4 rounded-xl border border-cyan-300/[0.28] bg-cyan-500/[0.12] px-4 py-3">
+            <p className="text-micro font-semibold uppercase tracking-wider text-cyan-200 mb-1">
+              Recommended
+            </p>
+            <p className="text-body text-cyan-100">{item.recommendedAction}</p>
+          </div>
+        )}
+
+        {/* 3. Proof / Evidence */}
         <div className="space-y-4 mb-4">
-          <ProofSection item={item} />
+          <ProofSection
+            item={item}
+            onOpenTerminal={handleOpenTerminal}
+          />
         </div>
 
-        {/* 3. Impact */}
+        {/* 4. Impact */}
         <div className="mb-4">
           <ImpactSection item={item} />
         </div>
 
-        {/* 4. Actions */}
+        {/* 5. Embedded decision flow */}
+        {linkedDecision && (
+          <div className="mb-4">
+            <SectionHeading>Linked Decision</SectionHeading>
+            <EmbeddedDecisionFlow
+              decision={linkedDecision}
+              onApprove={onApproveDecision}
+              onReject={onRejectDecision}
+            />
+          </div>
+        )}
+
+        {/* 6. Lifecycle timeline */}
+        <div className="mb-4">
+          <LifecycleTimeline item={item} />
+        </div>
+
+        {/* 7. Actions */}
         <div className="mb-4">
           <div className="space-y-1.5">
             {item.actionContract.map((action) => (
@@ -534,7 +818,7 @@ export function TriageDetailModal({
               />
             ))}
           </div>
-          {terminalTarget && (
+          {terminalTarget && !item.proofBundle.logRefs.length && (
             <button
               type="button"
               onClick={async () => {
@@ -565,18 +849,31 @@ export function TriageDetailModal({
               className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-50"
             >
               <span className="font-mono text-micro">{`>_`}</span>
-              {isOpeningTerminal ? 'Opening…' : 'Open in terminal'}
+              {isOpeningTerminal ? 'Opening\u2026' : 'Open in terminal'}
             </button>
-          )}
-          {item.recommendedAction && (
-            <p className="mt-2 text-micro text-[#7AEDE5]">
-              Recommended: {item.recommendedAction}
-            </p>
           )}
           {terminalError ? <p className="mt-2 text-micro text-red-200">{terminalError}</p> : null}
         </div>
 
-        {/* 5. Technical details (collapsed) */}
+        {/* 8. Source run link */}
+        {onFocusRunId && (item.sourceActivityId || item.sourceDecisionId) && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => {
+                // Try to infer a runId from terminal target or source IDs
+                const runId = terminalTarget?.runId ?? item.sourceActivityId ?? item.sourceDecisionId;
+                if (runId) onFocusRunId(runId);
+              }}
+              className="inline-flex items-center gap-1.5 text-caption text-[#D8FFA1] transition-colors hover:text-white"
+            >
+              <EntityIcon type="session" size={12} />
+              View source run
+            </button>
+          </div>
+        )}
+
+        {/* 9. Technical details (collapsed) */}
         <TechnicalDetails item={item} />
 
         {/* Keyboard shortcuts hint */}

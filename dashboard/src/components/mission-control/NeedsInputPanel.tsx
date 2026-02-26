@@ -1,5 +1,5 @@
-import { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useMemo, useState, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { Initiative, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -17,6 +17,7 @@ interface NeedsInputPanelProps {
   onFocusRunId?: (runId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenSliceDetail?: (sliceRun: SliceRunProjection) => void;
+  onAcceptSlice?: (sliceRun: SliceRunProjection) => void;
 }
 
 const NEEDS_INPUT_STATES = new Set(['awaiting_input', 'needs_review', 'failed']);
@@ -58,10 +59,10 @@ export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInpu
   return Array.from(grouped.values());
 }
 
-function statusTone(status: SliceRunProjection['status']): string {
-  if (status === 'failed') return 'border-red-400/30 bg-red-500/[0.10] text-red-100';
-  if (status === 'needs_review') return 'border-amber-300/30 bg-amber-300/[0.10] text-amber-100';
-  return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
+function statusAccentColor(status: SliceRunProjection['status']): string {
+  if (status === 'failed') return '#FF6B88';
+  if (status === 'needs_review') return '#F5B700';
+  return '#BFFF00';
 }
 
 function statusLabel(status: SliceRunProjection['status']): string {
@@ -71,18 +72,12 @@ function statusLabel(status: SliceRunProjection['status']): string {
   return status.replace(/_/g, ' ');
 }
 
-function statusHighlight(status: SliceRunProjection['status']): string {
-  if (status === 'failed') return 'from-red-300/0 via-red-300/65 to-red-300/0';
-  if (status === 'needs_review') return 'from-amber-300/0 via-amber-300/65 to-amber-300/0';
-  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
-}
-
 function actionLabel(item: SliceRunProjection): string {
   if (item.primaryAction === 'resolve_decision') return 'Review choices';
   if (item.primaryAction === 'open_artifact') return 'Open result';
-  if (item.primaryAction === 'retry_slice') return 'Review and retry';
-  if (item.primaryAction === 'review_output') return 'Review activity';
-  return 'Open details';
+  if (item.primaryAction === 'retry_slice') return 'Retry';
+  if (item.primaryAction === 'review_output') return 'Review';
+  return 'Details';
 }
 
 function valueSummary(item: SliceRunProjection): string {
@@ -144,8 +139,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   onFocusRunId,
   onReviewActivity,
   onOpenSliceDetail,
+  onAcceptSlice,
 }: NeedsInputPanelProps) {
   const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   const initiativeTitleById = useMemo(() => {
     const map = new Map<string, string>();
     for (const initiative of initiatives) {
@@ -166,6 +164,39 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     }
     return map;
   }, [initiatives]);
+
+  const toggleSelect = useCallback((sliceRunId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(sliceRunId)) next.delete(sliceRunId);
+      else next.add(sliceRunId);
+      return next;
+    });
+  }, []);
+
+  const allSelected = useMemo(
+    () => rows.length > 0 && rows.every((r) => selected.has(r.item.sliceRunId)),
+    [rows, selected]
+  );
+
+  const toggleSelectAll = useCallback(() => {
+    setSelected((prev) => {
+      if (allSelected) return new Set();
+      return new Set(rows.map((r) => r.item.sliceRunId));
+    });
+  }, [allSelected, rows]);
+
+  const selectedCount = selected.size;
+
+  const handleBulkAccept = useCallback(() => {
+    if (!onAcceptSlice) return;
+    for (const row of rows) {
+      if (selected.has(row.item.sliceRunId) && row.item.status === 'needs_review') {
+        onAcceptSlice(row.item);
+      }
+    }
+    setSelected(new Set());
+  }, [onAcceptSlice, rows, selected]);
 
   const runPrimaryAction = (item: SliceRunProjection) => {
     if (item.primaryAction === 'resolve_decision') {
@@ -194,11 +225,21 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     }
   };
 
+  // Group rows by status for visual scanning
+  const reviewRows = useMemo(() => rows.filter((r) => r.item.status === 'needs_review'), [rows]);
+  const failedRows = useMemo(() => rows.filter((r) => r.item.status === 'failed'), [rows]);
+  const inputRows = useMemo(() => rows.filter((r) => r.item.status === 'awaiting_input'), [rows]);
+  const selectedReviewCount = useMemo(
+    () => reviewRows.filter((r) => selected.has(r.item.sliceRunId)).length,
+    [reviewRows, selected]
+  );
+
+  const Wrapper = panelStyle === 'card' ? PremiumCard : 'div';
+
   return (
-    <PremiumCard
-      surface={panelStyle === 'card'}
+    <Wrapper
       className={`flex h-full min-h-0 flex-col overflow-hidden ${
-        panelStyle === 'flat' ? '!rounded-none !border-none !bg-transparent !shadow-none' : ''
+        panelStyle === 'flat' ? '' : ''
       } ${className ?? ''}`}
     >
       {showHeader ? (
@@ -206,6 +247,27 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
             <span className="chip text-micro">{rows.length}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {rows.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                className="control-pill h-7 px-2.5 text-micro font-semibold"
+              >
+                {allSelected ? 'Clear all' : 'Select all'}
+              </button>
+            )}
+            {selectedCount > 0 && selectedReviewCount > 0 && onAcceptSlice && (
+              <button
+                type="button"
+                onClick={handleBulkAccept}
+                className="control-pill h-7 px-2.5 text-micro font-semibold"
+                data-tone="teal"
+              >
+                Accept {selectedReviewCount} reviewed
+              </button>
+            )}
           </div>
         </div>
       ) : null}
@@ -215,135 +277,137 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
           No slices need intervention right now.
         </div>
       ) : (
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
-          {rows.map(({ item, duplicateCount }, index) => {
-            const primaryInitiativeId =
-              (Array.isArray(item.initiativeIds) && item.initiativeIds.length > 0
-                ? item.initiativeIds[0]
-                : item.initiativeId) ?? null;
-            const primaryWorkstreamId =
-              (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
-                ? item.workstreamIds[0]
-                : item.workstreamId) ?? null;
-            const initiativeLabel =
-              (primaryInitiativeId
-                ? initiativeTitleById.get(primaryInitiativeId)
-                : null) ?? compactEntityLabel(primaryInitiativeId, 'Initiative');
-            const workstreamLabel =
-              item.workstreamTitle ??
-              (primaryWorkstreamId
-                ? workstreamTitleById.get(primaryWorkstreamId) ?? null
-                : null);
-            const label = derivePrimaryLabel(item, workstreamLabel, primaryWorkstreamId);
-            const subtitle =
-              item.statusExplainer?.trim().length
-                ? item.statusExplainer
-                : 'Review this slice to continue execution.';
-            const summaryText = sanitizeDisplayText(valueSummary(item));
-            const subtitleText = sanitizeDisplayText(subtitle);
-            const initiativeText = sanitizeDisplayText(initiativeLabel);
-            const scopeText = item.scope ? item.scope.replace(/_/g, ' ') : null;
-            const when = item.updatedAt ?? item.lastEventAt ?? null;
-            return (
-              <motion.article
-                initial={{ opacity: 0, y: 10, scale: 0.985 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{
-                  duration: 0.24,
-                  delay: Math.min(index, 7) * 0.022,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-                key={item.sliceRunId}
-                className={`group hover-lift relative overflow-visible rounded-2xl border bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14] ${
-                  item.status === 'failed'
-                    ? 'border-red-400/20'
-                    : item.blockingDecisionCount > 0
-                      ? 'border-amber-400/20'
-                      : 'border-white/[0.08]'
-                }`}
-                role="button"
-                tabIndex={0}
-                onClick={() => onOpenSliceDetail?.(item)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onOpenSliceDetail?.(item);
-                  }
-                }}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <AnimatePresence mode="popLayout">
+            {rows.map(({ item, duplicateCount }, index) => {
+              const primaryInitiativeId =
+                (Array.isArray(item.initiativeIds) && item.initiativeIds.length > 0
+                  ? item.initiativeIds[0]
+                  : item.initiativeId) ?? null;
+              const primaryWorkstreamId =
+                (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
+                  ? item.workstreamIds[0]
+                  : item.workstreamId) ?? null;
+              const initiativeLabel =
+                (primaryInitiativeId
+                  ? initiativeTitleById.get(primaryInitiativeId)
+                  : null) ?? compactEntityLabel(primaryInitiativeId, 'Initiative');
+              const workstreamLabel =
+                item.workstreamTitle ??
+                (primaryWorkstreamId
+                  ? workstreamTitleById.get(primaryWorkstreamId) ?? null
+                  : null);
+              const label = derivePrimaryLabel(item, workstreamLabel, primaryWorkstreamId);
+              const summaryText = sanitizeDisplayText(valueSummary(item));
+              const initiativeText = sanitizeDisplayText(initiativeLabel);
+              const when = item.updatedAt ?? item.lastEventAt ?? null;
+              const accent = statusAccentColor(item.status);
+              const isSelected = selected.has(item.sliceRunId);
+
+              return (
+                <motion.article
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: 200, scale: 0.95 }}
+                  transition={{
+                    duration: 0.22,
+                    delay: Math.min(index, 7) * 0.02,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                  layout
+                  key={item.sliceRunId}
+                  className="group flex items-start gap-3 border-b border-white/[0.04] px-4 py-3 transition-colors hover:bg-white/[0.02] cursor-pointer"
+                  style={{
+                    borderLeftWidth: 3,
+                    borderLeftColor: `${accent}60`,
+                    backgroundColor: isSelected ? 'rgba(191,255,0,0.04)' : undefined,
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenSliceDetail?.(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenSliceDetail?.(item);
+                    }
+                  }}
                 >
-                  <div
-                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(item.status)}`}
-                    aria-hidden
+                  {/* Checkbox */}
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(item.sliceRunId)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1 h-3.5 w-3.5 flex-shrink-0 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
                   />
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                      <p className="inline-flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-muted">
-                        <EntityIcon type="initiative" size={10} className="flex-shrink-0 opacity-80" />
-                        <span className="truncate">{initiativeText}</span>
-                      </p>
-                      <p className="mt-0.5 inline-flex min-w-0 items-start gap-1.5 text-body font-semibold leading-snug text-white" title={label}>
-                        <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
-                        <span className="line-clamp-2">{label}</span>
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={summaryText}>
-                        {summaryText}
-                      </p>
-                      {subtitleText && subtitleText !== summaryText && (
-                        <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted" title={subtitleText}>
-                          {subtitleText}
+
+                  {/* Content — flat, no nested card */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="flex min-w-0 items-center gap-1.5 text-body font-semibold leading-snug text-white">
+                          <span className="line-clamp-1">{label}</span>
                         </p>
-                      )}
-                    </div>
-                    <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                        <p className="mt-0.5 text-caption text-secondary line-clamp-1">
+                          {summaryText}
+                        </p>
+                      </div>
                       <span
-                        className={`inline-flex h-6 items-center rounded-full border px-2 text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(item.status)}`}
+                        className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                        style={{
+                          color: accent,
+                          backgroundColor: `${accent}18`,
+                          borderWidth: 1,
+                          borderColor: `${accent}30`,
+                        }}
                       >
                         {statusLabel(item.status)}
                       </span>
-                      {scopeText ? (
-                        <span className="chip text-micro capitalize">{scopeText}</span>
-                      ) : null}
                     </div>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
-                  {duplicateCount > 1 && (
-                    <span className="chip text-micro">
-                      {duplicateCount} similar updates
-                    </span>
-                  )}
-                  {typeof item.decisionCount === 'number' && item.decisionCount > 0 && (
-                    <span className="chip text-micro">{item.decisionCount} decision{item.decisionCount === 1 ? '' : 's'}</span>
-                  )}
-                  {typeof item.artifactCount === 'number' && item.artifactCount > 0 && (
-                    <span className="chip text-micro">{item.artifactCount} artifact{item.artifactCount === 1 ? '' : 's'}</span>
-                  )}
-                  {when && <span>Updated {formatRelativeTime(when)}</span>}
-                </div>
-                <div
-                  className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.07] pt-2"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onOpenSliceDetail?.(item)}
-                    className="control-pill h-7 px-2.5 text-micro font-semibold"
+
+                    {/* Meta row — flat inline */}
+                    <div className="mt-1.5 flex items-center gap-2 text-micro text-muted">
+                      <span className="flex items-center gap-1 truncate">
+                        <EntityIcon type="initiative" size={9} className="opacity-70" />
+                        {initiativeText}
+                      </span>
+                      {duplicateCount > 1 && (
+                        <span className="text-micro text-muted">
+                          +{duplicateCount - 1} similar
+                        </span>
+                      )}
+                      {when && <span>{formatRelativeTime(when)}</span>}
+                    </div>
+                  </div>
+
+                  {/* Inline actions — no border, no card */}
+                  <div
+                    className="flex flex-shrink-0 items-center gap-1.5 self-center"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    Details
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => runPrimaryAction(item)}
-                    className="control-pill h-7 px-2.5 text-micro font-semibold"
-                    data-tone={item.status === 'failed' ? 'teal' : undefined}
-                  >
-                    {actionLabel(item)}
-                  </button>
-                </div>
-              </motion.article>
-            );
-          })}
+                    {item.status === 'needs_review' && onAcceptSlice && (
+                      <button
+                        type="button"
+                        onClick={() => onAcceptSlice(item)}
+                        className="rounded-md border border-lime/25 bg-lime/10 px-2 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20"
+                      >
+                        Accept
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => runPrimaryAction(item)}
+                      className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.06] hover:text-white"
+                    >
+                      {actionLabel(item)}
+                    </button>
+                  </div>
+                </motion.article>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
-    </PremiumCard>
+    </Wrapper>
   );
 });

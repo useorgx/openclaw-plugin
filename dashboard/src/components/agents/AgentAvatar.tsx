@@ -3,7 +3,7 @@ import { getAgentColor, getInitials } from '@/lib/tokens';
 
 interface AgentAvatarProps {
   name: string;
-  size?: 'xs' | 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   hint?: string | null;
   src?: string | null;
 }
@@ -12,6 +12,7 @@ const sizeMap = {
   xs: 'w-6 h-6 text-micro',
   sm: 'w-8 h-8 text-micro',
   md: 'w-10 h-10 text-body',
+  lg: 'w-16 h-16 text-title',
 };
 
 const baseUrl = '/orgx/live/';

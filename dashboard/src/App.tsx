@@ -809,6 +809,30 @@ function DashboardShell({
     setSliceDetailTarget({ source: 'needs_input', sliceRun });
   }, []);
 
+  const handleAcceptSlice = useCallback(async (sliceRun: SliceRunProjection) => {
+    const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
+    if (!targetRunId) return;
+    try {
+      const response = await fetch(
+        `/orgx/api/runs/${encodeURIComponent(targetRunId)}/actions/complete`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Accepted from dashboard' }),
+        }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+        setOpsNotice(body?.error ?? body?.message ?? `Failed to accept slice (${response.status})`);
+        return;
+      }
+      setOpsNotice('Slice accepted and marked complete.');
+      void refetch();
+    } catch {
+      setOpsNotice('Failed to accept slice — network error.');
+    }
+  }, [refetch]);
+
   const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
     authToken: null,
@@ -3052,6 +3076,7 @@ function DashboardShell({
                           onFocusRunId={focusActivityRunId}
                           onReviewActivity={openReviewActivityForSlice}
                           onOpenSliceDetail={openSliceDetailFromNeedsInput}
+                          onAcceptSlice={handleAcceptSlice}
                         />
                       </div>
                     ) : (
@@ -3369,6 +3394,9 @@ function DashboardShell({
                 onNavigate={navigateTriageDetail}
                 currentIndex={triageDetailIndex}
                 totalCount={triageModel.items.length}
+                decisions={decisionsVisible ? data.decisions : undefined}
+                onApproveDecision={approveDecision}
+                onRejectDecision={rejectDecision}
               />
             </Suspense>
           </div>
@@ -3476,6 +3504,7 @@ function DashboardShell({
             onOpenInitiative={openInitiativeFromNextUp}
             onReviewActivity={openReviewActivityForSlice}
             onOpenDecisions={() => openDecisionsFromActivity()}
+            onAcceptSlice={handleAcceptSlice}
           />
         </Suspense>
       )}

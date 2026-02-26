@@ -62,7 +62,9 @@ export function parsePositiveInt(raw: string | null, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(1, Math.floor(parsed));
+  // Offset-like parameters may intentionally allow zero when fallback is zero.
+  const minimum = fallback <= 0 ? 0 : 1;
+  return Math.max(minimum, Math.floor(parsed));
 }
 
 export function parseBooleanQuery(raw: string | null): boolean {
@@ -75,4 +77,3 @@ export function parseBooleanQuery(raw: string | null): boolean {
     normalized === "on"
   );
 }
-
