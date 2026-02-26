@@ -27,7 +27,6 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const [addingTask, setAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(milestone.title);
   const [draftDescription, setDraftDescription] = useState(milestone.description ?? '');
   const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(milestone.dueDate));
@@ -185,37 +184,20 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
       </div>
 
       {/* Details */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {milestone.dueDate && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
-            <div className="text-body text-primary mt-0.5">
-              {new Date(milestone.dueDate).toLocaleDateString()}
-            </div>
-          </div>
-        )}
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Associated Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {associatedTasks.length}
-          </div>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+          {milestone.dueDate ? (
+            <span>Due {new Date(milestone.dueDate).toLocaleDateString()}</span>
+          ) : null}
+          <span>{associatedTasks.length} tasks</span>
+          <span>{doneTaskCount}/{associatedTasks.length} done</span>
+          <span>{progressValue}% complete</span>
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Completion</div>
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
-              />
-            </div>
-            <div className="text-body text-primary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {progressValue}%
-            </div>
-          </div>
-          <div className="mt-1 text-micro text-muted">
-            {doneTaskCount}/{associatedTasks.length} done
-          </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
+          />
         </div>
       </div>
 
@@ -229,7 +211,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
             <button
               key={task.id}
               onClick={() => openModal({ type: 'task', entity: task, initiative })}
-              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+              className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-body text-bright">{task.title}</span>
@@ -251,34 +233,16 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         embedMode={embedMode}
       />
 
-      <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-              Notes
-            </p>
-            <p className="mt-1 text-caption text-muted">
-              Commentary thread for humans and agents on this milestone.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowNotes((prev) => !prev)}
-            className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
-          >
-            {showNotes ? 'Hide' : 'Show'}
-          </button>
-        </div>
-        {showNotes ? (
-          <div className="pt-3 border-t border-subtle">
-            <EntityCommentsPanel
-              entityType="milestone"
-              entityId={milestone.id}
-              authToken={authToken}
-              embedMode={embedMode}
-            />
-          </div>
-        ) : null}
+      <div className="mt-2 space-y-2">
+        <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+          Notes
+        </p>
+        <EntityCommentsPanel
+          entityType="milestone"
+          entityId={milestone.id}
+          authToken={authToken}
+          embedMode={embedMode}
+        />
       </div>
 
       </div>

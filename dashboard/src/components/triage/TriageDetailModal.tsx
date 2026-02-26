@@ -168,6 +168,7 @@ function ActionButton({
 }) {
   const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState('');
+  const [isHovering, setIsHovering] = useState(false);
 
   const isPrimary =
     triageAction.action === 'approve' || triageAction.action === 'autofix';
@@ -224,22 +225,29 @@ function ActionButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (triageAction.requiresNote) {
-          setShowNote(true);
-        } else {
-          onPerform(triageAction.action);
-        }
-      }}
-      disabled={isActing}
-      className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
-      title={triageAction.consequences}
-    >
-      <span>{triageAction.label}</span>
-      <span className="ml-1 text-micro opacity-60">— {triageAction.consequences}</span>
-    </button>
+    <div className="space-y-1">
+      <button
+        type="button"
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        onFocus={() => setIsHovering(true)}
+        onBlur={() => setIsHovering(false)}
+        onClick={() => {
+          if (triageAction.requiresNote) {
+            setShowNote(true);
+          } else {
+            onPerform(triageAction.action);
+          }
+        }}
+        disabled={isActing}
+        className={`w-full rounded-lg px-3 py-1.5 text-left text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
+      >
+        <span>{triageAction.label}</span>
+      </button>
+      {isHovering && (
+        <p className="px-1 text-micro text-secondary">{triageAction.consequences}</p>
+      )}
+    </div>
   );
 }
 
@@ -320,6 +328,8 @@ export function TriageDetailModal({
   totalCount,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -368,6 +378,11 @@ export function TriageDetailModal({
     return () => window.removeEventListener('keydown', handler);
   }, [item, onNavigate, onClose]);
 
+  useEffect(() => {
+    setTerminalError(null);
+    setIsOpeningTerminal(false);
+  }, [item?.id]);
+
   const handleAction = useCallback(
     async (action: string, note?: string) => {
       if (!item) return;
@@ -383,6 +398,11 @@ export function TriageDetailModal({
   );
 
   if (!item) return null;
+
+  const agentLabel = item.agentId ? `Agent ${item.agentId.slice(0, 8)}` : 'OrgX';
+  const terminalPath = item.proofBundle.logRefs.find((ref) =>
+    ref.startsWith('/') || ref.startsWith('~/') || ref.startsWith('file://')
+  );
 
   return (
     <AnimatePresence mode="wait">
@@ -441,11 +461,8 @@ export function TriageDetailModal({
         </div>
 
         {/* 1. What you're deciding */}
-        <div
-          className="rounded-lg border p-3 mb-4"
-          style={{ borderColor: `${severityColor(item.severity)}40` }}
-        >
-          <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="mb-4">
+          <div className="mb-1 flex items-start justify-between gap-2">
             <span
               className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
               style={{
@@ -461,19 +478,26 @@ export function TriageDetailModal({
               </span>
             )}
           </div>
+          <div className="mb-2 inline-flex items-center gap-2 text-caption text-secondary">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.06] text-micro text-primary">
+              {agentLabel.slice(0, 1)}
+            </span>
+            <span>{agentLabel}</span>
+            {(item.initiativeTitle || item.workstreamTitle) && (
+              <span className="truncate text-muted">
+                {[item.initiativeTitle, item.workstreamTitle, item.taskTitle].filter(Boolean).join(' > ')}
+              </span>
+            )}
+          </div>
           <h3 className="text-heading font-semibold text-primary mt-1">
             {item.title}
           </h3>
-          <p className="text-body text-secondary mt-1 leading-relaxed">
+          <p className="mt-1 text-body text-secondary leading-relaxed">
             {item.summary}
           </p>
-          {(item.initiativeTitle || item.workstreamTitle) && (
-            <p className="text-micro text-muted mt-2">
-              {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
-                .filter(Boolean)
-                .join(' › ')}
-            </p>
-          )}
+          <div className="mt-2 rounded-lg bg-white/[0.03] px-3 py-2 text-caption text-secondary">
+            {item.summary}
+          </div>
         </div>
 
         {/* 2. Proof */}
@@ -504,6 +528,36 @@ export function TriageDetailModal({
               Recommended: {item.recommendedAction}
             </p>
           )}
+          {terminalPath && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  setTerminalError(null);
+                  setIsOpeningTerminal(true);
+                  const response = await fetch('/orgx/api/live/terminal/open', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: terminalPath }),
+                  });
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error((body as { error?: string }).error ?? 'Unable to open terminal');
+                  }
+                } catch (error) {
+                  setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
+                } finally {
+                  setIsOpeningTerminal(false);
+                }
+              }}
+              disabled={isOpeningTerminal}
+              className="control-pill mt-2 h-8 px-3 text-caption font-semibold"
+            >
+              <span className="mr-1">{`>_`}</span>
+              {isOpeningTerminal ? 'Opening...' : 'Open in terminal'}
+            </button>
+          )}
+          {terminalError ? <p className="mt-2 text-micro text-red-200">{terminalError}</p> : null}
         </div>
 
         {/* 5. Technical details (collapsed) */}
@@ -511,12 +565,12 @@ export function TriageDetailModal({
 
         {/* Keyboard shortcuts hint */}
         <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-micro text-muted opacity-60">
-          <span>j/k nav</span>
-          <span>a approve</span>
-          <span>d dismiss</span>
-          <span>r retry</span>
-          <span>s snooze</span>
-          <span>esc close</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">j</kbd>/<kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">k</kbd> nav</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">a</kbd> approve</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">d</kbd> dismiss</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">r</kbd> retry</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">s</kbd> snooze</span>
+          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">esc</kbd> close</span>
         </div>
       </motion.div>
     </AnimatePresence>

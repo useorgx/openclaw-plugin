@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
@@ -33,6 +33,21 @@ interface SliceDetailModalProps {
   onOpenInitiative?: (initiativeId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenDecisions?: () => void;
+}
+
+async function openRunInTerminal(input: { runId?: string | null; path?: string | null }): Promise<void> {
+  const payload: Record<string, string> = {};
+  if (input.runId) payload.runId = input.runId;
+  if (input.path) payload.path = input.path;
+  const response = await fetch('/orgx/api/live/terminal/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `Terminal open failed (${response.status})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +325,8 @@ export function SliceDetailModal({
   onOpenDecisions,
 }: SliceDetailModalProps) {
   const open = target !== null;
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcut: Cmd+Enter → Start
   const handleKeyDown = useCallback(
@@ -331,6 +348,13 @@ export function SliceDetailModal({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, handleKeyDown]);
+
+  useEffect(() => {
+    if (!open) {
+      setTerminalError(null);
+      setIsOpeningTerminal(false);
+    }
+  }, [open]);
 
   if (!target) return null;
 
@@ -392,6 +416,7 @@ export function SliceDetailModal({
           ? 'Open result'
           : 'Review activity'
       : null);
+  const agentExcerpt = sanitizeDisplayText(sr?.lastEventSummary ?? '');
 
   // -------------------------------------------------------------------------
   // Footer
@@ -489,6 +514,32 @@ export function SliceDetailModal({
           View in timeline
         </button>
       )}
+      {(d.runId || d.autoContinue?.activeRunId || d.autoContinue?.activeTaskId) && (
+        <button
+          type="button"
+          onClick={async () => {
+            const runId = d.runId ?? d.autoContinue?.activeRunId ?? null;
+            if (!runId) return;
+            try {
+              setTerminalError(null);
+              setIsOpeningTerminal(true);
+              await openRunInTerminal({ runId });
+            } catch (error) {
+              setTerminalError(
+                error instanceof Error ? error.message : 'Unable to open terminal'
+              );
+            } finally {
+              setIsOpeningTerminal(false);
+            }
+          }}
+          disabled={isOpeningTerminal}
+          className="control-pill h-8 px-3 text-caption font-semibold"
+          title="Open run logs in terminal"
+        >
+          <span className="mr-1">{`>_`}</span>
+          {isOpeningTerminal ? 'Opening...' : 'Open in terminal'}
+        </button>
+      )}
       <div className="flex-1" />
       {canStart && (
         <button
@@ -561,12 +612,19 @@ export function SliceDetailModal({
                     className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
                   >
                     <span
-                      className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
+                      className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
+                        d.queueState === 'running' ? 'animate-pulse' : ''
+                      }`}
                       style={{ backgroundColor: queueStateDotColor(d.queueState) }}
                     />
                     {canonicalProjection.label}
                   </span>
                 </div>
+                {agentExcerpt ? (
+                  <p className="mt-2 line-clamp-2 rounded-md bg-white/[0.03] px-2.5 py-1.5 font-mono text-caption text-secondary">
+                    {agentExcerpt}
+                  </p>
+                ) : null}
               </div>
             </motion.div>
 
@@ -580,10 +638,9 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
+                  className={`px-1 ${canonicalNarrativeClass}`}
                 >
-                  <p className="section-kicker">What to do now</p>
-                  <p className="mt-1 text-body text-primary">
+                  <p className="text-heading font-semibold text-primary">
                     {canonicalProjection.sentence}
                   </p>
                   {sr.artifactCount > 0 ? (
@@ -613,11 +670,11 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                className="px-1 space-y-2"
               >
                 {d.blockReason && (
-                  <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
-                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Why blocked</p>
+                  <div className="border-l-2 border-red-400/45 pl-2.5 text-caption text-red-100/85">
+                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Blocked</p>
                     {d.blockReason}
                   </div>
                 )}
@@ -666,9 +723,8 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                  className="px-1 space-y-2"
                 >
-                  <p className="section-kicker">Work Snapshot</p>
                   {d.nextTaskTitle ? (
                     <div className="flex items-start gap-2">
                       <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
@@ -760,29 +816,26 @@ export function SliceDetailModal({
                   </div>
 
                   {/* Timestamp grid — deduplicate Updated/Completed if identical */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {sr.startedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
-                      </div>
-                    )}
-                    {sr.completedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
-                      </div>
-                    ) : sr.failedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
-                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
-                      </div>
-                    ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
-                      </div>
-                    ) : null}
+                  <div className="space-y-2">
+                    <div className="relative h-1 rounded-full bg-white/[0.08]">
+                      <div
+                        className="absolute left-0 top-0 h-full rounded-full"
+                        style={{
+                          width: sr.completedAt || sr.failedAt ? '100%' : d.queueState === 'running' ? '62%' : '28%',
+                          background: `linear-gradient(90deg, ${colors.teal}99, ${colors.lime}99)`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+                      {sr.startedAt ? <span>Started {formatRelativeTime(sr.startedAt)}</span> : null}
+                      {sr.completedAt ? (
+                        <span>Completed {formatRelativeTime(sr.completedAt)}</span>
+                      ) : sr.failedAt ? (
+                        <span className="text-red-100">Failed {formatRelativeTime(sr.failedAt)}</span>
+                      ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
+                        <span>Updated {formatRelativeTime(sr.updatedAt)}</span>
+                      ) : null}
+                    </div>
                   </div>
                 </motion.div>
               </>
@@ -813,7 +866,7 @@ export function SliceDetailModal({
                         initial={{ opacity: 0, x: -6 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: msIdx * 0.04, duration: 0.22 }}
-                        className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                        className="rounded-lg px-3 py-2"
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-caption font-medium text-primary">{ms.title}</span>
@@ -823,7 +876,7 @@ export function SliceDetailModal({
                         </div>
                         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
                           <div
-                            className="h-full rounded-full transition-[width] duration-500"
+                          className="h-full rounded-full transition-[width] duration-500"
                             style={{
                               width: `${ms.total > 0 ? Math.max(2, Math.round((ms.done / ms.total) * 100)) : 0}%`,
                               background: 'linear-gradient(90deg, #22c55e88, #14b8a688)',
@@ -922,7 +975,7 @@ export function SliceDetailModal({
                       {sr.decisionOptions.slice(0, 4).map((opt) => (
                         <div
                           key={opt.id}
-                          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                          className="rounded-lg px-3 py-2"
                         >
                           <p className="text-caption font-semibold text-primary">{opt.label}</p>
                           {opt.description && (
@@ -1005,6 +1058,9 @@ export function SliceDetailModal({
                 </details>
               </>
             )}
+            {terminalError ? (
+              <p className="text-caption text-red-100/80">{terminalError}</p>
+            ) : null}
 
           </div>
         </ModalShell>

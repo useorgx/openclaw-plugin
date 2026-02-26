@@ -25,7 +25,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDescription, setDraftDescription] = useState(task.description ?? '');
   const [draftPriority, setDraftPriority] = useState(task.priority ?? '');
@@ -208,25 +207,10 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         </div>
 
         {/* Details */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Status</div>
-            <div className="text-body text-primary mt-0.5">
-              {formatEntityStatus(task.status)}
-            </div>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Priority</div>
-            <div className="text-body text-primary mt-0.5">
-              {task.priority ?? '-'}
-            </div>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
-            <div className="text-body text-primary mt-0.5">
-              {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+          <span>Status: {formatEntityStatus(task.status)}</span>
+          <span>Priority: {task.priority ?? '-'}</span>
+          <span>Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}</span>
         </div>
 
         {notice && (
@@ -236,7 +220,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         )}
 
         {/* Notes */}
-        <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <div className="mt-2 space-y-2">
           {/* Artifacts */}
           <EntityArtifactsPanel
             entityType="task"
@@ -245,33 +229,15 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             embedMode={embedMode}
           />
 
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-                Notes
-              </p>
-              <p className="mt-1 text-caption text-muted">
-                Commentary thread for humans and agents on this task.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowNotes((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
-            >
-              {showNotes ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showNotes ? (
-            <div className="pt-3 border-t border-subtle">
-              <EntityCommentsPanel
-                entityType="task"
-                entityId={task.id}
-                authToken={authToken}
-                embedMode={embedMode}
-              />
-            </div>
-          ) : null}
+          <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+            Notes
+          </p>
+          <EntityCommentsPanel
+            entityType="task"
+            entityId={task.id}
+            authToken={authToken}
+            embedMode={embedMode}
+          />
         </div>
       </div>
 

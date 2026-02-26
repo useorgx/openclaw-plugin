@@ -27,10 +27,12 @@ import {
   readSync,
   closeSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 
 import {
   readNextUpQueuePins,
@@ -336,7 +338,7 @@ const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
 const NEXT_UP_QUEUE_CACHE_TTL_MS = readPositiveIntEnv(
   "ORGX_NEXT_UP_QUEUE_CACHE_TTL_MS",
-  4_000,
+  30_000,
   { min: 250, max: 120_000 }
 );
 const NEXT_UP_QUEUE_STALE_TTL_MS = readPositiveIntEnv(
@@ -1540,6 +1542,14 @@ const IMMUTABLE_FILE_CACHE = new Map<string, ImmutableFileCacheEntry>();
 const IMMUTABLE_FILE_CACHE_MAX = 128;
 const FILE_PREVIEW_MAX_BYTES = 1_000_000;
 const FILE_PREVIEW_MAX_DIR_ENTRIES = 300;
+const AUTOPILOT_LOGS_DIR = join(
+  homedir(),
+  ".config",
+  "useorgx",
+  "openclaw-plugin",
+  "autopilot-logs"
+);
+const execFileAsync = promisify(execFile);
 
 function sendJson(
   res: PluginResponse,
@@ -1600,6 +1610,57 @@ function resolveFilesystemOpenPath(rawPath: string): string {
   }
 
   return resolve(process.cwd(), value);
+}
+
+function resolveAutopilotLogCandidates(runId: string): string[] {
+  const sanitizedRunId = runId.trim().replaceAll(/[\\/]/g, "");
+  if (!sanitizedRunId) return [];
+
+  const directCandidates = [
+    join(AUTOPILOT_LOGS_DIR, `${sanitizedRunId}.log`),
+    join(AUTOPILOT_LOGS_DIR, `${sanitizedRunId}.output.json`),
+  ];
+
+  if (!existsSync(AUTOPILOT_LOGS_DIR)) {
+    return directCandidates;
+  }
+
+  const discovered = readdirSync(AUTOPILOT_LOGS_DIR)
+    .filter((entry) => entry.startsWith(`${sanitizedRunId}.`))
+    .map((entry) => join(AUTOPILOT_LOGS_DIR, entry))
+    .filter((entry) => entry.endsWith(".log") || entry.endsWith(".output.json"));
+
+  return dedupeStrings([...directCandidates, ...discovered]);
+}
+
+async function openPathInTerminal(pathname: string): Promise<void> {
+  const resolvedPath = resolve(pathname);
+  if (process.platform === "darwin") {
+    const escapedPath = resolvedPath
+      .replaceAll("\\", "\\\\")
+      .replaceAll('"', '\\"');
+    await execFileAsync("osascript", [
+      "-e",
+      'tell application "Terminal" to activate',
+      "-e",
+      `tell application "Terminal" to do script "tail -f \\"${escapedPath}\\""`,
+    ]);
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await execFileAsync("cmd", ["/c", "start", "", resolvedPath]);
+    return;
+  }
+
+  try {
+    await execFileAsync("gnome-terminal", ["--", "tail", "-f", resolvedPath]);
+    return;
+  } catch {
+    // Fallback to generic opener when no terminal app is available.
+  }
+
+  await execFileAsync("xdg-open", [resolvedPath]);
 }
 
 function readFilePreview(pathname: string, totalBytes: number): {
@@ -2511,10 +2572,15 @@ export function createHttpHandler(
     const degraded: string[] = [];
     const requestedInitiativeId = input?.initiativeId?.trim() || null;
     const requestedProjectId = input?.projectId?.trim() || null;
-    const allowedInitiativeIds =
-      requestedProjectId && requestedProjectId.length > 0
-        ? new Set(await listInitiativeIdsForProject({ projectId: requestedProjectId }))
-        : null;
+    let allowedInitiativeIds: Set<string> | null = null;
+    if (requestedProjectId && requestedProjectId.length > 0) {
+      const scopedIds = await listInitiativeIdsForProject({
+        projectId: requestedProjectId,
+      });
+      if (scopedIds.length > 0) {
+        allowedInitiativeIds = new Set(scopedIds);
+      }
+    }
 
     const pinnedQueue = readNextUpQueuePins();
     const pinnedRankByKey = new Map<string, number>();
@@ -2571,6 +2637,44 @@ export function createHttpHandler(
       if (title) initiativeTitleById.set(id, title);
       if (status) initiativeStatusById.set(id, status);
       if (priority) initiativePriorityById.set(id, priority);
+    }
+
+    const initiativeMatchesRequestedProject = (
+      record: Record<string, unknown>
+    ): boolean => {
+      if (!requestedProjectId) return true;
+      const scopedValue =
+        pickString(record, [
+          "workspace_id",
+          "workspaceId",
+          "command_center_id",
+          "commandCenterId",
+          "project_id",
+          "projectId",
+        ]) ?? null;
+      if (!scopedValue) return false;
+      return scopedValue === requestedProjectId;
+    };
+
+    if (requestedProjectId && !allowedInitiativeIds) {
+      const metadataScopedIds = initiatives
+        .map((entity) => {
+          const record = entity as Record<string, unknown>;
+          const id = pickString(record, ["id"]);
+          if (!id) return null;
+          return initiativeMatchesRequestedProject(record) ? id : null;
+        })
+        .filter((value): value is string => Boolean(value));
+      if (metadataScopedIds.length > 0) {
+        allowedInitiativeIds = new Set(metadataScopedIds);
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; using metadata scoped initiatives."
+        );
+      } else {
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; local queue may be incomplete."
+        );
+      }
     }
 
     for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
@@ -2811,6 +2915,7 @@ export function createHttpHandler(
       const id = pickString(record, ["id"]);
       if (!id) return false;
       if (requestedInitiativeId && id !== requestedInitiativeId) return false;
+      if (!initiativeMatchesRequestedProject(record)) return false;
       if (allowedInitiativeIds && !allowedInitiativeIds.has(id)) return false;
       const status = pickString(record, ["status"]);
       return isInitiativeActiveStatus(status);
@@ -3923,6 +4028,8 @@ export function createHttpHandler(
     readFilePreview,
     filePreviewMaxBytes: FILE_PREVIEW_MAX_BYTES,
     filePreviewMaxDirEntries: FILE_PREVIEW_MAX_DIR_ENTRIES,
+    resolveAutopilotLogCandidates,
+    openPathInTerminal,
     securityHeaders: SECURITY_HEADERS,
     corsHeaders: CORS_HEADERS,
     config: {
