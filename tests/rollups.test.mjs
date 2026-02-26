@@ -72,3 +72,56 @@ test("detectEvalPassRateDrift supports percent-style rates and requires baseline
   assert.equal(drift.dropPct, 4);
   assert.equal(drift.rollingPassRate7d, 0.88);
 });
+
+test("computeTaskCompletionReadiness returns ready when proof + quality threshold are met", async () => {
+  const mod = await importFreshModule();
+  const readiness = mod.computeTaskCompletionReadiness({
+    artifacts: [{ schema_validated: true, atomic_unit_type: "pr" }],
+    qualityScore: 4,
+    qualityThreshold: 4,
+    hasOutcomeEvent: true,
+  });
+
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.status, "ready");
+  assert.equal(readiness.hasArtifact, true);
+  assert.equal(readiness.hasSchemaValidatedArtifact, true);
+  assert.equal(readiness.missingItems.length, 0);
+  assert.equal(readiness.warnings.length, 0);
+});
+
+test("computeTaskCompletionReadiness returns needs_proof when artifact and quality are missing", async () => {
+  const mod = await importFreshModule();
+  const readiness = mod.computeTaskCompletionReadiness({
+    artifacts: [],
+    qualityScore: null,
+    hasOutcomeEvent: false,
+  });
+
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.status, "needs_proof");
+  assert.equal(readiness.hasArtifact, false);
+  assert.equal(readiness.hasQualityScore, false);
+  assert.match(readiness.missingItems.join(" "), /No artifact registered/);
+  assert.match(readiness.missingItems.join(" "), /No quality score recorded/);
+  assert.match(readiness.warnings.join(" "), /No outcome event recorded/);
+});
+
+test("computeTaskCompletionReadiness returns needs_review when quality is below threshold", async () => {
+  const mod = await importFreshModule();
+  const readiness = mod.computeTaskCompletionReadiness({
+    artifacts: [{ schema_validated: false, atomic_unit_type: "report" }],
+    qualityScore: 3,
+    qualityThreshold: 4,
+  });
+
+  assert.equal(readiness.ready, false);
+  assert.equal(readiness.status, "needs_review");
+  assert.equal(readiness.hasArtifact, true);
+  assert.equal(readiness.hasSchemaValidatedArtifact, false);
+  assert.match(readiness.missingItems.join(" "), /below threshold 4/);
+  assert.match(
+    readiness.warnings.join(" "),
+    /none pass domain schema validation/
+  );
+});
