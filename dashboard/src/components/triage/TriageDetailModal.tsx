@@ -95,7 +95,7 @@ function ProofRow({ icon, label }: { icon: string; label: string }) {
             : '▪';
 
   return (
-    <div className="flex items-center gap-2 rounded bg-white/[0.03] px-2 py-1 text-caption text-secondary">
+    <div className="flex items-center gap-2 text-caption text-secondary">
       <span className="text-muted flex-shrink-0 w-4 text-center">{iconChar}</span>
       <span className="truncate">{label}</span>
     </div>
@@ -168,6 +168,7 @@ function ActionButton({
 }) {
   const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState('');
+  const [showConsequence, setShowConsequence] = useState(false);
 
   const isPrimary =
     triageAction.action === 'approve' || triageAction.action === 'autofix';
@@ -224,22 +225,28 @@ function ActionButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (triageAction.requiresNote) {
-          setShowNote(true);
-        } else {
-          onPerform(triageAction.action);
-        }
-      }}
-      disabled={isActing}
-      className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
-      title={triageAction.consequences}
-    >
-      <span>{triageAction.label}</span>
-      <span className="ml-1 text-micro opacity-60">— {triageAction.consequences}</span>
-    </button>
+    <div className="relative group">
+      <button
+        type="button"
+        onClick={() => {
+          if (triageAction.requiresNote) {
+            setShowNote(true);
+          } else {
+            onPerform(triageAction.action);
+          }
+        }}
+        onMouseEnter={() => setShowConsequence(true)}
+        onMouseLeave={() => setShowConsequence(false)}
+        disabled={isActing}
+        className={`relative overflow-hidden rounded-lg px-3 py-1.5 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
+        title={triageAction.consequences}
+      >
+        <span>{triageAction.label}</span>
+        {showConsequence && triageAction.consequences && (
+          <span className="ml-1.5 text-micro opacity-80">— {triageAction.consequences}</span>
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -440,10 +447,10 @@ export function TriageDetailModal({
           </button>
         </div>
 
-        {/* 1. What you're deciding */}
+        {/* 1. What you're deciding (flattened: left border instead of full card) */}
         <div
-          className="rounded-lg border p-3 mb-4"
-          style={{ borderColor: `${severityColor(item.severity)}40` }}
+          className="mb-4 pl-3 border-l-2"
+          style={{ borderColor: `${severityColor(item.severity)}50` }}
         >
           <div className="flex items-start justify-between gap-2 mb-1">
             <span
@@ -464,7 +471,7 @@ export function TriageDetailModal({
           <h3 className="text-heading font-semibold text-primary mt-1">
             {item.title}
           </h3>
-          <p className="text-body text-secondary mt-1 leading-relaxed">
+          <p className="text-body text-secondary mt-1 leading-relaxed rounded-xl rounded-tl-sm bg-white/[0.04] px-3 py-2.5 border-l-2 border-white/[0.08]">
             {item.summary}
           </p>
           {(item.initiativeTitle || item.workstreamTitle) && (

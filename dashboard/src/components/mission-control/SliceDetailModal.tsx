@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
@@ -310,6 +310,7 @@ export function SliceDetailModal({
   onOpenDecisions,
 }: SliceDetailModalProps) {
   const open = target !== null;
+  const [terminalOpening, setTerminalOpening] = useState(false);
 
   // Keyboard shortcut: Cmd+Enter → Start
   const handleKeyDown = useCallback(
@@ -489,6 +490,36 @@ export function SliceDetailModal({
           View in timeline
         </button>
       )}
+      {(d.runId || sr?.sliceRunId) && (
+        <button
+          type="button"
+          onClick={async () => {
+            setTerminalOpening(true);
+            try {
+              const res = await fetch('/orgx/api/live/terminal/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  runId: d.runId ?? undefined,
+                  sliceRunId: sr?.sliceRunId ?? undefined,
+                }),
+              });
+              const data = await res.json().catch(() => null);
+              if (!res.ok) {
+                console.warn('Terminal open failed:', data?.error ?? res.statusText);
+              }
+            } finally {
+              setTerminalOpening(false);
+            }
+          }}
+          disabled={terminalOpening}
+          className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+          title="Open log in terminal"
+        >
+          <span className="font-mono text-micro">&gt;_</span>
+          {terminalOpening ? 'Opening…' : 'Open in terminal'}
+        </button>
+      )}
       <div className="flex-1" />
       {canStart && (
         <button
@@ -560,10 +591,19 @@ export function SliceDetailModal({
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
                   >
-                    <span
-                      className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: queueStateDotColor(d.queueState) }}
-                    />
+                    {d.queueState === 'running' ? (
+                      <motion.span
+                        className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                        animate={{ scale: [1, 1.4, 1], opacity: [1, 0.8, 1] }}
+                        transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
+                      />
+                    ) : (
+                      <span
+                        className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                      />
+                    )}
                     {canonicalProjection.label}
                   </span>
                 </div>
@@ -580,32 +620,31 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
+                  className="space-y-1"
                 >
-                  <p className="section-kicker">What to do now</p>
-                  <p className="mt-1 text-body text-primary">
+                  <p className="text-lg font-semibold leading-snug text-primary">
                     {canonicalProjection.sentence}
                   </p>
                   {sr.artifactCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
+                    <p className="text-caption text-secondary">
                       {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
                     </p>
                   ) : null}
                   {sr.blockingDecisionCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
+                    <p className="text-caption text-secondary">
                       {sr.blockingDecisionCount} blocking decision
                       {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
                     </p>
                   ) : null}
                   {nextActionLabel ? (
-                    <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
+                    <p className="text-caption text-secondary">Recommended action: {nextActionLabel}</p>
                   ) : null}
                 </motion.div>
                 <SectionDivider />
               </>
             ) : null}
 
-            {/* ───── 2. Context & Details card ───── */}
+            {/* ───── 2. Context & Details (flattened, no nested cards) ───── */}
             {(d.blockReason || d.autoContinue || (d.agentSource && d.agentSource !== 'assigned')) && (
               <motion.div
                 variants={sectionVariants}
@@ -613,11 +652,10 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                className="space-y-2"
               >
                 {d.blockReason && (
-                  <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
-                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Why blocked</p>
+                  <div className="border-l-2 border-red-400/50 pl-3 text-caption text-red-100/90">
                     {d.blockReason}
                   </div>
                 )}
@@ -656,7 +694,7 @@ export function SliceDetailModal({
               </motion.div>
             )}
 
-            {/* ───── 3. Work Snapshot card ───── */}
+            {/* ───── 3. Work Snapshot (flattened) ───── */}
             {(d.nextTaskTitle || d.sliceTaskCount !== null || d.sliceScope || d.queueState) && (
               <>
                 <SectionDivider />
@@ -666,9 +704,8 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                  className="space-y-2"
                 >
-                  <p className="section-kicker">Work Snapshot</p>
                   {d.nextTaskTitle ? (
                     <div className="flex items-start gap-2">
                       <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />

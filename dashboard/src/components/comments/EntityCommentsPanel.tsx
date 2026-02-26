@@ -68,8 +68,10 @@ export function EntityCommentsPanel(props: {
   authToken?: string | null;
   embedMode?: boolean;
   className?: string;
+  /** When "inline", renders borderless textarea and simple note blocks without heavy container */
+  variant?: 'default' | 'inline';
 }) {
-  const { entityType, entityId, authToken, embedMode, className } = props;
+  const { entityType, entityId, authToken, embedMode, className, variant = 'default' } = props;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,25 +154,35 @@ export function EntityCommentsPanel(props: {
     [onSubmit]
   );
 
+  const isInline = variant === 'inline';
+
   return (
     <div className={className}>
-      <div className="space-y-2">
+      <div className={isInline ? 'space-y-1' : 'space-y-2'}>
         <textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={onTextareaKeyDown}
           placeholder="Leave a note for humans or agents..."
-          className="min-h-[96px] w-full resize-y rounded-xl border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-body text-bright outline-none placeholder:text-faint focus:border-white/20 focus:bg-white/[0.05] transition-colors"
+          className={
+            isInline
+              ? 'min-h-[60px] w-full resize-y border-b border-white/[0.06] bg-transparent px-0 py-2 text-body text-bright outline-none placeholder:text-faint focus:border-white/15 transition-colors'
+              : 'min-h-[96px] w-full resize-y rounded-xl border border-white/[0.10] bg-white/[0.03] px-4 py-3 text-body text-bright outline-none placeholder:text-faint focus:border-white/20 focus:bg-white/[0.05] transition-colors'
+          }
         />
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${isInline ? 'opacity-70' : ''}`}>
           <p className="text-caption text-muted">
-            Visible to agents and collaborators. Tip: Cmd/Ctrl+Enter to post.
+            Cmd/Ctrl+Enter to post. Visible to agents and collaborators.
           </p>
           <button
             type="button"
             onClick={onSubmit}
             disabled={saving || body.trim().length === 0}
-            className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3.5 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09] disabled:opacity-50 disabled:hover:bg-white/[0.05]"
+            className={
+              isInline
+                ? 'text-caption font-semibold text-primary hover:text-white transition-colors disabled:opacity-50'
+                : 'inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3.5 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09] disabled:opacity-50 disabled:hover:bg-white/[0.05]'
+            }
           >
             {saving ? 'Saving…' : 'Post note'}
           </button>
@@ -178,19 +190,19 @@ export function EntityCommentsPanel(props: {
       </div>
 
       {error ? (
-        <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2 text-body text-red-200">
+        <div className={`mt-2 text-caption text-red-200 ${isInline ? '' : 'rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2'}`}>
           {error}
         </div>
       ) : null}
 
       {loading ? (
-        <div className="mt-3 text-body text-muted">Loading notes…</div>
+        <div className="mt-2 text-body text-muted">Loading notes…</div>
       ) : comments.length === 0 ? (
-        <div className="mt-3 text-body text-muted">
+        <div className="mt-2 text-body text-muted">
           {demoMode ? 'Notes are unavailable in demo mode.' : 'No notes yet.'}
         </div>
       ) : (
-        <div className="mt-3 space-y-3">
+        <div className={`mt-2 space-y-2 ${isInline ? 'divide-y divide-white/[0.06]' : 'space-y-3'}`}>
           {comments.map((comment) => {
             const createdAtLabel = comment.created_at
               ? formatRelativeTime(comment.created_at)
@@ -198,6 +210,23 @@ export function EntityCommentsPanel(props: {
             const authorLabel =
               comment.author_name ??
               (comment.author_type === 'agent' ? comment.author_id : 'Unknown');
+
+            if (isInline) {
+              return (
+                <div key={comment.id} className="pt-2 first:pt-0">
+                  <div className="flex items-center gap-2 text-micro text-muted">
+                    <span className="font-medium text-secondary">{authorLabel}</span>
+                    {createdAtLabel ? (
+                      <span title={formatAbsoluteTime(comment.created_at)}>{createdAtLabel}</span>
+                    ) : null}
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap text-body leading-relaxed text-primary">
+                    {comment.body}
+                  </p>
+                </div>
+              );
+            }
+
             const typeLabel = comment.comment_type ?? 'note';
             const severity = typeof comment.severity === 'string' ? comment.severity : 'info';
 

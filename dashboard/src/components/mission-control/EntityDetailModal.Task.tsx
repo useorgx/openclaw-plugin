@@ -25,7 +25,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDescription, setDraftDescription] = useState(task.description ?? '');
   const [draftPriority, setDraftPriority] = useState(task.priority ?? '');
@@ -235,43 +234,26 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           </div>
         )}
 
-        {/* Notes */}
-        <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
-          {/* Artifacts */}
-          <EntityArtifactsPanel
+        {/* Artifacts */}
+        <EntityArtifactsPanel
+          entityType="task"
+          entityId={task.id}
+          authToken={authToken}
+          embedMode={embedMode}
+        />
+
+        {/* Notes (inline) */}
+        <div className="mt-4 pt-4 border-t border-subtle">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+            Notes
+          </p>
+          <EntityCommentsPanel
             entityType="task"
             entityId={task.id}
             authToken={authToken}
             embedMode={embedMode}
+            variant="inline"
           />
-
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-                Notes
-              </p>
-              <p className="mt-1 text-caption text-muted">
-                Commentary thread for humans and agents on this task.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowNotes((prev) => !prev)}
-              className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
-            >
-              {showNotes ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showNotes ? (
-            <div className="pt-3 border-t border-subtle">
-              <EntityCommentsPanel
-                entityType="task"
-                entityId={task.id}
-                authToken={authToken}
-                embedMode={embedMode}
-              />
-            </div>
-          ) : null}
         </div>
       </div>
 

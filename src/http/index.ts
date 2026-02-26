@@ -176,6 +176,7 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerLiveLegacyRoutes } from "./routes/live-legacy.js";
 import { registerLiveMiscRoutes } from "./routes/live-misc.js";
+import { registerLiveTerminalRoutes } from "./routes/live-terminal.js";
 import { registerLiveSnapshotRoutes } from "./routes/live-snapshot.js";
 import { registerMissionControlActionsRoutes } from "./routes/mission-control-actions.js";
 import { registerMissionControlReadRoutes } from "./routes/mission-control-read.js";
@@ -336,7 +337,7 @@ const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
 const NEXT_UP_QUEUE_CACHE_TTL_MS = readPositiveIntEnv(
   "ORGX_NEXT_UP_QUEUE_CACHE_TTL_MS",
-  4_000,
+  30_000,
   { min: 250, max: 120_000 }
 );
 const NEXT_UP_QUEUE_STALE_TTL_MS = readPositiveIntEnv(
@@ -2511,10 +2512,15 @@ export function createHttpHandler(
     const degraded: string[] = [];
     const requestedInitiativeId = input?.initiativeId?.trim() || null;
     const requestedProjectId = input?.projectId?.trim() || null;
-    const allowedInitiativeIds =
-      requestedProjectId && requestedProjectId.length > 0
-        ? new Set(await listInitiativeIdsForProject({ projectId: requestedProjectId }))
-        : null;
+    let allowedInitiativeIds: Set<string> | null = null;
+    if (requestedProjectId && requestedProjectId.length > 0) {
+      const scopedIds = await listInitiativeIdsForProject({
+        projectId: requestedProjectId,
+      });
+      if (scopedIds.length > 0) {
+        allowedInitiativeIds = new Set(scopedIds);
+      }
+    }
 
     const pinnedQueue = readNextUpQueuePins();
     const pinnedRankByKey = new Map<string, number>();
@@ -2571,6 +2577,44 @@ export function createHttpHandler(
       if (title) initiativeTitleById.set(id, title);
       if (status) initiativeStatusById.set(id, status);
       if (priority) initiativePriorityById.set(id, priority);
+    }
+
+    const initiativeMatchesRequestedProject = (
+      record: Record<string, unknown>
+    ): boolean => {
+      if (!requestedProjectId) return true;
+      const scopedValue =
+        pickString(record, [
+          "workspace_id",
+          "workspaceId",
+          "command_center_id",
+          "commandCenterId",
+          "project_id",
+          "projectId",
+        ]) ?? null;
+      if (!scopedValue) return false;
+      return scopedValue === requestedProjectId;
+    };
+
+    if (requestedProjectId && !allowedInitiativeIds) {
+      const metadataScopedIds = initiatives
+        .map((entity) => {
+          const record = entity as Record<string, unknown>;
+          const id = pickString(record, ["id"]);
+          if (!id) return null;
+          return initiativeMatchesRequestedProject(record) ? id : null;
+        })
+        .filter((value): value is string => Boolean(value));
+      if (metadataScopedIds.length > 0) {
+        allowedInitiativeIds = new Set(metadataScopedIds);
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; using metadata scoped initiatives."
+        );
+      } else {
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; local queue may be incomplete."
+        );
+      }
     }
 
     for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
@@ -2811,6 +2855,7 @@ export function createHttpHandler(
       const id = pickString(record, ["id"]);
       if (!id) return false;
       if (requestedInitiativeId && id !== requestedInitiativeId) return false;
+      if (!initiativeMatchesRequestedProject(record)) return false;
       if (allowedInitiativeIds && !allowedInitiativeIds.has(id)) return false;
       const status = pickString(record, ["status"]);
       return isInitiativeActiveStatus(status);
@@ -3886,6 +3931,11 @@ export function createHttpHandler(
     toLocalLiveInitiatives,
     localInitiativeStatusOverrides,
     mapDecisionEntity,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerLiveTerminalRoutes(apiRouter, {
+    parseJsonRequest,
     sendJson,
     safeErrorMessage,
   });
