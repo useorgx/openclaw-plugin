@@ -8,6 +8,16 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [react()],
     base: '/orgx/live/',
+    server: isBuild
+      ? undefined
+      : {
+          proxy: {
+            '/orgx/api': {
+              target: 'http://localhost:18789',
+              changeOrigin: true,
+            },
+          },
+        },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

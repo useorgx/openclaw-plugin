@@ -241,11 +241,20 @@ function createClientHarness() {
               decision_status: "pending",
               blocking,
               options,
+              recommended_action:
+                typeof op.recommended_action === "string" &&
+                op.recommended_action.trim().length > 0
+                  ? op.recommended_action.trim()
+                  : null,
               initiative_id:
                 typeof payload?.initiative_id === "string"
                   ? payload.initiative_id
                   : "init-1",
               workstream_id: workstreamId,
+              source_ref:
+                op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                  ? op.source_ref
+                  : null,
               created_at: now,
               updated_at: now,
               metadata: {
@@ -255,7 +264,16 @@ function createClientHarness() {
                   typeof op.source_system === "string" ? op.source_system : null,
                 conflict_source:
                   typeof op.conflict_source === "string" ? op.conflict_source : null,
+                recommended_action:
+                  typeof op.recommended_action === "string" &&
+                  op.recommended_action.trim().length > 0
+                    ? op.recommended_action.trim()
+                    : null,
                 source_stream_id: workstreamId,
+                source_ref:
+                  op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                    ? op.source_ref
+                    : null,
                 correlation_id:
                   typeof payload?.correlation_id === "string"
                     ? payload.correlation_id
