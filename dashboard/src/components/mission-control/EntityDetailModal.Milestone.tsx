@@ -259,6 +259,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           entityId={milestone.id}
           authToken={authToken}
           embedMode={embedMode}
+          variant="inline"
         />
       </div>
 

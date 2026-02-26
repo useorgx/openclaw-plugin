@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
@@ -151,6 +151,31 @@ function confidenceDots(level: 'low' | 'medium' | 'high'): { filled: number; col
       return { filled: 1, color: colors.red };
     default:
       return { filled: 0, color: colors.iris };
+  }
+}
+
+async function openRunInTerminal(input: {
+  runId?: string | null;
+  sliceRunId?: string | null;
+  sessionId?: string | null;
+}): Promise<void> {
+  const payload: Record<string, string> = {};
+  if (input.runId) payload.runId = input.runId;
+  if (input.sliceRunId) payload.sliceRunId = input.sliceRunId;
+  if (input.sessionId) payload.sessionId = input.sessionId;
+  if (Object.keys(payload).length === 0) {
+    throw new Error('No run identifier available for terminal open.');
+  }
+  const response = await fetch('/orgx/api/live/terminal/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Terminal open failed (${response.status})`
+    );
   }
 }
 
@@ -310,6 +335,8 @@ export function SliceDetailModal({
   onOpenDecisions,
 }: SliceDetailModalProps) {
   const open = target !== null;
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcut: Cmd+Enter → Start
   const handleKeyDown = useCallback(
@@ -331,6 +358,12 @@ export function SliceDetailModal({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, handleKeyDown]);
+
+  useEffect(() => {
+    if (open) return;
+    setTerminalError(null);
+    setIsOpeningTerminal(false);
+  }, [open]);
 
   if (!target) return null;
 
@@ -393,6 +426,21 @@ export function SliceDetailModal({
           : 'Review activity'
       : null);
 
+  const handleOpenTerminal = useCallback(
+    async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
+      try {
+        setTerminalError(null);
+        setIsOpeningTerminal(true);
+        await openRunInTerminal(input);
+      } catch (error) {
+        setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
+      } finally {
+        setIsOpeningTerminal(false);
+      }
+    },
+    []
+  );
+
   // -------------------------------------------------------------------------
   // Footer
   // -------------------------------------------------------------------------
@@ -452,12 +500,13 @@ export function SliceDetailModal({
           <button
             type="button"
             onClick={() => {
-              void fetch('/orgx/api/live/terminal/open', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId: d.sessionId }),
+              void handleOpenTerminal({
+                sessionId: d.sessionId,
+                runId: d.runId,
+                sliceRunId: sr?.sliceRunId ?? null,
               });
             }}
+            disabled={isOpeningTerminal}
             className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
             title="Open session log in terminal"
           >
@@ -469,7 +518,7 @@ export function SliceDetailModal({
                 transition={{ duration: 1, repeat: Infinity }}
               />
             </span>
-            Terminal
+            {isOpeningTerminal ? 'Opening…' : 'Terminal'}
           </button>
         </>
       )}
@@ -499,6 +548,30 @@ export function SliceDetailModal({
           >
             Review activity
           </button>
+          {(sr.runId || sr.sliceRunId) && (
+            <button
+              type="button"
+              onClick={() => {
+                void handleOpenTerminal({
+                  runId: sr.runId ?? null,
+                  sliceRunId: sr.sliceRunId ?? null,
+                });
+              }}
+              disabled={isOpeningTerminal}
+              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+              title="Open run log in terminal"
+            >
+              <span className="relative inline-block h-3 w-2">
+                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+                <motion.span
+                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+              </span>
+              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+            </button>
+          )}
         </>
       )}
       {d.runId && (
@@ -517,12 +590,12 @@ export function SliceDetailModal({
             <button
               type="button"
               onClick={() => {
-                void fetch('/orgx/api/live/terminal/open', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ sessionId: d.runId }),
+                void handleOpenTerminal({
+                  runId: d.runId,
+                  sliceRunId: sr?.sliceRunId ?? null,
                 });
               }}
+              disabled={isOpeningTerminal}
               className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
               title="Open run log in terminal"
             >
@@ -534,7 +607,7 @@ export function SliceDetailModal({
                   transition={{ duration: 1, repeat: Infinity }}
                 />
               </span>
-              Terminal
+              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
             </button>
           )}
         </>
@@ -1065,6 +1138,12 @@ export function SliceDetailModal({
                 </details>
               </>
             )}
+            {terminalError ? (
+              <>
+                <SectionDivider />
+                <p className="text-caption text-red-200/80">{terminalError}</p>
+              </>
+            ) : null}
 
           </div>
         </ModalShell>

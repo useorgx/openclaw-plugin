@@ -442,6 +442,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               entityId={initiative.id}
               authToken={authToken}
               embedMode={embedMode}
+              variant="inline"
             />
           </div>
         </>
@@ -634,4 +635,3 @@ function formatPriorityLabel(value: string | null | undefined): string {
   if (priority === 'low') return 'Priority: Low';
   return 'Priority: Medium';
 }
-

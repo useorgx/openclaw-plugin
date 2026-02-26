@@ -323,6 +323,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
               entityId={workstream.id}
               authToken={authToken}
               embedMode={embedMode}
+              variant="inline"
             />
           </div>
         </>

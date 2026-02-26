@@ -269,6 +269,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             entityId={task.id}
             authToken={authToken}
             embedMode={embedMode}
+            variant="inline"
           />
         </div>
       </div>
