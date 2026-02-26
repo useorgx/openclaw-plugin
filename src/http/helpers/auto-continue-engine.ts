@@ -7,6 +7,10 @@ import { dirname, join } from "node:path";
 
 import type { OrgXClient } from "../../api.js";
 import type { Entity } from "../../types.js";
+import {
+  normalizeActivityActionPhase,
+  normalizeActivityActionType,
+} from "../../contracts/shared-types.js";
 import { upsertAgentContext, upsertRunContext } from "../../agent-context-store.js";
 import { appendTeamCompletion } from "../../team-context-store.js";
 import {
@@ -487,8 +491,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     timer: NodeJS.Timeout | null;
   };
 
+  type AutoContinueRunContext = Pick<
+    AutoContinueRun,
+    "initiativeId" | "agentId" | "agentName" | "scope"
+  >;
+
   const buildSliceEnrichment = (input: {
-    run: AutoContinueRun;
+    run: AutoContinueRunContext;
     slice?: AutoContinueSliceRun | null;
     taskId?: string | null;
     taskTitle?: string | null;
@@ -500,8 +509,72 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     nextActions?: string[] | null;
     userSummary?: string | null;
     event?: string | null;
+    actionType?: string | null;
+    actionPhase?: string | null;
     extra?: Record<string, unknown>;
   }): Record<string, unknown> => {
+    const eventName =
+      typeof input.event === "string" && input.event.trim().length > 0
+        ? input.event.trim().toLowerCase()
+        : null;
+    const inferredActionType = (() => {
+      if (!eventName) return "execute_task";
+      if (eventName === "orchestrator_dispatch") return "orchestrator_dispatch";
+      if (eventName.includes("slice_dispatched")) return "dispatch_slice";
+      if (eventName.includes("slice_started") || eventName === "session_start") {
+        return "run_started";
+      }
+      if (eventName.includes("slice_heartbeat") || eventName === "heartbeat") {
+        return "run_heartbeat";
+      }
+      if (eventName.includes("slice_handoff")) return "slice_handoff";
+      if (eventName.includes("spawn_guard_rate_limited")) return "spawn_guard_rate_limited";
+      if (eventName.includes("spawn_guard_blocked")) return "spawn_guard_blocked";
+      if (eventName.includes("status_updates_buffered")) return "status_updates_buffered";
+      if (eventName.includes("status_updates")) return "status_updates_applied";
+      if (eventName.includes("artifact_registered")) return "artifact_registered";
+      if (eventName.includes("decision_requested")) return "decision_requested";
+      if (eventName.includes("decision_resolved")) return "decision_resolved";
+      if (eventName === "auto_continue_started") return "auto_continue_started";
+      if (eventName === "auto_continue_stopped") return "auto_continue_stopped";
+      if (eventName.includes("behavior_config") || eventName.includes("behavior_automation")) {
+        return "behavior_config_review";
+      }
+      if (eventName.includes("transition")) return "run_state_transition";
+      if (eventName.includes("auto_fix")) return "auto_fix";
+      if (eventName.includes("milestone_completed")) return "milestone_completed";
+      if (eventName.includes("error") || eventName.includes("failed")) return "run_failed";
+      if (eventName.includes("result") || eventName.includes("completed")) return "run_completed";
+      return eventName.replace(/[^a-z0-9]+/g, "_");
+    })();
+    const actionType =
+      normalizeActivityActionType(input.actionType ?? inferredActionType) ?? inferredActionType;
+    const inferredActionPhase = (() => {
+      if (!eventName) return "execution";
+      if (eventName === "orchestrator_dispatch" || eventName.includes("slice_dispatched")) {
+        return "dispatch";
+      }
+      if (eventName.includes("handoff")) return "handoff";
+      if (eventName.includes("heartbeat")) return "execution";
+      if (eventName.includes("decision_")) return "review";
+      if (
+        eventName.includes("blocked") ||
+        eventName.includes("rate_limited") ||
+        eventName.includes("stall") ||
+        eventName.includes("timeout")
+      ) {
+        return "blocked";
+      }
+      if (eventName.includes("error") || eventName.includes("failed")) return "error";
+      if (eventName.includes("result") || eventName.includes("completed") || eventName === "auto_continue_stopped") {
+        return "completed";
+      }
+      if (eventName === "auto_continue_started") return "intent";
+      return "execution";
+    })();
+    const actionPhase =
+      normalizeActivityActionPhase(input.actionPhase ?? inferredActionPhase) ??
+      inferredActionPhase;
     const workstreamId =
       (input.workstreamId ?? input.slice?.workstreamId ?? "").trim() || null;
     const taskId = (input.taskId ?? input.slice?.taskIds?.[0] ?? "").trim() || null;
@@ -510,6 +583,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       : input.slice?.requiredSkills ?? null;
     return {
       event: input.event ?? null,
+      action_type: actionType,
+      action_phase: actionPhase,
       initiative_id: input.run.initiativeId,
       requested_by_agent_id: input.run.agentId,
       requested_by_agent_name: input.run.agentName,
@@ -536,6 +611,27 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       skill_pack: requiredSkills,
       model_tier: input.modelTier ?? null,
       scope: input.slice?.scope ?? input.run.scope,
+      actors: {
+        requester: {
+          agent_id: input.run.agentId ?? null,
+          agent_name: input.run.agentName ?? null,
+        },
+        dispatcher: {
+          agent_id: input.run.agentId ?? null,
+          agent_name: input.run.agentName ?? null,
+        },
+        executor: {
+          agent_id: input.slice?.agentId ?? null,
+          agent_name: input.slice?.agentName ?? null,
+        },
+      },
+      scope_context: {
+        initiative_id: input.run.initiativeId,
+        workstream_id: workstreamId,
+        task_id: taskId,
+        task_ids: input.slice?.taskIds ?? null,
+        milestone_ids: input.slice?.milestoneIds ?? null,
+      },
       next_actions: input.nextActions ?? null,
       user_summary: input.userSummary ?? null,
       ...(input.extra ?? {}),
@@ -1237,6 +1333,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         : input.reason === "error"
           ? "mission-control.auto-continue.engine.error"
           : null;
+    const stopRunContext: AutoContinueRunContext = {
+      initiativeId: input.run.initiativeId,
+      agentId: input.run.agentId,
+      agentName: input.run.agentName,
+      scope: input.run.scope,
+    };
 
     await emitActivitySafe({
       initiativeId: input.run.initiativeId,
@@ -1257,10 +1359,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           : "Inspect error details and relaunch once fixed.",
       message,
       metadata: {
-        event: "auto_continue_stopped",
+        ...buildSliceEnrichment({
+          run: stopRunContext,
+          workstreamId: scopedWorkstreamId,
+          event: "auto_continue_stopped",
+        }),
         stop_reason: input.reason,
-        requested_by_agent_id: input.run.agentId,
-        requested_by_agent_name: input.run.agentName,
         active_run_id: primaryActiveRunId,
         active_run_ids: activeRunIds,
         last_run_id: input.run.lastRunId,
@@ -1289,11 +1393,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           input.reason === "completed" ? 100 : input.reason === "blocked" ? 65 : 0,
         message: `Autopilot state: running → ${input.reason === "completed" ? "idle" : input.reason === "stopped" ? "idle" : input.reason}.`,
         metadata: {
-          event: "autopilot_transition",
+          ...buildSliceEnrichment({
+            run: stopRunContext,
+            workstreamId: scopedWorkstreamId,
+            event: "autopilot_transition",
+            actionType: "run_state_transition",
+          }),
           old_state: "running",
           new_state: input.reason === "completed" || input.reason === "stopped" ? "idle" : input.reason === "blocked" ? "blocked" : input.reason === "error" ? "error" : "idle",
           reason: input.reason,
-          initiative_id: input.run.initiativeId,
           workspace_id: input.run.allowedWorkstreamIds?.[0] ?? null,
         },
       });
@@ -1686,13 +1794,23 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         const parsedStatus = parsed?.status ?? "error";
         const defaultDecisionBlocking = parsedStatus === "completed" ? false : true;
 
-        const decisions = Array.isArray(parsed?.decisions_needed)
+        const allDecisions = Array.isArray(parsed?.decisions_needed)
           ? (parsed?.decisions_needed ?? [])
               .filter(
                 (item: AutoContinueSliceDecision): item is AutoContinueSliceDecision =>
                   Boolean(item && typeof item.question === "string" && item.question.trim())
               )
           : [];
+        const isParserSyntheticFallbackDecision = (item: AutoContinueSliceDecision): boolean => {
+          const question = String(item?.question ?? "").trim().toLowerCase();
+          const summary = String(item?.summary ?? "").trim().toLowerCase();
+          return (
+            (question.includes("missing required blocking decision") ||
+              summary.includes("parser inserted a blocking decision")) &&
+            item?.blocking === true
+          );
+        };
+        const decisions = allDecisions.filter((item) => !isParserSyntheticFallbackDecision(item));
         const blockingDecisionCount = decisions.filter(
           (item) => typeof item.blocking === "boolean" ? item.blocking : defaultDecisionBlocking
         ).length;
@@ -1752,6 +1870,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               .map((item) => item.trim())
               .filter(Boolean)
           : [];
+        const userSummary =
+          (typeof parsed?.summary === "string" && parsed.summary.trim().length > 0
+            ? parsed.summary.trim()
+            : null) ??
+          nextActions[0] ??
+          (slice.status === "completed"
+            ? `Slice completed for ${slice.workstreamTitle ?? slice.workstreamId}.`
+            : `Slice blocked for ${slice.workstreamTitle ?? slice.workstreamId}.`);
         const nextStepHint =
           nextActions[0] ??
           (slice.status === "completed"
@@ -1796,6 +1922,27 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         const milestoneUpdates = Array.isArray((parsed as any)?.milestone_updates)
           ? ((parsed as any).milestone_updates as Array<{ milestone_id: string; status: string; reason?: string | null }>)
           : [];
+        const resultEnvelope = {
+          summary: userSummary,
+          parsed_status: effectiveParsedStatus,
+          task_updates: taskUpdates,
+          milestone_updates: milestoneUpdates,
+          next_actions: nextActions,
+          artifacts: artifacts.map((artifact) => ({
+            name: artifact.name,
+            artifact_type: artifact.artifact_type ?? null,
+            url: artifact.url ?? null,
+          })),
+        };
+        const evidenceEnvelope = {
+          artifacts: artifacts.map((artifact) => ({
+            name: artifact.name,
+            artifact_type: artifact.artifact_type ?? null,
+            source_pointer: artifact.url ?? null,
+          })),
+          files: [slice.outputPath, slice.logPath].filter(Boolean),
+          logs: [slice.logPath].filter(Boolean),
+        };
 
         let blockingDecisionQueued = false;
         const blockingDecisionIds: string[] = [];
@@ -1909,7 +2056,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             agentId: slice.agentId,
             agentName: slice.agentName ?? null,
             phase: slice.status === "completed" ? "completed" : "blocked",
-            message: parsed?.summary ?? slice.lastError ?? "Autopilot slice finished.",
+            message: userSummary ?? slice.lastError ?? "Autopilot slice finished.",
             metadata: {
               event: "autopilot_slice_finished",
               initiative_id: run.initiativeId,
@@ -1929,9 +2076,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             reported_skill_evidence_count: skillEvidence.length,
             reported_skill_sha256_count: reportedSkillSha256Count,
             reported_skill_names: reportedSkillNames,
-            ...mockMeta(slice),
-            user_summary: parsed?.summary ?? null,
-            next_actions: nextActions,
+              action_type: normalizeActivityActionType("run_completed"),
+              action_phase: normalizeActivityActionPhase(
+                slice.status === "completed" ? "completed" : "blocked"
+              ),
+              result: resultEnvelope,
+              evidence: evidenceEnvelope,
+              ...mockMeta(slice),
+              user_summary: userSummary,
+              next_actions: nextActions,
           },
         });
       } catch {
@@ -1956,7 +2109,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               domain: slice.domain,
               requiredSkills: slice.requiredSkills,
               nextActions,
-              userSummary: parsed?.summary ?? null,
+              userSummary,
               event: "autopilot_slice_handoff",
               extra: {
                 parsed_status: effectiveParsedStatus,
@@ -1965,6 +2118,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                 decision_ids: decisionIds,
                 output_path: slice.outputPath,
                 log_path: slice.logPath,
+                task_updates: taskUpdates,
+                milestone_updates: milestoneUpdates,
+                result: resultEnvelope,
+                evidence: evidenceEnvelope,
                 ...mockMeta(slice),
               },
             }),
@@ -1992,7 +2149,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               domain: slice.domain,
               requiredSkills: slice.requiredSkills,
               nextActions,
-              userSummary: parsed?.summary ?? null,
+              userSummary,
               event: "autopilot_slice_result",
             }),
             error_location:
@@ -2023,8 +2180,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             log_path: slice.logPath,
             error: slice.lastError,
             next_actions: nextActions,
+            task_updates: taskUpdates,
+            milestone_updates: milestoneUpdates,
+            result: resultEnvelope,
+            evidence: evidenceEnvelope,
             ...mockMeta(slice),
-            user_summary: parsed?.summary ?? null,
+            user_summary: userSummary,
           },
         });
 
@@ -3588,6 +3749,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const scheduledAt = new Date().toISOString();
     const dueAt = new Date(Date.now() + graceMs).toISOString();
     const requestId = randomUUID();
+    const resolveAutoFixRunContext = (): AutoContinueRunContext => {
+      const activeRun = autoContinueRuns.get(initiativeId) ?? null;
+      return {
+        initiativeId,
+        agentId: activeRun?.agentId ?? requestedByAgentId ?? "main",
+        agentName: activeRun?.agentName ?? requestedByAgentName ?? null,
+        scope: activeRun?.scope ?? "task",
+      };
+    };
 
     const emitSkip = async (reason: AutoFixSkipReason, details?: Record<string, unknown>) => {
       await emitActivitySafe({
@@ -3603,16 +3773,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               ? `Auto-fix skipped for ${workstreamId}: workstream already running.`
               : reason === "missing_workstream"
                 ? `Auto-fix skipped for ${workstreamId}: workstream data unavailable.`
-                : reason === "missing_scope"
+            : reason === "missing_scope"
                   ? `Auto-fix skipped: scope metadata was incomplete.`
                   : `Auto-fix failed for ${workstreamId}.`,
         metadata: {
-          event: "autopilot_autofix_skipped",
+          ...buildSliceEnrichment({
+            run: resolveAutoFixRunContext(),
+            workstreamId,
+            event: "autopilot_autofix_skipped",
+            actionType: "auto_fix",
+          }),
           reason,
-          initiative_id: initiativeId,
-          workstream_id: workstreamId,
-          requested_by_agent_id: requestedByAgentId,
-          requested_by_agent_name: requestedByAgentName,
           run_id: runId,
           source_event: sourceEvent,
           grace_ms: graceMs,
@@ -3768,11 +3939,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         level: "info",
         message: `Auto-fix dispatched for ${workstreamId}.`,
         metadata: {
-          event: "autopilot_autofix_executed",
-          initiative_id: initiativeId,
-          workstream_id: workstreamId,
-          requested_by_agent_id: requestedByAgentId,
-          requested_by_agent_name: requestedByAgentName,
+          ...buildSliceEnrichment({
+            run: {
+              initiativeId,
+              agentId: dispatchAgentId,
+              agentName: dispatchAgentName,
+              scope: dispatchRun.scope,
+            },
+            workstreamId,
+            event: "autopilot_autofix_executed",
+            actionType: "auto_fix",
+          }),
           source_event: sourceEvent,
           run_id: runId,
           grace_ms: graceMs,
@@ -3821,11 +3998,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       level: "info",
       message: `Auto-fix scheduled for ${workstreamId} in ${Math.round(graceMs / 1000)}s.`,
       metadata: {
-        event: "autopilot_autofix_scheduled",
-        initiative_id: initiativeId,
-        workstream_id: workstreamId,
-        requested_by_agent_id: requestedByAgentId,
-        requested_by_agent_name: requestedByAgentName,
+        ...buildSliceEnrichment({
+          run: resolveAutoFixRunContext(),
+          workstreamId,
+          event: "autopilot_autofix_scheduled",
+          actionType: "auto_fix",
+        }),
         source_event: sourceEvent,
         run_id: runId,
         grace_ms: graceMs,
@@ -3968,6 +4146,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     });
 
     if (!existingIsLive || forceFreshRun) {
+      const startRunContext: AutoContinueRunContext = {
+        initiativeId: run.initiativeId,
+        agentId: run.agentId,
+        agentName: run.agentName,
+        scope: run.scope,
+      };
       try {
         await emitActivitySafe({
           initiativeId: input.initiativeId,
@@ -3977,10 +4161,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           level: "info",
           message: "Autopilot enabled. Dispatch will continue from Next Up automatically.",
           metadata: {
-            event: "auto_continue_started",
-            initiative_id: input.initiativeId,
-            requested_by_agent_id: run.agentId,
-            requested_by_agent_name: run.agentName,
+            ...buildSliceEnrichment({
+              run: startRunContext,
+              event: "auto_continue_started",
+            }),
             token_budget: run.tokenBudget,
             include_verification: run.includeVerification,
             allowed_workstream_ids: run.allowedWorkstreamIds,
@@ -4005,11 +4189,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           level: "info",
           message: "Autopilot state: idle → running.",
           metadata: {
-            event: "autopilot_transition",
+            ...buildSliceEnrichment({
+              run: startRunContext,
+              event: "autopilot_transition",
+              actionType: "run_state_transition",
+            }),
             old_state: "idle",
             new_state: "running",
             reason: "started",
-            initiative_id: input.initiativeId,
             workspace_id: run.allowedWorkstreamIds?.[0] ?? null,
           },
         });

@@ -38,6 +38,16 @@ test("resolveWorkspaceScope falls back to canonical workspace alias and rejects 
   );
 });
 
+test("resolveWorkspaceScope treats legacy all project scope token as all scope", () => {
+  const allScope = resolveWorkspaceScope(
+    new URLSearchParams({ project_id: "all" }),
+    null,
+    { allowProjectScope: true }
+  );
+
+  assert.deepEqual(allScope, { workspaceId: null, isAll: true });
+});
+
 test("setCanonicalWorkspaceScopeParams writes both canonical query params", () => {
   const params = new URLSearchParams();
   setCanonicalWorkspaceScopeParams(params, "workspace-z");

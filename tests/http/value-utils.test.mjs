@@ -14,3 +14,7 @@ test("parsePositiveInt enforces minimum one for limit-like params", () => {
   assert.equal(parsePositiveInt("-4", 24), 1);
   assert.equal(parsePositiveInt("3.2", 24), 3);
 });
+
+test("parsePositiveInt treats whitespace-only values as missing and uses fallback", () => {
+  assert.equal(parsePositiveInt("   ", 24), 24);
+});

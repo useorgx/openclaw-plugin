@@ -1,5 +1,7 @@
 import type { Router } from "../router.js";
+import { randomUUID } from "node:crypto";
 import { resolveWorkspaceScope as resolveCanonicalWorkspaceScope } from "../helpers/workspace-scope.js";
+import { buildDispatchGatewayEnvelope } from "./dispatch-gateway-envelope.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -679,6 +681,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
           scope,
         });
+        const dispatchId = randomUUID();
+        const playDispatchEnvelope = (dispatchMode: string) =>
+          buildDispatchGatewayEnvelope({
+            dispatchId,
+            dispatchMode,
+            route: "mission-control.next-up.play",
+            source: "manual_play",
+            initiativeId,
+            workstreamId,
+            workstreamIds: [workstreamId],
+            taskIds: Array.isArray(matchedQueueItem?.sliceTaskIds)
+              ? matchedQueueItem.sliceTaskIds
+              : [],
+          });
 
         let fallbackDispatch:
           | {
@@ -751,7 +767,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                 initiativeId,
                 workstreamId,
                 agentId,
-                dispatchMode: "pending",
+                ...playDispatchEnvelope("pending"),
                 sessionId: null,
                 slice: {
                   scope,
@@ -799,7 +815,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             initiativeId,
             workstreamId,
             agentId,
-            dispatchMode: finalizedDispatchMode,
+            ...playDispatchEnvelope(finalizedDispatchMode),
             sessionId: run.lastRunId,
             slice: {
               scope,
@@ -823,7 +839,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             initiativeId,
             workstreamId,
             agentId,
-            dispatchMode: "pending",
+            ...playDispatchEnvelope("pending"),
             sessionId: null,
             slice: {
               scope,
@@ -873,7 +889,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           initiativeId,
           workstreamId,
           agentId,
-          dispatchMode,
+          ...playDispatchEnvelope(dispatchMode),
           sessionId: run.activeRunId ?? fallbackDispatch?.sessionId ?? null,
           slice: {
             scope,
@@ -2149,8 +2165,15 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
           scope: startScope,
         });
+        const dispatchEnvelope = buildDispatchGatewayEnvelope({
+          dispatchMode: "server",
+          route: "mission-control.auto-continue.start",
+          source: "auto_continue_start",
+          initiativeId,
+          workstreamIds: allowedWorkstreamIds,
+        });
 
-        deps.sendJson(res, 200, { ok: true, run });
+        deps.sendJson(res, 200, { ok: true, ...dispatchEnvelope, run });
       } catch (err: unknown) {
         sendRouteException(res, "mission-control.auto-continue.start.handler", err);
       }

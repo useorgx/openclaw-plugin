@@ -292,6 +292,22 @@ function normalizeActorValue(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const UUID_LIKE_ACTOR_VALUE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HEX_LIKE_ACTOR_VALUE_REGEX = /^[0-9a-f]{20,}$/i;
+const NUMERIC_ONLY_ACTOR_VALUE_REGEX = /^\d+$/;
+const EXTERNAL_USER_ACTOR_VALUE_REGEX = /^(user|usr|clerk)_[a-z0-9]+$/i;
+
+function sanitizeActorDisplayValue(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (UUID_LIKE_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (HEX_LIKE_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (NUMERIC_ONLY_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (EXTERNAL_USER_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  return trimmed;
+}
+
 const GENERIC_REQUESTER_LABELS = new Set([
   'main',
   'system',
@@ -323,7 +339,7 @@ function resolveActorFromMetadata(
 
   let id: string | null = null;
   for (const key of idKeys) {
-    const value = normalizeActorValue(metadata[key]);
+    const value = sanitizeActorDisplayValue(normalizeActorValue(metadata[key]));
     if (value) {
       id = value;
       break;
@@ -332,7 +348,7 @@ function resolveActorFromMetadata(
 
   let name: string | null = null;
   for (const key of nameKeys) {
-    const value = normalizeActorValue(metadata[key]);
+    const value = sanitizeActorDisplayValue(normalizeActorValue(metadata[key]));
     if (value) {
       name = value;
       break;
@@ -370,13 +386,15 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
   const metadata = metadataForItem(item);
   const identity = resolveAgentIdentity(item);
   const cleaned = cleanSystemTitle(item);
+  const explicitRequesterId = sanitizeActorDisplayValue(item.requesterAgentId ?? null);
+  const explicitRequesterName = sanitizeActorDisplayValue(item.requesterAgentName ?? null);
 
   const explicitRequester =
-    item.requesterAgentId || item.requesterAgentName
+    explicitRequesterId || explicitRequesterName
       ? {
-          id: item.requesterAgentId ?? null,
-          name: item.requesterAgentName ?? null,
-          label: item.requesterAgentName ?? item.requesterAgentId ?? 'OrgX',
+          id: explicitRequesterId,
+          name: explicitRequesterName,
+          label: explicitRequesterName ?? explicitRequesterId ?? 'OrgX',
         }
       : null;
 
@@ -389,8 +407,6 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
         'requestedByAgentId',
         'requester_agent_id',
         'requesterAgentId',
-        'requester_id',
-        'requesterId',
         'runner_agent_id',
         'runnerAgentId',
       ],
@@ -406,12 +422,15 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
       ]
     ) ?? null;
 
+  const explicitExecutorId = sanitizeActorDisplayValue(item.executorAgentId ?? null);
+  const explicitExecutorName = sanitizeActorDisplayValue(item.executorAgentName ?? null);
+
   const explicitExecutor =
-    item.executorAgentId || item.executorAgentName
+    explicitExecutorId || explicitExecutorName
       ? {
-          id: item.executorAgentId ?? null,
-          name: item.executorAgentName ?? null,
-          label: item.executorAgentName ?? item.executorAgentId ?? 'Agent',
+          id: explicitExecutorId,
+          name: explicitExecutorName,
+          label: explicitExecutorName ?? explicitExecutorId ?? 'Agent',
         }
       : null;
 
@@ -505,8 +524,14 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
     requester: null,
     executor: null,
     mode: 'system',
-    primaryLabel: item.agentName ?? item.agentId ?? 'OrgX',
-    subtitle: item.agentName ?? item.agentId ?? 'OrgX',
+    primaryLabel:
+      sanitizeActorDisplayValue(item.agentName ?? null) ??
+      sanitizeActorDisplayValue(item.agentId ?? null) ??
+      'OrgX',
+    subtitle:
+      sanitizeActorDisplayValue(item.agentName ?? null) ??
+      sanitizeActorDisplayValue(item.agentId ?? null) ??
+      'OrgX',
   };
 }
 
@@ -1568,7 +1593,12 @@ function formatAgentLabel(
   ) {
     return humanizeActorName(normalizedId);
   }
-  if (UUID_LIKE_REGEX.test(normalizedId) || HEX_LIKE_ID_REGEX.test(normalizedId)) {
+  if (
+    UUID_LIKE_REGEX.test(normalizedId) ||
+    HEX_LIKE_ID_REGEX.test(normalizedId) ||
+    NUMERIC_ONLY_ACTOR_VALUE_REGEX.test(normalizedId) ||
+    EXTERNAL_USER_ACTOR_VALUE_REGEX.test(normalizedId)
+  ) {
     return 'OrgX';
   }
   return humanizeActorName(normalizedId);
@@ -1622,8 +1652,6 @@ function collectActivityLinkIds(item: LiveActivityItem | null): Set<string> {
     'decisionId',
     'outbox_event_id',
     'outboxEventId',
-    'requester_id',
-    'requesterId',
   ];
 
   const listKeys = [

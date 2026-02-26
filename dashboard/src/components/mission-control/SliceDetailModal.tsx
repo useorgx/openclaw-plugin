@@ -498,12 +498,15 @@ export function SliceDetailModal({
   const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
 
   const handleConfirmAction = useCallback(() => {
+    console.debug('[SliceDetail] confirmAction', { actionMode, hasSliceRun: Boolean(sr), sliceRunId: sr?.sliceRunId });
     if (!sr || !actionMode) return;
     const note = actionNote.trim();
     if (actionMode === 'accept') {
+      console.debug('[SliceDetail] accept → onAcceptSlice', { hasHandler: Boolean(onAcceptSlice) });
       onAcceptSlice?.(sr, note || undefined);
       onClose();
     } else if (actionMode === 'reject' && note) {
+      console.debug('[SliceDetail] reject → onRejectSlice', { hasHandler: Boolean(onRejectSlice) });
       onRejectSlice?.(sr, note);
       setActionMode(null);
       setActionNote('');

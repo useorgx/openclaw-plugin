@@ -11,6 +11,23 @@ function nonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const UUID_LIKE_ACTOR_VALUE_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HEX_LIKE_ACTOR_VALUE_REGEX = /^[0-9a-f]{20,}$/i;
+const NUMERIC_ONLY_ACTOR_VALUE_REGEX = /^\d+$/;
+const EXTERNAL_USER_ACTOR_VALUE_REGEX = /^(user|usr|clerk)_[a-z0-9]+$/i;
+
+function sanitizeActorValue(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (UUID_LIKE_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (HEX_LIKE_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (NUMERIC_ONLY_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  if (EXTERNAL_USER_ACTOR_VALUE_REGEX.test(trimmed)) return null;
+  return trimmed;
+}
+
 function firstString(record: Record<string, unknown> | null, keys: string[]): string | null {
   if (!record) return null;
   for (const key of keys) {
@@ -42,8 +59,6 @@ export function enrichActivityActorFields(item: LiveActivityItem): LiveActivityI
       "requestedByAgentId",
       "requester_agent_id",
       "requesterAgentId",
-      "requester_id",
-      "requesterId",
       "runner_agent_id",
       "runnerAgentId",
       "handoff_from_agent_id",
@@ -73,7 +88,7 @@ export function enrichActivityActorFields(item: LiveActivityItem): LiveActivityI
       "sourceAgentName",
     ]);
 
-  const executorAgentId =
+  let executorAgentId =
     nonEmptyString(item.executorAgentId) ??
     firstString(metadata, [
       "executed_by_agent_id",
@@ -93,7 +108,7 @@ export function enrichActivityActorFields(item: LiveActivityItem): LiveActivityI
     ]) ??
     nonEmptyString(item.agentId);
 
-  const executorAgentName =
+  let executorAgentName =
     nonEmptyString(item.executorAgentName) ??
     firstString(metadata, [
       "executed_by_agent_name",
@@ -112,6 +127,11 @@ export function enrichActivityActorFields(item: LiveActivityItem): LiveActivityI
       "agentName",
     ]) ??
     nonEmptyString(item.agentName);
+
+  requesterAgentId = sanitizeActorValue(requesterAgentId);
+  requesterAgentName = sanitizeActorValue(requesterAgentName);
+  executorAgentId = sanitizeActorValue(executorAgentId);
+  executorAgentName = sanitizeActorValue(executorAgentName);
 
   if (!hasActorValue(requesterAgentId, requesterAgentName) && hasActorValue(executorAgentId, executorAgentName)) {
     requesterAgentId = executorAgentId;
