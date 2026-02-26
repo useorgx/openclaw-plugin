@@ -40,26 +40,26 @@ function resolveTone(item: LiveActivityItem): 'teal' | 'amber' | 'red' | 'neutra
 
 const TONE_STYLES = {
   teal: {
-    border: 'border-[#0AD4C4]/30',
-    bg: 'bg-[#0AD4C4]/[0.06]',
+    border: 'border-[#0AD4C4]/20',
+    bg: 'bg-[#0AD4C4]/[0.04]',
     dot: 'bg-[#0AD4C4]',
     label: 'text-[#7AEDE5]',
   },
   amber: {
-    border: 'border-[#F5B700]/30',
-    bg: 'bg-[#F5B700]/[0.06]',
+    border: 'border-[#F5B700]/20',
+    bg: 'bg-[#F5B700]/[0.04]',
     dot: 'bg-[#F5B700]',
     label: 'text-[#FFE7A8]',
   },
   red: {
-    border: 'border-[#FF6B6B]/30',
-    bg: 'bg-[#FF6B6B]/[0.06]',
+    border: 'border-[#FF6B6B]/20',
+    bg: 'bg-[#FF6B6B]/[0.04]',
     dot: 'bg-[#FF6B6B]',
     label: 'text-[#FFA8A8]',
   },
   neutral: {
-    border: 'border-white/[0.08]',
-    bg: 'bg-white/[0.03]',
+    border: 'border-white/[0.04]',
+    bg: 'bg-white/[0.02]',
     dot: 'bg-white/40',
     label: 'text-secondary',
   },
@@ -77,7 +77,7 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
 
   return (
     <div
-      className={`rounded-lg border ${styles.border} ${styles.bg} p-3 space-y-2.5 ${className ?? ''}`}
+      className={`rounded-lg border ${styles.border} ${styles.bg} p-6 space-y-5 ${className ?? ''}`}
     >
       {summary.taskDescription && (
         <SummaryRow label="Task" value={summary.taskDescription} styles={styles} />
@@ -102,15 +102,12 @@ function SummaryRow({
   styles: (typeof TONE_STYLES)[keyof typeof TONE_STYLES];
 }) {
   return (
-    <div className="flex items-start gap-2">
-      <span
-        className={`mt-[5px] h-1.5 w-1.5 flex-shrink-0 rounded-full ${styles.dot}`}
-      />
+    <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1">
-        <span className={`text-micro font-semibold uppercase tracking-wider ${styles.label}`}>
+        <span className={`text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}>
           {label}
         </span>
-        <p className="text-body leading-snug text-primary mt-0.5">{value}</p>
+        <p className="text-[14px] leading-relaxed text-white mt-1">{value}</p>
       </div>
     </div>
   );

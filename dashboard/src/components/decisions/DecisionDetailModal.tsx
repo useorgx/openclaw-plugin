@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
-import { formatDurationWithUrgency } from '@/lib/time';
+import { formatDurationWithUrgency, formatRelativeTime } from '@/lib/time';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { EvidenceCard } from '@/components/shared/EvidenceCard';
+import { BreadcrumbNav } from '@/components/shared/BreadcrumbNav';
 import { humanizeWarning } from '@/lib/humanize';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { LiveDecision, LiveDecisionOption } from '@/types';
 
 type DecisionActionSummary = {
@@ -31,6 +34,13 @@ interface DecisionDetailModalProps {
     decisionId: string,
     input?: DecisionActionInput
   ) => Promise<DecisionActionSummary>;
+  // New props
+  initiativeTitle?: string | null;
+  workstreamTitle?: string | null;
+  onNavigate?: (direction: 1 | -1) => void;
+  currentIndex?: number;
+  totalCount?: number;
+  onFocusRunId?: (runId: string) => void;
 }
 
 type ModalPhase = 'idle' | 'approving' | 'rejecting' | 'success' | 'rejected' | 'error';
@@ -67,12 +77,40 @@ function formatDecisionActionError(raw: string | undefined, fallback: string): s
   return message || fallback;
 }
 
+function decisionTypeLabel(decisionType: string): string {
+  switch (decisionType) {
+    case 'spawn_guard_blocked': return 'Spawn Guard';
+    case 'autopilot_failure': return 'Autopilot Failure';
+    case 'budget_exceeded': return 'Budget Exceeded';
+    case 'scope_change': return 'Scope Change';
+    case 'conflict_resolution': return 'Conflict Resolution';
+    case 'approval_required': return 'Approval Required';
+    case 'review_required': return 'Review Required';
+    case 'permission_request': return 'Permission Request';
+    default: return decisionType.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
+
+function priorityColor(priority: string): string {
+  const lower = priority.toLowerCase();
+  if (lower === 'critical' || lower === 'p0') return colors.red;
+  if (lower === 'high' || lower === 'p1') return colors.amber;
+  if (lower === 'medium' || lower === 'p2') return colors.iris;
+  return 'rgba(255,255,255,0.5)';
+}
+
 export function DecisionDetailModal({
   open,
   decision,
   onClose,
   onApprove,
   onReject,
+  initiativeTitle,
+  workstreamTitle,
+  onNavigate,
+  currentIndex,
+  totalCount,
+  onFocusRunId,
 }: DecisionDetailModalProps) {
   const [phase, setPhase] = useState<ModalPhase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -80,6 +118,7 @@ export function DecisionDetailModal({
   const [note, setNote] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout>>();
   // Stable ref to onClose so the auto-close timer always calls the latest version
@@ -100,6 +139,7 @@ export function DecisionDetailModal({
       setNote('');
       setShowNotes(false);
       setCopied(false);
+      setShowTechnical(false);
     }
     return () => {
       if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
@@ -308,18 +348,50 @@ export function DecisionDetailModal({
     }
   }, [buildActionInput, decision, note, onReject, options.length, selectedOptionRecord]);
 
-  // Keyboard: Cmd/Ctrl+Enter to approve
+  // Keyboard shortcuts
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+Enter to approve
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         void handleApprove();
+        return;
+      }
+
+      // Skip shortcuts when focused on input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      switch (e.key) {
+        case 'j':
+          e.preventDefault();
+          onNavigate?.(1);
+          break;
+        case 'k':
+          e.preventDefault();
+          onNavigate?.(-1);
+          break;
+        case 'a':
+          e.preventDefault();
+          void handleApprove();
+          break;
+        case 'r':
+          e.preventDefault();
+          void handleReject();
+          break;
+        case 'n':
+          e.preventDefault();
+          setShowNotes((prev) => !prev);
+          if (!showNotes) {
+            requestAnimationFrame(() => noteRef.current?.focus());
+          }
+          break;
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [open, handleApprove]);
+  }, [open, handleApprove, handleReject, onNavigate, showNotes]);
 
   if (!open || !decision) return null;
 
@@ -336,6 +408,32 @@ export function DecisionDetailModal({
   const missingRequiredNote =
     selectedOptionRecord?.requiresNote === true && note.trim().length === 0;
   const disableActions = busy || missingOption || missingRequiredNote;
+
+  const evidenceRefs = decision.evidenceRefs ?? [];
+  const hasEvidence = evidenceRefs.length > 0;
+  const recommendedAction = decision.recommendedAction ?? null;
+  const decisionType = decision.decisionType ?? null;
+  const priority = decision.priority ?? null;
+  const occurrenceCount = decision.occurrenceCount ?? null;
+  const sourceRunId = decision.sourceRunId ?? null;
+
+  // Breadcrumb segments
+  const breadcrumbSegments = [];
+  if (initiativeTitle) breadcrumbSegments.push({ label: initiativeTitle, icon: 'initiative' as const });
+  if (workstreamTitle) breadcrumbSegments.push({ label: workstreamTitle, icon: 'workstream' as const });
+
+  // Technical details
+  const technicalDetails = [
+    ['ID', decision.id],
+    ['Type', decision.decisionType],
+    ['Dedupe key', decision.dedupeKey],
+    ['Source system', decision.sourceSystem],
+    ['Conflict source', decision.conflictSource],
+    ['Agent ID', decision.agentId],
+    ['Source run', decision.sourceRunId],
+    ['Source session', decision.sourceSessionId],
+    ['Source stream', decision.sourceStreamId],
+  ].filter(([, v]) => v != null) as [string, string][];
 
   // Success / rejected overlay
   if (resolved) {
@@ -376,14 +474,64 @@ export function DecisionDetailModal({
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-xl">
       <div className="flex h-full min-h-0 w-full flex-col">
-        {/* Urgency accent line */}
+        {/* 1. Urgency accent line */}
         <div
           className="h-[2px] w-full flex-shrink-0"
           style={{ background: `linear-gradient(90deg, ${urgencyColor}60, ${urgencyColor}20, transparent)` }}
         />
 
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-4">
+        {/* 2. Navigation bar */}
+        {onNavigate && (
+          <div className="flex items-center justify-between px-6 pt-3 pb-0">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigate(-1)}
+                className="rounded p-1 text-muted hover:text-secondary hover:bg-white/[0.06] transition-colors"
+                title="Previous (k)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate(1)}
+                className="rounded p-1 text-muted hover:text-secondary hover:bg-white/[0.06] transition-colors"
+                title="Next (j)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+              {currentIndex != null && totalCount != null && (
+                <span className="text-micro text-muted tabular-nums">
+                  {currentIndex + 1} of {totalCount}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded p-1 text-muted hover:text-secondary hover:bg-white/[0.06] transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* 3. Scope breadcrumb */}
+        {breadcrumbSegments.length > 0 && (
+          <div className="px-6 pt-2">
+            <BreadcrumbNav segments={breadcrumbSegments} />
+          </div>
+        )}
+
+        {/* 4. Header */}
+        <div className="flex items-start justify-between gap-3 px-6 pt-4 pb-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
               <div
@@ -396,33 +544,93 @@ export function DecisionDetailModal({
                 <EntityIcon type="decision" size={14} />
               </div>
               <div className="min-w-0">
-                <h2 className="text-heading font-semibold leading-tight text-white">
-                  {decision.title || 'Decision'}
+                <h2 className="text-title font-medium leading-tight text-white mb-2">
+                  {decision.title || 'Decision Required'}
                 </h2>
-                <p className="mt-0.5 text-caption text-secondary">
-                  {decision.agentName || 'OrgX Autopilot'}
-                  {' \u00b7 '}
-                  {formatDurationWithUrgency(decision.waitingMinutes).text}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 text-body text-secondary">
+                  <span>{decision.agentName || 'OrgX Autopilot'}</span>
+                  <span className="text-white/[0.15]">|</span>
+                  <span>{formatDurationWithUrgency(decision.waitingMinutes).text}</span>
+                  {decisionType && (
+                    <>
+                      <span className="text-white/[0.15]">|</span>
+                      <span className="text-primary">
+                        {decisionTypeLabel(decisionType)}
+                      </span>
+                    </>
+                  )}
+                  {priority && (
+                    <>
+                      <span className="text-white/[0.15]">|</span>
+                      <span
+                        className="font-medium"
+                        style={{ color: priorityColor(priority) }}
+                      >
+                        {priority}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {occurrenceCount != null && occurrenceCount > 1 && (
+                  <p className="mt-2 text-caption text-muted">
+                    Seen {occurrenceCount} times
+                    {decision.firstSeenAt && <> · first {formatRelativeTime(decision.firstSeenAt)}</>}
+                    {decision.lastSeenAt && <> · last {formatRelativeTime(decision.lastSeenAt)}</>}
+                  </p>
+                )}
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-white/[0.06] hover:text-white"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18" />
-              <path d="M6 6l12 12" />
-            </svg>
-          </button>
+          {!onNavigate && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18" />
+                <path d="M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Scrollable content */}
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-          {/* Context */}
+          {/* 5. Recommended action callout */}
+          {recommendedAction && (
+            <div className="mb-4 rounded-xl border border-cyan-300/[0.28] bg-cyan-500/[0.12] px-4 py-3">
+              <p className="text-micro font-semibold uppercase tracking-wider text-cyan-200 mb-1">
+                Recommended
+              </p>
+              <p className="text-body text-cyan-100">{recommendedAction}</p>
+            </div>
+          )}
+
+          {/* 6. Evidence section */}
+          {hasEvidence && (
+            <div className="mb-4">
+              <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                Evidence
+              </p>
+              <div className="space-y-1.5">
+                {evidenceRefs.map((ref, i) => (
+                  <EvidenceCard
+                    key={i}
+                    evidenceType={ref.evidenceType}
+                    title={ref.title}
+                    summary={ref.summary}
+                    sourceUrl={ref.sourceUrl}
+                    confidence={ref.confidence}
+                    payload={ref.payload}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 7. Context */}
           {context ? (
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
               <MarkdownText text={context} mode="block" />
@@ -433,13 +641,13 @@ export function DecisionDetailModal({
             </p>
           )}
 
-          {/* Options as selectable cards */}
+          {/* 8. Options as selectable cards */}
           {options.length > 0 && (
-            <div className="mt-4">
-              <p className="mb-2 px-1 text-micro font-medium uppercase tracking-[0.1em] text-muted">
+            <div className="mt-8">
+              <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-widest text-muted">
                 Options
               </p>
-              <div className="space-y-1.5">
+              <div className="space-y-1 relative">
                 {options.map((option) => {
                   const isActive = selectedOption === option.id;
                   return (
@@ -453,35 +661,50 @@ export function DecisionDetailModal({
                         }
                       }}
                       disabled={busy}
-                      className="flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all"
-                      style={{
-                        borderColor: isActive ? `${colors.lime}50` : 'rgba(255,255,255,0.06)',
-                        backgroundColor: isActive ? `${colors.lime}08` : 'rgba(255,255,255,0.02)',
-                      }}
+                      className="group relative flex w-full items-start gap-4 px-4 py-4 text-left focus:outline-none"
                     >
-                      {/* Radio indicator */}
+                      {isActive && (
+                        <motion.div
+                          layoutId="decision-option-bg"
+                          className="absolute inset-0 rounded-xl"
+                          style={{ backgroundColor: `${colors.lime}12` }}
+                          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                        />
+                      )}
+                      
+                      {!isActive && (
+                        <div className="absolute inset-0 rounded-xl opacity-0 transition-opacity group-hover:bg-white/[0.03]" />
+                      )}
+
                       <div
-                        className="flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+                        className="relative mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors"
                         style={{
                           borderColor: isActive ? colors.lime : 'rgba(255,255,255,0.2)',
                         }}
                       >
-                        {isActive && (
-                          <div
-                            className="h-2 w-2 rounded-full"
-                            style={{ backgroundColor: colors.lime }}
-                          />
-                        )}
+                        <AnimatePresence>
+                          {isActive && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              exit={{ scale: 0 }}
+                              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: colors.lime }}
+                            />
+                          )}
+                        </AnimatePresence>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <span className={`text-body ${isActive ? 'font-medium text-white' : 'text-primary'}`}>
+                      
+                      <div className="relative min-w-0 flex-1">
+                        <span className={`block text-[15px] ${isActive ? 'font-medium text-white' : 'text-primary'}`}>
                           {option.label}
                         </span>
                         {option.description && (
-                          <p className="mt-0.5 text-caption text-secondary">{option.description}</p>
+                          <p className="mt-1 text-[13px] leading-relaxed text-secondary">{option.description}</p>
                         )}
                         {option.requiresNote && (
-                          <p className="mt-1 text-micro uppercase tracking-[0.08em] text-amber-300">
+                          <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wider text-amber-400">
                             Note required
                           </p>
                         )}
@@ -493,7 +716,7 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* Note field - expandable */}
+          {/* 9. Note field - expandable */}
           {isPending && (
             <div className="mt-4">
               <button
@@ -536,9 +759,67 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* Comments thread */}
+          {/* 10. Source trace link */}
+          {sourceRunId && onFocusRunId && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => onFocusRunId(sourceRunId)}
+                className="inline-flex items-center gap-1.5 text-caption text-[#D8FFA1] transition-colors hover:text-white"
+              >
+                <EntityIcon type="session" size={12} />
+                View source run
+              </button>
+            </div>
+          )}
+
+          {/* 11. Comments thread */}
           <div className="mt-4 border-t border-white/[0.06] pt-4">
             <EntityCommentsPanel entityType="decision" entityId={decision.id} />
+          </div>
+
+          {/* 12. Technical details (collapsed) */}
+          {technicalDetails.length > 0 && (
+            <div className="mt-4 border-t border-white/[0.06] pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTechnical((o) => !o)}
+                className="flex w-full items-center justify-between text-micro font-semibold uppercase tracking-wider text-muted hover:text-secondary transition-colors"
+              >
+                <span>Technical details</span>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className={`transition-transform ${showTechnical ? 'rotate-180' : ''}`}
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {showTechnical && (
+                <div className="mt-2 space-y-0.5">
+                  {technicalDetails.map(([k, v]) => (
+                    <div key={k} className="flex gap-2 text-micro">
+                      <span className="text-muted w-28 flex-shrink-0">{k}</span>
+                      <span className="text-secondary truncate">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 13. Keyboard hints */}
+          <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-micro text-muted opacity-60">
+            {onNavigate && <span>j/k nav</span>}
+            <span>a approve</span>
+            <span>r reject</span>
+            <span>n note</span>
+            <span>{isMac ? '\u2318' : 'Ctrl'}+Enter approve</span>
+            <span>esc close</span>
           </div>
         </div>
 
@@ -554,65 +835,65 @@ export function DecisionDetailModal({
           </div>
         )}
 
-        {/* Action footer - only for pending decisions */}
+        {/* 14. Action footer - only for pending decisions */}
         {isPending && (
-          <div className="flex items-center justify-between border-t border-white/[0.06] px-6 py-4">
-            <div className="flex items-center gap-2">
-              {/* Reject */}
-              {onReject && (
+          <div className="relative mt-auto border-t border-white/[0.04] bg-black/60 px-6 py-5 backdrop-blur-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {/* Reject */}
+                {onReject && (
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    type="button"
+                    onClick={handleReject}
+                    disabled={disableActions}
+                    className="rounded-lg px-4 py-2 text-[14px] font-medium text-secondary transition-colors hover:text-red-400 disabled:opacity-40 focus:outline-none"
+                  >
+                    {phase === 'rejecting' ? (
+                      <span className="flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />
+                        Rejecting
+                      </span>
+                    ) : (
+                      'Reject'
+                    )}
+                  </motion.button>
+                )}
                 <button
                   type="button"
-                  onClick={handleReject}
-                  disabled={disableActions}
-                  className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-body font-medium text-secondary transition-all hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:opacity-40"
+                  onClick={copyDetails}
+                  className="rounded-lg px-2 py-2 text-[13px] text-muted transition-colors hover:text-secondary focus:outline-none"
+                  title="Copy decision as JSON"
                 >
-                  {phase === 'rejecting' ? (
+                  {copied ? 'Copied' : 'Copy JSON'}
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="hidden text-[13px] text-muted sm:block">
+                  {isMac ? '\u2318' : 'Ctrl'}+Enter
+                </span>
+                <motion.button
+                  whileTap={(!onApprove || disableActions) ? undefined : { scale: 0.97 }}
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={!onApprove || disableActions}
+                  data-modal-autofocus="true"
+                  className="rounded-lg px-6 py-2.5 text-[14px] font-semibold transition-all focus:outline-none"
+                  style={{
+                    backgroundColor: (!onApprove || disableActions) ? 'rgba(255,255,255,0.06)' : colors.lime,
+                    color: (!onApprove || disableActions) ? 'rgba(255,255,255,0.4)' : '#000',
+                  }}
+                >
+                  {phase === 'approving' ? (
                     <span className="flex items-center gap-2">
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                      Rejecting
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-black/40 border-t-black" />
+                      Approving
                     </span>
                   ) : (
-                    'Reject'
+                    'Approve'
                   )}
-                </button>
-              )}
-              {/* Copy JSON - minimal */}
-              <button
-                type="button"
-                onClick={copyDetails}
-                className="rounded-lg px-3 py-2 text-caption text-muted transition-colors hover:text-white"
-                title="Copy decision as JSON"
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="hidden text-micro text-muted sm:block">
-                {isMac ? '\u2318' : 'Ctrl'}+Enter
-              </span>
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={!onApprove || disableActions}
-                data-modal-autofocus="true"
-                className="rounded-lg px-5 py-2 text-body font-semibold transition-all"
-                style={{
-                  backgroundColor:
-                    !onApprove || disableActions ? 'rgba(255,255,255,0.08)' : colors.lime,
-                  color: !onApprove || disableActions ? 'rgba(255,255,255,0.4)' : '#000',
-                  boxShadow:
-                    !onApprove || disableActions ? 'none' : `0 0 20px ${colors.lime}20`,
-                }}
-              >
-                {phase === 'approving' ? (
-                  <span className="flex items-center gap-2">
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-black/40 border-t-black" />
-                    Approving
-                  </span>
-                ) : (
-                  'Approve'
-                )}
-              </button>
+                </motion.button>
+              </div>
             </div>
           </div>
         )}

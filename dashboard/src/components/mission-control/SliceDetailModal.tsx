@@ -33,6 +33,7 @@ interface SliceDetailModalProps {
   onOpenInitiative?: (initiativeId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenDecisions?: () => void;
+  onAcceptSlice?: (sliceRun: SliceRunProjection) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +334,7 @@ export function SliceDetailModal({
   onOpenInitiative,
   onReviewActivity,
   onOpenDecisions,
+  onAcceptSlice,
 }: SliceDetailModalProps) {
   const open = target !== null;
   const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
@@ -570,6 +572,22 @@ export function SliceDetailModal({
                 />
               </span>
               {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+            </button>
+          )}
+          {/* Accept / Intervene actions for needs_review items */}
+          {sr.status === 'needs_review' && onAcceptSlice && (
+            <button
+              type="button"
+              onClick={() => {
+                onAcceptSlice(sr);
+                onClose();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-caption font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Accept
             </button>
           )}
         </>

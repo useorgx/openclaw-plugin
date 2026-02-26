@@ -157,6 +157,21 @@ export const DecisionQueue = memo(function DecisionQueue({
     [detailDecisionId, sorted]
   );
 
+  const detailIndex = useMemo(
+    () => (detailDecisionId ? sorted.findIndex((d) => d.id === detailDecisionId) : -1),
+    [detailDecisionId, sorted]
+  );
+
+  const handleNavigateDecision = useCallback(
+    (dir: 1 | -1) => {
+      const next = detailIndex + dir;
+      if (next >= 0 && next < sorted.length) {
+        setDetailDecisionId(sorted[next].id);
+      }
+    },
+    [detailIndex, sorted]
+  );
+
   const handleApproveFromDetail = async (
     decisionId: string,
     input?: DecisionActionInput
@@ -470,6 +485,9 @@ export const DecisionQueue = memo(function DecisionQueue({
         onClose={() => setDetailDecisionId(null)}
         onApprove={handleApproveFromDetail}
         onReject={handleRejectFromDetail}
+        onNavigate={handleNavigateDecision}
+        currentIndex={detailIndex >= 0 ? detailIndex : undefined}
+        totalCount={sorted.length}
       />
       <div className="space-y-2.5 border-b border-subtle px-4 py-3.5">
         <div className="flex items-start justify-between gap-3">
