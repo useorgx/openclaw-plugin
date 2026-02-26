@@ -438,16 +438,40 @@ export function SliceDetailModal({
         </>
       )}
       {target.source === 'in_progress' && d.sessionId && (
-        <button
-          type="button"
-          onClick={() => {
-            onOpenSession?.(d.sessionId!);
-            onClose();
-          }}
-          className="control-pill h-8 px-3 text-caption font-semibold"
-        >
-          Open session
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onOpenSession?.(d.sessionId!);
+              onClose();
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            Open session
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void fetch('/orgx/api/live/terminal/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: d.sessionId }),
+              });
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+            title="Open session log in terminal"
+          >
+            <span className="relative inline-block h-3 w-2">
+              <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+              <motion.span
+                className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                animate={{ opacity: [1, 0, 1] }}
+                transition={{ duration: 1, repeat: Infinity }}
+              />
+            </span>
+            Terminal
+          </button>
+        </>
       )}
       {target.source === 'needs_input' && sr && (
         <>
@@ -478,16 +502,42 @@ export function SliceDetailModal({
         </>
       )}
       {d.runId && (
-        <button
-          type="button"
-          onClick={() => {
-            onFocusRunId?.(d.runId!);
-            onClose();
-          }}
-          className="control-pill h-8 px-3 text-caption font-semibold"
-        >
-          View in timeline
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onFocusRunId?.(d.runId!);
+              onClose();
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            View in timeline
+          </button>
+          {!d.sessionId && (
+            <button
+              type="button"
+              onClick={() => {
+                void fetch('/orgx/api/live/terminal/open', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sessionId: d.runId }),
+                });
+              }}
+              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+              title="Open run log in terminal"
+            >
+              <span className="relative inline-block h-3 w-2">
+                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+                <motion.span
+                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+              </span>
+              Terminal
+            </button>
+          )}
+        </>
       )}
       <div className="flex-1" />
       {canStart && (
@@ -560,10 +610,20 @@ export function SliceDetailModal({
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
                   >
-                    <span
-                      className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: queueStateDotColor(d.queueState) }}
-                    />
+                    <span className="relative mr-1.5 inline-block h-1.5 w-1.5">
+                      <span
+                        className="absolute inset-0 rounded-full"
+                        style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                      />
+                      {isRunning && (
+                        <motion.span
+                          className="absolute inset-0 rounded-full"
+                          style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                          animate={{ opacity: [1, 0.3, 1], scale: [1, 1.6, 1] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                      )}
+                    </span>
                     {canonicalProjection.label}
                   </span>
                 </div>
@@ -613,7 +673,7 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                className="space-y-2"
               >
                 {d.blockReason && (
                   <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
@@ -666,7 +726,7 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                  className="space-y-2"
                 >
                   <p className="section-kicker">Work Snapshot</p>
                   {d.nextTaskTitle ? (

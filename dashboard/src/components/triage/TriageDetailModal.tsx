@@ -440,14 +440,21 @@ export function TriageDetailModal({
           </button>
         </div>
 
-        {/* 1. What you're deciding */}
-        <div
-          className="rounded-lg border p-3 mb-4"
-          style={{ borderColor: `${severityColor(item.severity)}40` }}
-        >
-          <div className="flex items-start justify-between gap-2 mb-1">
+        {/* 1. Hero — lineage first, then title + severity */}
+        {(item.initiativeTitle || item.workstreamTitle) && (
+          <p className="text-micro text-muted mb-1">
+            {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
+              .filter(Boolean)
+              .join(' › ')}
+          </p>
+        )}
+        <div className="mb-4 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-heading font-semibold text-primary">
+              {item.title}
+            </h3>
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
               style={{
                 backgroundColor: `${severityColor(item.severity)}20`,
                 color: severityColor(item.severity),
@@ -455,26 +462,25 @@ export function TriageDetailModal({
             >
               {kindLabel(item.kind)}
             </span>
+          </div>
+          <div className="flex items-center gap-2 text-caption text-secondary">
+            {item.agentId && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro font-medium text-secondary">
+                {item.agentId}
+              </span>
+            )}
             {item.occurrenceCount > 1 && (
               <span className="text-micro text-muted">
-                ×{item.occurrenceCount} occurrences
+                x{item.occurrenceCount} occurrences
               </span>
             )}
           </div>
-          <h3 className="text-heading font-semibold text-primary mt-1">
-            {item.title}
-          </h3>
-          <p className="text-body text-secondary mt-1 leading-relaxed">
+          <p className="text-body text-secondary leading-relaxed">
             {item.summary}
           </p>
-          {(item.initiativeTitle || item.workstreamTitle) && (
-            <p className="text-micro text-muted mt-2">
-              {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
-                .filter(Boolean)
-                .join(' › ')}
-            </p>
-          )}
         </div>
+
+        <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
@@ -488,7 +494,6 @@ export function TriageDetailModal({
 
         {/* 4. Actions */}
         <div className="mb-4">
-          <SectionHeading>Actions</SectionHeading>
           <div className="space-y-1.5">
             {item.actionContract.map((action) => (
               <ActionButton
