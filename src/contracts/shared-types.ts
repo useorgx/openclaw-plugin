@@ -136,6 +136,118 @@ export interface LiveActivityItem {
   metadata?: Record<string, unknown>;
 }
 
+export const KNOWN_DECISION_ACTION_TYPES = [
+  "approve",
+  "reject",
+  "provide_context",
+  "request_info",
+  "confirm_scope",
+  "retry",
+  "resume",
+  "start",
+  "pause",
+  "defer",
+  "cancel",
+  "queue_top",
+  "queue_bottom",
+  "remove_from_queue",
+  "reassign",
+  "assign",
+  "notify",
+  "escalate",
+  "handoff",
+  "spawn",
+  "execute_task",
+  "review_blocker",
+  "review_decision",
+  "open_artifact",
+  "open_logs",
+  "open_session",
+  "open_run",
+  "open_workstream",
+  "open_task",
+  "open_initiative",
+  "open_pr",
+  "open_diff",
+  "open_branch",
+  "open_deal",
+  "update_deal",
+  "open_settings",
+  "open_workspace",
+  "connect_provider",
+  "refresh_credentials",
+  "auto_fix",
+  "ignore_once",
+] as const;
+
+export type KnownDecisionActionType = (typeof KNOWN_DECISION_ACTION_TYPES)[number];
+export type DecisionActionType = KnownDecisionActionType | (string & {});
+
+const DECISION_ACTION_TYPE_ALIASES: Record<string, KnownDecisionActionType> = {
+  declined: "reject",
+  decline: "reject",
+  deny: "reject",
+  dismiss: "ignore_once",
+  retry_slice: "retry",
+  continue: "resume",
+  restart: "resume",
+  play: "start",
+  stop: "pause",
+  snooze: "defer",
+  queue: "queue_bottom",
+  add_to_end: "queue_bottom",
+  add_to_queue: "queue_bottom",
+  queue_to_end: "queue_bottom",
+  queue_to_bottom: "queue_bottom",
+  queue_to_top: "queue_top",
+  move_to_top: "queue_top",
+  move_to_bottom: "queue_bottom",
+  remove: "remove_from_queue",
+  remove_queue: "remove_from_queue",
+  unqueue: "remove_from_queue",
+  openartifact: "open_artifact",
+  open_artifacts: "open_artifact",
+  open_pr_diff: "open_diff",
+  open_pull_request: "open_pr",
+  open_work_item: "open_task",
+  providecontext: "provide_context",
+  request_context: "request_info",
+  ask_info: "request_info",
+  ask_question: "request_info",
+  reassign_agent: "reassign",
+  assign_agent: "assign",
+  spawn_agent: "spawn",
+  connect_credentials: "connect_provider",
+  fix_credentials: "refresh_credentials",
+  refresh_credential: "refresh_credentials",
+  autofix: "auto_fix",
+  auto_resolve: "auto_fix",
+};
+
+const KNOWN_DECISION_ACTION_TYPE_SET = new Set<string>(KNOWN_DECISION_ACTION_TYPES);
+
+export function normalizeDecisionActionType(
+  value: unknown
+): DecisionActionType | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (KNOWN_DECISION_ACTION_TYPE_SET.has(normalized)) {
+    return normalized as KnownDecisionActionType;
+  }
+  if (DECISION_ACTION_TYPE_ALIASES[normalized]) {
+    return DECISION_ACTION_TYPE_ALIASES[normalized];
+  }
+  return normalized;
+}
+
+export function isKnownDecisionActionType(
+  value: unknown
+): value is KnownDecisionActionType {
+  if (typeof value !== "string") return false;
+  return KNOWN_DECISION_ACTION_TYPE_SET.has(value.trim().toLowerCase());
+}
+
 export type LiveDecisionOptionStatus = 'approved' | 'declined' | 'cancelled';
 
 export interface LiveDecisionOption {
@@ -143,7 +255,7 @@ export interface LiveDecisionOption {
   label: string;
   description: string | null;
   impliedStatus: LiveDecisionOptionStatus | null;
-  actionType: string | null;
+  actionType: DecisionActionType | null;
   requiresNote: boolean;
 }
 

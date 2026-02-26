@@ -3688,10 +3688,110 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  const readCachedDecisionRows = (): Array<Record<string, unknown>> => {
+    const snapshots = [
+      readSnapshotResponseCache("live-snapshot"),
+      readSnapshotResponseCache("dashboard-bundle"),
+      readSnapshotResponseCache("live-snapshot-v2"),
+    ];
+    const rows: Array<Record<string, unknown>> = [];
+    for (const snapshot of snapshots) {
+      if (!snapshot || typeof snapshot !== "object") continue;
+      const decisionsRaw = (snapshot as Record<string, unknown>).decisions;
+      if (!Array.isArray(decisionsRaw)) continue;
+      for (const entry of decisionsRaw) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        rows.push(entry as Record<string, unknown>);
+      }
+    }
+    return rows;
+  };
+  const emitDecisionResolvedActivity = async (input: {
+    ids: string[];
+    action: "approve" | "reject";
+    note?: string | null;
+    optionId?: string | null;
+    sliceRunId?: string | null;
+    initiativeId?: string | null;
+  }): Promise<void> => {
+    const ids = Array.from(
+      new Set(
+        input.ids
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => id.trim())
+          .filter(Boolean)
+      )
+    );
+    if (ids.length === 0) return;
+
+    const decisionById = new Map<string, Record<string, unknown>>();
+    for (const row of readCachedDecisionRows()) {
+      const rowId = pickString(row, ["id"])?.trim() ?? "";
+      if (!rowId || decisionById.has(rowId)) continue;
+      decisionById.set(rowId, row);
+    }
+
+    for (const decisionId of ids) {
+      const row = decisionById.get(decisionId) ?? null;
+      const decisionTitle =
+        pickString(row ?? {}, ["title", "summary"]) ??
+        `Decision ${decisionId.slice(0, 8)}`;
+      const scopedInitiativeId =
+        input.initiativeId ??
+        pickString(row ?? {}, ["initiative_id", "initiativeId"]) ??
+        null;
+      const scopedRunId =
+        input.sliceRunId ??
+        pickString(row ?? {}, [
+          "run_id",
+          "runId",
+          "source_run_id",
+          "sourceRunId",
+          "correlation_id",
+          "correlationId",
+        ]) ??
+        null;
+      await emitActivitySafe({
+        initiativeId: scopedInitiativeId,
+        runId: scopedRunId ?? undefined,
+        correlationId: scopedRunId ?? undefined,
+        phase: "review",
+        level: "info",
+        message: `Decision ${input.action === "approve" ? "approved" : "rejected"}: ${decisionTitle}`,
+        progressPct: 100,
+        nextStep:
+          input.action === "approve"
+            ? "Execution can continue with the approved direction."
+            : "Review the rejected decision and provide revised guidance to continue safely.",
+        metadata: {
+          event: "decision_resolved",
+          action: input.action,
+          resolver: "human",
+          decision_id: decisionId,
+          decision_ids: ids,
+          decision_title: decisionTitle,
+          initiative_id: scopedInitiativeId,
+          workstream_id: pickString(row ?? {}, ["workstream_id", "workstreamId"]) ?? null,
+          source_run_id: scopedRunId,
+          option_id: input.optionId ?? null,
+          note: input.note ?? null,
+          slice_run_id: input.sliceRunId ?? null,
+        },
+      });
+    }
+  };
   registerDecisionActionsRoutes(apiRouter, {
     parseJsonRequest,
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
+    emitDecisionResolvedActivity: async (ids, action, input) => {
+      await emitDecisionResolvedActivity({
+        ids,
+        action,
+        note: input?.note ?? null,
+        optionId: input?.optionId ?? null,
+      });
+    },
     sendJson,
     safeErrorMessage,
   });
@@ -4035,6 +4135,9 @@ export function createHttpHandler(
       buildNextUpQueue({ initiativeId, projectId }),
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
+    emitDecisionResolvedActivity: async (input) => {
+      await emitDecisionResolvedActivity(input);
+    },
     runAction: (runId, action, input) => client.runAction(runId, action, input),
     listChatThreads: ({ commandCenterId, initiativeId, limit, offset }) =>
       listChatThreads({ commandCenterId, initiativeId, limit, offset }),
@@ -4116,6 +4219,9 @@ export function createHttpHandler(
           error: err instanceof Error ? err.message : "Decision action failed",
         };
       }
+    },
+    emitDecisionResolvedActivity: async (input) => {
+      await emitDecisionResolvedActivity(input);
     },
   });
 

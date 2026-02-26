@@ -13,6 +13,10 @@ import {
 } from "../helpers/slice-experience-v2.js";
 import { shouldHideActivityItem } from "../../event-sanitization.js";
 import {
+  KNOWN_DECISION_ACTION_TYPES,
+  normalizeDecisionActionType,
+} from "../../contracts/shared-types.js";
+import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
@@ -170,6 +174,14 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
     action: "approve" | "reject",
     input?: { note?: string; optionId?: string }
   ) => Promise<Array<{ id?: string; ok?: boolean; error?: string }>>;
+  emitDecisionResolvedActivity?: (input: {
+    ids: string[];
+    action: "approve" | "reject";
+    note?: string | null;
+    optionId?: string | null;
+    sliceRunId?: string | null;
+    initiativeId?: string | null;
+  }) => Promise<void>;
   runAction?: (
     runId: string,
     action: "pause" | "resume" | "cancel" | "rollback",
@@ -1081,9 +1093,16 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
     const sliceRunId = decodeURIComponent(actionMatch[1]).trim();
-    const actionType = decodeURIComponent(actionMatch[2]).trim().toLowerCase();
+    const requestedAction = decodeURIComponent(actionMatch[2]).trim();
+    const actionType = normalizeDecisionActionType(requestedAction);
     if (!sliceRunId) {
       deps.sendJson(res, 400, { error: "sliceRunId is required." });
+      return;
+    }
+    if (!actionType) {
+      deps.sendJson(res, 400, {
+        error: "Action type is required.",
+      });
       return;
     }
 
@@ -1102,7 +1121,9 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
 
-    const declaredAction = projection.actionContract?.actionType ?? null;
+    const declaredAction = normalizeDecisionActionType(
+      projection.actionContract?.actionType ?? null
+    );
     if (declaredAction && declaredAction !== actionType && !(declaredAction === "open_artifact" && actionType === "open_artifact")) {
       deps.sendJson(res, 409, {
         error: "Action does not match current slice state.",
@@ -1127,7 +1148,11 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
 
-    if (actionType === "retry" || actionType === "resume") {
+    if (
+      actionType === "retry" ||
+      actionType === "resume" ||
+      actionType === "start"
+    ) {
       if (typeof deps.runAction !== "function") {
         deps.sendJson(res, 501, { error: "Run actions are not configured." });
         return;
@@ -1138,7 +1163,8 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       });
       deps.sendJson(res, 200, {
         ok: true,
-        action: "resume",
+        action: actionType,
+        mappedAction: "resume",
         sliceRunId,
         runId,
         result,
@@ -1151,6 +1177,8 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
         deps.sendJson(res, 501, { error: "Decision actions are not configured." });
         return;
       }
+      const decisionAction: "approve" | "reject" =
+        actionType === "approve" ? "approve" : "reject";
       const decisionIdsFromBody = Array.isArray(payload.decisionIds)
         ? payload.decisionIds
             .map((value) => (typeof value === "string" ? value.trim() : ""))
@@ -1170,14 +1198,37 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
         });
         return;
       }
-      const results = await deps.bulkDecideDecisions(decisionIds, actionType, {
+      const results = await deps.bulkDecideDecisions(decisionIds, decisionAction, {
         note: note ?? undefined,
         optionId: optionId ?? undefined,
       });
       const updated = results.filter((entry) => entry.ok === true).length;
+      const resolvedIds = results
+        .map((entry, index) => {
+          if (entry.ok !== true) return null;
+          if (typeof entry.id === "string" && entry.id.trim().length > 0) {
+            return entry.id.trim();
+          }
+          return decisionIds[index] ?? null;
+        })
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      if (updated > 0 && typeof deps.emitDecisionResolvedActivity === "function") {
+        try {
+          await deps.emitDecisionResolvedActivity({
+            ids: resolvedIds.length > 0 ? resolvedIds : decisionIds,
+            action: decisionAction,
+            note: note ?? null,
+            optionId: optionId ?? null,
+            sliceRunId,
+            initiativeId: projection.lineage.initiativeIds[0] ?? null,
+          });
+        } catch {
+          // best effort; mutation already completed
+        }
+      }
       deps.sendJson(res, updated > 0 ? 200 : 207, {
         ok: updated > 0,
-        action: actionType,
+        action: decisionAction,
         sliceRunId,
         requested: decisionIds.length,
         updated,
@@ -1203,7 +1254,16 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     deps.sendJson(res, 400, {
       error: "Unsupported action type.",
       actionType,
-      supported: ["approve", "reject", "retry", "resume", "open_artifact", "provide_context"],
+      supported: [
+        "approve",
+        "reject",
+        "retry",
+        "resume",
+        "start",
+        "open_artifact",
+        "provide_context",
+      ],
+      knownActionTypes: KNOWN_DECISION_ACTION_TYPES,
     });
   }
 

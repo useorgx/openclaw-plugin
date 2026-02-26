@@ -5,6 +5,7 @@
  * Mirrors the server-side types in orgx/lib/client-integration/types.ts
  */
 
+import type { DecisionActionType } from './shared-types.js';
 import type { RetroArtifactSchemaVersion } from './retro-schema.js';
 
 export type {
@@ -688,7 +689,7 @@ export interface DecisionCreateOption {
   label: string;
   description?: string;
   implied_status?: DecisionOptionImpliedStatus;
-  action_type?: string;
+  action_type?: DecisionActionType;
   requires_note?: boolean;
 }
 

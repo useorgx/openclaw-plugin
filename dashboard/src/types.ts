@@ -12,6 +12,7 @@ export interface DecisionMutationState {
 }
 
 import type {
+  DecisionActionType,
   HandoffSummary,
   LiveActivityItem,
   LiveActivityType,
@@ -283,12 +284,7 @@ export type SliceOutcomeState =
   | 'failed_non_actionable'
   | 'needs_input';
 export type SliceActionType =
-  | 'approve'
-  | 'reject'
-  | 'retry'
-  | 'resume'
-  | 'open_artifact'
-  | 'provide_context';
+  DecisionActionType;
 
 export interface SliceActorProvenance {
   actorType: 'agent' | 'user' | 'orgx' | 'system';

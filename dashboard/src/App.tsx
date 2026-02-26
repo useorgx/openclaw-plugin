@@ -3062,6 +3062,8 @@ function DashboardShell({
                         sessions={sessionNodesInScope}
                         sliceRuns={actionableSliceRuns}
                         initiatives={initiatives}
+                        needsAttentionCount={needsInputCount}
+                        onSwitchToNeedsAttention={() => setInProgressSubFilter('needs_attention')}
                         onOpenSession={handleSelectSession}
                         onFocusRunId={focusActivityRunId}
                         onPlayWorkstream={playSessionWorkstream}

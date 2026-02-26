@@ -45,7 +45,39 @@ export type DraftAttachment = {
 export type AgentOption = {
   id: string;
   name: string;
+  handle: string;
+  domain: string;
+  domainLabel: string;
+  role: string;
+  status: 'running' | 'idle' | 'blocked' | 'offline';
+  currentTask: string | null;
+  isSystem: boolean;
 };
+
+export const SYSTEM_AGENT_IDS = new Set([
+  'orgx-orchestrator',
+  'xandy',
+  'dispatcher',
+  'router-all-agents',
+]);
+
+export type CanonicalAgentDef = {
+  id: string;
+  name: string;
+  handle: string;
+  domain: string;
+  domainLabel: string;
+  role: string;
+};
+
+export const CANONICAL_AGENTS: CanonicalAgentDef[] = [
+  { id: 'eli', name: 'Eli', handle: 'eli', domain: 'engineering', domainLabel: 'Engineering', role: 'Engineering' },
+  { id: 'dana', name: 'Dana', handle: 'dana', domain: 'design', domainLabel: 'Product Design', role: 'Product Design' },
+  { id: 'mark', name: 'Mark', handle: 'mark', domain: 'marketing', domainLabel: 'Marketing', role: 'Marketing' },
+  { id: 'sage', name: 'Sage', handle: 'sage', domain: 'sales', domainLabel: 'Sales', role: 'Sales' },
+  { id: 'orion', name: 'Orion', handle: 'orion', domain: 'operations', domainLabel: 'Operations', role: 'Operations' },
+  { id: 'pace', name: 'Pace', handle: 'pace', domain: 'engineering', domainLabel: 'Engineering', role: 'Engineering' },
+];
 
 export type UiChatMessage = UIMessage<{
   threadId?: string;
@@ -67,6 +99,22 @@ export type InlineMessage = {
   body: string;
   timestamp: string;
 };
+
+export type ChatProviderId = 'auto' | 'anthropic' | 'openai';
+
+export type ChatProviderDef = {
+  id: ChatProviderId;
+  label: string;
+  shortLabel: string;
+  accent: string;
+  icon: 'anthropic' | 'openai' | 'auto';
+};
+
+export const CHAT_PROVIDERS: ChatProviderDef[] = [
+  { id: 'auto', label: 'Auto (best available)', shortLabel: 'Auto', accent: '#8F9AB7', icon: 'auto' },
+  { id: 'anthropic', label: 'Claude Code', shortLabel: 'Claude', accent: '#F5B700', icon: 'anthropic' },
+  { id: 'openai', label: 'Codex', shortLabel: 'Codex', accent: '#10B981', icon: 'openai' },
+];
 
 // ── Constants ────────────────────────────────────────────────────
 

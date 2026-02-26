@@ -63,6 +63,13 @@ export interface RegisterLiveTriageRoutesDeps<TReq, TRes> {
     note?: string | null,
     optionId?: string | null
   ) => Promise<{ ok: boolean; error?: string }>;
+  emitDecisionResolvedActivity?: (input: {
+    ids: string[];
+    action: "approve" | "reject";
+    note?: string | null;
+    optionId?: string | null;
+    initiativeId?: string | null;
+  }) => Promise<void>;
   snoozeTriage?: (
     itemId: string,
     durationMinutes: number
@@ -189,8 +196,13 @@ export function registerLiveTriageRoutes<TReq, TRes>(
 
       const note =
         typeof body.note === "string" ? body.note : null;
-      const optionId =
-        typeof body.optionId === "string" ? body.optionId : null;
+      const optionIdRaw =
+        typeof body.option_id === "string"
+          ? body.option_id
+          : typeof body.optionId === "string"
+            ? body.optionId
+            : null;
+      const optionId = typeof optionIdRaw === "string" ? optionIdRaw : null;
       const snoozeDurationMinutes =
         typeof body.snoozeDurationMinutes === "number"
           ? body.snoozeDurationMinutes
@@ -217,6 +229,18 @@ export function registerLiveTriageRoutes<TReq, TRes>(
               error: result.error ?? "Decision action failed",
             });
             return;
+          }
+          if (typeof deps.emitDecisionResolvedActivity === "function") {
+            try {
+              await deps.emitDecisionResolvedActivity({
+                ids: [decisionId],
+                action,
+                note,
+                optionId,
+              });
+            } catch {
+              // best effort
+            }
           }
           itemStatus = "resolved";
           sideEffects.push(

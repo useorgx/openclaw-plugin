@@ -1,5 +1,7 @@
 import type { Entity } from "../../types.js";
 import { pickNumber, pickString, toIsoString } from "./value-utils.js";
+import type { DecisionActionType } from "../../contracts/shared-types.js";
+import { normalizeDecisionActionType } from "../../contracts/shared-types.js";
 
 type LiveDecisionOptionStatus = "approved" | "declined" | "cancelled";
 
@@ -8,7 +10,7 @@ type LiveDecisionOption = {
   label: string;
   description: string | null;
   impliedStatus: LiveDecisionOptionStatus | null;
-  actionType: string | null;
+  actionType: DecisionActionType | null;
   requiresNote: boolean;
 };
 
@@ -58,6 +60,14 @@ function pickNumberFromRecords(
     if (!record) continue;
     const value = pickNumber(record, keys);
     if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function pickActionType(values: unknown[]): DecisionActionType | null {
+  for (const value of values) {
+    const normalized = normalizeDecisionActionType(value);
+    if (normalized) return normalized;
   }
   return null;
 }
@@ -127,10 +137,12 @@ function parseDecisionOptions(record: Record<string, unknown>): LiveDecisionOpti
         normalizeOptionStatus(candidate.status) ??
         normalizeOptionStatus(candidate.disposition),
       actionType:
-        (typeof candidate.action_type === "string" && candidate.action_type) ||
-        (typeof candidate.type === "string" && candidate.type) ||
-        (typeof candidate.verb === "string" && candidate.verb) ||
-        null,
+        pickActionType([
+          candidate.action_type,
+          candidate.type,
+          candidate.verb,
+          candidate.action,
+        ]) ?? null,
       requiresNote:
         candidate.requires_note === true ||
         candidate.requiresNote === true ||
