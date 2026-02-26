@@ -11,6 +11,10 @@ type RegisterLiveTerminalRoutesDeps<TReq, TRes> = {
   safeErrorMessage: (err: unknown) => string;
 };
 
+export function escapeShellSingleQuotedArg(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function pickString(input: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = input[key];
@@ -25,10 +29,14 @@ function resolveLogsDir(): string {
   return resolve(getOrgxPluginConfigDir(), "autopilot-logs");
 }
 
-function resolveSafeLogPath(logsDir: string, rawPath: string): string | null {
+export function hasParentTraversalSegment(rawPath: string): boolean {
+  return rawPath.split(/[\\/]+/).some((segment) => segment === "..");
+}
+
+export function resolveSafeLogPath(logsDir: string, rawPath: string): string | null {
   if (rawPath.includes("\0")) return null;
   const isAbsolute = rawPath.startsWith("/") || rawPath.startsWith("\\");
-  if (!isAbsolute && rawPath.includes("..")) return null;
+  if (!isAbsolute && hasParentTraversalSegment(rawPath)) return null;
   const candidate = isAbsolute ? resolve(rawPath) : resolve(logsDir, rawPath);
   const base = logsDir.endsWith(sep) ? logsDir : `${logsDir}${sep}`;
   if (!candidate.startsWith(base)) return null;
@@ -37,8 +45,8 @@ function resolveSafeLogPath(logsDir: string, rawPath: string): string | null {
 
 function resolveLogPathFromIds(logsDir: string, ids: string[]): string | null {
   for (const rawId of ids) {
-    const id = rawId.trim().replaceAll(/[\\/]/g, "");
-    if (!id) continue;
+    const id = rawId.trim();
+    if (!isSafeLogId(id)) continue;
     const candidates = [join(logsDir, id), join(logsDir, `${id}.log`), join(logsDir, `${id}.output.json`)];
     for (const candidate of candidates) {
       if (existsSync(candidate)) return candidate;
@@ -47,16 +55,24 @@ function resolveLogPathFromIds(logsDir: string, ids: string[]): string | null {
   return null;
 }
 
+function isSafeLogId(input: string): boolean {
+  if (input.length === 0 || input.length > 128) return false;
+  if (input === "." || input === ".." || input.includes("..")) return false;
+  return /^[A-Za-z0-9._-]+$/.test(input);
+}
+
 function openPathInTerminal(targetPath: string): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
     const os = platform();
-    const escaped = targetPath.replaceAll("'", "'\\''");
+    const pathArg = escapeShellSingleQuotedArg(targetPath);
+    const tailCmd = `tail -f ${pathArg}`;
+    const tailCmdArg = escapeShellSingleQuotedArg(tailCmd);
 
     let cmd: string;
     if (os === "darwin") {
-      cmd = `osascript -e 'tell application "Terminal" to do script "tail -f \\\'${escaped}\\\'"'`;
+      cmd = `osascript -e 'tell application "Terminal" to do script ${JSON.stringify(tailCmd)}'`;
     } else if (os === "linux") {
-      cmd = `gnome-terminal -- bash -c 'tail -f "${escaped}"' 2>/dev/null || xterm -e 'tail -f "${escaped}"'`;
+      cmd = `gnome-terminal -- bash -lc ${tailCmdArg} 2>/dev/null || xterm -e bash -lc ${tailCmdArg}`;
     } else {
       rejectPromise(new Error(`Terminal open not supported on ${os}`));
       return;
@@ -71,13 +87,13 @@ function openPathInTerminal(targetPath: string): Promise<void> {
 
 function openPathInEditor(targetPath: string): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const escaped = targetPath.replaceAll("'", "'\\''");
+    const pathArg = escapeShellSingleQuotedArg(targetPath);
     const os = platform();
     const cmd =
       os === "darwin"
-        ? `cursor "${escaped}" 2>/dev/null || code "${escaped}" 2>/dev/null || open "${escaped}" 2>/dev/null`
+        ? `cursor ${pathArg} 2>/dev/null || code ${pathArg} 2>/dev/null || open ${pathArg} 2>/dev/null`
         : os === "linux"
-          ? `cursor "${escaped}" 2>/dev/null || code "${escaped}" 2>/dev/null || xdg-open "${escaped}" 2>/dev/null`
+          ? `cursor ${pathArg} 2>/dev/null || code ${pathArg} 2>/dev/null || xdg-open ${pathArg} 2>/dev/null`
           : "";
     if (!cmd) {
       rejectPromise(new Error(`Editor open not supported on ${os}`));
