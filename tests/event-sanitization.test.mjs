@@ -82,3 +82,30 @@ test("shouldHideActivityItem hides mock activity only when env toggle is enabled
   );
   assert.equal(mod.shouldHideActivityItem(baseActivity()), false);
 });
+
+test("mock marker detection avoids substring false positives", async () => {
+  process.env.ORGX_SKIP_MOCK_OUTBOX_REPLAY = "true";
+  try {
+    const mod = await importFreshEventSanitization();
+    assert.equal(
+      mod.classifyOutboxReplaySkip({
+        type: "progress",
+        payload: {
+          metadata: { source: "latest-prod" },
+        },
+      }),
+      null
+    );
+    assert.equal(
+      mod.classifyOutboxReplaySkip({
+        type: "progress",
+        payload: {
+          metadata: { source: "test-runner" },
+        },
+      }),
+      "mock_event"
+    );
+  } finally {
+    delete process.env.ORGX_SKIP_MOCK_OUTBOX_REPLAY;
+  }
+});

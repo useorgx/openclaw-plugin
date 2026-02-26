@@ -2379,6 +2379,86 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
+  // --- update_stream_progress (legacy alias -> orgx_report_progress) ---
+  registerMcpTool(
+    {
+      name: "update_stream_progress",
+      description:
+        "Legacy alias for orgx_report_progress. Report progress at key milestones so the team can track your work.",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative UUID (required unless ORGX_INITIATIVE_ID is set)",
+          },
+          run_id: {
+            type: "string",
+            description: "Optional run UUID",
+          },
+          correlation_id: {
+            type: "string",
+            description: "Required when run_id is omitted",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+          },
+          summary: {
+            type: "string",
+            description: "What was accomplished (1-2 sentences, human-readable)",
+          },
+          phase: {
+            type: "string",
+            enum: ["researching", "implementing", "testing", "reviewing", "blocked"],
+            description: "Current work phase",
+          },
+          progress_pct: {
+            type: "number",
+            description: "Progress percentage (0-100)",
+            minimum: 0,
+            maximum: 100,
+          },
+          next_step: {
+            type: "string",
+            description: "What you plan to do next",
+          },
+        },
+        required: ["summary", "phase"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          initiative_id?: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
+          summary: string;
+          phase: string;
+          progress_pct?: number;
+          next_step?: string;
+        } = { summary: "", phase: "implementing" }
+      ) {
+        return emitActivityWithFallback("update_stream_progress", {
+          initiative_id: params.initiative_id,
+          run_id: params.run_id,
+          correlation_id: params.correlation_id,
+          source_client: params.source_client,
+          message: params.summary,
+          phase: toReportingPhase(params.phase, params.progress_pct),
+          progress_pct: params.progress_pct,
+          next_step: params.next_step,
+          level: params.phase === "blocked" ? "warn" : "info",
+          metadata: {
+            legacy_phase: params.phase,
+          },
+        });
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_request_decision (alias -> orgx_apply_changeset decision.create) ---
   registerMcpTool(
     {
