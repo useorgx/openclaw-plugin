@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { LiveTriageItem, TriageAction } from '@/types';
+import type { LiveDecision, LiveTriageItem, TriageAction } from '@/types';
 import type { TriageQueueActions } from '@/hooks/useTriageQueue';
 
 // ---------------------------------------------------------------------------
@@ -316,6 +316,15 @@ export interface TriageDetailModalProps {
   onNavigate?: (direction: 1 | -1) => void;
   currentIndex?: number;
   totalCount?: number;
+  decisions?: LiveDecision[];
+  onApproveDecision?: (
+    decisionId: string,
+    input?: { note?: string; optionId?: string }
+  ) => Promise<{ updated: number; failed: number; firstError?: string }>;
+  onRejectDecision?: (
+    decisionId: string,
+    input?: { note?: string; optionId?: string }
+  ) => Promise<{ updated: number; failed: number; firstError?: string }>;
 }
 
 export function TriageDetailModal({

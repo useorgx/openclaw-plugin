@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import type { OrgXClient } from "../contracts/client.js";
+import { stableHash } from "../hash-utils.js";
+import {
+  validateArtifactMetadata,
+  normalizeArtifactType,
+} from "./artifact-domain-schemas.js";
+import type { QueueRef, RunRef } from "./artifact-domain-schemas.js";
 
 export type ArtifactEntityType =
   | "initiative"
@@ -9,6 +15,15 @@ export type ArtifactEntityType =
   | "task"
   | "decision"
   | "project";
+
+const ALLOWED_ENTITY_TYPES: ReadonlySet<ArtifactEntityType> = new Set([
+  "initiative",
+  "workstream",
+  "milestone",
+  "task",
+  "decision",
+  "project",
+]);
 
 export interface RegisterArtifactInput {
   /** Optional deterministic artifact id (UUID). Enables idempotent retries/outbox replay. */
@@ -99,6 +114,9 @@ export function validateRegisterArtifactInput(input: RegisterArtifactInput): str
 
   const entityType = normalizeText(input.entity_type);
   if (!entityType) errors.push("entity_type is required");
+  else if (!ALLOWED_ENTITY_TYPES.has(entityType as ArtifactEntityType)) {
+    errors.push("entity_type must be one of: initiative, workstream, milestone, task, decision, project");
+  }
 
   const entityId = normalizeText(input.entity_id);
   if (!entityId) errors.push("entity_id is required");
@@ -271,6 +289,56 @@ export async function registerArtifact(
         : preview;
     if (preview.length > MAX_PREVIEW_MARKDOWN) metadata.preview_truncated = true;
   }
+
+  // --- Proof Ladder: atomic unit normalization + schema validation ---
+  const explicitAtomicType = typeof metadata.atomic_unit_type === "string"
+    ? metadata.atomic_unit_type.trim()
+    : null;
+  const inferredAtomicType = normalizeArtifactType(input.artifact_type);
+  const atomicUnitType = explicitAtomicType || inferredAtomicType;
+  if (atomicUnitType) {
+    metadata.atomic_unit_type = atomicUnitType;
+    const validation = validateArtifactMetadata(atomicUnitType, metadata);
+    metadata.schema_validated = validation.valid;
+    if (!validation.valid) {
+      warnings.push(...validation.warnings);
+    }
+  }
+
+  // --- Proof Ladder: artifact content hash ---
+  const hashSource = input.preview_markdown || input.external_url || input.name;
+  if (hashSource && !metadata.artifact_hash) {
+    metadata.artifact_hash = stableHash(String(hashSource));
+  }
+
+  // --- Proof Ladder: queue_ref from environment / caller ---
+  if (!metadata.queue_ref) {
+    const queueRef: QueueRef = {};
+    const envInitId = normalizeText(process.env.ORGX_INITIATIVE_ID);
+    const envWsId = normalizeText(process.env.ORGX_WORKSTREAM_ID);
+    const envTaskId = normalizeText(process.env.ORGX_TASK_ID);
+    if (envInitId) queueRef.initiative_id = envInitId;
+    if (envWsId) queueRef.workstream_id = envWsId;
+    if (envTaskId) queueRef.task_id = envTaskId;
+    if (Object.keys(queueRef).length > 0) {
+      metadata.queue_ref = queueRef;
+    }
+  }
+
+  // --- Proof Ladder: run_ref from environment / caller ---
+  if (!metadata.run_ref) {
+    const runRef: RunRef = {};
+    const envRunId = normalizeText(process.env.ORGX_RUN_ID);
+    const envCorrId = normalizeText(process.env.ORGX_CORRELATION_ID);
+    const envSessionId = normalizeText(process.env.ORGX_SESSION_ID);
+    if (envRunId) runRef.run_id = envRunId;
+    if (envCorrId) runRef.correlation_id = envCorrId;
+    if (envSessionId) runRef.session_id = envSessionId;
+    if (Object.keys(runRef).length > 0) {
+      metadata.run_ref = runRef;
+    }
+  }
+
   const metadataInitiativeId =
     typeof metadata.initiative_id === "string" && metadata.initiative_id.trim().length > 0
       ? metadata.initiative_id.trim()

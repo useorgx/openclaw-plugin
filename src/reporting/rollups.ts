@@ -124,6 +124,100 @@ function average(values: number[]): number {
   return total / values.length;
 }
 
+// ---------------------------------------------------------------------------
+// Task Completion Readiness (artifact-aware proof check)
+// ---------------------------------------------------------------------------
+
+export type TaskCompletionReadiness = "ready" | "needs_proof" | "needs_review";
+
+export interface TaskCompletionReadinessResult {
+  ready: boolean;
+  status: TaskCompletionReadiness;
+  hasArtifact: boolean;
+  hasSchemaValidatedArtifact: boolean;
+  hasQualityScore: boolean;
+  qualityScore: number | null;
+  qualityThreshold: number;
+  missingItems: string[];
+  warnings: string[];
+}
+
+/**
+ * Evaluate whether a task has sufficient proof chain evidence to be marked
+ * complete. In phase 1 this is advisory (warn-only); callers decide whether
+ * to hard-block or soft-warn based on workspace config.
+ */
+export function computeTaskCompletionReadiness(input: {
+  artifacts?: Array<{ schema_validated?: boolean; atomic_unit_type?: string }>;
+  qualityScore?: number | null;
+  qualityThreshold?: number;
+  hasOutcomeEvent?: boolean;
+}): TaskCompletionReadinessResult {
+  const artifacts = Array.isArray(input.artifacts) ? input.artifacts : [];
+  const qualityThreshold =
+    typeof input.qualityThreshold === "number" && Number.isFinite(input.qualityThreshold)
+      ? input.qualityThreshold
+      : 4;
+  const qualityScore =
+    typeof input.qualityScore === "number" && Number.isFinite(input.qualityScore)
+      ? input.qualityScore
+      : null;
+
+  const hasArtifact = artifacts.length > 0;
+  const hasSchemaValidatedArtifact = artifacts.some(
+    (a) => a.schema_validated === true && typeof a.atomic_unit_type === "string"
+  );
+  const hasQualityScore = qualityScore !== null;
+  const qualityMeetsThreshold = qualityScore !== null && qualityScore >= qualityThreshold;
+
+  const missingItems: string[] = [];
+  const warnings: string[] = [];
+
+  if (!hasArtifact) {
+    missingItems.push("No artifact registered for this task.");
+  } else if (!hasSchemaValidatedArtifact) {
+    warnings.push("Artifact(s) present but none pass domain schema validation.");
+  }
+
+  if (!hasQualityScore) {
+    missingItems.push("No quality score recorded.");
+  } else if (!qualityMeetsThreshold) {
+    missingItems.push(
+      `Quality score ${qualityScore} below threshold ${qualityThreshold}.`
+    );
+  }
+
+  if (input.hasOutcomeEvent === false) {
+    warnings.push("No outcome event recorded (L5 Impact not met).");
+  }
+
+  const ready = hasArtifact && hasQualityScore && qualityMeetsThreshold;
+  let status: TaskCompletionReadiness;
+  if (ready) {
+    status = "ready";
+  } else if (hasArtifact && hasQualityScore) {
+    status = "needs_review";
+  } else {
+    status = "needs_proof";
+  }
+
+  return {
+    ready,
+    status,
+    hasArtifact,
+    hasSchemaValidatedArtifact,
+    hasQualityScore,
+    qualityScore,
+    qualityThreshold,
+    missingItems,
+    warnings,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Eval pass rate drift detection
+// ---------------------------------------------------------------------------
+
 export type EvalPassRateDriftResult = {
   alert: boolean;
   baselinePassRate: number;

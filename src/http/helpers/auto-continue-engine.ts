@@ -1878,6 +1878,69 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           });
         }
 
+        // --- Proof ladder gate: check completion tasks for proof readiness ---
+        // Phase 1: warn-only. Does not block status transitions but creates
+        // a decision request when proof is missing for done/completed tasks.
+        const doneTaskUpdates = taskUpdates.filter(
+          (tu: { task_id: string; status: string }) =>
+            tu.status === "done" || tu.status === "completed"
+        );
+        if (doneTaskUpdates.length > 0 && !slice.isMockWorker) {
+          const proofStrictness = process.env.ORGX_PROOF_STRICTNESS ?? "warn";
+          for (const dtu of doneTaskUpdates) {
+            try {
+              const qp = new URLSearchParams({ task_id: dtu.task_id });
+              const proofResult = await client.rawRequest<Record<string, unknown>>(
+                "GET",
+                `/api/flywheel/proof-status?${qp.toString()}`
+              ).catch(() => null);
+
+              // If proof API unavailable, skip gracefully (phase 1)
+              if (!proofResult) continue;
+
+              const overallPassed = proofResult?.overall_passed === true;
+              if (!overallPassed && proofStrictness === "block") {
+                // Hard block: downgrade to needs_review
+                dtu.status = "needs_review";
+                const reasonCodes = Array.isArray(proofResult?.reason_codes)
+                  ? (proofResult.reason_codes as string[]).join(", ")
+                  : "incomplete_proof";
+                await requestDecisionSafe({
+                  initiativeId: run.initiativeId,
+                  correlationId: slice.runId,
+                  title: `Task ${dtu.task_id} missing proof for completion`,
+                  summary: `Proof chain incomplete (${reasonCodes}). Task held in needs_review until proof is resolved.`,
+                  urgency: "high",
+                  blocking: true,
+                  decisionType: "proof_incomplete",
+                  workstreamId: slice.workstreamId,
+                  agentId: slice.agentId,
+                  sourceRunId: slice.runId,
+                  dedupeKey: `proof-gate:${dtu.task_id}:${slice.runId}`,
+                  metadata: { proof_result: proofResult },
+                });
+              } else if (!overallPassed) {
+                // Warn-only: emit activity but allow transition
+                await emitActivitySafe({
+                  initiativeId: run.initiativeId,
+                  runId: slice.runId,
+                  correlationId: slice.runId,
+                  phase: "review",
+                  level: "warn",
+                  message: `Task ${dtu.task_id} completing with incomplete proof chain.`,
+                  metadata: {
+                    event: "proof_gate_warning",
+                    task_id: dtu.task_id,
+                    proof_result: proofResult,
+                  },
+                });
+              }
+            } catch {
+              // Best-effort proof check; don't block on transient failures
+            }
+          }
+        }
+
         const statusUpdateResult = await applyAgentStatusUpdatesSafe({
           initiativeId: run.initiativeId,
           runId: slice.runId,

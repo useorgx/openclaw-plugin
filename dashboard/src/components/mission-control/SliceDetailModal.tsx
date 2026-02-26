@@ -33,6 +33,8 @@ interface SliceDetailModalProps {
   onOpenInitiative?: (initiativeId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenDecisions?: () => void;
+  onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void | Promise<void>;
+  onRejectSlice?: (sliceRun: SliceRunProjection, note: string) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

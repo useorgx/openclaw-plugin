@@ -278,7 +278,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
         const msg = toErrorMessage(err);
         if (
           emitPayload.run_id &&
-          /^404\b/.test(msg) &&
+          /(?:^|\b)404\b/.test(msg) &&
           /\brun\b/i.test(msg) &&
           /not found/i.test(msg)
         ) {
