@@ -11,6 +11,11 @@ type RegisterDecisionActionsRoutesDeps<TReq, TRes> = {
     action: DecisionAction,
     input?: { note?: string; optionId?: string }
   ) => Promise<Array<{ ok?: boolean }>>;
+  emitDecisionResolvedActivity?: (
+    ids: string[],
+    action: DecisionAction,
+    input?: { note?: string; optionId?: string }
+  ) => Promise<void>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 };
@@ -63,8 +68,22 @@ async function handleApproveRequest<TReq, TRes>(
     note,
     optionId,
   });
+  const resolvedIds = results
+    .map((result, index) => (result.ok === true ? ids[index] ?? null : null))
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
   const updated = results.filter((result) => result.ok === true).length;
   const failed = results.length - updated;
+
+  if (resolvedIds.length > 0 && typeof deps.emitDecisionResolvedActivity === "function") {
+    try {
+      await deps.emitDecisionResolvedActivity(resolvedIds, action, {
+        note,
+        optionId,
+      });
+    } catch {
+      // best effort; decision mutation succeeded so do not fail the response
+    }
+  }
 
   deps.sendJson(res, failed > 0 ? 207 : 200, {
     action,
@@ -73,6 +92,15 @@ async function handleApproveRequest<TReq, TRes>(
     failed,
     results,
   });
+}
+
+function decodeDecisionId(encodedDecisionId: string): string | null {
+  try {
+    const decoded = decodeURIComponent(encodedDecisionId).trim();
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 export function registerDecisionActionsRoutes<TReq, TRes>(
@@ -103,11 +131,14 @@ export function registerDecisionActionsRoutes<TReq, TRes>(
         deps.sendJson(res, 404, { error: "Unknown API endpoint" });
         return;
       }
+      const decisionId = decodeDecisionId(decisionApproveMatch[1]);
+      if (!decisionId) {
+        deps.sendJson(res, 400, { error: "Invalid decision ID." });
+        return;
+      }
 
       try {
-        await handleApproveRequest(req, res, deps, [
-          decodeURIComponent(decisionApproveMatch[1]),
-        ]);
+        await handleApproveRequest(req, res, deps, [decisionId]);
       } catch (err: unknown) {
         deps.sendJson(res, 500, {
           error: deps.safeErrorMessage(err),

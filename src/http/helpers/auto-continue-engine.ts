@@ -119,6 +119,8 @@ export interface CreateAutoContinueEngineDeps {
     agentId: string;
     agentName?: string | null;
     workstreamId: string;
+    fallbackMilestoneId?: string | null;
+    fallbackTaskIds?: string[] | null;
     artifact: {
       name: string;
       artifact_type?: string | null;
@@ -209,7 +211,47 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   const requestDecisionQueued = async (
     input: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0]
   ): Promise<DecisionRequestOutcome> => {
-    const result = await requestDecisionSafe(input);
+    const inferredRunId =
+      (typeof input.sourceRunId === "string" && input.sourceRunId.trim().length > 0
+        ? input.sourceRunId.trim()
+        : null) ??
+      (typeof input.correlationId === "string" && input.correlationId.trim().length > 0
+        ? input.correlationId.trim()
+        : null);
+    const inferredSessionId =
+      (typeof input.sourceSessionId === "string" && input.sourceSessionId.trim().length > 0
+        ? input.sourceSessionId.trim()
+        : null) ?? inferredRunId;
+    const inferredStreamId =
+      (typeof input.sourceStreamId === "string" && input.sourceStreamId.trim().length > 0
+        ? input.sourceStreamId.trim()
+        : null) ??
+      (typeof input.workstreamId === "string" && input.workstreamId.trim().length > 0
+        ? input.workstreamId.trim()
+        : null);
+    const sourceRefBase =
+      input.sourceRef && typeof input.sourceRef === "object" && !Array.isArray(input.sourceRef)
+        ? (input.sourceRef as Record<string, unknown>)
+        : {};
+    const normalizedInput: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0] = {
+      ...input,
+      sourceRunId: inferredRunId,
+      sourceSessionId: inferredSessionId,
+      sourceStreamId: inferredStreamId,
+      sourceRef: {
+        ...sourceRefBase,
+        run_id: sourceRefBase.run_id ?? inferredRunId,
+        session_id: sourceRefBase.session_id ?? inferredSessionId,
+        stream_id: sourceRefBase.stream_id ?? inferredStreamId,
+        workstream_id: sourceRefBase.workstream_id ?? input.workstreamId ?? null,
+      },
+      metadata: {
+        ...(input.metadata ?? {}),
+        source_system: input.sourceSystem ?? null,
+        conflict_source: input.conflictSource ?? null,
+      },
+    };
+    const result = await requestDecisionSafe(normalizedInput);
     if (typeof result === "boolean") {
       return { queued: result, decisionIds: [] };
     }
@@ -443,6 +485,61 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     scheduledAt: string;
     dueAt: string;
     timer: NodeJS.Timeout | null;
+  };
+
+  const buildSliceEnrichment = (input: {
+    run: AutoContinueRun;
+    slice?: AutoContinueSliceRun | null;
+    taskId?: string | null;
+    taskTitle?: string | null;
+    workstreamId?: string | null;
+    workstreamTitle?: string | null;
+    domain?: string | null;
+    requiredSkills?: string[] | null;
+    modelTier?: string | null;
+    nextActions?: string[] | null;
+    userSummary?: string | null;
+    event?: string | null;
+    extra?: Record<string, unknown>;
+  }): Record<string, unknown> => {
+    const workstreamId =
+      (input.workstreamId ?? input.slice?.workstreamId ?? "").trim() || null;
+    const taskId = (input.taskId ?? input.slice?.taskIds?.[0] ?? "").trim() || null;
+    const requiredSkills = Array.isArray(input.requiredSkills)
+      ? input.requiredSkills
+      : input.slice?.requiredSkills ?? null;
+    return {
+      event: input.event ?? null,
+      initiative_id: input.run.initiativeId,
+      requested_by_agent_id: input.run.agentId,
+      requested_by_agent_name: input.run.agentName,
+      requester_agent_id: input.run.agentId,
+      requester_agent_name: input.run.agentName,
+      agent_id: input.slice?.agentId ?? null,
+      agent_name: input.slice?.agentName ?? null,
+      executor_agent_id: input.slice?.agentId ?? null,
+      executor_agent_name: input.slice?.agentName ?? null,
+      source_run_id: input.slice?.runId ?? null,
+      source_session_id: input.slice?.runId ?? null,
+      source_stream_id: workstreamId,
+      run_id: input.slice?.runId ?? null,
+      slice_run_id: input.slice?.runId ?? null,
+      correlation_id: input.slice?.runId ?? null,
+      workstream_id: workstreamId,
+      workstream_title: input.workstreamTitle ?? input.slice?.workstreamTitle ?? null,
+      task_id: taskId,
+      task_title: input.taskTitle ?? null,
+      milestone_ids: input.slice?.milestoneIds ?? null,
+      task_ids: input.slice?.taskIds ?? null,
+      domain: input.domain ?? input.slice?.domain ?? null,
+      required_skills: requiredSkills,
+      skill_pack: requiredSkills,
+      model_tier: input.modelTier ?? null,
+      scope: input.slice?.scope ?? input.run.scope,
+      next_actions: input.nextActions ?? null,
+      user_summary: input.userSummary ?? null,
+      ...(input.extra ?? {}),
+    };
   };
 
 	  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
@@ -1147,6 +1244,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       correlationId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
       phase,
       level,
+      progressPct: input.reason === "completed" ? 100 : input.reason === "blocked" ? 65 : 0,
+      nextStep:
+        input.reason === "completed"
+          ? "Select the next queue item or enable autoplay for continuous dispatch."
+          : input.reason === "blocked"
+          ? "Resolve blocker decisions, then resume or restart autoplay."
+          : input.reason === "budget_exhausted"
+          ? "Increase token budget or scope down work before restarting autoplay."
+          : input.reason === "stopped"
+          ? "Restart autoplay when ready."
+          : "Inspect error details and relaunch once fixed.",
       message,
       metadata: {
         event: "auto_continue_stopped",
@@ -1177,6 +1285,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         correlationId: primaryActiveRunId ?? input.run.lastRunId ?? undefined,
         phase,
         level: "info",
+        progressPct:
+          input.reason === "completed" ? 100 : input.reason === "blocked" ? 65 : 0,
         message: `Autopilot state: running → ${input.reason === "completed" ? "idle" : input.reason === "stopped" ? "idle" : input.reason}.`,
         metadata: {
           event: "autopilot_transition",
@@ -1321,17 +1431,23 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                correlationId: slice.runId,
 	                phase: "blocked",
 	                level: "error",
+                  progressPct: 55,
+                  nextStep:
+                    "Review MCP diagnostics, then choose retry, skip, or pause for investigation.",
 	                message: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}.`,
 		                metadata: {
-		                  event: "autopilot_slice_mcp_handshake_failed",
-		                  requested_by_agent_id: run.agentId,
-		                  requested_by_agent_name: run.agentName,
+                    ...buildSliceEnrichment({
+                      run,
+                      slice,
+                      workstreamId: slice.workstreamId,
+                      workstreamTitle: slice.workstreamTitle ?? null,
+                      domain: slice.domain,
+                      requiredSkills: slice.requiredSkills,
+                      event: "autopilot_slice_mcp_handshake_failed",
+                    }),
 		                  error_location: "mission-control.auto-continue.engine.slice.mcp-handshake",
 		                  mcp_server: mcpHandshake.server,
 		                  mcp_line: mcpHandshake.line,
-	                  workstream_id: slice.workstreamId,
-	                  task_ids: slice.taskIds,
-	                  milestone_ids: slice.milestoneIds,
 	                  log_path: slice.logPath,
 	                  output_path: slice.outputPath,
 	                  ...mockMeta(slice),
@@ -1445,18 +1561,24 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                correlationId: slice.runId,
 	                phase: "blocked",
 	                level: "error",
+                  progressPct: 55,
+                  nextStep:
+                    "Open logs/output, decide retry or pause, and capture blocker context for handoff.",
 	                message: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}.`,
 		                metadata: {
-		                  event,
-		                  requested_by_agent_id: run.agentId,
-		                  requested_by_agent_name: run.agentName,
+                    ...buildSliceEnrichment({
+                      run,
+                      slice,
+                      workstreamId: slice.workstreamId,
+                      workstreamTitle: slice.workstreamTitle ?? null,
+                      domain: slice.domain,
+                      requiredSkills: slice.requiredSkills,
+                      event,
+                    }),
 		                  error_location:
 		                    killDecision.kind === "timeout"
 		                      ? "mission-control.auto-continue.engine.slice.timeout"
 		                      : "mission-control.auto-continue.engine.slice.stall",
-		                  workstream_id: slice.workstreamId,
-		                  task_ids: slice.taskIds,
-	                  milestone_ids: slice.milestoneIds,
 	                  log_path: slice.logPath,
 	                  output_path: slice.outputPath,
 	                  reason: killDecision.reason,
@@ -1602,13 +1724,39 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         run.tokensUsed += Math.max(0, modeledTokens);
         run.activeTaskTokenEstimate = null;
 
-        const artifacts = Array.isArray(parsed?.artifacts)
-          ? (parsed?.artifacts ?? [])
-              .filter(
-                (item: AutoContinueSliceArtifact): item is AutoContinueSliceArtifact =>
-                  Boolean(item && typeof item.name === "string" && item.name.trim())
-              )
+	        const artifacts = Array.isArray(parsed?.artifacts)
+	          ? (parsed?.artifacts ?? [])
+	              .filter(
+	                (item: AutoContinueSliceArtifact): item is AutoContinueSliceArtifact =>
+	                  Boolean(item && typeof item.name === "string" && item.name.trim())
+	              )
+	          : [];
+        const artifactEvidenceRefs = artifacts.map((artifact) => ({
+          evidence_type: "artifact",
+          title: artifact.name.trim(),
+          summary: artifact.description?.trim() || "Slice artifact output",
+          source_pointer: artifact.url ?? slice.outputPath,
+          payload: {
+            artifact_type: artifact.artifact_type ?? null,
+            confidence_score: artifact.confidence_score ?? null,
+            task_ids:
+              Array.isArray(artifact.task_ids) && artifact.task_ids.length > 0
+                ? artifact.task_ids
+                : slice.taskIds,
+            milestone_id: artifact.milestone_id ?? slice.milestoneIds[0] ?? null,
+          },
+        }));
+        const nextActions = Array.isArray((parsed as any)?.next_actions)
+          ? ((parsed as any).next_actions as unknown[])
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
           : [];
+        const nextStepHint =
+          nextActions[0] ??
+          (slice.status === "completed"
+            ? "No follow-up action returned by worker."
+            : "Resolve blocker to continue execution.");
         const skillEvidence = Array.isArray((parsed as any)?.skill_evidence)
           ? ((parsed as any).skill_evidence as AutoContinueSliceSkillEvidence[])
               .map((item) => ({
@@ -1683,27 +1831,29 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               "slice_reported_decision",
               normalizedQuestion.toLowerCase(),
             ].join(":"),
-            recommendedAction:
-              "Resolve this decision to continue the slice or safely defer workstream execution.",
+	            recommendedAction:
+              nextActions[0] ??
+	              "Resolve this decision to continue the slice or safely defer workstream execution.",
             sourceRunId: slice.runId,
             sourceRef: {
               run_id: slice.runId,
               workstream_id: slice.workstreamId,
               parsed_status: parsedStatus,
             },
-            evidenceRefs: [
-              {
-                evidence_type: "slice_output_summary",
+	            evidenceRefs: [
+	              {
+	                evidence_type: "slice_output_summary",
                 title: "Slice requested a decision",
                 summary: decision.summary ?? parsed?.summary ?? "Decision required by slice output.",
                 source_pointer: slice.outputPath,
-                payload: {
-                  log_path: slice.logPath,
-                  blocking: isBlocking,
-                },
-              },
-            ],
-          });
+	                payload: {
+	                  log_path: slice.logPath,
+	                  blocking: isBlocking,
+	                },
+	              },
+              ...artifactEvidenceRefs,
+	            ],
+	          });
           if (decisionResult.queued && isBlocking) blockingDecisionQueued = true;
           if (decisionResult.decisionIds.length > 0) {
             if (isBlocking) blockingDecisionIds.push(...decisionResult.decisionIds);
@@ -1721,6 +1871,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             agentId: slice.agentId,
             agentName: slice.agentName,
             workstreamId: slice.workstreamId,
+            fallbackMilestoneId: slice.milestoneIds[0] ?? null,
+            fallbackTaskIds: slice.taskIds,
             artifact,
             isMockWorker: slice.isMockWorker,
           });
@@ -1773,16 +1925,50 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               blocking_decisions: blockingDecisionCount,
               non_blocking_decisions: nonBlockingDecisionCount,
               status_updates: statusUpdateResult.applied,
-              status_updates_buffered: statusUpdateResult.buffered,
-              reported_skill_evidence_count: skillEvidence.length,
-              reported_skill_sha256_count: reportedSkillSha256Count,
-              reported_skill_names: reportedSkillNames,
-              ...mockMeta(slice),
-              user_summary: parsed?.summary ?? null,
-            },
+            status_updates_buffered: statusUpdateResult.buffered,
+            reported_skill_evidence_count: skillEvidence.length,
+            reported_skill_sha256_count: reportedSkillSha256Count,
+            reported_skill_names: reportedSkillNames,
+            ...mockMeta(slice),
+            user_summary: parsed?.summary ?? null,
+            next_actions: nextActions,
+          },
+        });
+      } catch {
+        // best effort
+      }
+
+        if (slice.status === "completed") {
+          await emitActivitySafe({
+            initiativeId: run.initiativeId,
+            runId: slice.runId,
+            correlationId: slice.runId,
+            phase: "handoff",
+            level: "info",
+            message: `Handoff ready for ${slice.workstreamTitle ?? slice.workstreamId}.`,
+            progressPct: 80,
+            nextStep: nextStepHint,
+            metadata: buildSliceEnrichment({
+              run,
+              slice,
+              workstreamId: slice.workstreamId,
+              workstreamTitle: slice.workstreamTitle ?? null,
+              domain: slice.domain,
+              requiredSkills: slice.requiredSkills,
+              nextActions,
+              userSummary: parsed?.summary ?? null,
+              event: "autopilot_slice_handoff",
+              extra: {
+                parsed_status: effectiveParsedStatus,
+                artifacts: artifacts.length,
+                decisions: decisions.length,
+                decision_ids: decisionIds,
+                output_path: slice.outputPath,
+                log_path: slice.logPath,
+                ...mockMeta(slice),
+              },
+            }),
           });
-        } catch {
-          // best effort
         }
 
         await emitActivitySafe({
@@ -1791,34 +1977,33 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           correlationId: slice.runId,
           phase: slice.status === "completed" ? "completed" : "blocked",
           level: slice.status === "completed" ? "info" : "warn",
+          progressPct: slice.status === "completed" ? 100 : 65,
+          nextStep: nextStepHint,
           message:
             slice.status === "completed"
               ? `Autopilot slice completed for ${slice.workstreamTitle ?? slice.workstreamId} (${slice.taskIds.length} task${slice.taskIds.length === 1 ? "" : "s"}).`
               : `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}.`,
           metadata: {
-            event: "autopilot_slice_result",
-            initiative_id: run.initiativeId,
-            run_id: slice.runId,
-            slice_run_id: slice.runId,
-            workstream_id: slice.workstreamId,
-            correlation_id: slice.runId,
-            requested_by_agent_id: run.agentId,
-            requested_by_agent_name: run.agentName,
+            ...buildSliceEnrichment({
+              run,
+              slice,
+              workstreamId: slice.workstreamId,
+              workstreamTitle: slice.workstreamTitle ?? null,
+              domain: slice.domain,
+              requiredSkills: slice.requiredSkills,
+              nextActions,
+              userSummary: parsed?.summary ?? null,
+              event: "autopilot_slice_result",
+            }),
             error_location:
               slice.status === "completed"
                 ? null
                 : "mission-control.auto-continue.engine.slice.result",
-            agent_id: slice.agentId,
-            agent_name: slice.agentName,
-            domain: slice.domain,
-            required_skills: slice.requiredSkills,
             behavior_config_id: slice.behaviorConfigId,
             behavior_config_version: slice.behaviorConfigVersion,
             behavior_config_hash: slice.behaviorConfigHash,
             policy_source: slice.behaviorPolicySource,
             behavior_automation_level: slice.behaviorAutomationLevel,
-            task_ids: slice.taskIds,
-            milestone_ids: slice.milestoneIds,
             parsed_status: effectiveParsedStatus,
             has_output: Boolean(parsed),
             artifacts: artifacts.length,
@@ -1837,6 +2022,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             output_path: slice.outputPath,
             log_path: slice.logPath,
             error: slice.lastError,
+            next_actions: nextActions,
             ...mockMeta(slice),
             user_summary: parsed?.summary ?? null,
           },
@@ -1896,30 +2082,32 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                 slice.workstreamId,
                 blockedLike ? "slice_missing_blocking_decision" : "slice_invalid_output",
               ].join(":"),
-              recommendedAction:
-                "Review the output contract and logs, then retry or pause autopilot until the blocker is resolved.",
+	              recommendedAction:
+                nextActions[0] ??
+	                "Review the output contract and logs, then retry or pause autopilot until the blocker is resolved.",
               sourceRunId: slice.runId,
               sourceRef: {
                 run_id: slice.runId,
                 workstream_id: slice.workstreamId,
                 parsed_status: effectiveParsedStatus,
               },
-              evidenceRefs: [
-                {
-                  evidence_type: "slice_output_validation",
+	              evidenceRefs: [
+	                {
+	                  evidence_type: "slice_output_validation",
                   title: "Slice output requires fallback decision",
                   summary:
                     parsed?.summary ??
                     slice.lastError ??
                     "Slice did not provide a blocking decision payload.",
                   source_pointer: slice.outputPath,
-                  payload: {
-                    log_path: slice.logPath,
-                    parsed_status: effectiveParsedStatus,
-                  },
-                },
-              ],
-            });
+	                  payload: {
+	                    log_path: slice.logPath,
+	                    parsed_status: effectiveParsedStatus,
+	                  },
+	                },
+                  ...artifactEvidenceRefs,
+	              ],
+	            });
           }
 
             setLaneState(run, {
@@ -1998,28 +2186,30 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                 ? "slice_completed_without_outcome"
                 : "slice_invalid_output",
             ].join(":"),
-            recommendedAction:
-              "Verify slice outputs and status updates, then retry once or pause for investigation.",
+	            recommendedAction:
+              nextActions[0] ??
+	              "Verify slice outputs and status updates, then retry once or pause for investigation.",
             sourceRunId: slice.runId,
             sourceRef: {
               run_id: slice.runId,
               workstream_id: slice.workstreamId,
               parsed_status: parsedStatus,
             },
-            evidenceRefs: [
-              {
-                evidence_type: "slice_output_validation",
+	            evidenceRefs: [
+	              {
+	                evidence_type: "slice_output_validation",
                 title: "Slice output needs verification",
                 summary: attentionSummary,
                 source_pointer: slice.outputPath,
                 payload: {
                   log_path: slice.logPath,
                   parsed_status: parsedStatus,
-                  completion_had_no_outcome: completionHadNoOutcome,
-                },
-              },
-            ],
-	          });
+	                  completion_had_no_outcome: completionHadNoOutcome,
+	                },
+	              },
+                ...artifactEvidenceRefs,
+	            ],
+		          });
 
             setLaneState(run, {
               workstreamId: slice.workstreamId,
@@ -2105,11 +2295,23 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                correlationId: slice.runId,
 	                phase: "completed",
 	                level: "info",
+                  progressPct: 100,
+                  nextStep:
+                    slice.scope === "milestone"
+                      ? "Queue the next milestone-ready slice."
+                      : "Select the next dispatchable workstream from Next Up.",
 	                message: `${slice.scope === "milestone" ? "Milestone" : "Workstream"} scope completed for ${slice.workstreamTitle ?? slice.workstreamId}.`,
 	                metadata: {
-	                  event: "scope_completed",
+                    ...buildSliceEnrichment({
+                      run,
+                      slice,
+                      workstreamId: slice.workstreamId,
+                      workstreamTitle: slice.workstreamTitle ?? null,
+                      domain: slice.domain,
+                      requiredSkills: slice.requiredSkills,
+                      event: "scope_completed",
+                    }),
 	                  scope: slice.scope,
-	                  workstream_id: slice.workstreamId,
 	                  milestone_ids: slice.scopeMilestoneIds,
 	                  remaining_tasks: 0,
 	                },
@@ -2405,6 +2607,31 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const behaviorConfig = deriveBehaviorConfigContext(primaryTask, workstreamNode);
     const behaviorAutomationLevel = deriveBehaviorAutomationLevel(primaryTask, workstreamNode);
     const sliceRunId = randomUUID();
+
+    await emitActivitySafe({
+      initiativeId: run.initiativeId,
+      runId: sliceRunId,
+      correlationId: sliceRunId,
+      phase: "intent",
+      level: "info",
+      progressPct: 5,
+      message: `Orchestrator selected ${workstreamTitle ?? selectedWorkstreamId} for the next slice.`,
+      nextStep: `Preparing dispatch checks before spawning ${executionPolicy.domain} execution.`,
+      metadata: {
+        ...buildSliceEnrichment({
+          run,
+          taskId: primaryTask.id,
+          taskTitle: primaryTask.title ?? null,
+          workstreamId: selectedWorkstreamId,
+          workstreamTitle: workstreamTitle ?? null,
+          domain: executionPolicy.domain,
+          requiredSkills: executionPolicy.requiredSkills,
+          event: "orchestrator_dispatch",
+        }),
+        scope: run.scope,
+        candidate_task_count: sliceTaskNodes.length,
+      },
+    });
     const behaviorConfigDrift = detectBehaviorConfigDrift({
       taskNode: primaryTask,
       workstreamNode,
@@ -2419,13 +2646,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         correlationId: sliceRunId,
         phase: "review",
         level: "warn",
+        progressPct: 15,
         message:
           `Behavior config drift detected for ${workstreamTitle ?? selectedWorkstreamId}; ` +
           `runtime behavior differs from declared workstream config.`,
         metadata: {
-          event: "auto_continue_behavior_config_drift_detected",
-          task_id: primaryTask.id,
-          workstream_id: selectedWorkstreamId,
+          ...buildSliceEnrichment({
+            run,
+            taskId: primaryTask.id,
+            taskTitle: primaryTask.title ?? null,
+            workstreamId: selectedWorkstreamId,
+            workstreamTitle: workstreamTitle ?? null,
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
+            event: "auto_continue_behavior_config_drift_detected",
+          }),
           drift_fields: behaviorConfigDrift.fields,
           declared_behavior_config_id: behaviorConfigDrift.declared.configId,
           declared_behavior_config_version: behaviorConfigDrift.declared.version,
@@ -2454,11 +2689,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         correlationId: sliceRunId,
         phase: "blocked",
         level: "warn",
+        progressPct: 20,
         message: blockedReason,
         metadata: {
-          event: "auto_continue_behavior_config_approval_required",
-          task_id: primaryTask.id,
-          workstream_id: selectedWorkstreamId,
+          ...buildSliceEnrichment({
+            run,
+            taskId: primaryTask.id,
+            taskTitle: primaryTask.title ?? null,
+            workstreamId: selectedWorkstreamId,
+            workstreamTitle: workstreamTitle ?? null,
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
+            event: "auto_continue_behavior_config_approval_required",
+          }),
           behavior_config_id: behaviorConfig.configId,
           behavior_config_version: behaviorConfig.version,
           behavior_config_hash: behaviorConfig.hash,
@@ -2491,6 +2734,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         blocking: true,
         decisionType: "autopilot_behavior_config_approval",
         workstreamId: selectedWorkstreamId,
+        agentId: run.agentId,
         sourceSystem: "orgx-autopilot",
         conflictSource: "behavior_config_requires_approval",
         dedupeKey: [
@@ -2547,11 +2791,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         correlationId: sliceRunId,
         phase: "blocked",
         level: "warn",
+        progressPct: 20,
         message: blockedReason,
         metadata: {
-          event: "auto_continue_behavior_automation_manual_blocked",
-          task_id: primaryTask.id,
-          workstream_id: selectedWorkstreamId,
+          ...buildSliceEnrichment({
+            run,
+            taskId: primaryTask.id,
+            taskTitle: primaryTask.title ?? null,
+            workstreamId: selectedWorkstreamId,
+            workstreamTitle: workstreamTitle ?? null,
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
+            event: "auto_continue_behavior_automation_manual_blocked",
+          }),
           behavior_config_id: behaviorConfig.configId,
           behavior_config_version: behaviorConfig.version,
           behavior_automation_level: behaviorAutomationLevel,
@@ -2581,6 +2833,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         blocking: true,
         decisionType: "autopilot_behavior_manual_dispatch_required",
         workstreamId: selectedWorkstreamId,
+        agentId: run.agentId,
         sourceSystem: "orgx-autopilot",
         conflictSource: "behavior_automation_level_manual",
         dedupeKey: [
@@ -2632,11 +2885,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         correlationId: sliceRunId,
         phase: "execution",
         level: "info",
+        progressPct: 25,
         message: `Supervised automation level: dispatching one slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
         metadata: {
-          event: "auto_continue_behavior_automation_supervised_one_shot",
-          task_id: primaryTask.id,
-          workstream_id: selectedWorkstreamId,
+          ...buildSliceEnrichment({
+            run,
+            taskId: primaryTask.id,
+            taskTitle: primaryTask.title ?? null,
+            workstreamId: selectedWorkstreamId,
+            workstreamTitle: workstreamTitle ?? null,
+            domain: executionPolicy.domain,
+            requiredSkills: executionPolicy.requiredSkills,
+            event: "auto_continue_behavior_automation_supervised_one_shot",
+          }),
           behavior_automation_level: behaviorAutomationLevel,
         },
         nextStep: "Resume to dispatch the next slice after this one completes.",
@@ -2680,14 +2941,22 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             correlationId: sliceRunId,
             phase: "blocked",
             level: "warn",
+            progressPct: 25,
             message: `Autopilot spawn guard rate-limited ${workstreamTitle ?? selectedWorkstreamId}; retrying shortly.`,
             metadata: {
-              event: "auto_continue_spawn_guard_rate_limited",
-              task_id: primaryTask.id,
-              workstream_id: selectedWorkstreamId,
+              ...buildSliceEnrichment({
+                run,
+                taskId: primaryTask.id,
+                taskTitle: primaryTask.title ?? null,
+                workstreamId: selectedWorkstreamId,
+                workstreamTitle: workstreamTitle ?? null,
+                domain: executionPolicy.domain,
+                requiredSkills: executionPolicy.requiredSkills,
+                event: "auto_continue_spawn_guard_rate_limited",
+              }),
               blocked_reason: blockedReason,
               error_location: "mission-control.auto-continue.engine.spawn-guard.rate-limited",
-	              next_retry_at: retryAtIso,
+		              next_retry_at: retryAtIso,
               next_retry_in_ms: AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS,
               spawn_guard: spawnGuardResult,
             },
@@ -2720,11 +2989,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             correlationId: sliceRunId,
             phase: "execution",
             level: "warn",
+            progressPct: 25,
             message: `${overrideMode} override: dispatching ${workstreamTitle ?? selectedWorkstreamId} despite spawn guard rate limit.`,
             metadata: {
-              event: "auto_continue_spawn_guard_rate_limit_overridden",
-              task_id: primaryTask.id,
-              workstream_id: selectedWorkstreamId,
+              ...buildSliceEnrichment({
+                run,
+                taskId: primaryTask.id,
+                taskTitle: primaryTask.title ?? null,
+                workstreamId: selectedWorkstreamId,
+                workstreamTitle: workstreamTitle ?? null,
+                domain: executionPolicy.domain,
+                requiredSkills: executionPolicy.requiredSkills,
+                event: "auto_continue_spawn_guard_rate_limit_overridden",
+              }),
               blocked_reason: blockedReason,
               error_location: "mission-control.auto-continue.engine.spawn-guard.override",
               spawn_guard: spawnGuardResult,
@@ -2768,11 +3045,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             correlationId: sliceRunId,
             phase: "blocked",
             level: "error",
+            progressPct: 25,
             message: `Autopilot blocked by spawn guard for ${workstreamTitle ?? selectedWorkstreamId}.`,
             metadata: {
-              event: "auto_continue_spawn_guard_blocked",
-              task_id: primaryTask.id,
-              workstream_id: selectedWorkstreamId,
+              ...buildSliceEnrichment({
+                run,
+                taskId: primaryTask.id,
+                taskTitle: primaryTask.title ?? null,
+                workstreamId: selectedWorkstreamId,
+                workstreamTitle: workstreamTitle ?? null,
+                domain: executionPolicy.domain,
+                requiredSkills: executionPolicy.requiredSkills,
+                event: "auto_continue_spawn_guard_blocked",
+              }),
               blocked_reason: blockedReason,
               error_location: "mission-control.auto-continue.engine.spawn-guard.blocked",
               spawn_guard: spawnGuardResult,
@@ -2797,6 +3082,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	            blocking: true,
             decisionType: "autopilot_spawn_guard_block",
             workstreamId: selectedWorkstreamId,
+            agentId: run.agentId,
             sourceSystem: "orgx-autopilot",
             conflictSource: "spawn_guard_blocked",
             dedupeKey: [
@@ -3088,31 +3374,29 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       initiativeId: run.initiativeId,
       runId: sliceRunId,
       correlationId: sliceRunId,
+      progressPct: 10,
+      nextStep: `Worker ${sliceAgent.name} is executing ${workstreamTitle ?? selectedWorkstreamId}.`,
       phase: "execution",
       level: "info",
       message: `Autopilot dispatched slice for ${workstreamTitle ?? selectedWorkstreamId}.`,
       metadata: {
-        event: "autopilot_slice_dispatched",
-        initiative_id: run.initiativeId,
-        run_id: sliceRunId,
-        slice_run_id: sliceRunId,
-        correlation_id: sliceRunId,
-        requested_by_agent_id: run.agentId,
-        requested_by_agent_name: run.agentName,
-        agent_id: slice.agentId,
-        agent_name: sliceAgent.name,
-        domain: executionPolicy.domain,
-        required_skills: executionPolicy.requiredSkills,
+        ...buildSliceEnrichment({
+          run,
+          slice,
+          taskId: primaryTask.id,
+          taskTitle: primaryTask.title ?? null,
+          workstreamId: selectedWorkstreamId,
+          workstreamTitle: workstreamTitle ?? null,
+          domain: executionPolicy.domain,
+          requiredSkills: executionPolicy.requiredSkills,
+          event: "autopilot_slice_dispatched",
+        }),
         behavior_config_id: behaviorConfig.configId,
         behavior_config_version: behaviorConfig.version,
         behavior_config_hash: behaviorConfig.hash,
         policy_source: behaviorConfig.policySource,
         behavior_automation_level: behaviorAutomationLevel,
         initiative_title: initiativeTitle ?? null,
-        workstream_id: selectedWorkstreamId,
-        workstream_title: workstreamTitle ?? null,
-        task_ids: slice.taskIds,
-        milestone_ids: milestoneIds,
         scope: slice.scope,
         scope_milestone_ids: slice.scopeMilestoneIds,
         log_path: logPath,

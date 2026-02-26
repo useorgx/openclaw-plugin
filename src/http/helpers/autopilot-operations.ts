@@ -105,6 +105,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     agentId: string;
     agentName?: string | null;
     workstreamId: string;
+    fallbackMilestoneId?: string | null;
+    fallbackTaskIds?: string[] | null;
     artifact: AutopilotSliceArtifact;
     isMockWorker?: boolean;
   }): Promise<{ ok: boolean; id: string | null }> {
@@ -126,6 +128,25 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
         ? input.artifact.confidence_score
         : null;
     const artifactId = deps.randomUUID();
+    const milestoneId =
+      (typeof input.artifact.milestone_id === "string" &&
+      input.artifact.milestone_id.trim().length > 0
+        ? input.artifact.milestone_id.trim()
+        : null) ??
+      (typeof input.fallbackMilestoneId === "string" &&
+      input.fallbackMilestoneId.trim().length > 0
+        ? input.fallbackMilestoneId.trim()
+        : null);
+    const taskIds = (
+      Array.isArray(input.artifact.task_ids) && input.artifact.task_ids.length > 0
+        ? input.artifact.task_ids
+        : Array.isArray(input.fallbackTaskIds)
+        ? input.fallbackTaskIds
+        : []
+    )
+      .filter((taskId): taskId is string => typeof taskId === "string")
+      .map((taskId) => taskId.trim())
+      .filter(Boolean);
 
     const verificationSteps = Array.isArray(input.artifact.verification_steps)
       ? input.artifact.verification_steps
@@ -154,8 +175,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     const createdById = hasUuidAgent ? input.agentId : null;
 
     try {
-      const entityType = input.artifact.milestone_id ? "milestone" : "initiative";
-      const entityId = input.artifact.milestone_id ? input.artifact.milestone_id : input.initiativeId;
+      const entityType = milestoneId ? "milestone" : "initiative";
+      const entityId = milestoneId ?? input.initiativeId;
       const result = await registerArtifact(deps.client as any, deps.client.getBaseUrl(), {
         artifact_id: artifactId,
         entity_type: entityType as any,
@@ -175,13 +196,45 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
           run_id: input.runId,
           initiative_id: input.initiativeId,
           workstream_id: input.workstreamId,
-          milestone_id: input.artifact.milestone_id ?? null,
-          task_ids: input.artifact.task_ids ?? null,
+          milestone_id: milestoneId,
+          task_ids: taskIds.length > 0 ? taskIds : null,
           confidence_score: confidenceScore,
         },
         // Make persistence validation opt-in to avoid adding latency to every slice by default.
         validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
       });
+
+      if (result.ok) {
+        try {
+          await deps.emitActivitySafe({
+            initiativeId: input.initiativeId,
+            runId: input.runId,
+            correlationId: input.runId,
+            phase: "handoff",
+            level: "info",
+            message: `Artifact registered: ${name}`,
+            progressPct: 100,
+            metadata: {
+              event: "artifact_registered",
+              artifact_id: result.artifact_id ?? artifactId,
+              artifact_type: artifactType,
+              confidence_score: confidenceScore,
+              initiative_id: input.initiativeId,
+              workstream_id: input.workstreamId,
+              milestone_id: milestoneId,
+              task_ids: taskIds,
+              agent_id: input.agentId,
+              agent_name: input.agentName ?? null,
+              executor_agent_id: input.agentId,
+              executor_agent_name: input.agentName ?? null,
+              source_run_id: input.runId,
+              ...(input.isMockWorker ? { mock: true } : {}),
+            },
+          });
+        } catch {
+          // best effort
+        }
+      }
 
       return { ok: result.ok, id: result.artifact_id };
     } catch (err: unknown) {
@@ -192,8 +245,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
           timestamp: now,
           payload: {
             artifact_id: artifactId,
-            entity_type: input.artifact.milestone_id ? "milestone" : "initiative",
-            entity_id: input.artifact.milestone_id ?? input.initiativeId,
+            entity_type: milestoneId ? "milestone" : "initiative",
+            entity_id: milestoneId ?? input.initiativeId,
             name,
             artifact_type: artifactType,
             confidence_score: confidenceScore,

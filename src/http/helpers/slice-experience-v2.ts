@@ -1,6 +1,7 @@
 import type { LiveActivityItem, SessionTreeNode } from "../../types.js";
 import type { SliceRunProjection } from "./slice-run-projections.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
+import type { DecisionActionType } from "../../contracts/shared-types.js";
 
 export type SliceKind = "work_slice" | "runtime_reporting" | "system_maintenance";
 export type SliceLifecycleStateV2 =
@@ -18,13 +19,7 @@ export type OutcomeState =
   | "failed_non_actionable"
   | "needs_input";
 export type ActorType = "agent" | "user" | "orgx" | "system";
-export type SliceActionType =
-  | "approve"
-  | "reject"
-  | "retry"
-  | "resume"
-  | "open_artifact"
-  | "provide_context";
+export type SliceActionType = DecisionActionType;
 
 export type ActorProvenance = {
   actorType: ActorType;

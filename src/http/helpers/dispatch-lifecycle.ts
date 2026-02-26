@@ -5,6 +5,8 @@ import {
 } from "../../reporting/rollups.js";
 import { readSkillPackState } from "../../skill-pack-state.js";
 import type { OrgXClient } from "../../api.js";
+import type { DecisionActionType } from "../../contracts/shared-types.js";
+import { normalizeDecisionActionType } from "../../contracts/shared-types.js";
 import type { LiveActivityItem } from "../../types.js";
 import {
   buildMissionControlGraph,
@@ -353,7 +355,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
       label: string;
       description?: string;
       implied_status?: "approved" | "declined" | "cancelled" | "rejected";
-      action_type?: string;
+      action_type?: DecisionActionType;
       requires_note?: boolean;
     };
     const normalizedOptions: Array<string | DecisionOptionPayload> = [];
@@ -387,8 +389,11 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
           optionPayload.implied_status = implied;
         }
       }
-      if (typeof record.action_type === "string" && record.action_type.trim()) {
-        optionPayload.action_type = record.action_type.trim();
+      const normalizedActionType = normalizeDecisionActionType(
+        record.action_type ?? record.type ?? record.verb ?? record.action
+      );
+      if (normalizedActionType) {
+        optionPayload.action_type = normalizedActionType;
       }
       if (record.requires_note === true) {
         optionPayload.requires_note = true;

@@ -336,7 +336,7 @@ const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
 const NEXT_UP_QUEUE_CACHE_TTL_MS = readPositiveIntEnv(
   "ORGX_NEXT_UP_QUEUE_CACHE_TTL_MS",
-  4_000,
+  30_000,
   { min: 250, max: 120_000 }
 );
 const NEXT_UP_QUEUE_STALE_TTL_MS = readPositiveIntEnv(
@@ -2511,10 +2511,15 @@ export function createHttpHandler(
     const degraded: string[] = [];
     const requestedInitiativeId = input?.initiativeId?.trim() || null;
     const requestedProjectId = input?.projectId?.trim() || null;
-    const allowedInitiativeIds =
-      requestedProjectId && requestedProjectId.length > 0
-        ? new Set(await listInitiativeIdsForProject({ projectId: requestedProjectId }))
-        : null;
+    let allowedInitiativeIds: Set<string> | null = null;
+    if (requestedProjectId && requestedProjectId.length > 0) {
+      const scopedIds = await listInitiativeIdsForProject({
+        projectId: requestedProjectId,
+      });
+      if (scopedIds.length > 0) {
+        allowedInitiativeIds = new Set(scopedIds);
+      }
+    }
 
     const pinnedQueue = readNextUpQueuePins();
     const pinnedRankByKey = new Map<string, number>();
@@ -2571,6 +2576,44 @@ export function createHttpHandler(
       if (title) initiativeTitleById.set(id, title);
       if (status) initiativeStatusById.set(id, status);
       if (priority) initiativePriorityById.set(id, priority);
+    }
+
+    const initiativeMatchesRequestedProject = (
+      record: Record<string, unknown>
+    ): boolean => {
+      if (!requestedProjectId) return true;
+      const scopedValue =
+        pickString(record, [
+          "workspace_id",
+          "workspaceId",
+          "command_center_id",
+          "commandCenterId",
+          "project_id",
+          "projectId",
+        ]) ?? null;
+      if (!scopedValue) return false;
+      return scopedValue === requestedProjectId;
+    };
+
+    if (requestedProjectId && !allowedInitiativeIds) {
+      const metadataScopedIds = initiatives
+        .map((entity) => {
+          const record = entity as Record<string, unknown>;
+          const id = pickString(record, ["id"]);
+          if (!id) return null;
+          return initiativeMatchesRequestedProject(record) ? id : null;
+        })
+        .filter((value): value is string => Boolean(value));
+      if (metadataScopedIds.length > 0) {
+        allowedInitiativeIds = new Set(metadataScopedIds);
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; using metadata scoped initiatives."
+        );
+      } else {
+        degraded.push(
+          "workspace initiative scope lookup returned no rows; local queue may be incomplete."
+        );
+      }
     }
 
     for (const [initiativeId, override] of localInitiativeStatusOverrides.entries()) {
@@ -2811,6 +2854,7 @@ export function createHttpHandler(
       const id = pickString(record, ["id"]);
       if (!id) return false;
       if (requestedInitiativeId && id !== requestedInitiativeId) return false;
+      if (!initiativeMatchesRequestedProject(record)) return false;
       if (allowedInitiativeIds && !allowedInitiativeIds.has(id)) return false;
       const status = pickString(record, ["status"]);
       return isInitiativeActiveStatus(status);
@@ -3643,10 +3687,110 @@ export function createHttpHandler(
     sendJson,
     safeErrorMessage,
   });
+  const readCachedDecisionRows = (): Array<Record<string, unknown>> => {
+    const snapshots = [
+      readSnapshotResponseCache("live-snapshot"),
+      readSnapshotResponseCache("dashboard-bundle"),
+      readSnapshotResponseCache("live-snapshot-v2"),
+    ];
+    const rows: Array<Record<string, unknown>> = [];
+    for (const snapshot of snapshots) {
+      if (!snapshot || typeof snapshot !== "object") continue;
+      const decisionsRaw = (snapshot as Record<string, unknown>).decisions;
+      if (!Array.isArray(decisionsRaw)) continue;
+      for (const entry of decisionsRaw) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        rows.push(entry as Record<string, unknown>);
+      }
+    }
+    return rows;
+  };
+  const emitDecisionResolvedActivity = async (input: {
+    ids: string[];
+    action: "approve" | "reject";
+    note?: string | null;
+    optionId?: string | null;
+    sliceRunId?: string | null;
+    initiativeId?: string | null;
+  }): Promise<void> => {
+    const ids = Array.from(
+      new Set(
+        input.ids
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => id.trim())
+          .filter(Boolean)
+      )
+    );
+    if (ids.length === 0) return;
+
+    const decisionById = new Map<string, Record<string, unknown>>();
+    for (const row of readCachedDecisionRows()) {
+      const rowId = pickString(row, ["id"])?.trim() ?? "";
+      if (!rowId || decisionById.has(rowId)) continue;
+      decisionById.set(rowId, row);
+    }
+
+    for (const decisionId of ids) {
+      const row = decisionById.get(decisionId) ?? null;
+      const decisionTitle =
+        pickString(row ?? {}, ["title", "summary"]) ??
+        `Decision ${decisionId.slice(0, 8)}`;
+      const scopedInitiativeId =
+        input.initiativeId ??
+        pickString(row ?? {}, ["initiative_id", "initiativeId"]) ??
+        null;
+      const scopedRunId =
+        input.sliceRunId ??
+        pickString(row ?? {}, [
+          "run_id",
+          "runId",
+          "source_run_id",
+          "sourceRunId",
+          "correlation_id",
+          "correlationId",
+        ]) ??
+        null;
+      await emitActivitySafe({
+        initiativeId: scopedInitiativeId,
+        runId: scopedRunId ?? undefined,
+        correlationId: scopedRunId ?? undefined,
+        phase: "review",
+        level: "info",
+        message: `Decision ${input.action === "approve" ? "approved" : "rejected"}: ${decisionTitle}`,
+        progressPct: 100,
+        nextStep:
+          input.action === "approve"
+            ? "Execution can continue with the approved direction."
+            : "Review the rejected decision and provide revised guidance to continue safely.",
+        metadata: {
+          event: "decision_resolved",
+          action: input.action,
+          resolver: "human",
+          decision_id: decisionId,
+          decision_ids: ids,
+          decision_title: decisionTitle,
+          initiative_id: scopedInitiativeId,
+          workstream_id: pickString(row ?? {}, ["workstream_id", "workstreamId"]) ?? null,
+          source_run_id: scopedRunId,
+          option_id: input.optionId ?? null,
+          note: input.note ?? null,
+          slice_run_id: input.sliceRunId ?? null,
+        },
+      });
+    }
+  };
   registerDecisionActionsRoutes(apiRouter, {
     parseJsonRequest,
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
+    emitDecisionResolvedActivity: async (ids, action, input) => {
+      await emitDecisionResolvedActivity({
+        ids,
+        action,
+        note: input?.note ?? null,
+        optionId: input?.optionId ?? null,
+      });
+    },
     sendJson,
     safeErrorMessage,
   });
@@ -3990,6 +4134,9 @@ export function createHttpHandler(
       buildNextUpQueue({ initiativeId, projectId }),
     bulkDecideDecisions: (ids, action, input) =>
       client.bulkDecideDecisions(ids, action, input),
+    emitDecisionResolvedActivity: async (input) => {
+      await emitDecisionResolvedActivity(input);
+    },
     runAction: (runId, action, input) => client.runAction(runId, action, input),
     listChatThreads: ({ commandCenterId, initiativeId, limit, offset }) =>
       listChatThreads({ commandCenterId, initiativeId, limit, offset }),
@@ -4066,6 +4213,9 @@ export function createHttpHandler(
           error: err instanceof Error ? err.message : "Decision action failed",
         };
       }
+    },
+    emitDecisionResolvedActivity: async (input) => {
+      await emitDecisionResolvedActivity(input);
     },
   });
 

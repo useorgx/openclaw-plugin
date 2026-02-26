@@ -233,19 +233,22 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (changed) nextRecord = { ...nextRecord, decisions_needed: normalized };
     }
 
-    const hasBlockingDecision =
-      Array.isArray(nextRecord.decisions_needed) &&
-      nextRecord.decisions_needed.some((decision) => {
+    const hasBlockingDecision = (input: Record<string, unknown>): boolean =>
+      Array.isArray(input.decisions_needed) &&
+      input.decisions_needed.some((decision) => {
         if (!decision || typeof decision !== "object") return false;
         return (decision as Record<string, unknown>).blocking === true;
       });
 
-    if (hasBlockingDecision && status === "completed") {
+    if (hasBlockingDecision(nextRecord) && status === "completed") {
       changed = true;
       nextRecord = { ...nextRecord, status: "needs_decision" };
     }
 
-    if (status === "completed") {
+    const normalizedStatus =
+      typeof nextRecord.status === "string" ? nextRecord.status : status;
+
+    if (normalizedStatus === "completed") {
       const hasExplicitOutcomeArrays =
         Array.isArray(record.artifacts) ||
         Array.isArray(record.task_updates) ||
@@ -266,6 +269,25 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         changed = true;
         nextRecord = { ...nextRecord, status: "error" };
       }
+    }
+
+    const finalStatus = typeof nextRecord.status === "string" ? nextRecord.status : "";
+    const requiresBlockingDecision =
+      finalStatus === "blocked" || finalStatus === "needs_decision" || finalStatus === "error";
+    if (requiresBlockingDecision && !hasBlockingDecision(nextRecord)) {
+      const nextDecisions = Array.isArray(nextRecord.decisions_needed)
+        ? [...nextRecord.decisions_needed]
+        : [];
+      nextDecisions.push({
+        question: "Missing required blocking decision for non-completed status",
+        summary:
+          "Parser inserted a blocking decision because blocked/needs_decision/error statuses require blocking=true.",
+        options: null,
+        urgency: "medium",
+        blocking: true,
+      });
+      changed = true;
+      nextRecord = { ...nextRecord, decisions_needed: nextDecisions };
     }
 
     return changed ? (nextRecord as T) : value;
@@ -324,6 +346,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (parsedStructured) return parsedStructured;
     }
     // Claude text-mode envelopes can sometimes return JSON in `result`.
+    const parsedResultObject = parseEmbeddedText(record.result);
+    if (parsedResultObject) return parsedResultObject;
     if (typeof record.result === "string") {
       const parsedResult = parseSliceJsonText(record.result);
       if (parsedResult) return parsedResult;

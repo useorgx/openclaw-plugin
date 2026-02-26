@@ -1408,14 +1408,33 @@ function sliceRunsFromWorkSliceProjections(
       projection.lifecycleState === 'completed' && projection.outcomeState === 'succeeded_without_artifacts'
         ? 'needs_review'
         : projection.lifecycleState;
+    const actionType = projection.actionContract?.actionType ?? null;
     const primaryAction: SliceRunProjection['primaryAction'] =
-      projection.actionContract?.actionType === 'open_artifact'
+      actionType === 'open_artifact' ||
+      actionType === 'open_logs' ||
+      actionType === 'open_session' ||
+      actionType === 'open_run' ||
+      actionType === 'open_workstream' ||
+      actionType === 'open_task' ||
+      actionType === 'open_initiative' ||
+      actionType === 'open_pr' ||
+      actionType === 'open_diff' ||
+      actionType === 'open_branch'
         ? 'open_artifact'
-        : projection.actionContract?.actionType === 'approve' ||
-            projection.actionContract?.actionType === 'provide_context'
+        : actionType === 'approve' ||
+            actionType === 'reject' ||
+            actionType === 'provide_context' ||
+            actionType === 'request_info' ||
+            actionType === 'confirm_scope' ||
+            actionType === 'connect_provider' ||
+            actionType === 'refresh_credentials' ||
+            actionType === 'reassign' ||
+            actionType === 'escalate'
           ? 'resolve_decision'
-          : projection.actionContract?.actionType === 'retry' ||
-              projection.actionContract?.actionType === 'resume'
+          : actionType === 'retry' ||
+              actionType === 'resume' ||
+              actionType === 'start' ||
+              actionType === 'auto_fix'
             ? 'retry_slice'
             : projection.outcomeState === 'succeeded_without_artifacts'
               ? 'review_output'

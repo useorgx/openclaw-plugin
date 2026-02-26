@@ -18,8 +18,10 @@ import type {
   SessionTreeNode,
 } from '@/types';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
+import { useAgentCatalog } from '@/hooks/useAgentCatalog';
 import {
   type AgentOption,
+  type ChatProviderId,
   type ChatThreadDetail,
   type ComposerMode,
   type DraftAttachment,
@@ -27,6 +29,9 @@ import {
   type StatusFilterId,
   type SortOrder,
   type UiChatMessage,
+  CANONICAL_AGENTS,
+  CHAT_PROVIDERS,
+  SYSTEM_AGENT_IDS,
   attachmentReadableSize,
   fetchJson,
   humanizeApiError,
@@ -94,7 +99,10 @@ export interface ChatDockState {
 
   inlineMessages: InlineMessage[];
 
+  threadSidebarOpen: boolean;
   workspaceId: string | null;
+  selectedProvider: ChatProviderId;
+  selectedProviderDef: (typeof CHAT_PROVIDERS)[number];
 }
 
 const ChatDockStateContext = createContext<ChatDockState | null>(null);
@@ -133,6 +141,9 @@ export interface ChatDockDispatch {
   setLaunchWarningAccepted: (accepted: boolean) => void;
   pushInlineMessage: (msg: Omit<InlineMessage, 'id' | 'timestamp'>) => void;
   clearInlineMessages: () => void;
+  toggleThreadSidebar: () => void;
+  setSelectedProvider: (provider: ChatProviderId) => void;
+  cycleProvider: () => void;
 
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   panelHeadingRef: React.MutableRefObject<HTMLHeadingElement | null>;
@@ -214,6 +225,12 @@ export function ChatDockProvider({
   // ── Inline messages state ────────────────────────────────────
   const [inlineMessages, setInlineMessages] = useState<InlineMessage[]>([]);
 
+  // ── Thread sidebar state ────────────────────────────────────
+  const [threadSidebarOpen, setThreadSidebarOpen] = useState(false);
+
+  // ── Provider state ────────────────────────────────────────────
+  const [selectedProvider, setSelectedProvider] = useState<ChatProviderId>('auto');
+
   // ── Launch warning state ─────────────────────────────────────
   const [scopeSaving, setScopeSaving] = useState(false);
   const [launchWarningOpen, setLaunchWarningOpen] = useState(false);
@@ -238,17 +255,75 @@ export function ChatDockProvider({
     );
   }, [activeThreadId]);
 
-  // ── Derived: options ─────────────────────────────────────────
+  // ── Agent catalog ────────────────────────────────────────────
+  const { data: catalogData } = useAgentCatalog({ enabled: true, refetchInterval: 8_000 });
+
+  // ── Derived: options (3-layer merge) ────────────────────────
   const agentOptions = useMemo<AgentOption[]>(() => {
     const map = new Map<string, AgentOption>();
+
+    // Layer 1: Seed from CANONICAL_AGENTS (always present)
+    for (const def of CANONICAL_AGENTS) {
+      map.set(def.id, {
+        id: def.id,
+        name: def.name,
+        handle: def.handle,
+        domain: def.domain,
+        domainLabel: def.domainLabel,
+        role: def.role,
+        status: 'idle',
+        currentTask: null,
+        isSystem: false,
+      });
+    }
+
+    // Layer 2: Overlay with live catalog agents (adds status/currentTask)
+    if (catalogData?.agents) {
+      for (const cat of catalogData.agents) {
+        const existing = map.get(cat.id);
+        if (existing) {
+          existing.status = cat.status === 'running' ? 'running' : cat.blockers?.length ? 'blocked' : 'idle';
+          existing.currentTask = cat.currentTask ?? null;
+        } else {
+          // Non-canonical live agent
+          map.set(cat.id, {
+            id: cat.id,
+            name: cat.name,
+            handle: cat.id,
+            domain: 'custom',
+            domainLabel: 'Custom Agent',
+            role: 'Custom',
+            status: cat.status === 'running' ? 'running' : cat.blockers?.length ? 'blocked' : 'idle',
+            currentTask: cat.currentTask ?? null,
+            isSystem: SYSTEM_AGENT_IDS.has(cat.id),
+          });
+        }
+      }
+    }
+
+    // Layer 3: Merge any session-derived agents as fallback (custom agents)
     for (const session of sessions) {
       const id = (session.agentId ?? '').trim();
       const name = (session.agentName ?? '').trim();
-      if (!id || !name) continue;
-      if (!map.has(id)) map.set(id, { id, name });
+      if (!id || !name || map.has(id)) continue;
+      map.set(id, {
+        id,
+        name,
+        handle: id,
+        domain: 'custom',
+        domainLabel: 'Custom Agent',
+        role: 'Custom',
+        status: 'idle',
+        currentTask: null,
+        isSystem: SYSTEM_AGENT_IDS.has(id),
+      });
     }
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [sessions]);
+
+    // Filter out system agents, sort by name
+    return Array.from(map.values())
+      .filter((a) => !a.isSystem)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogData, sessions]);
 
   const initiativeOptions = useMemo(
     () =>
@@ -283,7 +358,13 @@ export function ChatDockProvider({
   const filteredAgentOptions = useMemo(() => {
     const q = agentPickerQuery.trim().toLowerCase();
     if (!q) return agentOptions;
-    return agentOptions.filter((a) => a.name.toLowerCase().includes(q));
+    return agentOptions.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.handle.toLowerCase().includes(q) ||
+        a.domain.toLowerCase().includes(q) ||
+        a.role.toLowerCase().includes(q)
+    );
   }, [agentOptions, agentPickerQuery]);
 
   const filteredInitiativeOptions = useMemo(() => {
@@ -419,6 +500,20 @@ export function ChatDockProvider({
   );
 
   const clearInlineMessages = useCallback(() => setInlineMessages([]), []);
+
+  const toggleThreadSidebar = useCallback(() => setThreadSidebarOpen((prev) => !prev), []);
+
+  const selectedProviderDef = useMemo(
+    () => CHAT_PROVIDERS.find((p) => p.id === selectedProvider) ?? CHAT_PROVIDERS[0],
+    [selectedProvider]
+  );
+
+  const cycleProvider = useCallback(() => {
+    setSelectedProvider((prev) => {
+      const idx = CHAT_PROVIDERS.findIndex((p) => p.id === prev);
+      return CHAT_PROVIDERS[(idx + 1) % CHAT_PROVIDERS.length].id;
+    });
+  }, []);
 
   const refreshAfterMutation = useCallback(async () => {
     if (typeof onRequestRefresh === 'function') await onRequestRefresh();
@@ -690,6 +785,12 @@ export function ChatDockProvider({
     setThreads((prev) => upsertThread(prev, normalized));
     // Push user message inline instead of setting toast notice
     pushInlineMessage({ role: 'user', body });
+    if (selectedProvider !== 'auto' && selectedAssignee) {
+      pushInlineMessage({
+        role: 'system',
+        body: `Routing to ${selectedAssignee.name} via ${selectedProviderDef.label}`,
+      });
+    }
     captureTelemetry('chat_message_sent', {
       threadId: normalized.id,
       watcherCount: normalized.watcherIds.length,
@@ -727,6 +828,8 @@ export function ChatDockProvider({
     selectedAssignee?.name,
     selectedInitiative?.id,
     selectedInitiative?.name,
+    selectedProvider,
+    selectedProviderDef,
     selectedWatchers,
     workspaceId,
   ]);
@@ -753,6 +856,8 @@ export function ChatDockProvider({
         ok?: boolean;
         sessionId?: string;
         runId?: string;
+        provider?: string;
+        model?: string;
         error?: string;
         code?: string;
       }>('/orgx/api/agents/launch', {
@@ -765,6 +870,7 @@ export function ChatDockProvider({
           initiativeTitle: thread.initiativeTitle ?? selectedInitiative?.name ?? undefined,
           workstreamId: thread.workstreamId ?? undefined,
           taskId: thread.taskId ?? undefined,
+          provider: selectedProvider !== 'auto' ? selectedProvider : undefined,
         }),
       });
       const runId = launchStart.data?.sessionId ?? launchStart.data?.runId ?? null;
@@ -793,7 +899,7 @@ export function ChatDockProvider({
           watcherIds: selectedWatchers.map((w) => w.id),
           watcherNames: selectedWatchers.map((w) => w.name),
           executionMode: 'local_queue',
-          provider: 'openclaw',
+          provider: launchStart.data?.provider ?? (selectedProvider !== 'auto' ? selectedProvider : 'openclaw'),
           runId: runId ?? undefined,
           status: launchStatus,
           blockedReason: blockedReason ?? undefined,
@@ -830,10 +936,17 @@ export function ChatDockProvider({
         });
         return;
       }
+      const routedLabel =
+        launchStart.data?.provider === 'anthropic'
+          ? 'Claude Code'
+          : launchStart.data?.provider === 'openai'
+            ? 'Codex'
+            : selectedProviderDef.shortLabel;
+      const modelSuffix = launchStart.data?.model ? ` (${launchStart.data.model})` : '';
       setComposerNotice(
         runId
-          ? 'Launch started. Thread timeline now tracks execution state.'
-          : 'Launch queued locally. Run starts when a worker is available.'
+          ? `Launch started via ${routedLabel}${modelSuffix}. Thread timeline now tracks execution state.`
+          : `Launch queued locally via ${routedLabel}. Run starts when a worker is available.`
       );
       captureTelemetry(runId ? 'chat_launch_started' : 'chat_launch_queued', {
         threadId: thread.id,
@@ -849,6 +962,8 @@ export function ChatDockProvider({
       selectedAssignee,
       selectedInitiative?.id,
       selectedInitiative?.name,
+      selectedProvider,
+      selectedProviderDef,
       selectedWatchers,
       unresolvedAttachmentCount,
     ]
@@ -919,7 +1034,10 @@ export function ChatDockProvider({
       guidancePreview,
       guidanceError: guidanceError ?? null,
       inlineMessages,
+      threadSidebarOpen,
       workspaceId,
+      selectedProvider,
+      selectedProviderDef,
     }),
     [
       threads,
@@ -962,7 +1080,10 @@ export function ChatDockProvider({
       guidancePreview,
       guidanceError,
       inlineMessages,
+      threadSidebarOpen,
       workspaceId,
+      selectedProvider,
+      selectedProviderDef,
     ]
   );
 
@@ -994,6 +1115,9 @@ export function ChatDockProvider({
       setLaunchWarningAccepted,
       pushInlineMessage,
       clearInlineMessages,
+      toggleThreadSidebar,
+      setSelectedProvider,
+      cycleProvider,
       fileInputRef,
       panelHeadingRef,
       composerShellRef,
@@ -1014,6 +1138,8 @@ export function ChatDockProvider({
       resetComposer,
       pushInlineMessage,
       clearInlineMessages,
+      toggleThreadSidebar,
+      cycleProvider,
     ]
   );
 
