@@ -182,40 +182,54 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
   const selectedCount = selected.size;
 
-  const acceptOne = useCallback((item: SliceRunProjection, note?: string) => {
-    console.debug('[NeedsInput] acceptOne clicked', { sliceRunId: item.sliceRunId, hasHandler: Boolean(onAcceptSlice) });
-    setLastAction(`Accepting ${item.sliceRunId.slice(0, 8)}…`);
-    if (!onAcceptSlice) {
-      setLastAction('No accept handler — check wiring');
-      return;
-    }
-    const id = item.sliceRunId;
-    setPending((prev) => new Set(prev).add(id));
-    // Fire the async action; the parent refetch will remove from list
-    Promise.resolve(onAcceptSlice(item, note))
-      .then(() => console.debug('[NeedsInput] acceptOne resolved', id))
-      .catch((err) => console.error('[NeedsInput] acceptOne error', err))
-      .finally(() => {
-        setPending((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
+  const acceptOne = useCallback(async (item: SliceRunProjection, note?: string) => {
+    const id = item.sliceRunId ?? item.id ?? '';
+    const runId = item.runId ?? id;
+    try {
+      setLastAction(`Accepting ${id.slice(0, 8)}…`);
+      setPending((prev) => new Set(prev).add(id));
+
+      // Direct API call — bypass parent callback chain for reliability
+      const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
+      const url = `/orgx/api/runs/${encodeURIComponent(runId)}/actions/complete`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
       });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+        setLastAction(`Error: ${body?.error ?? body?.message ?? response.status}`);
+      } else {
+        setLastAction(`Accepted ${id.slice(0, 8)}`);
+      }
+
+      // Also fire the parent callback so it can refetch
+      try { onAcceptSlice?.(item, note); } catch { /* ignore */ }
+    } catch (err) {
+      setLastAction(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   }, [onAcceptSlice]);
 
   const handleBulkAccept = useCallback(() => {
-    if (!onAcceptSlice) return;
-    for (const row of rows) {
-      if (selected.has(row.item.sliceRunId) && row.item.status === 'needs_review') {
-        acceptOne(row.item);
-      }
+    const reviewable = rows.filter(
+      (r) => selected.has(r.item.sliceRunId) && r.item.status === 'needs_review'
+    );
+    if (reviewable.length === 0) return;
+    setLastAction(`Accepting ${reviewable.length} items…`);
+    for (const row of reviewable) {
+      acceptOne(row.item);
     }
     setSelected(new Set());
-  }, [onAcceptSlice, rows, selected, acceptOne]);
+  }, [rows, selected, acceptOne]);
 
-  const runPrimaryAction = useCallback((item: SliceRunProjection, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const runPrimaryAction = useCallback((item: SliceRunProjection) => {
     if (item.primaryAction === 'resolve_decision') {
       onOpenDecisions?.();
       return;
@@ -338,7 +352,6 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                     delay: Math.min(index, 5) * 0.015,
                     ease: [0.22, 1, 0.36, 1],
                   }}
-                  layout
                   key={item.sliceRunId}
                   className="group relative cursor-pointer border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
                   style={{
@@ -347,9 +360,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   }}
                   role="button"
                   tabIndex={0}
-                  onClick={() => {
-                    console.debug('[NeedsInput] row clicked', { sliceRunId: item.sliceRunId, hasHandler: Boolean(onOpenSliceDetail) });
-                    setLastAction(`Opening detail for ${item.sliceRunId.slice(0, 8)}…`);
+                  onClick={(e) => {
+                    // Only open detail if clicked on the row content (not buttons/checkbox)
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button, input, [data-stop-row]')) return;
+                    setLastAction(`Opening detail…`);
                     onOpenSliceDetail?.(item);
                   }}
                   onKeyDown={(event) => {
@@ -367,10 +382,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
                   <div className="flex items-start gap-2.5 py-2.5 pl-4 pr-3">
                     {/* Checkbox — compact */}
-                    <div
-                      className="flex-shrink-0 pt-0.5"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex-shrink-0 pt-0.5">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -414,30 +426,24 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                       </div>
                     </div>
 
-                    {/* Action — appears on hover, accept is always hinted for review */}
-                    <div
-                      className="flex flex-shrink-0 items-center gap-1 self-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    {/* Action buttons */}
+                    <div className="flex flex-shrink-0 items-center gap-1 self-center">
                       {isReview && onAcceptSlice ? (
                         <button
                           type="button"
-                          disabled={pending.has(item.sliceRunId)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            acceptOne(item);
-                          }}
-                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40 disabled:pointer-events-none"
+                          disabled={isPending}
+                          onClick={() => acceptOne(item)}
+                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40"
                         >
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
-                          {pending.has(item.sliceRunId) ? 'Accepting...' : 'Accept'}
+                          {isPending ? 'Accepting...' : 'Accept'}
                         </button>
                       ) : (
                         <button
                           type="button"
-                          onClick={(e) => runPrimaryAction(item, e)}
+                          onClick={() => runPrimaryAction(item)}
                           className="flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-white/30 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/[0.04] hover:text-white/50"
                         >
                           {item.status === 'failed' ? 'Retry' : 'View'}

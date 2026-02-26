@@ -34,14 +34,13 @@ export function WorkstreamGlyph({
       {withBackground ? (
         <rect x="2" y="2" width="20" height="20" rx="6" fill={backgroundColor} stroke="none" />
       ) : null}
-      <path d="M6 6.5h3l6.5 11" />
-      <path d="M6 17.5h3l6.5-11" />
-      <path d="M6 12h9.5" />
-      <circle cx="6" cy="6.5" r="1.5" fill={stroke} stroke="none" />
+      <path d="M6 6c3 0 5 6 8 6" />
+      <path d="M6 18c3 0 5-6 8-6" />
+      <path d="M6 12h12" />
+      <path d="m14 8 4 4-4 4" />
+      <circle cx="6" cy="6" r="1.5" fill={stroke} stroke="none" />
       <circle cx="6" cy="12" r="1.5" fill={stroke} stroke="none" />
-      <circle cx="6" cy="17.5" r="1.5" fill={stroke} stroke="none" />
-      <circle cx="15.5" cy="12" r="2.5" fill={backgroundColor} stroke={stroke} strokeWidth={strokeWidth} />
-      <circle cx="15.5" cy="12" r="1.2" fill={stroke} stroke="none" />
+      <circle cx="6" cy="18" r="1.5" fill={stroke} stroke="none" />
     </svg>
   );
 }

@@ -350,6 +350,7 @@ export function SliceDetailModal({
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [actionMode, setActionMode] = useState<'accept' | 'reject' | null>(null);
   const [actionNote, setActionNote] = useState('');
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
   // Keyboard shortcut: Cmd+Enter → Start
@@ -379,6 +380,7 @@ export function SliceDetailModal({
     setIsOpeningTerminal(false);
     setActionMode(null);
     setActionNote('');
+    setActionFeedback(null);
   }, [open]);
 
   // Auto-focus note textarea when action mode is set — use rAF to beat Modal's focus trap
@@ -497,24 +499,70 @@ export function SliceDetailModal({
 
   const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
 
-  const handleConfirmAction = useCallback(() => {
-    console.debug('[SliceDetail] confirmAction', { actionMode, hasSliceRun: Boolean(sr), sliceRunId: sr?.sliceRunId });
+  const handleConfirmAction = useCallback(async () => {
     if (!sr || !actionMode) return;
     const note = actionNote.trim();
+    const runId = sr.runId ?? sr.sliceRunId;
+
     if (actionMode === 'accept') {
-      console.debug('[SliceDetail] accept → onAcceptSlice', { hasHandler: Boolean(onAcceptSlice) });
-      onAcceptSlice?.(sr, note || undefined);
-      onClose();
+      try {
+        setActionFeedback('Accepting…');
+        const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
+        const response = await fetch(
+          `/orgx/api/runs/${encodeURIComponent(runId)}/actions/complete`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }
+        );
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+          setActionFeedback(`Error: ${body?.error ?? body?.message ?? response.status}`);
+          return;
+        }
+        setActionFeedback('Accepted!');
+        try { onAcceptSlice?.(sr, note || undefined); } catch { /* ignore */ }
+        setTimeout(() => onClose(), 600);
+      } catch (err) {
+        setActionFeedback(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
+      }
     } else if (actionMode === 'reject' && note) {
-      console.debug('[SliceDetail] reject → onRejectSlice', { hasHandler: Boolean(onRejectSlice) });
-      onRejectSlice?.(sr, note);
-      setActionMode(null);
-      setActionNote('');
+      try {
+        setActionFeedback('Sending feedback…');
+        const response = await fetch(
+          `/orgx/api/entities/run/${encodeURIComponent(runId)}/comments`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: note, commentType: 'review_feedback', severity: 'warn', tags: ['changes_requested'] }),
+          }
+        );
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+          setActionFeedback(`Error: ${body?.error ?? body?.message ?? response.status}`);
+          return;
+        }
+        setActionFeedback('Feedback sent!');
+        try { onRejectSlice?.(sr, note); } catch { /* ignore */ }
+        setActionMode(null);
+        setActionNote('');
+      } catch (err) {
+        setActionFeedback(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
+      }
     }
   }, [sr, actionMode, actionNote, onAcceptSlice, onRejectSlice, onClose]);
 
   const footer = (
     <div className="space-y-2">
+      {/* Action feedback inline indicator */}
+      {actionFeedback && (
+        <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium ${
+          actionFeedback.startsWith('Error') || actionFeedback.startsWith('Failed')
+            ? 'bg-[#FF6B88]/10 text-[#FF6B88]'
+            : actionFeedback.includes('…')
+              ? 'bg-white/[0.04] text-white/60 animate-pulse'
+              : 'bg-[#BFFF00]/10 text-[#BFFF00]'
+        }`}>
+          {actionFeedback}
+        </div>
+      )}
       {/* Note textarea — expands when accept/reject mode is active */}
       <AnimatePresence>
         {actionMode && (

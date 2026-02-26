@@ -203,43 +203,81 @@ function createClientHarness() {
 	            const next = { ...existing, ...patch };
 	            if (typeof op.status === "string") next.status = op.status;
 	            state.tasks.set(id, next);
-	          } else if (op.op === "decision.create") {
-	            const id = `decision-${state.nextDecisionId++}`;
-	            const now = new Date().toISOString();
-	            const blocking = typeof op.blocking === "boolean" ? op.blocking : true;
-	            const options = Array.isArray(op.options)
+          } else if (op.op === "decision.create") {
+            const id = `decision-${state.nextDecisionId++}`;
+            const now = new Date().toISOString();
+            const blocking = typeof op.blocking === "boolean" ? op.blocking : true;
+            const options = Array.isArray(op.options)
 	              ? op.options.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
 	              : [];
 	            const summary =
 	              typeof op.summary === "string" && op.summary.trim().length > 0
 	                ? op.summary.trim()
 	                : null;
-	            const title =
-	              typeof op.title === "string" && op.title.trim().length > 0
-	                ? op.title.trim()
-	                : "Decision";
-	            state.decisions.set(id, {
-	              id,
-	              title,
-	              summary,
-	              context: summary,
-	              status: "pending",
-	              decision_status: "pending",
-	              blocking,
-	              options,
-	              initiative_id:
-	                typeof payload?.initiative_id === "string"
-	                  ? payload.initiative_id
-	                  : "init-1",
-	              created_at: now,
-	              updated_at: now,
-	              metadata: {
-	                source: "test_changeset",
-	                blocking,
-	                correlation_id:
-	                  typeof payload?.correlation_id === "string"
-	                    ? payload.correlation_id
-	                    : null,
+            const title =
+              typeof op.title === "string" && op.title.trim().length > 0
+                ? op.title.trim()
+                : "Decision";
+            const workstreamId =
+              (typeof op.workstream_id === "string" && op.workstream_id.trim().length > 0
+                ? op.workstream_id.trim()
+                : null) ??
+              (typeof op.workstreamId === "string" && op.workstreamId.trim().length > 0
+                ? op.workstreamId.trim()
+                : null) ??
+              (typeof op.source_stream_id === "string" && op.source_stream_id.trim().length > 0
+                ? op.source_stream_id.trim()
+                : null) ??
+              (typeof op.sourceStreamId === "string" && op.sourceStreamId.trim().length > 0
+                ? op.sourceStreamId.trim()
+                : null) ??
+              null;
+            state.decisions.set(id, {
+              id,
+              title,
+              summary,
+              context: summary,
+              status: "pending",
+              decision_status: "pending",
+              blocking,
+              options,
+              recommended_action:
+                typeof op.recommended_action === "string" &&
+                op.recommended_action.trim().length > 0
+                  ? op.recommended_action.trim()
+                  : null,
+              initiative_id:
+                typeof payload?.initiative_id === "string"
+                  ? payload.initiative_id
+                  : "init-1",
+              workstream_id: workstreamId,
+              source_ref:
+                op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                  ? op.source_ref
+                  : null,
+              created_at: now,
+              updated_at: now,
+              metadata: {
+                source: "test_changeset",
+                blocking,
+                source_system:
+                  typeof op.source_system === "string" ? op.source_system : null,
+                conflict_source:
+                  typeof op.conflict_source === "string" ? op.conflict_source : null,
+                recommended_action:
+                  typeof op.recommended_action === "string" &&
+                  op.recommended_action.trim().length > 0
+                    ? op.recommended_action.trim()
+                    : null,
+                source_stream_id: workstreamId,
+                source_ref:
+                  op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                    ? op.source_ref
+                    : null,
+                correlation_id:
+                  typeof payload?.correlation_id === "string"
+                    ? payload.correlation_id
+                    : null,
 	                run_id:
 	                  typeof payload?.run_id === "string"
 	                    ? payload.run_id
