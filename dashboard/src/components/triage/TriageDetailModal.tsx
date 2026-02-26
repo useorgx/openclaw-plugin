@@ -7,6 +7,7 @@ import { colors } from '@/lib/tokens';
 import { EvidenceCard } from '@/components/shared/EvidenceCard';
 import { SectionHeading } from '@/components/shared/SectionHeading';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { ScopeProgressCard, buildScopeFromContext } from '@/components/shared/ScopeProgressCard';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -763,6 +764,26 @@ export function TriageDetailModal({
             {item.summary}
           </p>
         </div>
+
+        {/* Scope context */}
+        {(item.initiativeId || item.workstreamId) && (
+          <div className="mb-3">
+            <ScopeProgressCard
+              nodes={buildScopeFromContext({
+                initiativeId: item.initiativeId,
+                initiativeTitle: item.initiativeTitle,
+                workstreamId: item.workstreamId,
+                workstreamTitle: item.workstreamTitle,
+                taskId: item.taskId,
+                taskTitle: item.taskTitle,
+                agentName: item.agentId,
+                status: item.status,
+              })}
+              activeId={item.taskId ?? item.workstreamId}
+              compact
+            />
+          </div>
+        )}
 
         <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 

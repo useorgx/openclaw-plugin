@@ -633,6 +633,8 @@ export const InProgressPanel = memo(function InProgressPanel({
                                   }
                                 : null,
                               status: row.status,
+                              agentName: row.session?.agentName ?? null,
+                              agentId: row.session?.agentId ?? null,
                             })}
                             activeId={row.workstreamId}
                             compact

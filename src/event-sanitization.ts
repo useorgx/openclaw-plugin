@@ -30,12 +30,9 @@ function containsMockMarker(value: string | null): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
   if (!normalized) return false;
-  return (
-    normalized.includes("mock") ||
-    normalized.includes("fixture") ||
-    normalized.includes("synthetic") ||
-    normalized.includes("test")
-  );
+
+  // Match whole marker tokens and avoid substring false positives (e.g. "latest").
+  return /(^|[^a-z0-9])(mock|fixture|synthetic|test)([^a-z0-9]|$)/i.test(normalized);
 }
 
 export function isUuid(value: string | null | undefined): boolean {

@@ -159,6 +159,14 @@ test("scoped tools/list filters tools by domain allowlist", async () => {
       return { content: [{ type: "text", text: "ok" }] };
     },
   });
+  tools.set("update_stream_progress", {
+    name: "update_stream_progress",
+    description: "legacy progress",
+    parameters: { type: "object", properties: {} },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
   tools.set("orgx_reassign_stream", {
     name: "orgx_reassign_stream",
     description: "reassign",
@@ -195,6 +203,7 @@ test("scoped tools/list filters tools by domain allowlist", async () => {
     const payload = JSON.parse(mock.state.body);
     const names = payload.result.tools.map((t) => t.name);
     assert.ok(names.includes("orgx_emit_activity"));
+    assert.ok(names.includes("update_stream_progress"));
     assert.equal(names.includes("orgx_apply_changeset"), false);
     assert.equal(names.includes("orgx_reassign_stream"), false);
     assert.equal(names.includes("orgx_reassign_streams"), false);
@@ -213,6 +222,7 @@ test("scoped tools/list filters tools by domain allowlist", async () => {
     const payload = JSON.parse(mock.state.body);
     const names = payload.result.tools.map((t) => t.name);
     assert.ok(names.includes("orgx_emit_activity"));
+    assert.ok(names.includes("update_stream_progress"));
     assert.ok(names.includes("orgx_apply_changeset"));
     assert.ok(names.includes("orgx_reassign_stream"));
     assert.ok(names.includes("orgx_reassign_streams"));

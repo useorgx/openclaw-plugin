@@ -135,6 +135,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 }: NeedsInputPanelProps) {
   const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<Set<string>>(new Set());
 
   const initiativeTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -180,15 +181,29 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
   const selectedCount = selected.size;
 
+  const acceptOne = useCallback((item: SliceRunProjection, note?: string) => {
+    if (!onAcceptSlice) return;
+    const id = item.sliceRunId;
+    setPending((prev) => new Set(prev).add(id));
+    // Fire the async action; the parent refetch will remove from list
+    Promise.resolve(onAcceptSlice(item, note)).finally(() => {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    });
+  }, [onAcceptSlice]);
+
   const handleBulkAccept = useCallback(() => {
     if (!onAcceptSlice) return;
     for (const row of rows) {
       if (selected.has(row.item.sliceRunId) && row.item.status === 'needs_review') {
-        onAcceptSlice(row.item);
+        acceptOne(row.item);
       }
     }
     setSelected(new Set());
-  }, [onAcceptSlice, rows, selected]);
+  }, [onAcceptSlice, rows, selected, acceptOne]);
 
   const runPrimaryAction = useCallback((item: SliceRunProjection, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -251,10 +266,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
             {selectedCount > 0 && selectedReviewCount > 0 && onAcceptSlice && (
               <button
                 type="button"
+                disabled={pending.size > 0}
                 onClick={handleBulkAccept}
-                className="rounded-md bg-[#BFFF00]/10 px-2.5 py-1 text-[11px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/18"
+                className="rounded-md bg-[#BFFF00]/10 px-2.5 py-1 text-[11px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/18 disabled:opacity-40 disabled:pointer-events-none"
               >
-                Accept {selectedReviewCount}
+                {pending.size > 0 ? 'Accepting...' : `Accept ${selectedReviewCount}`}
               </button>
             )}
           </div>
@@ -292,6 +308,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
               const when = item.updatedAt ?? item.lastEventAt ?? null;
               const accent = statusAccentColor(item.status);
               const isSelected = selected.has(item.sliceRunId);
+              const isPending = pending.has(item.sliceRunId);
               const isReview = item.status === 'needs_review';
 
               return (
@@ -309,6 +326,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   className="group relative cursor-pointer border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
                   style={{
                     backgroundColor: isSelected ? 'rgba(191,255,0,0.03)' : undefined,
+                    opacity: isPending ? 0.5 : undefined,
                   }}
                   role="button"
                   tabIndex={0}
@@ -383,16 +401,17 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                       {isReview && onAcceptSlice ? (
                         <button
                           type="button"
+                          disabled={pending.has(item.sliceRunId)}
                           onClick={(e) => {
                             e.stopPropagation();
-                            onAcceptSlice(item);
+                            acceptOne(item);
                           }}
-                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00]"
+                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40 disabled:pointer-events-none"
                         >
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
-                          Accept
+                          {pending.has(item.sliceRunId) ? 'Accepting...' : 'Accept'}
                         </button>
                       ) : (
                         <button

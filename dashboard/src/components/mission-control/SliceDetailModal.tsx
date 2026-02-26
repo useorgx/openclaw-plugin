@@ -86,7 +86,9 @@ function queueStateDotColor(state: string): string {
   }
 }
 
-function workSnapshotHeading(queueState: string): string {
+function workSnapshotHeading(queueState: string, isReview?: boolean): string {
+  if (isReview) return 'Scope Under Review';
+  if (queueState === 'completed') return 'Completed Scope';
   if (queueState === 'running') return 'Current Work';
   if (queueState === 'blocked') return 'Blocked Work';
   return 'Next Work';
@@ -488,8 +490,10 @@ export function SliceDetailModal({
       milestoneIds: sr?.milestoneIds,
       scopeProgress: sr?.scopeProgress ?? null,
       status: sr?.status ?? d.queueState,
+      agentName: d.agentName,
+      agentId: d.agentId,
     });
-  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState]);
+  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState, d.agentName, d.agentId]);
 
   const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
 
@@ -905,37 +909,39 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">{workSnapshotHeading(d.queueState)}</p>
+                  <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
                   <ScopeProgressCard
                     nodes={scopeNodes}
                     activeId={d.workstreamId}
                   />
-                  {/* Next task callout — when a specific next task is named */}
-                  {d.nextTaskTitle && (
+                  {/* Next task callout — only for non-review contexts */}
+                  {!isNeedsReview && d.nextTaskTitle && (
                     <div className="mt-1 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
                       <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-70" />
                       <span className="min-w-0 truncate text-caption font-medium text-primary">{d.nextTaskTitle}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-2">
-                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
-                      <span
-                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
-                        style={{
-                          color: priorityColor(d.nextTaskPriority),
-                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
-                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
-                        }}
-                      >
-                        {priorityLabel(d.nextTaskPriority)}
-                      </span>
-                    )}
-                    {d.nextTaskDueAt && (
-                      <span className="text-micro text-secondary">
-                        Due {formatRelativeTime(d.nextTaskDueAt)}
-                      </span>
-                    )}
-                  </div>
+                  {!isNeedsReview && (d.nextTaskPriority !== null || d.nextTaskDueAt) && (
+                    <div className="flex items-center gap-2">
+                      {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                        <span
+                          className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                          style={{
+                            color: priorityColor(d.nextTaskPriority),
+                            borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                            backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                          }}
+                        >
+                          {priorityLabel(d.nextTaskPriority)}
+                        </span>
+                      )}
+                      {d.nextTaskDueAt && (
+                        <span className="text-micro text-secondary">
+                          Due {formatRelativeTime(d.nextTaskDueAt)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               </>
             )}
@@ -951,7 +957,7 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">{workSnapshotHeading(d.queueState)}</p>
+                  <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
                   <p className="text-body text-secondary">
                     {workSnapshotFallback({
                       queueState: d.queueState,

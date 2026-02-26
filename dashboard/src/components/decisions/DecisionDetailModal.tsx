@@ -7,6 +7,7 @@ import { MarkdownText } from '@/components/shared/MarkdownText';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EvidenceCard } from '@/components/shared/EvidenceCard';
 import { BreadcrumbNav } from '@/components/shared/BreadcrumbNav';
+import { ScopeProgressCard, buildScopeFromContext } from '@/components/shared/ScopeProgressCard';
 import { humanizeWarning } from '@/lib/humanize';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LiveDecision, LiveDecisionOption } from '@/types';
@@ -598,6 +599,24 @@ export function DecisionDetailModal({
 
         {/* Scrollable content */}
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+          {/* 4b. Scope context */}
+          {(decision.initiativeId || decision.workstreamId) && (
+            <div className="mb-4">
+              <ScopeProgressCard
+                nodes={buildScopeFromContext({
+                  initiativeId: decision.initiativeId,
+                  initiativeTitle: initiativeTitle,
+                  workstreamId: decision.workstreamId,
+                  workstreamTitle: workstreamTitle,
+                  agentName: decision.agentName,
+                  agentId: decision.agentId,
+                })}
+                activeId={decision.workstreamId}
+                compact
+              />
+            </div>
+          )}
+
           {/* 5. Recommended action callout */}
           {recommendedAction && (
             <div className="mb-4 rounded-xl border border-cyan-300/[0.28] bg-cyan-500/[0.12] px-4 py-3">

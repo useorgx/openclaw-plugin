@@ -115,6 +115,41 @@ test("agent config MCP tools expose strict schemas", () => {
   assert.equal(tools.get("update_agent_config")?.parameters.additionalProperties, false);
 });
 
+test("update_stream_progress aliases progress reporting with expected payload shape", async () => {
+  let capturedPayload = null;
+  const { deps } = createDeps({
+    client: {
+      syncMemory: async () => ({}),
+      checkSpawnGuard: async () => ({ ok: true, allowed: true, modelTier: "sonnet", checks: {} }),
+      createEntity: async () => ({}),
+      updateEntity: async () => ({}),
+      updateEntityDetailed: async () => ({ entity: {} }),
+      listEntities: async () => ({ data: [] }),
+      emitActivity: async (payload) => {
+        capturedPayload = payload;
+        return { run_id: "run-12345678" };
+      },
+      applyChangeset: async () => ({ applied_count: 1, replayed: false, run_id: "run" }),
+    },
+    toReportingPhase: () => "execution",
+  });
+  const tool = registerCoreTools(deps).get("update_stream_progress");
+
+  const result = await tool.execute("call-progress", {
+    summary: "Started slice",
+    phase: "implementing",
+    progress_pct: 15,
+    next_step: "Write targeted tests",
+  });
+
+  assert.equal(typeof tool?.execute, "function");
+  assert.equal(capturedPayload?.message, "Started slice");
+  assert.equal(capturedPayload?.phase, "execution");
+  assert.equal(capturedPayload?.progress_pct, 15);
+  assert.equal(capturedPayload?.metadata?.source, "update_stream_progress");
+  assert.match(result.content[0].text, /Activity emitted: Started slice/);
+});
+
 test("list_agent_configs returns the default config snapshot", async () => {
   const { deps } = createDeps();
   const tool = registerCoreTools(deps).get("list_agent_configs");
