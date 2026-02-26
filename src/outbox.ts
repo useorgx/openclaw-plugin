@@ -192,7 +192,12 @@ function pruneOutboxEvents(events: OutboxEvent[]): { pruned: OutboxEvent[]; chan
 }
 
 export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
-  const targetPath = outboxPath(sessionId);
+  let targetPath: string;
+  try {
+    targetPath = outboxPath(sessionId);
+  } catch {
+    return [];
+  }
   try {
     const raw = await readFile(targetPath, "utf8");
     try {

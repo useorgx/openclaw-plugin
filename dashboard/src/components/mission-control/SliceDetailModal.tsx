@@ -914,15 +914,9 @@ export function SliceDetailModal({
                     nodes={scopeNodes}
                     activeId={d.workstreamId}
                   />
-                  {/* Next task callout — only for non-review contexts */}
-                  {!isNeedsReview && d.nextTaskTitle && (
-                    <div className="mt-1 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
-                      <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-70" />
-                      <span className="min-w-0 truncate text-caption font-medium text-primary">{d.nextTaskTitle}</span>
-                    </div>
-                  )}
+                  {/* Priority / due — only shown for non-review items */}
                   {!isNeedsReview && (d.nextTaskPriority !== null || d.nextTaskDueAt) && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mt-1">
                       {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                         <span
                           className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
