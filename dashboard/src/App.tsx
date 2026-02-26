@@ -728,6 +728,12 @@ function DashboardShell({
   const [requestedDecisionId, setRequestedDecisionId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [opsNotice, setOpsNotice] = useState<string | null>(null);
+  const opsNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showOpsNotice = useCallback((msg: string) => {
+    if (opsNoticeTimerRef.current) clearTimeout(opsNoticeTimerRef.current);
+    setOpsNotice(msg);
+    opsNoticeTimerRef.current = setTimeout(() => setOpsNotice(null), 4000);
+  }, []);
   const [sidebarAutopilotBusy, setSidebarAutopilotBusy] = useState(false);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
@@ -807,37 +813,48 @@ function DashboardShell({
   );
 
   const openSliceDetailFromNeedsInput = useCallback((sliceRun: SliceRunProjection) => {
+    console.debug('[NeedsInput] openSliceDetail', { sliceRunId: sliceRun.sliceRunId, status: sliceRun.status });
     setSliceDetailTarget({ source: 'needs_input', sliceRun });
   }, []);
 
   const handleAcceptSlice = useCallback(async (sliceRun: SliceRunProjection, note?: string) => {
     const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
-    if (!targetRunId) return;
+    console.debug('[NeedsInput] handleAcceptSlice fired', { targetRunId, sliceRunId: sliceRun.sliceRunId, runId: sliceRun.runId });
+    if (!targetRunId) {
+      showOpsNotice('Cannot accept — no run ID found on this slice.');
+      return;
+    }
     try {
       const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
-      const response = await fetch(
-        `/orgx/api/runs/${encodeURIComponent(targetRunId)}/actions/complete`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason }),
-        }
-      );
+      const url = `/orgx/api/runs/${encodeURIComponent(targetRunId)}/actions/complete`;
+      console.debug('[NeedsInput] POST', url);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-        setOpsNotice(body?.error ?? body?.message ?? `Failed to accept slice (${response.status})`);
+        const msg = body?.error ?? body?.message ?? `Failed to accept slice (${response.status})`;
+        console.warn('[NeedsInput] Accept failed:', msg);
+        showOpsNotice(msg);
         return;
       }
-      setOpsNotice('Slice accepted and marked complete.');
+      showOpsNotice('Slice accepted and marked complete.');
       void refetch();
-    } catch {
-      setOpsNotice('Failed to accept slice — network error.');
+    } catch (err) {
+      console.error('[NeedsInput] Accept error:', err);
+      showOpsNotice('Failed to accept slice — network error.');
     }
-  }, [refetch]);
+  }, [refetch, showOpsNotice]);
 
   const handleRejectSlice = useCallback(async (sliceRun: SliceRunProjection, note: string) => {
     const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
-    if (!targetRunId || !note.trim()) return;
+    console.debug('[NeedsInput] handleRejectSlice fired', { targetRunId, note: note.slice(0, 40) });
+    if (!targetRunId || !note.trim()) {
+      showOpsNotice('Cannot post feedback — missing run ID or note.');
+      return;
+    }
     try {
       // Post the rejection note as a comment on the run
       const response = await fetch(
@@ -855,14 +872,14 @@ function DashboardShell({
       );
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-        setOpsNotice(body?.error ?? body?.message ?? `Failed to post feedback (${response.status})`);
+        showOpsNotice(body?.error ?? body?.message ?? `Failed to post feedback (${response.status})`);
         return;
       }
-      setOpsNotice('Changes requested — feedback posted.');
+      showOpsNotice('Changes requested — feedback posted.');
     } catch {
-      setOpsNotice('Failed to post feedback — network error.');
+      showOpsNotice('Failed to post feedback — network error.');
     }
-  }, []);
+  }, [showOpsNotice]);
 
   const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
@@ -1103,7 +1120,7 @@ function DashboardShell({
       workstreamId: session.workstreamId ?? null,
       text: `Intervention requested for "${session.title}". `,
     });
-    setOpsNotice(`Opened intervention composer for ${session.title}.`);
+    showOpsNotice(`Opened intervention composer for ${session.title}.`);
   }, []);
 
   const focusActivityRunId = useCallback(
@@ -1114,7 +1131,7 @@ function DashboardShell({
         sessionNodesInScope.find((node) => node.runId === trimmed || node.id === trimmed) ?? null;
       if (!session) return;
       handleSelectSession(session.id);
-      setOpsNotice(`Focused session: ${session.title}`);
+      showOpsNotice(`Focused session: ${session.title}`);
     },
     [sessionNodesInScope, handleSelectSession]
   );
@@ -1138,7 +1155,7 @@ function DashboardShell({
       setMobileTab('activity');
       setSessionDrawerOpen(false);
       setRequestedActivityItemId(itemId);
-      setOpsNotice('Opened activity detail from session timeline.');
+      showOpsNotice('Opened activity detail from session timeline.');
     },
     [sessionNodesInScope, switchDashboardView]
   );
@@ -1730,7 +1747,7 @@ function DashboardShell({
 
   const continueHighestPriority = useCallback(async () => {
     if (sessionNodesInScope.length === 0) {
-      setOpsNotice('No sessions available to continue.');
+      showOpsNotice('No sessions available to continue.');
       return;
     }
 
@@ -1752,7 +1769,7 @@ function DashboardShell({
       }
     }
 
-    setOpsNotice(`Focused highest priority session: ${target.title}`);
+    showOpsNotice(`Focused highest priority session: ${target.title}`);
     await refetch();
   }, [sessionNodesInScope, refetch]);
 
@@ -1784,7 +1801,7 @@ function DashboardShell({
   const playNextUpFromActivity = useCallback(async () => {
     const candidate = selectStartableQueueItem(sharedNextUpQueue.items);
     if (!candidate) {
-      setOpsNotice('No startable Next Up workstream is available.');
+      showOpsNotice('No startable Next Up workstream is available.');
       switchDashboardView('mission-control');
       return;
     }
@@ -1799,14 +1816,14 @@ function DashboardShell({
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
-    setOpsNotice(`Dispatched Next Up: ${candidate.workstreamTitle}`);
+    showOpsNotice(`Dispatched Next Up: ${candidate.workstreamTitle}`);
     await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
   }, [refetch, sharedNextUpQueue, switchDashboardView]);
 
   const startAutopilotFromActivity = useCallback(async () => {
     const candidate = selectStartableQueueItem(sharedNextUpQueue.items);
     if (!candidate) {
-      setOpsNotice('No startable initiative is ready for Autopilot yet.');
+      showOpsNotice('No startable initiative is ready for Autopilot yet.');
       switchDashboardView('mission-control');
       return;
     }
@@ -1827,7 +1844,7 @@ function DashboardShell({
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
-    setOpsNotice(
+    showOpsNotice(
       `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
     );
     await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
@@ -1844,7 +1861,7 @@ function DashboardShell({
         initiativeId: activityAutopilotRun.initiativeId,
       });
 
-      setOpsNotice(`Autopilot stopped for ${activityAutopilotRun.initiativeTitle}.`);
+      showOpsNotice(`Autopilot stopped for ${activityAutopilotRun.initiativeTitle}.`);
       await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     } finally {
       setSidebarAutopilotBusy(false);
@@ -1884,7 +1901,7 @@ function DashboardShell({
       setActivityFilterSessionId(null);
       setActivityFilterWorkstreamId(workstreamId);
       setActivityFilterWorkstreamLabel(session.title);
-      setOpsNotice(`Dispatched ${session.title}.`);
+      showOpsNotice(`Dispatched ${session.title}.`);
       await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
     [readApiErrorMessage, refetch, sharedNextUpQueue]
@@ -1933,7 +1950,7 @@ function DashboardShell({
         }
       }
 
-      setOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
+      showOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
       await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
     [readApiErrorMessage, refetch, sharedNextUpQueue]
@@ -1948,7 +1965,7 @@ function DashboardShell({
       const interventionText = input.text.trim();
       if (isConfigureEngineeringAgentIntent(interventionText)) {
         openSettings('agents', { focusAgentDomain: 'engineering' });
-        setOpsNotice('Opened agent settings for engineering runtime configuration.');
+        showOpsNotice('Opened agent settings for engineering runtime configuration.');
         return;
       }
       const response = await fetch(
@@ -1967,7 +1984,7 @@ function DashboardShell({
       if (!response.ok) {
         throw new Error(await readApiErrorMessage(response, 'Failed to submit intervention'));
       }
-      setOpsNotice(`Intervention sent for ${input.session.title}.`);
+      showOpsNotice(`Intervention sent for ${input.session.title}.`);
       await refetch();
     },
     [openSettings, readApiErrorMessage, refetch]
@@ -1992,7 +2009,7 @@ function DashboardShell({
         }
       }
 
-      setOpsNotice(`Dispatch requested: ${session.title}`);
+      showOpsNotice(`Dispatch requested: ${session.title}`);
       await refetch();
     },
     [refetch]
@@ -2045,7 +2062,7 @@ function DashboardShell({
         (body && 'id' in body && body.id) ||
         null;
 
-      setOpsNotice(
+      showOpsNotice(
         checkpointId
           ? `Checkpoint created: ${checkpointId.slice(0, 8)}`
           : 'Checkpoint created.'
@@ -2058,7 +2075,7 @@ function DashboardShell({
   const pauseSession = useCallback(
     async (session: SessionTreeNode) => {
       await runControlAction(session, 'pause', { reason: 'pause_from_dashboard' });
-      setOpsNotice(`Pause requested: ${session.title}`);
+      showOpsNotice(`Pause requested: ${session.title}`);
       await refetch();
     },
     [refetch, runControlAction]
@@ -2067,7 +2084,7 @@ function DashboardShell({
   const resumeSession = useCallback(
     async (session: SessionTreeNode) => {
       await runControlAction(session, 'resume', { reason: 'resume_from_dashboard' });
-      setOpsNotice(`Resume requested: ${session.title}`);
+      showOpsNotice(`Resume requested: ${session.title}`);
       await refetch();
     },
     [refetch, runControlAction]
@@ -2077,7 +2094,7 @@ function DashboardShell({
     async (session: SessionTreeNode) => {
       await runControlAction(session, 'cancel', { reason: 'restart_from_in_progress' });
       await playSessionWorkstream(session);
-      setOpsNotice(`Restarted ${session.title}.`);
+      showOpsNotice(`Restarted ${session.title}.`);
       await refetch();
     },
     [playSessionWorkstream, refetch, runControlAction]
@@ -2086,7 +2103,7 @@ function DashboardShell({
   const cancelSession = useCallback(
     async (session: SessionTreeNode) => {
       await runControlAction(session, 'cancel', { reason: 'cancel_from_dashboard' });
-      setOpsNotice(`Cancel requested: ${session.title}`);
+      showOpsNotice(`Cancel requested: ${session.title}`);
       await refetch();
     },
     [refetch, runControlAction]
@@ -2136,7 +2153,7 @@ function DashboardShell({
         checkpointId,
         reason: 'rollback_from_dashboard',
       });
-      setOpsNotice(`Rollback requested for ${session.title}.`);
+      showOpsNotice(`Rollback requested for ${session.title}.`);
       await refetch();
     },
     [refetch, runControlAction]
@@ -2160,7 +2177,7 @@ function DashboardShell({
         const parentInitiative =
           entityModal.initiativeId ?? selectedSession?.initiativeId ?? initiatives[0]?.id ?? null;
         if (!parentInitiative) {
-          setOpsNotice('Select an initiative first to start a workstream.');
+          showOpsNotice('Select an initiative first to start a workstream.');
           setEntityCreating(false);
           return;
         }
@@ -2181,11 +2198,11 @@ function DashboardShell({
         throw new Error(payloadError?.error ?? `Failed to create ${type}.`);
       }
 
-      setOpsNotice(`Created ${type}: ${title}`);
+      showOpsNotice(`Created ${type}: ${title}`);
       closeEntityModal();
       await refetch();
     } catch (err) {
-      setOpsNotice(
+      showOpsNotice(
         formatOpsNoticeError(err instanceof Error ? err.message : '', `Failed to create ${type}.`)
       );
       setEntityCreating(false);
@@ -2217,7 +2234,7 @@ function DashboardShell({
         setActivityFilterSessionId(candidate.id);
         setActivityFilterWorkstreamId(null);
         setActivityFilterWorkstreamLabel(null);
-        setOpsNotice(`Focused initiative: ${initiative.name}`);
+        showOpsNotice(`Focused initiative: ${initiative.name}`);
       }
     },
     [sessionNodesInScope]
@@ -2245,7 +2262,7 @@ function DashboardShell({
       setInitiativesSidebarTab('in_progress');
       setInProgressSubFilter('needs_attention');
       setRequestedDecisionId(normalizedDecisionId.length > 0 ? normalizedDecisionId : null);
-      setOpsNotice(
+      showOpsNotice(
         normalizedDecisionId.length > 0
           ? 'Reviewing pending decision.'
           : 'Review needs attention.'
@@ -2317,7 +2334,7 @@ function DashboardShell({
 
       if (bestItem?.id) {
         setRequestedActivityItemId(bestItem.id);
-        setOpsNotice(`Reviewing activity for ${slice.workstreamTitle ?? 'work slice'}.`);
+        showOpsNotice(`Reviewing activity for ${slice.workstreamTitle ?? 'work slice'}.`);
         return;
       }
 
@@ -2328,11 +2345,11 @@ function DashboardShell({
 
       if (runId.length > 0) {
         focusActivityRunId(runId);
-        setOpsNotice('Opened the related work session. Timeline details were unavailable.');
+        showOpsNotice('Opened the related work session. Timeline details were unavailable.');
         return;
       }
 
-      setOpsNotice('No activity details were found for this slice yet.');
+      showOpsNotice('No activity details were found for this slice yet.');
     },
     [
       activityInScope,
@@ -2350,7 +2367,7 @@ function DashboardShell({
         .filter((node) => statusSet.has(node.status))
         .sort(compareSessionPriority)[0];
       if (!candidate) {
-        setOpsNotice('No matching sessions for that metric right now.');
+        showOpsNotice('No matching sessions for that metric right now.');
         return;
       }
       handleSelectSession(candidate.id);
@@ -2971,7 +2988,7 @@ function DashboardShell({
                     type="button"
                     onClick={() => {
                       void toggleSidebarAutopilot().catch((error) => {
-                        setOpsNotice(
+                        showOpsNotice(
                           formatOpsNoticeError(
                             error instanceof Error ? error.message : '',
                             'Autopilot action failed.'
@@ -3365,7 +3382,7 @@ function DashboardShell({
               await runControlAction(session, action, { reason: `bulk_${action}_from_header` });
             }}
             onRefetch={async () => refetch()}
-            onSetNotice={(message) => setOpsNotice(message)}
+            onSetNotice={(message) => showOpsNotice(message)}
           />
         </Suspense>
       )}
@@ -3453,7 +3470,7 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(
+            showOpsNotice(
               formatOpsNoticeError(
                 body?.error ?? body?.message ?? null,
                 `Failed to dispatch workstream (${response.status})`
@@ -3461,7 +3478,7 @@ function DashboardShell({
             );
             return;
           }
-          setOpsNotice(`Dispatched workstream.`);
+          showOpsNotice(`Dispatched workstream.`);
           void refetch();
         }}
         onStartAutoContinue={async (initiativeId, workstreamId, agentId) => {
@@ -3481,7 +3498,7 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(
+            showOpsNotice(
               formatOpsNoticeError(
                 body?.error ?? body?.message ?? null,
                 `Failed to start auto-continue (${response.status})`
@@ -3489,7 +3506,7 @@ function DashboardShell({
             );
             return;
           }
-          setOpsNotice(`Auto-continue started.`);
+          showOpsNotice(`Auto-continue started.`);
           void refetch();
         }}
         onMoveWorkstream={async (initiativeId, workstreamId, placement) => {
@@ -3500,7 +3517,7 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(
+            showOpsNotice(
               formatOpsNoticeError(
                 body?.error ?? body?.message ?? null,
                 `Move failed (${response.status})`
@@ -3508,7 +3525,7 @@ function DashboardShell({
             );
             return;
           }
-          setOpsNotice(`Moved workstream to ${placement}.`);
+          showOpsNotice(`Moved workstream to ${placement}.`);
           void refetch();
         }}
             onRemoveFromQueue={async (initiativeId, workstreamId) => {
@@ -3519,7 +3536,7 @@ function DashboardShell({
           });
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-            setOpsNotice(
+            showOpsNotice(
               formatOpsNoticeError(
                 body?.error ?? body?.message ?? null,
                 `Remove failed (${response.status})`
@@ -3527,7 +3544,7 @@ function DashboardShell({
             );
             return;
           }
-          setOpsNotice(`Removed workstream from queue.`);
+          showOpsNotice(`Removed workstream from queue.`);
           void refetch();
         }}
             onOpenSession={handleSelectSession}

@@ -136,6 +136,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
+  const [lastAction, setLastAction] = useState<string | null>(null);
 
   const initiativeTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -182,17 +183,25 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   const selectedCount = selected.size;
 
   const acceptOne = useCallback((item: SliceRunProjection, note?: string) => {
-    if (!onAcceptSlice) return;
+    console.debug('[NeedsInput] acceptOne clicked', { sliceRunId: item.sliceRunId, hasHandler: Boolean(onAcceptSlice) });
+    setLastAction(`Accepting ${item.sliceRunId.slice(0, 8)}…`);
+    if (!onAcceptSlice) {
+      setLastAction('No accept handler — check wiring');
+      return;
+    }
     const id = item.sliceRunId;
     setPending((prev) => new Set(prev).add(id));
     // Fire the async action; the parent refetch will remove from list
-    Promise.resolve(onAcceptSlice(item, note)).finally(() => {
-      setPending((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
+    Promise.resolve(onAcceptSlice(item, note))
+      .then(() => console.debug('[NeedsInput] acceptOne resolved', id))
+      .catch((err) => console.error('[NeedsInput] acceptOne error', err))
+      .finally(() => {
+        setPending((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
       });
-    });
   }, [onAcceptSlice]);
 
   const handleBulkAccept = useCallback(() => {
@@ -277,6 +286,14 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
         </div>
       ) : null}
 
+      {/* Inline action indicator — visible proof that handlers fire */}
+      {lastAction && (
+        <div className="flex items-center gap-1.5 border-b border-white/[0.04] px-4 py-1 text-[10px] text-[#0AD4C4]/70 animate-pulse">
+          <span className="h-1 w-1 rounded-full bg-[#0AD4C4]" />
+          {lastAction}
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="px-4 py-6 text-center text-caption text-white/30">
           Nothing needs attention right now.
@@ -330,7 +347,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   }}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onOpenSliceDetail?.(item)}
+                  onClick={() => {
+                    console.debug('[NeedsInput] row clicked', { sliceRunId: item.sliceRunId, hasHandler: Boolean(onOpenSliceDetail) });
+                    setLastAction(`Opening detail for ${item.sliceRunId.slice(0, 8)}…`);
+                    onOpenSliceDetail?.(item);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();

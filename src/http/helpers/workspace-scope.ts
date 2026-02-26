@@ -172,6 +172,12 @@ export function resolveWorkspaceScope(
   }
 
   if (merged.projectId) {
+    if (isAllScopeToken(merged.projectId)) {
+      return {
+        workspaceId: null,
+        isAll: true,
+      };
+    }
     if (!allowProjectScope) {
       return {
         workspaceId: null,

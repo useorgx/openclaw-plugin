@@ -60,7 +60,9 @@ export function toIsoString(value: string | null): string | null {
 
 export function parsePositiveInt(raw: string | null, fallback: number): number {
   if (!raw) return fallback;
-  const parsed = Number(raw);
+  const normalized = raw.trim();
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return fallback;
   // Offset-like parameters may intentionally allow zero when fallback is zero.
   const minimum = fallback <= 0 ? 0 : 1;
