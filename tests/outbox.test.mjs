@@ -191,3 +191,17 @@ test("readOutbox prunes legacy synthetic events and keeps replayable events", as
     process.env.HOME = originalHome;
   }
 });
+
+test("readOutbox returns empty list for invalid queue identifiers", async () => {
+  const originalHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "orgx-outbox-invalid-id-test-"));
+  process.env.HOME = home;
+
+  try {
+    const outbox = await importFreshOutbox();
+    const events = await outbox.readOutbox("../bad-queue");
+    assert.deepEqual(events, []);
+  } finally {
+    process.env.HOME = originalHome;
+  }
+});

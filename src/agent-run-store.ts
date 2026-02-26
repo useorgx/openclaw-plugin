@@ -54,7 +54,22 @@ function normalizeNullableString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function normalizeTimestamp(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return Number.isFinite(Date.parse(trimmed)) ? trimmed : fallback;
+}
+
+function normalizeNullableTimestamp(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return Number.isFinite(Date.parse(trimmed)) ? trimmed : null;
+}
+
 function normalizeRecord(input: AgentRunRecord): AgentRunRecord {
+  const now = new Date().toISOString();
   return {
     runId: input.runId.trim(),
     agentId: input.agentId.trim(),
@@ -66,8 +81,8 @@ function normalizeRecord(input: AgentRunRecord): AgentRunRecord {
     initiativeTitle: normalizeNullableString(input.initiativeTitle),
     workstreamId: normalizeNullableString(input.workstreamId),
     taskId: normalizeNullableString(input.taskId),
-    startedAt: input.startedAt,
-    stoppedAt: input.stoppedAt ?? null,
+    startedAt: normalizeTimestamp(input.startedAt, now),
+    stoppedAt: normalizeNullableTimestamp(input.stoppedAt),
     status: input.status === "stopped" ? "stopped" : "running",
   };
 }
@@ -85,9 +100,32 @@ export function readAgentRuns(): PersistedAgentRuns {
       return { updatedAt: new Date().toISOString(), runs: {} };
     }
     const runs = parsed.runs && typeof parsed.runs === "object" ? parsed.runs : {};
+    const normalizedRuns: Record<string, AgentRunRecord> = {};
+    for (const [runKey, runValue] of Object.entries(runs)) {
+      if (!runValue || typeof runValue !== "object") continue;
+      const input = runValue as Partial<AgentRunRecord>;
+      const normalized = normalizeRecord({
+        runId: typeof input.runId === "string" ? input.runId : runKey,
+        agentId: typeof input.agentId === "string" ? input.agentId : "",
+        pid: typeof input.pid === "number" ? input.pid : null,
+        message: typeof input.message === "string" ? input.message : null,
+        provider: typeof input.provider === "string" ? input.provider : null,
+        model: typeof input.model === "string" ? input.model : null,
+        initiativeId: typeof input.initiativeId === "string" ? input.initiativeId : null,
+        initiativeTitle:
+          typeof input.initiativeTitle === "string" ? input.initiativeTitle : null,
+        workstreamId: typeof input.workstreamId === "string" ? input.workstreamId : null,
+        taskId: typeof input.taskId === "string" ? input.taskId : null,
+        startedAt: typeof input.startedAt === "string" ? input.startedAt : "",
+        stoppedAt: typeof input.stoppedAt === "string" ? input.stoppedAt : null,
+        status: input.status === "stopped" ? "stopped" : "running",
+      });
+      if (!normalized.runId || !normalized.agentId) continue;
+      normalizedRuns[normalized.runId] = normalized;
+    }
     return {
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString(),
-      runs: runs as Record<string, AgentRunRecord>,
+      runs: normalizedRuns,
     };
   } catch {
     return { updatedAt: new Date().toISOString(), runs: {} };

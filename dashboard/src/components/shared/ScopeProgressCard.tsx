@@ -32,7 +32,7 @@ interface ScopeProgressCardProps {
 }
 
 // ---------------------------------------------------------------------------
-// Builders — construct ScopeNode trees from various data shapes
+// Builders
 // ---------------------------------------------------------------------------
 
 export function buildScopeFromSliceRun(input: {
@@ -53,7 +53,6 @@ export function buildScopeFromSliceRun(input: {
 }): ScopeNode[] {
   const root: ScopeNode[] = [];
 
-  // Initiative level
   if (input.initiativeId) {
     const initiativeNode: ScopeNode = {
       id: input.initiativeId,
@@ -62,7 +61,6 @@ export function buildScopeFromSliceRun(input: {
       children: [],
     };
 
-    // Workstream level
     if (input.workstreamId) {
       const wsStatus = resolveStatus(input.status);
       const wsNode: ScopeNode = {
@@ -77,7 +75,6 @@ export function buildScopeFromSliceRun(input: {
         children: [],
       };
 
-      // Milestones
       if (input.scopeProgress?.milestones && input.scopeProgress.milestones.length > 0) {
         for (const ms of input.scopeProgress.milestones) {
           const msStatus: ScopeNode['status'] =
@@ -90,7 +87,6 @@ export function buildScopeFromSliceRun(input: {
             progress: { done: ms.done, total: ms.total },
           };
 
-          // All tasks under milestone — no artificial limit in builder
           if (ms.total > 0) {
             msNode.children = Array.from({ length: ms.total }, (_, i) => ({
               id: `${ms.id}-task-${i}`,
@@ -103,7 +99,6 @@ export function buildScopeFromSliceRun(input: {
           wsNode.children!.push(msNode);
         }
       } else if (input.taskIds && input.taskIds.length > 0) {
-        // Tasks directly under workstream (no milestones)
         const completedCount = input.scopeProgress?.completedTasks ?? 0;
         wsNode.children = input.taskIds.map((tid, i) => ({
           id: tid,
@@ -166,7 +161,6 @@ export function buildScopeFromContext(input: {
       }
     : null;
 
-  // Assemble tree
   if (wsNode && taskNode) wsNode.children = [taskNode];
   if (initiativeNode && wsNode) {
     initiativeNode.children = [wsNode];
@@ -246,6 +240,43 @@ const ProgressBar = memo(function ProgressBar({
 });
 
 // ---------------------------------------------------------------------------
+// Layout constants
+//
+//  ROW_H      = total row height (padding + icon)
+//  ICON_SZ    = entity icon diameter
+//  TASK_DOT   = task dot diameter
+//  GAP        = horizontal gap between icon and label
+//  COL_W      = column width for one indent level (holds icon + gap)
+//
+//  Every node row is structured as:
+//    [depth * COL_W left margin] [icon centered in COL_W] [gap] [label…]
+//
+//  The vertical connector runs at the horizontal center of the *parent's*
+//  icon column, i.e. at  (depth-1)*COL_W + COL_W/2  from the left edge of
+//  the tree.  The horizontal connector runs from that x to the child's icon
+//  center at  depth*COL_W + COL_W/2.
+// ---------------------------------------------------------------------------
+
+const ICON_SZ = 16;
+const ICON_SZ_COMPACT = 14;
+const TASK_DOT_SZ = 8;
+const GAP = 8;        // gap between icon and label
+const ROW_H = 28;     // non-task row height
+const ROW_H_TASK = 24; // task row height
+const ROW_H_COMPACT = 24;
+const ROW_H_TASK_COMPACT = 20;
+const LINE_COLOR = 'rgba(255,255,255,0.07)';
+
+function getLayout(compact: boolean | undefined) {
+  const iconSz = compact ? ICON_SZ_COMPACT : ICON_SZ;
+  // Column width = icon + gap, rounded up to feel spacious
+  const colW = iconSz + GAP + 4;
+  const rowH = compact ? ROW_H_COMPACT : ROW_H;
+  const rowHTask = compact ? ROW_H_TASK_COMPACT : ROW_H_TASK;
+  return { iconSz, colW, rowH, rowHTask };
+}
+
+// ---------------------------------------------------------------------------
 // Scope tree node renderer
 // ---------------------------------------------------------------------------
 
@@ -272,8 +303,12 @@ function ScopeTreeNode({
 }) {
   const isActive = activeId === node.id || node.highlight;
   const hasProgress = node.progress && node.progress.total > 0;
+  const isTask = node.type === 'task';
+  const { iconSz, colW, rowH, rowHTask } = getLayout(compact);
+  const thisRowH = isTask ? rowHTask : rowH;
+  const thisIconSz = isTask ? TASK_DOT_SZ : iconSz;
 
-  // Determine visible children with task truncation
+  // Children
   const allChildren = node.children ?? [];
   const taskChildren = allChildren.filter((c) => c.type === 'task');
   const nonTaskChildren = allChildren.filter((c) => c.type !== 'task');
@@ -283,78 +318,111 @@ function ScopeTreeNode({
   const visibleChildren = [...nonTaskChildren, ...visibleTasks];
   const hasChildren = visibleChildren.length > 0 || hasTaskOverflow;
 
-  return (
-    <div>
-      <motion.div
-        initial={{ opacity: 0, x: -4 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: index * 0.02, duration: 0.18 }}
-        className={`flex items-start gap-2 py-[1px] ${isActive ? 'rounded-md bg-white/[0.03]' : ''}`}
-        style={{ paddingLeft: depth * (compact ? 12 : 16) }}
-      >
-        {/* Vertical line connector */}
-        {depth > 0 && (
-          <div className="relative flex w-3 flex-shrink-0 items-start justify-center pt-[7px]">
-            <div
-              className="absolute left-1/2 top-0 w-px -translate-x-1/2"
-              style={{
-                height: isLast ? 7 : '100%',
-                backgroundColor: 'rgba(255,255,255,0.06)',
-              }}
-            />
-            <div
-              className="absolute left-1/2 top-[7px] h-px w-2"
-              style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-            />
-          </div>
-        )}
+  // X positions (from left edge of this node's container)
+  // The parent's icon center is at x = 0 + colW/2 when depth > 0 relative
+  // to the parent. But since we nest, the connector for THIS node is drawn
+  // at the parent's icon center, which from *our* coordinate system is at
+  // x = -colW + colW/2 = -colW/2.  However we use absolute left from the
+  // tree root, so:
+  //   parentIconCenterX = (depth - 1) * colW + colW / 2
+  //   thisIconCenterX   = depth * colW + colW / 2
+  //   thisIconCenterY   = thisRowH / 2
 
-        {/* Icon */}
-        <div className="flex-shrink-0 pt-[2px]">
-          {node.type === 'task' ? (
+  return (
+    <div className="relative" style={{ minHeight: thisRowH }}>
+      {/* ── Connectors from parent ── */}
+      {depth > 0 && (
+        <>
+          {/* Vertical line: from top of this node down to icon center.
+              For non-last siblings, extends to the full bottom so the next
+              sibling's connector continues from it. */}
+          <div
+            className="absolute w-px"
+            style={{
+              backgroundColor: LINE_COLOR,
+              left: (depth - 1) * colW + colW / 2,
+              top: 0,
+              bottom: isLast ? undefined : 0,
+              height: isLast ? thisRowH / 2 : undefined,
+            }}
+          />
+          {/* Horizontal line: from parent icon center-x to this icon center-x */}
+          <div
+            className="absolute h-px"
+            style={{
+              backgroundColor: LINE_COLOR,
+              left: (depth - 1) * colW + colW / 2,
+              top: thisRowH / 2,
+              width: colW,
+            }}
+          />
+        </>
+      )}
+
+      {/* ── Node row ── */}
+      <motion.div
+        initial={{ opacity: 0, x: -3 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: index * 0.02, duration: 0.15 }}
+        className={`flex items-center ${isActive ? 'rounded-md bg-white/[0.03]' : ''}`}
+        style={{
+          height: thisRowH,
+          paddingLeft: depth * colW,
+        }}
+      >
+        {/* Icon — centered in colW */}
+        <div
+          className="flex flex-shrink-0 items-center justify-center"
+          style={{ width: colW, height: thisRowH }}
+        >
+          {isTask ? (
             <span
-              className="inline-block h-[7px] w-[7px] rounded-full"
-              style={statusDotStyle(node.status)}
+              className="inline-block rounded-full"
+              style={{
+                ...statusDotStyle(node.status),
+                width: TASK_DOT_SZ,
+                height: TASK_DOT_SZ,
+              }}
             />
           ) : (
             <EntityIcon
               type={node.type}
-              size={compact ? 11 : 13}
+              size={iconSz}
               accent={isActive ? colors.lime : undefined}
             />
           )}
         </div>
 
         {/* Content */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5">
+        <div className="min-w-0 flex-1 pr-1">
+          <div className="flex items-center gap-1.5">
             <span
-              className={`min-w-0 truncate leading-tight ${
-                node.type === 'task'
-                  ? `text-[11px] ${node.status === 'done' ? 'text-white/40 line-through decoration-white/10' : 'text-white/30'}`
+              className={`min-w-0 truncate ${
+                isTask
+                  ? `text-[12px] leading-none ${node.status === 'done' ? 'text-white/40 line-through decoration-white/10' : 'text-white/35'}`
                   : node.type === 'milestone'
-                    ? 'text-[12px] font-medium text-white/50'
-                    : 'text-[12px] font-medium text-white/70'
+                    ? 'text-[13px] font-medium leading-none text-white/55'
+                    : depth === 0
+                      ? 'text-[13px] font-medium leading-none text-white/80'
+                      : 'text-[13px] font-medium leading-none text-white/70'
               } ${isActive ? '!text-white/90 !no-underline' : ''}`}
             >
               {node.label}
             </span>
             {hasProgress && (
-              <span className="flex-shrink-0 text-[10px] tabular-nums text-white/20">
+              <span className="flex-shrink-0 text-[10px] tabular-nums leading-none text-white/20">
                 {node.progress!.done}/{node.progress!.total}
               </span>
             )}
-            {/* Agent badge — small, right-aligned */}
             {node.agent && (
-              <span className="ml-auto flex-shrink-0 rounded-full bg-white/[0.05] px-1.5 py-px text-[9px] font-medium text-white/25">
+              <span className="ml-auto flex-shrink-0 rounded-full bg-white/[0.05] px-1.5 py-px text-[9px] font-medium leading-none text-white/25">
                 {node.agent.name}
               </span>
             )}
           </div>
 
-          {/* Progress bar for workstream/milestone */}
-          {hasProgress && node.type !== 'task' && (
-            <div className="mt-1 max-w-[140px]">
+          {hasProgress && !isTask && (
+            <div className="mt-1.5 max-w-[160px]">
               <ProgressBar
                 done={node.progress!.done}
                 total={node.progress!.total}
@@ -365,9 +433,22 @@ function ScopeTreeNode({
         </div>
       </motion.div>
 
-      {/* Children */}
+      {/* ── Vertical guide: bridge from this icon center into children area ── */}
       {hasChildren && (
-        <div className="mt-px">
+        <div
+          className="absolute w-px"
+          style={{
+            backgroundColor: LINE_COLOR,
+            left: depth * colW + colW / 2,
+            top: thisRowH / 2,
+            height: thisRowH / 2,
+          }}
+        />
+      )}
+
+      {/* ── Children ── */}
+      {hasChildren && (
+        <div>
           {visibleChildren.map((child, i) => (
             <ScopeTreeNode
               key={child.id}
@@ -382,7 +463,7 @@ function ScopeTreeNode({
               onToggleExpand={onToggleExpand}
             />
           ))}
-          {/* "See all" / overflow toggle */}
+
           {hasTaskOverflow && (
             <motion.button
               type="button"
@@ -390,24 +471,28 @@ function ScopeTreeNode({
               animate={{ opacity: 1 }}
               transition={{ delay: (index + visibleChildren.length + 1) * 0.02 }}
               onClick={onToggleExpand}
-              className="flex items-center gap-1.5 py-[2px] text-[10px] font-medium text-white/25 transition-colors hover:text-white/45"
-              style={{ paddingLeft: (depth + 1) * (compact ? 12 : 16) + 20 }}
+              className="flex items-center text-[10px] font-medium text-white/25 transition-colors hover:text-white/45"
+              style={{
+                height: rowHTask,
+                paddingLeft: (depth + 1) * colW + colW,
+              }}
             >
-              <span className="inline-block h-px w-2 bg-white/10" />
               +{hiddenCount} more · see all
             </motion.button>
           )}
-          {/* Collapse toggle when expanded past limit */}
+
           <AnimatePresence>
             {expanded && taskChildren.length > taskLimit && (
               <motion.button
                 type="button"
                 initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
+                animate={{ opacity: 1, height: rowHTask }}
                 exit={{ opacity: 0, height: 0 }}
                 onClick={onToggleExpand}
-                className="flex items-center gap-1.5 py-[2px] text-[10px] font-medium text-white/25 transition-colors hover:text-white/45"
-                style={{ paddingLeft: (depth + 1) * (compact ? 12 : 16) + 20 }}
+                className="flex items-center text-[10px] font-medium text-white/25 transition-colors hover:text-white/45"
+                style={{
+                  paddingLeft: (depth + 1) * colW + colW,
+                }}
               >
                 show less
               </motion.button>

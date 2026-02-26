@@ -32,12 +32,16 @@ export function WorkstreamGlyph({
       strokeWidth={strokeWidth}
     >
       {withBackground ? (
-        <rect x="3" y="3" width="18" height="18" rx="4.5" fill={backgroundColor} stroke="none" />
+        <rect x="2" y="2" width="20" height="20" rx="6" fill={backgroundColor} stroke="none" />
       ) : null}
-      <path d="M5.5 7h5.8l6.7 6" />
-      <path d="M5.5 17h5.8l6.7-6" />
-      <path d="M5.5 12h12.5" />
-      <path d="m15.3 9.3 2.7 2.7-2.7 2.7" />
+      <path d="M6 6.5h3l6.5 11" />
+      <path d="M6 17.5h3l6.5-11" />
+      <path d="M6 12h9.5" />
+      <circle cx="6" cy="6.5" r="1.5" fill={stroke} stroke="none" />
+      <circle cx="6" cy="12" r="1.5" fill={stroke} stroke="none" />
+      <circle cx="6" cy="17.5" r="1.5" fill={stroke} stroke="none" />
+      <circle cx="15.5" cy="12" r="2.5" fill={backgroundColor} stroke={stroke} strokeWidth={strokeWidth} />
+      <circle cx="15.5" cy="12" r="1.2" fill={stroke} stroke="none" />
     </svg>
   );
 }
