@@ -36,7 +36,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
   const [draftName, setDraftName] = useState(workstream.name);
   const [draftSummary, setDraftSummary] = useState(workstream.summary ?? '');
   const [draftStatus, setDraftStatus] = useState(workstream.status);
@@ -230,36 +229,46 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
 
       {/* Progress */}
       {progressValue !== null && (
-        <div>
+        <div className="mb-4">
           <div className="flex items-center justify-between mb-1">
             <span className="text-micro text-muted uppercase tracking-wider">Progress</span>
             <span className="text-body text-secondary">{progressValue}%</span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
-            />
+          <div className="flex h-1 gap-[2px] w-full rounded-full overflow-hidden bg-white/[0.04] p-[1px]">
+            {tasks.length > 0 ? (
+              tasks.map((t, idx) => (
+                <div
+                  key={t.id || idx}
+                  className="h-full flex-1 transition-all rounded-full"
+                  style={{ backgroundColor: isDoneStatus(t.status) ? colors.lime : t.status === 'running' || t.status === 'in_progress' ? colors.teal : 'rgba(255,255,255,0.06)' }}
+                />
+              ))
+            ) : (
+              <div
+                className="h-full transition-all rounded-full"
+                style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
+              />
+            )}
           </div>
         </div>
       )}
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{tasks.length}</div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-2 border-b border-white/[0.06] mb-4">
+        <div className="text-micro text-secondary tracking-wide">
+          <span className="text-white font-semibold mr-1.5">{tasks.length}</span>
+          TASKS
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Milestones</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{milestones.length}</div>
+        <div className="text-micro text-secondary tracking-wide">
+          <span className="text-white font-semibold mr-1.5">{milestones.length}</span>
+          MILESTONES
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {progressValue !== null ? `${progressValue}%` : '-'}
+        {progressValue !== null && (
+          <div className="text-micro text-[#BFFF00] tracking-wide">
+            <span className="font-semibold mr-1.5">{progressValue}%</span>
+            DONE
           </div>
-        </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -333,34 +342,22 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             milestoneIds={milestones.map((m) => m.id)}
           />
 
-          <div className="mt-2 space-y-2 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-                  Notes
-                </p>
-                <p className="mt-1 text-caption text-muted">
-                  Commentary thread for humans and agents on this workstream.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNotes((prev) => !prev)}
-                className="inline-flex items-center justify-center rounded-full border border-strong bg-white/[0.05] px-3 py-1.5 text-caption font-semibold tracking-wide text-primary transition-colors hover:bg-white/[0.09]"
-              >
-                {showNotes ? 'Hide' : 'Show'}
-              </button>
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+                Notes
+              </p>
+              <p className="mt-1 text-caption text-muted">
+                Commentary thread for humans and agents on this workstream.
+              </p>
             </div>
-            {showNotes ? (
-              <div className="pt-3 border-t border-subtle">
-                <EntityCommentsPanel
-                  entityType="workstream"
-                  entityId={workstream.id}
-                  authToken={authToken}
-                  embedMode={embedMode}
-                />
-              </div>
-            ) : null}
+            
+            <EntityCommentsPanel
+              entityType="workstream"
+              entityId={workstream.id}
+              authToken={authToken}
+              embedMode={embedMode}
+            />
           </div>
 
         </>

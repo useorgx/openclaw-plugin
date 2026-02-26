@@ -254,7 +254,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 key={item.sliceRunId}
-                className="group hover-lift relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14]"
+                className="group relative px-2 py-3 transition-colors hover:bg-white/[0.04] border-b border-white/[0.06] last:border-0"
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpenSliceDetail?.(item)}
@@ -266,7 +266,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                 }}
                 >
                   <div
-                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(item.status)}`}
+                    className={`pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b ${statusHighlight(item.status)} opacity-0 group-hover:opacity-100 transition-opacity`}
                     aria-hidden
                   />
                 <div className="flex items-start justify-between gap-2">
@@ -314,7 +314,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   {when && <span>Updated {formatRelativeTime(when)}</span>}
                 </div>
                 <div
-                  className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.07] pt-2"
+                  className="mt-3 flex items-center justify-between gap-2"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <button
