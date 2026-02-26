@@ -215,7 +215,7 @@ test("buildTaskQueue prioritizes todo first, then blocked, then active aliases",
     {
       id: "t-blocked",
       title: "blocked dependency",
-      status: "blocked",
+      status: "on-hold",
       priority: "high",
       due_date: "2026-02-02",
       workstream_id: "wsA",
@@ -231,7 +231,7 @@ test("buildTaskQueue prioritizes todo first, then blocked, then active aliases",
     {
       id: "t-running",
       title: "running alias",
-      status: "running",
+      status: "pending_review",
       priority: "high",
       due_date: "2026-02-04",
       workstream_id: "wsA",
@@ -687,10 +687,12 @@ test("classifyTaskState buckets task lifecycle states", () => {
   assert.equal(classifyTaskState("completed"), "done");
   assert.equal(classifyTaskState("blocked"), "blocked");
   assert.equal(classifyTaskState("at-risk"), "blocked");
+  assert.equal(classifyTaskState("on hold"), "blocked");
   assert.equal(classifyTaskState("in_progress"), "active");
   assert.equal(classifyTaskState("in-progress"), "active");
   assert.equal(classifyTaskState("retry_pending"), "active");
   assert.equal(classifyTaskState("retry pending"), "active");
+  assert.equal(classifyTaskState("pending-review"), "active");
   assert.equal(classifyTaskState("todo"), "todo");
 });
 

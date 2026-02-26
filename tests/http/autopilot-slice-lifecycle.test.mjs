@@ -2074,3 +2074,74 @@ test("autopilot slice lifecycle: claude-code executor surfaces anthropic runtime
   assert.ok(claude, "expected claude-code runtime instance");
   assert.equal(claude.providerLogo, "anthropic");
 });
+
+test("autopilot slice lifecycle: emits UI contract metadata required by activity/detail surfaces", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    after: async ({ handler }) =>
+      readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 80,
+        decisionsLimit: 20,
+      }),
+  });
+
+  const sliceResult = latestSliceResultActivity(result.calls);
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(sliceResult.phase, "completed");
+  assert.equal(
+    typeof sliceResult.message === "string" && sliceResult.message.length > 0,
+    true,
+    "expected slice result message for timeline card title"
+  );
+  assert.equal(
+    typeof sliceResult.next_step === "string" && sliceResult.next_step.length > 0,
+    true,
+    "expected next_step guidance for activity detail summary"
+  );
+
+  const metadata = sliceResult.metadata ?? {};
+  const requiredMetadataKeys = [
+    "event",
+    "initiative_id",
+    "run_id",
+    "slice_run_id",
+    "workstream_id",
+    "workstream_title",
+    "task_id",
+    "task_ids",
+    "next_actions",
+    "user_summary",
+    "activity_bucket",
+  ];
+  for (const key of requiredMetadataKeys) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(metadata, key),
+      `expected metadata.${key} to be present`
+    );
+  }
+  assert.equal(metadata.event, "autopilot_slice_result");
+  assert.equal(metadata.initiative_id, "init-1");
+  assert.equal(metadata.workstream_id, "ws-1");
+  assert.equal(metadata.workstream_title, "Workstream 1");
+  assert.equal(metadata.task_id, "task-1");
+  assert.ok(Array.isArray(metadata.task_ids), "expected metadata.task_ids array");
+  assert.ok(
+    typeof metadata.user_summary === "string" && metadata.user_summary.length > 0,
+    "expected metadata.user_summary to contain worker summary"
+  );
+
+  const snapshot = result.afterResult;
+  const snapshotSliceResult = findSnapshotActivityByEvent(snapshot, "autopilot_slice_result");
+  assert.ok(snapshotSliceResult, "expected autopilot_slice_result in live snapshot");
+  assert.equal(snapshotSliceResult.phase, "completed");
+  assert.equal(snapshotSliceResult.metadata?.initiative_id, "init-1");
+  assert.equal(snapshotSliceResult.metadata?.workstream_id, "ws-1");
+  assert.equal(snapshotSliceResult.metadata?.workstream_title, "Workstream 1");
+  assert.equal(snapshotSliceResult.metadata?.task_id, "task-1");
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(snapshotSliceResult.metadata ?? {}, "next_actions"),
+    "expected next_actions on snapshot activity metadata"
+  );
+});
