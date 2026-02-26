@@ -254,7 +254,13 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   ease: [0.22, 1, 0.36, 1],
                 }}
                 key={item.sliceRunId}
-                className="group hover-lift relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14]"
+                className={`group hover-lift relative overflow-visible rounded-2xl border bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14] ${
+                  item.status === 'failed'
+                    ? 'border-red-400/20'
+                    : item.blockingDecisionCount > 0
+                      ? 'border-amber-400/20'
+                      : 'border-white/[0.08]'
+                }`}
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpenSliceDetail?.(item)}

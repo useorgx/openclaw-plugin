@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
@@ -151,6 +151,31 @@ function confidenceDots(level: 'low' | 'medium' | 'high'): { filled: number; col
       return { filled: 1, color: colors.red };
     default:
       return { filled: 0, color: colors.iris };
+  }
+}
+
+async function openRunInTerminal(input: {
+  runId?: string | null;
+  sliceRunId?: string | null;
+  sessionId?: string | null;
+}): Promise<void> {
+  const payload: Record<string, string> = {};
+  if (input.runId) payload.runId = input.runId;
+  if (input.sliceRunId) payload.sliceRunId = input.sliceRunId;
+  if (input.sessionId) payload.sessionId = input.sessionId;
+  if (Object.keys(payload).length === 0) {
+    throw new Error('No run identifier available for terminal open.');
+  }
+  const response = await fetch('/orgx/api/live/terminal/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Terminal open failed (${response.status})`
+    );
   }
 }
 
@@ -310,6 +335,8 @@ export function SliceDetailModal({
   onOpenDecisions,
 }: SliceDetailModalProps) {
   const open = target !== null;
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcut: Cmd+Enter → Start
   const handleKeyDown = useCallback(
@@ -331,6 +358,12 @@ export function SliceDetailModal({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, handleKeyDown]);
+
+  useEffect(() => {
+    if (open) return;
+    setTerminalError(null);
+    setIsOpeningTerminal(false);
+  }, [open]);
 
   if (!target) return null;
 
@@ -393,6 +426,21 @@ export function SliceDetailModal({
           : 'Review activity'
       : null);
 
+  const handleOpenTerminal = useCallback(
+    async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
+      try {
+        setTerminalError(null);
+        setIsOpeningTerminal(true);
+        await openRunInTerminal(input);
+      } catch (error) {
+        setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
+      } finally {
+        setIsOpeningTerminal(false);
+      }
+    },
+    []
+  );
+
   // -------------------------------------------------------------------------
   // Footer
   // -------------------------------------------------------------------------
@@ -438,16 +486,41 @@ export function SliceDetailModal({
         </>
       )}
       {target.source === 'in_progress' && d.sessionId && (
-        <button
-          type="button"
-          onClick={() => {
-            onOpenSession?.(d.sessionId!);
-            onClose();
-          }}
-          className="control-pill h-8 px-3 text-caption font-semibold"
-        >
-          Open session
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onOpenSession?.(d.sessionId!);
+              onClose();
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            Open session
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleOpenTerminal({
+                sessionId: d.sessionId,
+                runId: d.runId,
+                sliceRunId: sr?.sliceRunId ?? null,
+              });
+            }}
+            disabled={isOpeningTerminal}
+            className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+            title="Open session log in terminal"
+          >
+            <span className="relative inline-block h-3 w-2">
+              <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+              <motion.span
+                className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                animate={{ opacity: [1, 0, 1] }}
+                transition={{ duration: 1, repeat: Infinity }}
+              />
+            </span>
+            {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+          </button>
+        </>
       )}
       {target.source === 'needs_input' && sr && (
         <>
@@ -475,19 +548,69 @@ export function SliceDetailModal({
           >
             Review activity
           </button>
+          {(sr.runId || sr.sliceRunId) && (
+            <button
+              type="button"
+              onClick={() => {
+                void handleOpenTerminal({
+                  runId: sr.runId ?? null,
+                  sliceRunId: sr.sliceRunId ?? null,
+                });
+              }}
+              disabled={isOpeningTerminal}
+              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+              title="Open run log in terminal"
+            >
+              <span className="relative inline-block h-3 w-2">
+                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+                <motion.span
+                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+              </span>
+              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+            </button>
+          )}
         </>
       )}
       {d.runId && (
-        <button
-          type="button"
-          onClick={() => {
-            onFocusRunId?.(d.runId!);
-            onClose();
-          }}
-          className="control-pill h-8 px-3 text-caption font-semibold"
-        >
-          View in timeline
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              onFocusRunId?.(d.runId!);
+              onClose();
+            }}
+            className="control-pill h-8 px-3 text-caption font-semibold"
+          >
+            View in timeline
+          </button>
+          {!d.sessionId && (
+            <button
+              type="button"
+              onClick={() => {
+                void handleOpenTerminal({
+                  runId: d.runId,
+                  sliceRunId: sr?.sliceRunId ?? null,
+                });
+              }}
+              disabled={isOpeningTerminal}
+              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
+              title="Open run log in terminal"
+            >
+              <span className="relative inline-block h-3 w-2">
+                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
+                <motion.span
+                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+              </span>
+              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+            </button>
+          )}
+        </>
       )}
       <div className="flex-1" />
       {canStart && (
@@ -560,10 +683,20 @@ export function SliceDetailModal({
                   <span
                     className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
                   >
-                    <span
-                      className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: queueStateDotColor(d.queueState) }}
-                    />
+                    <span className="relative mr-1.5 inline-block h-1.5 w-1.5">
+                      <span
+                        className="absolute inset-0 rounded-full"
+                        style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                      />
+                      {isRunning && (
+                        <motion.span
+                          className="absolute inset-0 rounded-full"
+                          style={{ backgroundColor: queueStateDotColor(d.queueState) }}
+                          animate={{ opacity: [1, 0.3, 1], scale: [1, 1.6, 1] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                      )}
+                    </span>
                     {canonicalProjection.label}
                   </span>
                 </div>
@@ -613,7 +746,7 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                className="space-y-2"
               >
                 {d.blockReason && (
                   <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
@@ -666,7 +799,7 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 space-y-2"
+                  className="space-y-2"
                 >
                   <p className="section-kicker">Work Snapshot</p>
                   {d.nextTaskTitle ? (
@@ -1005,6 +1138,12 @@ export function SliceDetailModal({
                 </details>
               </>
             )}
+            {terminalError ? (
+              <>
+                <SectionDivider />
+                <p className="text-caption text-red-200/80">{terminalError}</p>
+              </>
+            ) : null}
 
           </div>
         </ModalShell>

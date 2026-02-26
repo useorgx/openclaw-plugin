@@ -168,6 +168,7 @@ function ActionButton({
 }) {
   const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState('');
+  const [isHovering, setIsHovering] = useState(false);
 
   const isPrimary =
     triageAction.action === 'approve' || triageAction.action === 'autofix';
@@ -224,22 +225,29 @@ function ActionButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (triageAction.requiresNote) {
-          setShowNote(true);
-        } else {
-          onPerform(triageAction.action);
-        }
-      }}
-      disabled={isActing}
-      className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
-      title={triageAction.consequences}
-    >
-      <span>{triageAction.label}</span>
-      <span className="ml-1 text-micro opacity-60">— {triageAction.consequences}</span>
-    </button>
+    <div className="space-y-1">
+      <button
+        type="button"
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        onFocus={() => setIsHovering(true)}
+        onBlur={() => setIsHovering(false)}
+        onClick={() => {
+          if (triageAction.requiresNote) {
+            setShowNote(true);
+          } else {
+            onPerform(triageAction.action);
+          }
+        }}
+        disabled={isActing}
+        className={`w-full rounded-lg px-3 py-1.5 text-left text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
+      >
+        <span>{triageAction.label}</span>
+      </button>
+      {isHovering && triageAction.consequences ? (
+        <p className="px-1 text-micro text-secondary">{triageAction.consequences}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -298,6 +306,20 @@ function TechnicalDetails({ item }: { item: LiveTriageItem }) {
   );
 }
 
+function inferTerminalTarget(item: LiveTriageItem): { runId?: string; logPath?: string } | null {
+  const logRef = item.proofBundle.logRefs.find(
+    (ref) => typeof ref === 'string' && ref.trim().length > 0
+  );
+  if (!logRef) return null;
+  const trimmed = logRef.trim();
+  const leaf = trimmed.split(/[\\/]/).pop() ?? '';
+  const inferredRunId = leaf.replace(/\.(log|output\.json)$/i, '').trim();
+  const target: { runId?: string; logPath?: string } = {};
+  if (trimmed.length > 0) target.logPath = trimmed;
+  if (inferredRunId.length > 0) target.runId = inferredRunId;
+  return Object.keys(target).length > 0 ? target : null;
+}
+
 // ---------------------------------------------------------------------------
 // Main Modal
 // ---------------------------------------------------------------------------
@@ -320,6 +342,8 @@ export function TriageDetailModal({
   totalCount,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -368,6 +392,11 @@ export function TriageDetailModal({
     return () => window.removeEventListener('keydown', handler);
   }, [item, onNavigate, onClose]);
 
+  useEffect(() => {
+    setTerminalError(null);
+    setIsOpeningTerminal(false);
+  }, [item?.id]);
+
   const handleAction = useCallback(
     async (action: string, note?: string) => {
       if (!item) return;
@@ -383,6 +412,7 @@ export function TriageDetailModal({
   );
 
   if (!item) return null;
+  const terminalTarget = inferTerminalTarget(item);
 
   return (
     <AnimatePresence mode="wait">
@@ -440,14 +470,21 @@ export function TriageDetailModal({
           </button>
         </div>
 
-        {/* 1. What you're deciding */}
-        <div
-          className="rounded-lg border p-3 mb-4"
-          style={{ borderColor: `${severityColor(item.severity)}40` }}
-        >
-          <div className="flex items-start justify-between gap-2 mb-1">
+        {/* 1. Hero — lineage first, then title + severity */}
+        {(item.initiativeTitle || item.workstreamTitle) && (
+          <p className="text-micro text-muted mb-1">
+            {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
+              .filter(Boolean)
+              .join(' › ')}
+          </p>
+        )}
+        <div className="mb-4 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-heading font-semibold text-primary">
+              {item.title}
+            </h3>
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
               style={{
                 backgroundColor: `${severityColor(item.severity)}20`,
                 color: severityColor(item.severity),
@@ -455,26 +492,25 @@ export function TriageDetailModal({
             >
               {kindLabel(item.kind)}
             </span>
+          </div>
+          <div className="flex items-center gap-2 text-caption text-secondary">
+            {item.agentId && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro font-medium text-secondary">
+                {item.agentId}
+              </span>
+            )}
             {item.occurrenceCount > 1 && (
               <span className="text-micro text-muted">
-                ×{item.occurrenceCount} occurrences
+                x{item.occurrenceCount} occurrences
               </span>
             )}
           </div>
-          <h3 className="text-heading font-semibold text-primary mt-1">
-            {item.title}
-          </h3>
-          <p className="text-body text-secondary mt-1 leading-relaxed">
+          <p className="text-body text-secondary leading-relaxed">
             {item.summary}
           </p>
-          {(item.initiativeTitle || item.workstreamTitle) && (
-            <p className="text-micro text-muted mt-2">
-              {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
-                .filter(Boolean)
-                .join(' › ')}
-            </p>
-          )}
         </div>
+
+        <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
@@ -488,7 +524,6 @@ export function TriageDetailModal({
 
         {/* 4. Actions */}
         <div className="mb-4">
-          <SectionHeading>Actions</SectionHeading>
           <div className="space-y-1.5">
             {item.actionContract.map((action) => (
               <ActionButton
@@ -499,11 +534,46 @@ export function TriageDetailModal({
               />
             ))}
           </div>
+          {terminalTarget && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  setTerminalError(null);
+                  setIsOpeningTerminal(true);
+                  const response = await fetch('/orgx/api/live/terminal/open', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      runId: terminalTarget.runId,
+                      logPath: terminalTarget.logPath,
+                    }),
+                  });
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(
+                      (body as { error?: string }).error ?? `Terminal open failed (${response.status})`
+                    );
+                  }
+                } catch (error) {
+                  setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
+                } finally {
+                  setIsOpeningTerminal(false);
+                }
+              }}
+              disabled={isOpeningTerminal}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-50"
+            >
+              <span className="font-mono text-micro">{`>_`}</span>
+              {isOpeningTerminal ? 'Opening…' : 'Open in terminal'}
+            </button>
+          )}
           {item.recommendedAction && (
             <p className="mt-2 text-micro text-[#7AEDE5]">
               Recommended: {item.recommendedAction}
             </p>
           )}
+          {terminalError ? <p className="mt-2 text-micro text-red-200">{terminalError}</p> : null}
         </div>
 
         {/* 5. Technical details (collapsed) */}

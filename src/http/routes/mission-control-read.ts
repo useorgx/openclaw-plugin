@@ -147,7 +147,8 @@ function normalizeRunnerValue(value: unknown): string | null {
   const normalized = raw.trim().toLowerCase();
   if (!normalized || normalized === "undefined" || normalized === "null") return null;
   if (normalized === "main" || normalized === "unassigned") return null;
-  if (normalized === "n/a" || normalized === "na") return null;
+  if (normalized === "n/a" || normalized === "na" || normalized === "none") return null;
+  if (normalized === "-" || normalized === "default") return null;
   return raw.trim();
 }
 
@@ -368,12 +369,11 @@ function parsePaginationEnvelope(
 const WARMUP_MIN_INTERVAL_MS = 12_000;
 const NEXT_UP_DEFAULT_PAGE_SIZE = 24;
 const SLICES_DEFAULT_PAGE_SIZE = 24;
-const CANONICAL_NEXT_UP_TIMEOUT_MS = 1_800;
-const CANONICAL_SLICES_TIMEOUT_MS = 1_200;
-const CANONICAL_READ_CACHE_TTL_MS = 9_000;
-const CANONICAL_READ_STALE_TTL_MS = 45_000;
-const CANONICAL_AUTH_BYPASS_MS = 60_000;
-const CANONICAL_TIMEOUT_BYPASS_MS = 12_000;
+const CANONICAL_NEXT_UP_TIMEOUT_MS = 20_000;
+const CANONICAL_SLICES_TIMEOUT_MS = 20_000;
+const CANONICAL_READ_CACHE_TTL_MS = 30_000;
+const CANONICAL_READ_STALE_TTL_MS = 180_000;
+const CANONICAL_AUTH_BYPASS_MS = 8_000;
 const warmupByKey = new Map<string, number>();
 const canonicalReadCache = new Map<
   string,
@@ -401,6 +401,7 @@ function shouldRunWarmup(key: string): boolean {
 function canonicalReadCacheKey(input: {
   route: "next-up" | "slices";
   workspaceId: string | null;
+  scopeMode?: "implicit" | "scoped" | "all";
   initiativeId: string | null;
   includeCompleted: boolean;
   offset: number;
@@ -413,6 +414,7 @@ function canonicalReadCacheKey(input: {
   return [
     input.route,
     input.workspaceId ?? "__all__",
+    input.scopeMode ?? "implicit",
     input.initiativeId ?? "__any__",
     input.includeCompleted ? "include_completed" : "exclude_completed",
     String(input.offset),
@@ -501,11 +503,11 @@ function isCanonicalAuthFailure(error: unknown): boolean {
   );
 }
 
-function isCanonicalTimeoutFailure(error: unknown): boolean {
+function isCanonicalAllScopeMismatchError(error: unknown): boolean {
   const message = String(
     error instanceof Error ? error.message : error ?? ""
   ).toLowerCase();
-  return message.includes("timed out") || message.includes("timeout");
+  return message.includes("all-workspaces scope mismatch");
 }
 
 async function withSoftTimeout<T>(
@@ -534,7 +536,11 @@ function shouldRetryLegacyCanonicalPath(error: unknown): boolean {
   return (
     message.includes("404") ||
     message.includes("not found") ||
-    message.includes("unknown api endpoint")
+    message.includes("unknown api endpoint") ||
+    message.includes("401") ||
+    message.includes("403") ||
+    message.includes("unauthorized") ||
+    message.includes("forbidden")
   );
 }
 
@@ -564,11 +570,15 @@ async function requestCanonicalWithLegacyFallback(
 }
 
 function normalizeQueueState(value: unknown): NextUpQueueItem["queueState"] {
-  const normalized = (asString(value) ?? "").toLowerCase();
-  if (normalized === "running") return "running";
-  if (normalized === "queued") return "queued";
-  if (normalized === "blocked") return "blocked";
-  if (normalized === "completed") return "completed";
+  const normalized = normalizeStatus(asString(value));
+  if (normalized === "running" || normalized === "in_progress" || normalized === "active") {
+    return "running";
+  }
+  if (normalized === "queued" || normalized === "pending" || normalized === "todo" || normalized === "ready") {
+    return "queued";
+  }
+  if (normalized === "blocked" || normalized === "waiting") return "blocked";
+  if (normalized === "completed" || normalized === "done") return "completed";
   return "idle";
 }
 
@@ -670,19 +680,25 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
   for (const entry of input) {
     const record = asRecord(entry);
     if (!record) continue;
-    const initiativeId = asString(record.initiativeId);
-    const workstreamId = asString(record.workstreamId);
+    const initiativeId = asString(record.initiativeId) ?? asString(record.initiative_id);
+    const workstreamId = asString(record.workstreamId) ?? asString(record.workstream_id);
     if (!initiativeId || !workstreamId) continue;
 
-    const nextTaskId = asString(record.nextTaskId);
+    const nextTaskId = asString(record.nextTaskId) ?? asString(record.next_task_id);
     const sliceTaskIds = dedupeStrings([
       ...asStringArray(record.sliceTaskIds),
+      ...asStringArray(record.slice_task_ids),
       ...(nextTaskId ? [nextTaskId] : []),
     ]);
-    const runnerAgentsRaw = normalizeRunnerAgents(record.runnerAgents);
-    const runnerAgentIdRaw = normalizeRunnerValue(record.runnerAgentId);
+    const runnerAgentsRaw = mergeRunnerAgents(
+      normalizeRunnerAgents(record.runnerAgents),
+      normalizeRunnerAgents(record.runner_agents)
+    );
+    const runnerAgentIdRaw =
+      normalizeRunnerValue(record.runnerAgentId) ?? normalizeRunnerValue(record.runner_agent_id);
     const runnerAgentNameRaw =
       normalizeRunnerValue(record.runnerAgentName) ??
+      normalizeRunnerValue(record.runner_agent_name) ??
       normalizeRunnerValue(record.agentName) ??
       normalizeRunnerValue(record.runner);
     const runnerAgents = mergeRunnerAgents(
@@ -699,58 +715,66 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
     const runnerPrimary = runnerAgents[0] ?? null;
     const runnerAgentId = runnerPrimary?.id ?? null;
     const runnerAgentName = runnerPrimary?.name ?? "Unassigned";
-    const runnerSourceHint = normalizeRunnerSource(record.runnerSource);
-    const runnerSource = runnerSourceHint ?? (runnerAgentId ? "inferred" : "fallback");
-    const queueState = normalizeQueueState(record.queueState);
+    const runnerSourceHint =
+      normalizeRunnerSource(record.runnerSource) ?? normalizeRunnerSource(record.runner_source);
+    const runnerSource = runnerAgentId
+      ? runnerSourceHint ?? "inferred"
+      : "fallback";
+    const queueState = normalizeQueueState(record.queueState ?? record.queue_state);
+    const rawSliceScope = asString(record.sliceScope) ?? asString(record.slice_scope);
+    const sliceScope =
+      rawSliceScope === "task" || rawSliceScope === "milestone" || rawSliceScope === "workstream"
+        ? (rawSliceScope as "task" | "milestone" | "workstream")
+        : null;
+    const sliceTaskCountRaw = asNumber(
+      record.sliceTaskCount ?? record.slice_task_count
+    );
     const blockReason =
       asString(record.blockReason) ??
+      asString(record.block_reason) ??
       (queueState === "blocked"
-        ? `Waiting on dependency ${asString(record.nextTaskTitle) ?? asString(record.nextTaskId) ?? "task"}`
+        ? `Waiting on dependency ${asString(record.nextTaskTitle) ?? asString(record.next_task_title) ?? asString(record.nextTaskId) ?? asString(record.next_task_id) ?? "task"}`
         : null);
 
     output.push({
       initiativeId,
-      initiativeTitle: asString(record.initiativeTitle) ?? initiativeId,
-      initiativeStatus: asString(record.initiativeStatus) ?? "active",
-      initiativePriority: asString(record.initiativePriority),
-      initiativePriorityNum: asNumber(record.initiativePriorityNum),
+      initiativeTitle:
+        asString(record.initiativeTitle) ?? asString(record.initiative_title) ?? initiativeId,
+      initiativeStatus: asString(record.initiativeStatus) ?? asString(record.initiative_status) ?? "active",
+      initiativePriority: asString(record.initiativePriority) ?? asString(record.initiative_priority),
+      initiativePriorityNum: asNumber(record.initiativePriorityNum ?? record.initiative_priority_num),
       workstreamId,
-      workstreamTitle: asString(record.workstreamTitle) ?? workstreamId,
-      workstreamStatus: asString(record.workstreamStatus) ?? "active",
+      workstreamTitle: asString(record.workstreamTitle) ?? asString(record.workstream_title) ?? workstreamId,
+      workstreamStatus: asString(record.workstreamStatus) ?? asString(record.workstream_status) ?? "active",
       nextTaskId,
-      nextTaskTitle: asString(record.nextTaskTitle),
-      nextTaskPriority: asNumber(record.nextTaskPriority),
-      nextTaskDueAt: asString(record.nextTaskDueAt),
-      nextTaskMilestoneId: asString(record.nextTaskMilestoneId),
+      nextTaskTitle: asString(record.nextTaskTitle) ?? asString(record.next_task_title),
+      nextTaskPriority: asNumber(record.nextTaskPriority ?? record.next_task_priority),
+      nextTaskDueAt: asString(record.nextTaskDueAt) ?? asString(record.next_task_due_at),
+      nextTaskMilestoneId: asString(record.nextTaskMilestoneId) ?? asString(record.next_task_milestone_id),
       runnerAgentId,
       runnerAgentName,
       runnerAgents,
       runnerSource,
       queueState,
       blockReason,
-      sliceScope:
-        asString(record.sliceScope) === "task" ||
-        asString(record.sliceScope) === "milestone" ||
-        asString(record.sliceScope) === "workstream"
-          ? (asString(record.sliceScope) as "task" | "milestone" | "workstream")
-          : null,
+      sliceScope,
       sliceTaskIds,
       sliceTaskCount:
-        typeof record.sliceTaskCount === "number"
-          ? Math.max(0, Math.floor(record.sliceTaskCount))
+        typeof sliceTaskCountRaw === "number"
+          ? Math.max(0, Math.floor(sliceTaskCountRaw))
           : sliceTaskIds.length,
-      sliceMilestoneId: asString(record.sliceMilestoneId),
-      isPinned: Boolean(record.isPinned),
-      pinnedRank: asNumber(record.pinnedRank),
-      compositeScore: asNumber(record.compositeScore) ?? undefined,
+      sliceMilestoneId: asString(record.sliceMilestoneId) ?? asString(record.slice_milestone_id),
+      isPinned: Boolean(record.isPinned ?? record.is_pinned),
+      pinnedRank: asNumber(record.pinnedRank ?? record.pinned_rank),
+      compositeScore: asNumber(record.compositeScore ?? record.composite_score) ?? undefined,
       scoringTier:
-        asString(record.scoringTier) === "urgent" ||
-        asString(record.scoringTier) === "ready" ||
-        asString(record.scoringTier) === "waiting" ||
-        asString(record.scoringTier) === "deferred"
-          ? (asString(record.scoringTier) as "urgent" | "ready" | "waiting" | "deferred")
+        asString(record.scoringTier ?? record.scoring_tier) === "urgent" ||
+        asString(record.scoringTier ?? record.scoring_tier) === "ready" ||
+        asString(record.scoringTier ?? record.scoring_tier) === "waiting" ||
+        asString(record.scoringTier ?? record.scoring_tier) === "deferred"
+          ? (asString(record.scoringTier ?? record.scoring_tier) as "urgent" | "ready" | "waiting" | "deferred")
           : undefined,
-      updatedAt: asString(record.updatedAt) ?? null,
+      updatedAt: asString(record.updatedAt) ?? asString(record.updated_at) ?? null,
     });
   }
 
@@ -780,6 +804,142 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
     if (titleDelta !== 0) return titleDelta;
     return left.workstreamTitle.localeCompare(right.workstreamTitle);
   });
+}
+
+function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
+  const queueLike: Record<string, unknown>[] = [];
+
+  for (const entry of input) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const initiativeId = asString(record.initiativeId) ?? asString(record.initiative_id);
+    const workstreamId = asString(record.workstreamId) ?? asString(record.workstream_id);
+    if (!initiativeId || !workstreamId) continue;
+
+    const dispatch = asRecord(record.dispatch) ?? {};
+    const lineage = asRecord(record.lineage) ?? {};
+    const taskId = asString(record.taskId) ?? asString(record.task_id);
+    const sliceTaskIds = dedupeStrings([
+      ...asStringArray(record.sliceTaskIds),
+      ...asStringArray(record.slice_task_ids),
+      ...asStringArray(lineage.taskIds),
+      ...asStringArray(lineage.task_ids),
+      ...(taskId ? [taskId] : []),
+    ]);
+    const rawStatus = asString(record.status) ?? "active";
+    const normalizedStatus = normalizeStatus(rawStatus);
+    const runnable = Boolean(dispatch.runnable);
+
+    let queueState: NextUpQueueItem["queueState"];
+    if (isDoneStatus(rawStatus)) {
+      queueState = "completed";
+    } else if (normalizedStatus === "running" || normalizedStatus === "in_progress") {
+      queueState = "running";
+    } else if (
+      normalizedStatus === "blocked" ||
+      normalizedStatus === "waiting_dependency" ||
+      normalizedStatus === "paused" ||
+      !runnable
+    ) {
+      queueState = "blocked";
+    } else if (
+      normalizedStatus === "idle" ||
+      normalizedStatus === "not_started" ||
+      normalizedStatus === "draft"
+    ) {
+      queueState = "idle";
+    } else {
+      queueState = "queued";
+    }
+
+    const runnerAgentIdRaw =
+      normalizeRunnerValue(record.runnerAgentId) ?? normalizeRunnerValue(record.runner_agent_id);
+    const runnerAgentNameRaw =
+      normalizeRunnerValue(record.runnerAgentName) ?? normalizeRunnerValue(record.runner_agent_name);
+    const runnerAgents = mergeRunnerAgents(
+      normalizeRunnerAgents(record.runnerAgents),
+      normalizeRunnerAgents(record.runner_agents),
+      runnerAgentIdRaw || runnerAgentNameRaw
+        ? [
+            {
+              id: runnerAgentIdRaw ?? runnerAgentNameRaw ?? "Unassigned",
+              name: runnerAgentNameRaw ?? runnerAgentIdRaw ?? "Unassigned",
+            },
+          ]
+        : []
+    );
+    const runnerSourceHint =
+      normalizeRunnerSource(record.runnerSource) ?? normalizeRunnerSource(record.runner_source);
+    const runnerSource = runnerAgents.length > 0 ? runnerSourceHint ?? "inferred" : "fallback";
+
+    const suggestedScope =
+      asString(dispatch.suggestedScope) ??
+      asString(dispatch.suggested_scope) ??
+      asString(record.level);
+    const sliceScope =
+      suggestedScope === "task" ||
+      suggestedScope === "milestone" ||
+      suggestedScope === "workstream"
+        ? (suggestedScope as "task" | "milestone" | "workstream")
+        : null;
+    const order = asRecord(record.order) ?? {};
+    const manualRank = asNumber(order.manualRank ?? order.manual_rank);
+    const iwmt = asRecord(record.iwmt);
+    const objective = asRecord(record.objective);
+
+    queueLike.push({
+      initiativeId,
+      initiativeTitle:
+        asString(record.initiativeTitle) ??
+        asString(record.initiative_title) ??
+        initiativeId,
+      initiativeStatus:
+        asString(record.initiativeStatus) ??
+        asString(record.initiative_status) ??
+        "active",
+      initiativePriority:
+        asString(record.initiativePriority) ?? asString(record.initiative_priority),
+      initiativePriorityNum: asNumber(
+        record.initiativePriorityNum ?? record.initiative_priority_num
+      ),
+      workstreamId,
+      workstreamTitle:
+        asString(record.workstreamTitle) ??
+        asString(record.workstream_title) ??
+        asString(record.title) ??
+        workstreamId,
+      workstreamStatus:
+        asString(record.workstreamStatus) ??
+        asString(record.workstream_status) ??
+        rawStatus,
+      nextTaskId: taskId ?? sliceTaskIds[0] ?? null,
+      nextTaskTitle: asString(record.nextTaskTitle) ?? asString(record.next_task_title),
+      nextTaskPriority: asNumber(record.priorityNum ?? record.nextTaskPriority),
+      nextTaskDueAt: asString(record.dueAt) ?? asString(record.nextTaskDueAt),
+      nextTaskMilestoneId: asString(record.milestoneId) ?? asString(record.milestone_id),
+      runnerAgentId: runnerAgentIdRaw,
+      runnerAgentName: runnerAgentNameRaw,
+      runnerAgents,
+      runnerSource,
+      queueState,
+      blockReason:
+        asString(dispatch.blockReason) ??
+        asString(dispatch.block_reason) ??
+        null,
+      sliceScope,
+      sliceTaskIds,
+      sliceTaskCount: sliceTaskIds.length,
+      sliceMilestoneId: asString(record.milestoneId) ?? asString(record.milestone_id),
+      isPinned: typeof manualRank === "number",
+      pinnedRank: manualRank,
+      compositeScore: asNumber(
+        (iwmt?.mixScore as unknown) ?? (objective?.objectiveScore as unknown)
+      ),
+      updatedAt: asString(record.updatedAt) ?? asString(record.updated_at) ?? null,
+    });
+  }
+
+  return normalizeQueueItems(queueLike);
 }
 
 async function loadInitiativeGraphIndex(
@@ -827,6 +987,12 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterMissionControlReadRoutesDeps<TRes>
 ): void {
+  // Handler registrations are process-local. Reset route caches so each newly
+  // constructed handler starts from a clean canonical cache/bypass state.
+  warmupByKey.clear();
+  canonicalReadCache.clear();
+  canonicalBypassState.clear();
+
   const sendRouteError = (
     res: TRes,
     status: number,
@@ -944,6 +1110,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const nextUpCanonicalCacheKey = canonicalReadCacheKey({
       route: "next-up",
       workspaceId: projectId,
+      scopeMode: useAllScope ? "all" : projectId ? "scoped" : "implicit",
       initiativeId,
       includeCompleted,
       offset,
@@ -962,11 +1129,34 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       return;
     }
     const canonicalBypass = readCanonicalBypass("next-up");
-    let canonicalFallbackReason: string | null = canonicalBypass
-      ? `canonical next-up bypassed (${canonicalBypass.reason})`
+    const staleCanonicalForBypass = canonicalBypass
+      ? readCanonicalReadCache(nextUpCanonicalCacheKey, { allowStale: true })
       : null;
+    const bypassAllScopeUnsupported = Boolean(
+      useAllScope &&
+        canonicalBypass &&
+        canonicalBypass.reason.toLowerCase().includes("all-workspaces")
+    );
+    const honorCanonicalBypass = Boolean(
+      canonicalBypass && (staleCanonicalForBypass || bypassAllScopeUnsupported)
+    );
+    let canonicalFallbackReason: string | null = honorCanonicalBypass
+      ? `canonical next-up bypassed (${canonicalBypass?.reason ?? "unavailable"})`
+      : null;
+    if (honorCanonicalBypass && staleCanonicalForBypass) {
+      const staleDegraded = dedupeStrings([
+        ...asStringArray(staleCanonicalForBypass.degraded),
+        "Using cached canonical queue while sync recovers.",
+      ]);
+      deps.sendJson(res, 200, {
+        ...staleCanonicalForBypass,
+        degraded: staleDegraded,
+        source: "canonical_cache_stale",
+      });
+      return;
+    }
 
-    if (deps.rawRequest && !canonicalBypass) {
+    if (deps.rawRequest && !honorCanonicalBypass) {
       try {
         const params = new URLSearchParams();
         if (initiativeId) params.set("initiative_id", initiativeId);
@@ -1094,8 +1284,12 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       } catch (err: unknown) {
         if (isCanonicalAuthFailure(err)) {
           setCanonicalBypass("next-up", "authentication unavailable", CANONICAL_AUTH_BYPASS_MS);
-        } else if (isCanonicalTimeoutFailure(err)) {
-          setCanonicalBypass("next-up", "upstream timeout", CANONICAL_TIMEOUT_BYPASS_MS);
+        } else if (isCanonicalAllScopeMismatchError(err)) {
+          setCanonicalBypass(
+            "next-up",
+            "all-workspaces unsupported",
+            Math.max(CANONICAL_AUTH_BYPASS_MS, 60_000)
+          );
         }
         const staleCanonical = readCanonicalReadCache(nextUpCanonicalCacheKey, {
           allowStale: true,
@@ -1113,6 +1307,86 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           return;
         }
         canonicalFallbackReason = `canonical next-up unavailable (${deps.safeErrorMessage(err)})`;
+        if (projectId || useAllScope) {
+          try {
+            const bridgeParams = new URLSearchParams();
+            if (initiativeId) bridgeParams.set("initiative_id", initiativeId);
+            if (projectId) {
+              bridgeParams.set("workspace_id", projectId);
+              bridgeParams.set("command_center_id", projectId);
+            } else if (useAllScope) {
+              bridgeParams.set("workspace_id", "all");
+              bridgeParams.set("command_center_id", "all");
+            }
+            bridgeParams.set("level", "workstream");
+            bridgeParams.set("offset", String(Math.max(0, offset)));
+            bridgeParams.set(
+              "limit",
+              String(Math.min(300, Math.max(pageSize, offset + pageSize)))
+            );
+            bridgeParams.set(
+              "include_completed",
+              includeCompleted ? "1" : "0"
+            );
+            bridgeParams.set("mix_policy", requestedMixPolicy ?? "iwmt_v1");
+            if (requestedOrderMode) {
+              bridgeParams.set("order_mode", requestedOrderMode);
+            }
+            const canonicalSlices = await requestCanonicalWithLegacyFallback(deps, {
+              timeoutMs: CANONICAL_SLICES_TIMEOUT_MS,
+              label: "canonical slices bridge",
+              modernPath: `/api/client/mission-control/slices?${bridgeParams.toString()}`,
+              legacyPath: `/api/mission-control/slices?${bridgeParams.toString()}`,
+            });
+            const canonicalSlicesRecord = asRecord(canonicalSlices);
+            if (!canonicalSlicesRecord || !Array.isArray(canonicalSlicesRecord.items)) {
+              throw new Error("invalid canonical slices payload");
+            }
+            if (isCanonicalAllScopeMismatch(canonicalSlicesRecord, useAllScope)) {
+              throw new Error("canonical slices all-workspaces scope mismatch");
+            }
+            const bridgedItems = mapCanonicalSlicesToQueueItems(
+              canonicalSlicesRecord.items
+            ).filter((item) =>
+              includeCompleted ? true : item.queueState !== "completed"
+            );
+            if (bridgedItems.length > 0) {
+              const paged = applySliceSearchAndPagination({
+                items: bridgedItems,
+                searchTerm: "",
+                offset,
+                limit: pageSize,
+              });
+              const degraded = dedupeStrings([
+                ...(Array.isArray(canonicalSlicesRecord.degraded)
+                  ? canonicalSlicesRecord.degraded
+                  : []),
+                ...(canonicalFallbackReason ? [canonicalFallbackReason] : []),
+                "Next Up derived from canonical slices.",
+              ]);
+              const responsePayload = {
+                ok: true,
+                generatedAt:
+                  asString(canonicalSlicesRecord.generatedAt) ??
+                  new Date().toISOString(),
+                total: paged.filtered.length,
+                items: paged.paged,
+                pagination: paged.pagination,
+                source: "canonical_slices_bridge",
+                degraded,
+              };
+              writeCanonicalReadCache(nextUpCanonicalCacheKey, responsePayload);
+              deps.sendJson(res, 200, responsePayload);
+              return;
+            }
+          } catch (bridgeErr: unknown) {
+            canonicalFallbackReason = dedupeStrings([
+              canonicalFallbackReason ?? "",
+              `canonical slices bridge unavailable (${deps.safeErrorMessage(bridgeErr)})`,
+            ]).join(" | ");
+          }
+        }
+
         // Continue to local fallback.
         try {
           const queue = await deps.buildNextUpQueue({
@@ -1231,6 +1505,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const slicesCanonicalCacheKey = canonicalReadCacheKey({
       route: "slices",
       workspaceId: projectId,
+      scopeMode: useAllScope ? "all" : projectId ? "scoped" : "implicit",
       initiativeId,
       includeCompleted,
       offset,
@@ -1250,10 +1525,33 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     }
 
     const canonicalBypass = readCanonicalBypass("slices");
-    let canonicalFallbackReason: string | null = canonicalBypass
-      ? `canonical slices bypassed (${canonicalBypass.reason})`
+    const staleCanonicalForBypass = canonicalBypass
+      ? readCanonicalReadCache(slicesCanonicalCacheKey, { allowStale: true })
       : null;
-    if (deps.rawRequest && !canonicalBypass) {
+    const bypassAllScopeUnsupported = Boolean(
+      useAllScope &&
+        canonicalBypass &&
+        canonicalBypass.reason.toLowerCase().includes("all-workspaces")
+    );
+    const honorCanonicalBypass = Boolean(
+      canonicalBypass && (staleCanonicalForBypass || bypassAllScopeUnsupported)
+    );
+    let canonicalFallbackReason: string | null = honorCanonicalBypass
+      ? `canonical slices bypassed (${canonicalBypass?.reason ?? "unavailable"})`
+      : null;
+    if (honorCanonicalBypass && staleCanonicalForBypass) {
+      const staleDegraded = dedupeStrings([
+        ...asStringArray(staleCanonicalForBypass.degraded),
+        "Using cached canonical slices while sync recovers.",
+      ]);
+      deps.sendJson(res, 200, {
+        ...staleCanonicalForBypass,
+        degraded: staleDegraded,
+        source: "canonical_cache_stale",
+      });
+      return;
+    }
+    if (deps.rawRequest && !honorCanonicalBypass) {
       try {
         const params = new URLSearchParams();
         if (initiativeId) params.set("initiative_id", initiativeId);
@@ -1423,8 +1721,12 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       } catch (err: unknown) {
         if (isCanonicalAuthFailure(err)) {
           setCanonicalBypass("slices", "authentication unavailable", CANONICAL_AUTH_BYPASS_MS);
-        } else if (isCanonicalTimeoutFailure(err)) {
-          setCanonicalBypass("slices", "upstream timeout", CANONICAL_TIMEOUT_BYPASS_MS);
+        } else if (isCanonicalAllScopeMismatchError(err)) {
+          setCanonicalBypass(
+            "slices",
+            "all-workspaces unsupported",
+            Math.max(CANONICAL_AUTH_BYPASS_MS, 60_000)
+          );
         }
         const staleCanonical = readCanonicalReadCache(slicesCanonicalCacheKey, {
           allowStale: true,
