@@ -386,6 +386,8 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
   const metadata = metadataForItem(item);
   const identity = resolveAgentIdentity(item);
   const cleaned = cleanSystemTitle(item);
+  const identityAgentId = sanitizeActorDisplayValue(identity.agentId);
+  const identityAgentName = sanitizeActorDisplayValue(identity.agentName);
   const explicitRequesterId = sanitizeActorDisplayValue(item.requesterAgentId ?? null);
   const explicitRequesterName = sanitizeActorDisplayValue(item.requesterAgentName ?? null);
 
@@ -463,11 +465,11 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
         'agentName',
       ]
     ) ??
-    (identity.agentId || identity.agentName
+    (identityAgentId || identityAgentName
       ? {
-          id: identity.agentId,
-          name: identity.agentName,
-          label: identity.agentName ?? identity.agentId ?? 'Agent',
+          id: identityAgentId,
+          name: identityAgentName,
+          label: identityAgentName ?? identityAgentId ?? 'Agent',
         }
       : null);
 
@@ -3936,12 +3938,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const actorFlow = resolveActivityActorFlow(item);
     const primaryActor = actorFlow.executor ?? actorFlow.requester;
     const displayAgentName =
-      primaryActor?.label ||
-      actorFlow.primaryLabel ||
-      identity.agentName ||
-      identity.agentId ||
-      item.agentName ||
-      'OrgX';
+      formatAgentLabel(
+        sanitizeActorDisplayValue(primaryActor?.name ?? actorFlow.primaryLabel ?? item.agentName ?? identity.agentName ?? null),
+        sanitizeActorDisplayValue(primaryActor?.id ?? item.agentId ?? identity.agentId ?? null),
+        agentNameById
+      ) || 'OrgX';
     const railColor = userStateColor(decorated.userState);
     const isRecent = sortOrder === 'newest' && index < 2;
     const runId = decorated.runId;
