@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { motion as motionTokens } from '@/lib/tokens';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { useChatDockState, useChatDockDispatch } from './ChatDockContext';
-import { CHAT_PROVIDERS, QUICK_START_PROMPTS, attachmentReadableSize } from './chatTypes';
+import { CHAT_PROVIDERS, attachmentReadableSize } from './chatTypes';
 import type { AgentOption, ChatProviderId } from './chatTypes';
 import { InlineResponse } from './InlineResponse';
 import { ThreadDrawer } from './ThreadDrawer';
@@ -426,8 +426,6 @@ export function ActivityChatDock() {
     </svg>
   );
 
-  const showQuickPrompts =
-    composerMode !== 'resting' && draftTrimmed.length === 0 && !activeThreadId && !hasInlineMessages;
   const showInlineResponse = (composerMode === 'reviewing' || hasInlineMessages) && inlineMessages.length > 0;
   const isStreaming = guidanceStatus === 'submitted' || guidanceStatus === 'streaming';
 
@@ -903,39 +901,6 @@ export function ActivityChatDock() {
             )}
           </AnimatePresence>
 
-          {/* Quick-start prompts */}
-          <AnimatePresence initial={false}>
-            {showQuickPrompts && (
-              <motion.div
-                initial={prefersReducedMotion ? false : { opacity: 0, height: 0 }}
-                animate={prefersReducedMotion ? {} : { opacity: 1, height: 'auto' }}
-                exit={prefersReducedMotion ? {} : { opacity: 0, height: 0 }}
-                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-2 overflow-hidden"
-              >
-                <div className="flex flex-wrap gap-1.5" aria-label="Quick start prompts">
-                  {QUICK_START_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => {
-                        dispatch.setDraft(prompt);
-                        requestAnimationFrame(() => textareaRef.current?.focus());
-                      }}
-                      className={cn(
-                        'inline-flex min-h-[26px] items-center rounded-full border px-2.5 text-micro',
-                        'border-white/[0.1] bg-white/[0.02] text-secondary',
-                        'transition-colors duration-150',
-                        'hover:border-white/[0.2] hover:bg-white/[0.06] hover:text-primary'
-                      )}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </motion.section>
       </div>
     </>
