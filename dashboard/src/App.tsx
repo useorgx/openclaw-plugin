@@ -682,7 +682,7 @@ function DashboardShell({
   } = useLiveData({
     useMock: demoMode,
     enabled: true,
-    enableDecisions: shouldAttemptDecisions,
+    enableDecisions: true,
     projectId: selectedWorkspaceId,
     ...liveDataOptions,
   });
@@ -703,7 +703,8 @@ function DashboardShell({
       }),
     [data.activity, includeSyntheticEntities, devMode]
   );
-  const decisionsVisible = shouldAttemptDecisions && data.connection === 'connected';
+  const decisionsVisible =
+    data.connection === 'connected' || data.decisions.length > 0;
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
   const [interventionDraft, setInterventionDraft] = useState<{
@@ -809,16 +810,17 @@ function DashboardShell({
     setSliceDetailTarget({ source: 'needs_input', sliceRun });
   }, []);
 
-  const handleAcceptSlice = useCallback(async (sliceRun: SliceRunProjection) => {
+  const handleAcceptSlice = useCallback(async (sliceRun: SliceRunProjection, note?: string) => {
     const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
     if (!targetRunId) return;
     try {
+      const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
       const response = await fetch(
         `/orgx/api/runs/${encodeURIComponent(targetRunId)}/actions/complete`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: 'Accepted from dashboard' }),
+          body: JSON.stringify({ reason }),
         }
       );
       if (!response.ok) {
@@ -832,6 +834,35 @@ function DashboardShell({
       setOpsNotice('Failed to accept slice — network error.');
     }
   }, [refetch]);
+
+  const handleRejectSlice = useCallback(async (sliceRun: SliceRunProjection, note: string) => {
+    const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
+    if (!targetRunId || !note.trim()) return;
+    try {
+      // Post the rejection note as a comment on the run
+      const response = await fetch(
+        `/orgx/api/entities/run/${encodeURIComponent(targetRunId)}/comments`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            body: note.trim(),
+            commentType: 'review_feedback',
+            severity: 'warn',
+            tags: ['changes_requested'],
+          }),
+        }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+        setOpsNotice(body?.error ?? body?.message ?? `Failed to post feedback (${response.status})`);
+        return;
+      }
+      setOpsNotice('Changes requested — feedback posted.');
+    } catch {
+      setOpsNotice('Failed to post feedback — network error.');
+    }
+  }, []);
 
   const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
@@ -3505,6 +3536,7 @@ function DashboardShell({
             onReviewActivity={openReviewActivityForSlice}
             onOpenDecisions={() => openDecisionsFromActivity()}
             onAcceptSlice={handleAcceptSlice}
+            onRejectSlice={handleRejectSlice}
           />
         </Suspense>
       )}

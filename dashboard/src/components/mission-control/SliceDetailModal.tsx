@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { ModalShell } from '@/components/shared/ModalShell';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
+import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
+import { ScopeProgressCard, buildScopeFromSliceRun } from '@/components/shared/ScopeProgressCard';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
 import { colors, motion as motionTokens } from '@/lib/tokens';
@@ -33,7 +35,8 @@ interface SliceDetailModalProps {
   onOpenInitiative?: (initiativeId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenDecisions?: () => void;
-  onAcceptSlice?: (sliceRun: SliceRunProjection) => void;
+  onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void;
+  onRejectSlice?: (sliceRun: SliceRunProjection, note: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +283,9 @@ function extractData(target: SliceDetailTarget) {
 
   // needs_input
   const { sliceRun } = target;
+  const agentName = sliceRun.sourceClient
+    ? sliceRun.sourceClient.charAt(0).toUpperCase() + sliceRun.sourceClient.slice(1)
+    : 'OrgX';
   return {
     initiativeId: sliceRun.initiativeId,
     initiativeTitle: null as string | null,
@@ -291,10 +297,10 @@ function extractData(target: SliceDetailTarget) {
     nextTaskPriority: null as number | null,
     nextTaskDueAt: null as string | null,
     agentId: null as string | null,
-    agentName: 'OrgX',
-    agentSource: null as string | null,
-    queueState: 'blocked' as string,
-    blockReason: sliceRun.statusExplainer || null,
+    agentName,
+    agentSource: sliceRun.sourceClient,
+    queueState: sliceRun.status === 'needs_review' ? 'completed' : 'blocked' as string,
+    blockReason: sliceRun.status === 'failed' ? (sliceRun.statusExplainer || null) : null,
     sliceScope: sliceRun.scope ?? null,
     sliceTaskCount:
       typeof sliceRun.scopeProgress?.totalTasks === 'number'
@@ -335,10 +341,14 @@ export function SliceDetailModal({
   onReviewActivity,
   onOpenDecisions,
   onAcceptSlice,
+  onRejectSlice,
 }: SliceDetailModalProps) {
   const open = target !== null;
   const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [actionMode, setActionMode] = useState<'accept' | 'reject' | null>(null);
+  const [actionNote, setActionNote] = useState('');
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   // Keyboard shortcut: Cmd+Enter → Start
   const handleKeyDown = useCallback(
@@ -365,7 +375,18 @@ export function SliceDetailModal({
     if (open) return;
     setTerminalError(null);
     setIsOpeningTerminal(false);
+    setActionMode(null);
+    setActionNote('');
   }, [open]);
+
+  // Auto-focus note textarea when action mode is set — use rAF to beat Modal's focus trap
+  useEffect(() => {
+    if (actionMode) {
+      requestAnimationFrame(() => {
+        noteRef.current?.focus();
+      });
+    }
+  }, [actionMode]);
 
   if (!target) return null;
 
@@ -447,211 +468,242 @@ export function SliceDetailModal({
   // Footer
   // -------------------------------------------------------------------------
 
+  // Compute terminal target once — avoids duplicate buttons
+  const terminalTarget = useMemo(() => {
+    if (d.sessionId) return { sessionId: d.sessionId, runId: d.runId, sliceRunId: sr?.sliceRunId ?? null };
+    if (sr?.runId || sr?.sliceRunId) return { runId: sr.runId ?? null, sliceRunId: sr.sliceRunId ?? null };
+    if (d.runId) return { runId: d.runId, sliceRunId: sr?.sliceRunId ?? null };
+    return null;
+  }, [d.sessionId, d.runId, sr]);
+
+  const hasTerminal = terminalTarget !== null;
+
+  const scopeNodes = useMemo(() => {
+    return buildScopeFromSliceRun({
+      initiativeId: d.initiativeId,
+      initiativeTitle: d.initiativeTitle,
+      workstreamId: d.workstreamId,
+      workstreamTitle: d.workstreamTitle,
+      taskIds: sr?.taskIds,
+      milestoneIds: sr?.milestoneIds,
+      scopeProgress: sr?.scopeProgress ?? null,
+      status: sr?.status ?? d.queueState,
+    });
+  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState]);
+
+  const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
+
+  const handleConfirmAction = useCallback(() => {
+    if (!sr || !actionMode) return;
+    const note = actionNote.trim();
+    if (actionMode === 'accept') {
+      onAcceptSlice?.(sr, note || undefined);
+      onClose();
+    } else if (actionMode === 'reject' && note) {
+      onRejectSlice?.(sr, note);
+      setActionMode(null);
+      setActionNote('');
+    }
+  }, [sr, actionMode, actionNote, onAcceptSlice, onRejectSlice, onClose]);
+
   const footer = (
-    <div className="flex items-center gap-2">
-      {target.source === 'queue' && (
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              if (d.initiativeId && d.workstreamId) {
-                onRemoveFromQueue?.(d.initiativeId, d.workstreamId);
-                onClose();
-              }
-            }}
-            className="control-pill h-8 px-3 text-caption font-semibold text-red-100 hover:bg-red-500/[0.12]"
+    <div className="space-y-2">
+      {/* Note textarea — expands when accept/reject mode is active */}
+      <AnimatePresence>
+        {actionMode && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
           >
-            Remove
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (d.initiativeId && d.workstreamId) {
-                onMoveWorkstream?.(d.initiativeId, d.workstreamId, 'top');
-              }
-            }}
-            className="control-pill h-8 px-3 text-caption font-semibold"
-          >
-            Move top
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (d.initiativeId && d.workstreamId) {
-                onMoveWorkstream?.(d.initiativeId, d.workstreamId, 'bottom');
-              }
-            }}
-            className="control-pill h-8 px-3 text-caption font-semibold"
-          >
-            Move bottom
-          </button>
-        </>
-      )}
-      {target.source === 'in_progress' && d.sessionId && (
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              onOpenSession?.(d.sessionId!);
-              onClose();
-            }}
-            className="control-pill h-8 px-3 text-caption font-semibold"
-          >
-            Open session
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void handleOpenTerminal({
-                sessionId: d.sessionId,
-                runId: d.runId,
-                sliceRunId: sr?.sliceRunId ?? null,
-              });
-            }}
-            disabled={isOpeningTerminal}
-            className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
-            title="Open session log in terminal"
-          >
-            <span className="relative inline-block h-3 w-2">
-              <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
-              <motion.span
-                className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
-                animate={{ opacity: [1, 0, 1] }}
-                transition={{ duration: 1, repeat: Infinity }}
+            <div className="pb-2">
+              <textarea
+                ref={noteRef}
+                value={actionNote}
+                onChange={(e) => setActionNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    handleConfirmAction();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setActionMode(null);
+                    setActionNote('');
+                  }
+                }}
+                placeholder={actionMode === 'accept' ? 'Optional note...' : 'What needs to change?'}
+                className="w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[13px] text-white/80 outline-none placeholder:text-white/25 focus:border-white/15 transition-colors"
+                rows={2}
               />
-            </span>
-            {isOpeningTerminal ? 'Opening…' : 'Terminal'}
-          </button>
-        </>
-      )}
-      {target.source === 'needs_input' && sr && (
-        <>
-          {sr.primaryAction === 'resolve_decision' ? (
+              <div className="mt-1.5 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => { setActionMode(null); setActionNote(''); }}
+                  className="text-[11px] text-white/30 transition-colors hover:text-white/50"
+                >
+                  Cancel
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-white/20">
+                    {actionMode === 'reject' && !actionNote.trim() ? 'Note required' : '\u2318Enter to confirm'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAction}
+                    disabled={actionMode === 'reject' && !actionNote.trim()}
+                    className={`inline-flex h-7 items-center gap-1 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-30 ${
+                      actionMode === 'accept'
+                        ? 'bg-[#BFFF00]/12 text-[#BFFF00] hover:bg-[#BFFF00]/20'
+                        : 'bg-[#FF6B88]/12 text-[#FF6B88] hover:bg-[#FF6B88]/20'
+                    }`}
+                  >
+                    {actionMode === 'accept' ? 'Confirm accept' : 'Request changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Action buttons row */}
+      <div className="flex items-center gap-3">
+        {/* ── Left: secondary actions ── */}
+        <div className="flex items-center gap-1">
+          {target.source === 'queue' && d.initiativeId && d.workstreamId && (
+            <>
+              <button
+                type="button"
+                onClick={() => { onRemoveFromQueue?.(d.initiativeId!, d.workstreamId!); onClose(); }}
+                className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#FF6B88]/70 transition-colors hover:bg-[#FF6B88]/[0.08] hover:text-[#FF6B88]"
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                onClick={() => onMoveWorkstream?.(d.initiativeId!, d.workstreamId!, 'top')}
+                className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
+              >
+                Move top
+              </button>
+            </>
+          )}
+
+          {target.source === 'in_progress' && d.sessionId && (
             <button
               type="button"
-              onClick={() => {
-                onOpenDecisions?.();
-                onClose();
-              }}
-              className="control-pill h-8 px-3 text-caption font-semibold"
-              data-tone="teal"
+              onClick={() => { onOpenSession?.(d.sessionId!); onClose(); }}
+              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
+            >
+              Open session
+            </button>
+          )}
+
+          {target.source === 'needs_input' && sr && sr.primaryAction === 'resolve_decision' && (
+            <button
+              type="button"
+              onClick={() => { onOpenDecisions?.(); onClose(); }}
+              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#0AD4C4]/70 transition-colors hover:bg-[#0AD4C4]/[0.08] hover:text-[#0AD4C4]"
             >
               Resolve decision
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              onReviewActivity?.(sr);
-              onClose();
-            }}
-            className="control-pill h-8 px-3 text-caption font-semibold"
-            data-tone={sr.status === 'failed' ? 'teal' : undefined}
-          >
-            Review activity
-          </button>
-          {(sr.runId || sr.sliceRunId) && (
+          )}
+
+          {target.source === 'needs_input' && sr && (
             <button
               type="button"
-              onClick={() => {
-                void handleOpenTerminal({
-                  runId: sr.runId ?? null,
-                  sliceRunId: sr.sliceRunId ?? null,
-                });
-              }}
-              disabled={isOpeningTerminal}
-              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
-              title="Open run log in terminal"
+              onClick={() => { onReviewActivity?.(sr); onClose(); }}
+              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
             >
-              <span className="relative inline-block h-3 w-2">
-                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
-                <motion.span
-                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
-                  animate={{ opacity: [1, 0, 1] }}
-                  transition={{ duration: 1, repeat: Infinity }}
-                />
-              </span>
-              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
+              Review
             </button>
           )}
-          {/* Accept / Intervene actions for needs_review items */}
-          {sr.status === 'needs_review' && onAcceptSlice && (
+
+          {d.runId && (
             <button
               type="button"
-              onClick={() => {
-                onAcceptSlice(sr);
-                onClose();
-              }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-caption font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+              onClick={() => { onFocusRunId?.(d.runId!); onClose(); }}
+              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
+              Timeline
+            </button>
+          )}
+
+          {hasTerminal && (
+            <button
+              type="button"
+              onClick={() => void handleOpenTerminal(terminalTarget!)}
+              disabled={isOpeningTerminal}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/30 transition-colors hover:bg-white/[0.04] hover:text-white/50 disabled:opacity-40"
+              title="Open in terminal"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
               </svg>
-              Accept
             </button>
           )}
-        </>
-      )}
-      {d.runId && (
-        <>
+        </div>
+
+        <div className="flex-1" />
+
+        {/* ── Right: primary CTAs ── */}
+        {isNeedsReview && onRejectSlice && (
+          <button
+            type="button"
+            onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
+            className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+              actionMode === 'reject'
+                ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
+                : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
+            }`}
+          >
+            Request changes
+          </button>
+        )}
+        {isNeedsReview && onAcceptSlice && (
           <button
             type="button"
             onClick={() => {
-              onFocusRunId?.(d.runId!);
+              if (actionMode === 'accept') {
+                handleConfirmAction();
+              } else {
+                setActionMode('accept');
+              }
+            }}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Accept
+          </button>
+        )}
+        {canStart && (
+          <button
+            type="button"
+            data-modal-autofocus="true"
+            onClick={() => {
+              onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
               onClose();
             }}
-            className="control-pill h-8 px-3 text-caption font-semibold"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
+            title="Start (\u2318 Enter)"
           >
-            View in timeline
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
+              <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
+            </svg>
+            {canonicalProjection.status === 'completed'
+              ? 'Restart'
+              : canonicalProjection.status === 'needs_attention'
+                ? 'Retry'
+                : 'Start'}
           </button>
-          {!d.sessionId && (
-            <button
-              type="button"
-              onClick={() => {
-                void handleOpenTerminal({
-                  runId: d.runId,
-                  sliceRunId: sr?.sliceRunId ?? null,
-                });
-              }}
-              disabled={isOpeningTerminal}
-              className="control-pill h-8 px-3 text-caption font-semibold inline-flex items-center gap-1.5"
-              title="Open run log in terminal"
-            >
-              <span className="relative inline-block h-3 w-2">
-                <span className="absolute inset-0 border-l border-b border-white/40 rounded-sm" />
-                <motion.span
-                  className="absolute bottom-0 left-0.5 h-2 w-px bg-white/70"
-                  animate={{ opacity: [1, 0, 1] }}
-                  transition={{ duration: 1, repeat: Infinity }}
-                />
-              </span>
-              {isOpeningTerminal ? 'Opening…' : 'Terminal'}
-            </button>
-          )}
-        </>
-      )}
-      <div className="flex-1" />
-      {canStart && (
-        <button
-          type="button"
-          data-modal-autofocus="true"
-          onClick={() => {
-            onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
-            onClose();
-          }}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-caption font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
-          title="Start (⌘ Enter)"
-        >
-          <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
-            <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
-          </svg>
-          {canonicalProjection.status === 'completed'
-            ? 'Restart'
-            : canonicalProjection.status === 'needs_attention'
-              ? 'Retry'
-              : 'Start'}
-        </button>
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -685,7 +737,7 @@ export function SliceDetailModal({
             >
               <AgentAvatar
                 name={d.agentName ?? 'OrgX'}
-                hint={d.agentId}
+                hint={d.agentSource ?? d.agentId}
                 size="md"
               />
               <div className="min-w-0 flex-1">
@@ -725,6 +777,7 @@ export function SliceDetailModal({
 
             {target.source === 'needs_input' && sr ? (
               <>
+                {/* Action card */}
                 <motion.div
                   variants={sectionVariants}
                   initial="hidden"
@@ -752,6 +805,39 @@ export function SliceDetailModal({
                     <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
                   ) : null}
                 </motion.div>
+
+                {/* Status explainer — only when different from blockReason */}
+                {sr.statusExplainer && sr.statusExplainer !== d.blockReason && (
+                  <motion.div
+                    variants={sectionVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    custom={sectionIndex++}
+                  >
+                    <p className="section-kicker">What happened</p>
+                    <p className="mt-1 text-body text-secondary leading-relaxed">
+                      {sanitizeDisplayText(sr.statusExplainer)}
+                    </p>
+                  </motion.div>
+                )}
+
+                {/* Last activity — the most recent thing the agent did */}
+                {sr.lastEventSummary && (
+                  <motion.div
+                    variants={sectionVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    custom={sectionIndex++}
+                  >
+                    <p className="section-kicker">Last activity</p>
+                    <p className="mt-1 text-caption text-white/50 leading-relaxed">
+                      {sanitizeDisplayText(sr.lastEventSummary)}
+                    </p>
+                  </motion.div>
+                )}
+
                 <SectionDivider />
               </>
             ) : null}
@@ -807,8 +893,8 @@ export function SliceDetailModal({
               </motion.div>
             )}
 
-            {/* ───── 3. Work Snapshot card ───── */}
-            {(d.nextTaskTitle || d.sliceTaskCount !== null || d.sliceScope || d.queueState) && (
+            {/* ───── 3. Scope & Progress ───── */}
+            {scopeNodes.length > 0 && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -819,38 +905,19 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">Work Snapshot</p>
-                  {d.nextTaskTitle ? (
-                    <div className="flex items-start gap-2">
-                      <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
-                      <div className="min-w-0">
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">
-                          {workSnapshotHeading(d.queueState)}
-                        </p>
-                        <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
-                      </div>
+                  <p className="section-kicker">{workSnapshotHeading(d.queueState)}</p>
+                  <ScopeProgressCard
+                    nodes={scopeNodes}
+                    activeId={d.workstreamId}
+                  />
+                  {/* Next task callout — when a specific next task is named */}
+                  {d.nextTaskTitle && (
+                    <div className="mt-1 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
+                      <EntityIcon type="task" size={12} className="flex-shrink-0 opacity-70" />
+                      <span className="min-w-0 truncate text-caption font-medium text-primary">{d.nextTaskTitle}</span>
                     </div>
-                  ) : (
-                    <p className="text-body text-secondary">
-                      {workSnapshotFallback({
-                        queueState: d.queueState,
-                        blockReason: d.blockReason,
-                        sliceScope: d.sliceScope,
-                        sliceTaskCount: d.sliceTaskCount,
-                      })}
-                    </p>
                   )}
                   <div className="flex items-center gap-2">
-                    {d.sliceScope ? (
-                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro uppercase tracking-[0.08em] text-secondary">
-                        {d.sliceScope} slice
-                      </span>
-                    ) : null}
-                    {typeof d.sliceTaskCount === 'number' ? (
-                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro text-secondary">
-                        {d.sliceTaskCount} {d.sliceTaskCount === 1 ? 'task' : 'tasks'} in scope
-                      </span>
-                    ) : null}
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span
                         className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
@@ -869,6 +936,30 @@ export function SliceDetailModal({
                       </span>
                     )}
                   </div>
+                </motion.div>
+              </>
+            )}
+            {/* Fallback when no scope tree is available */}
+            {scopeNodes.length === 0 && (d.sliceTaskCount !== null || d.sliceScope) && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                  className="space-y-2"
+                >
+                  <p className="section-kicker">{workSnapshotHeading(d.queueState)}</p>
+                  <p className="text-body text-secondary">
+                    {workSnapshotFallback({
+                      queueState: d.queueState,
+                      blockReason: d.blockReason,
+                      sliceScope: d.sliceScope,
+                      sliceTaskCount: d.sliceTaskCount,
+                    })}
+                  </p>
                 </motion.div>
               </>
             )}
@@ -939,54 +1030,7 @@ export function SliceDetailModal({
               </>
             )}
 
-            {/* ───── 4b. Scope hierarchy tree (milestone/workstream scopes) ───── */}
-            {sr && sr.scope && sr.scope !== 'task' && sr.scopeProgress?.milestones && sr.scopeProgress.milestones.length > 0 && (
-              <>
-                <SectionDivider />
-                <motion.div
-                  variants={sectionVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  custom={sectionIndex++}
-                  className="space-y-2"
-                >
-                  <p className="section-kicker">
-                    {sr.scope === 'workstream' ? 'Workstream' : 'Milestone'} Scope{' '}
-                    <span className="text-muted tabular-nums">
-                      {sr.scopeProgress.completedTasks}/{sr.scopeProgress.totalTasks} tasks
-                    </span>
-                  </p>
-                  <div className="space-y-1">
-                    {sr.scopeProgress.milestones.map((ms, msIdx) => (
-                      <motion.div
-                        key={ms.id}
-                        initial={{ opacity: 0, x: -6 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: msIdx * 0.04, duration: 0.22 }}
-                        className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-caption font-medium text-primary">{ms.title}</span>
-                          <span className="text-micro tabular-nums text-secondary">
-                            {ms.done}/{ms.total}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
-                          <div
-                            className="h-full rounded-full transition-[width] duration-500"
-                            style={{
-                              width: `${ms.total > 0 ? Math.max(2, Math.round((ms.done / ms.total) * 100)) : 0}%`,
-                              background: 'linear-gradient(90deg, #22c55e88, #14b8a688)',
-                            }}
-                          />
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              </>
-            )}
+            {/* Section 4b removed — scope hierarchy now rendered by ScopeProgressCard above */}
 
             {/* ───── 5. Artifacts section ───── */}
             {sr && sr.artifactCount > 0 && sr.artifacts.length > 0 && (
@@ -1089,7 +1133,28 @@ export function SliceDetailModal({
               </>
             )}
 
-            {/* ───── 7. Technical details (collapsed by default) ───── */}
+            {/* ───── 7. Notes & Discussion ───── */}
+            {sr && (sr.sliceRunId || sr.runId) && (
+              <>
+                <SectionDivider />
+                <motion.div
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  custom={sectionIndex++}
+                >
+                  <p className="section-kicker mb-2">Notes</p>
+                  <EntityCommentsPanel
+                    entityType="run"
+                    entityId={sr.runId ?? sr.sliceRunId}
+                    variant="inline"
+                  />
+                </motion.div>
+              </>
+            )}
+
+            {/* ───── 8. Technical details (collapsed by default) ───── */}
             {sr && (sr.sourceClient || sr.runtimeState || sr.correlationId || sr.runId) && (
               <>
                 <SectionDivider />

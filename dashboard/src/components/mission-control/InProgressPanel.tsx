@@ -5,6 +5,7 @@ import { PremiumCard } from '@/components/shared/PremiumCard';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
+import { ScopeProgressCard, buildScopeFromSliceRun } from '@/components/shared/ScopeProgressCard';
 import { getAgentPersonality, inferAgentDomain } from '@/lib/agentPersonality';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
@@ -615,27 +616,27 @@ export const InProgressPanel = memo(function InProgressPanel({
                         </div>
                       )}
                       {row.milestoneProgress && row.milestoneProgress.length > 0 && (
-                        <div className="mt-2 space-y-1.5">
-                          {row.milestoneProgress.map((ms) => {
-                            const pct = ms.total > 0 ? Math.round((ms.done / ms.total) * 100) : 0;
-                            return (
-                              <div key={ms.id}>
-                                <div className="flex items-center justify-between text-micro">
-                                  <span className="truncate text-secondary" title={ms.title}>{ms.title}</span>
-                                  <span className="ml-2 flex-shrink-0 tabular-nums text-tertiary">{ms.done}/{ms.total}</span>
-                                </div>
-                                <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-white/[0.06]">
-                                  <div
-                                    className="h-full rounded-full transition-[width] duration-500"
-                                    style={{
-                                      width: `${Math.max(2, pct)}%`,
-                                      background: `linear-gradient(90deg, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[0]}88, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[1]}88)`,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
+                        <div className="mt-2">
+                          <ScopeProgressCard
+                            nodes={buildScopeFromSliceRun({
+                              initiativeId: row.initiativeId,
+                              initiativeTitle: row.initiativeTitle,
+                              workstreamId: row.workstreamId,
+                              workstreamTitle: row.workstreamTitle,
+                              taskIds: row.taskIds,
+                              milestoneIds: row.milestoneIds,
+                              scopeProgress: row.milestoneProgress
+                                ? {
+                                    totalTasks: row.milestoneProgress.reduce((s, m) => s + m.total, 0),
+                                    completedTasks: row.milestoneProgress.reduce((s, m) => s + m.done, 0),
+                                    milestones: row.milestoneProgress,
+                                  }
+                                : null,
+                              status: row.status,
+                            })}
+                            activeId={row.workstreamId}
+                            compact
+                          />
                         </div>
                       )}
 

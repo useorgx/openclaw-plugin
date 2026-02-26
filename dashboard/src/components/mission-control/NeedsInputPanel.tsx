@@ -17,7 +17,7 @@ interface NeedsInputPanelProps {
   onFocusRunId?: (runId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenSliceDetail?: (sliceRun: SliceRunProjection) => void;
-  onAcceptSlice?: (sliceRun: SliceRunProjection) => void;
+  onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void;
 }
 
 const NEEDS_INPUT_STATES = new Set(['awaiting_input', 'needs_review', 'failed']);
@@ -66,31 +66,23 @@ function statusAccentColor(status: SliceRunProjection['status']): string {
 }
 
 function statusLabel(status: SliceRunProjection['status']): string {
-  if (status === 'awaiting_input') return 'Needs input';
-  if (status === 'needs_review') return 'Needs review';
+  if (status === 'awaiting_input') return 'Input';
+  if (status === 'needs_review') return 'Review';
   if (status === 'failed') return 'Failed';
   return status.replace(/_/g, ' ');
 }
 
-function actionLabel(item: SliceRunProjection): string {
-  if (item.primaryAction === 'resolve_decision') return 'Review choices';
-  if (item.primaryAction === 'open_artifact') return 'Open result';
-  if (item.primaryAction === 'retry_slice') return 'Retry';
-  if (item.primaryAction === 'review_output') return 'Review';
-  return 'Details';
-}
-
 function valueSummary(item: SliceRunProjection): string {
   if (item.artifactCount > 0) {
-    return `${item.artifactCount} artifact${item.artifactCount === 1 ? '' : 's'} ready to review.`;
+    return `${item.artifactCount} artifact${item.artifactCount === 1 ? '' : 's'} ready`;
   }
   if (item.blockingDecisionCount > 0 || item.decisionCount > 0) {
     const count = Math.max(item.blockingDecisionCount, item.decisionCount);
-    return `${count} decision${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} your input.`;
+    return `${count} decision${count === 1 ? '' : 's'} pending`;
   }
-  if (item.status === 'failed') return 'Execution stopped before finishing.';
-  if (item.status === 'needs_review') return 'Output is available and needs a quick review.';
-  return 'This work needs your attention to continue.';
+  if (item.status === 'failed') return 'Execution stopped';
+  if (item.status === 'needs_review') return 'Output ready for review';
+  return 'Needs your attention';
 }
 
 function compactEntityLabel(value: string | null | undefined, prefix: string): string {
@@ -198,7 +190,8 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     setSelected(new Set());
   }, [onAcceptSlice, rows, selected]);
 
-  const runPrimaryAction = (item: SliceRunProjection) => {
+  const runPrimaryAction = useCallback((item: SliceRunProjection, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (item.primaryAction === 'resolve_decision') {
       onOpenDecisions?.();
       return;
@@ -223,12 +216,9 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     if (item.sliceRunId) {
       onFocusRunId?.(item.sliceRunId);
     }
-  };
+  }, [onOpenDecisions, onReviewActivity, onFocusRunId]);
 
-  // Group rows by status for visual scanning
   const reviewRows = useMemo(() => rows.filter((r) => r.item.status === 'needs_review'), [rows]);
-  const failedRows = useMemo(() => rows.filter((r) => r.item.status === 'failed'), [rows]);
-  const inputRows = useMemo(() => rows.filter((r) => r.item.status === 'awaiting_input'), [rows]);
   const selectedReviewCount = useMemo(
     () => reviewRows.filter((r) => selected.has(r.item.sliceRunId)).length,
     [reviewRows, selected]
@@ -238,34 +228,33 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
   return (
     <Wrapper
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${
-        panelStyle === 'flat' ? '' : ''
-      } ${className ?? ''}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${className ?? ''}`}
     >
       {showHeader ? (
-        <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
-            <span className="chip text-micro">{rows.length}</span>
+            <h2 className="truncate text-body font-semibold text-white/90">{title}</h2>
+            <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] font-medium tabular-nums text-white/40">
+              {rows.length}
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
-            {rows.length > 0 && (
+            {rows.length > 1 && (
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                className="control-pill h-7 px-2.5 text-micro font-semibold"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-white/40 transition-colors hover:bg-white/[0.04] hover:text-white/60"
               >
-                {allSelected ? 'Clear all' : 'Select all'}
+                {allSelected ? 'Clear' : 'Select all'}
               </button>
             )}
             {selectedCount > 0 && selectedReviewCount > 0 && onAcceptSlice && (
               <button
                 type="button"
                 onClick={handleBulkAccept}
-                className="control-pill h-7 px-2.5 text-micro font-semibold"
-                data-tone="teal"
+                className="rounded-md bg-[#BFFF00]/10 px-2.5 py-1 text-[11px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/18"
               >
-                Accept {selectedReviewCount} reviewed
+                Accept {selectedReviewCount}
               </button>
             )}
           </div>
@@ -273,8 +262,8 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
       ) : null}
 
       {rows.length === 0 ? (
-        <div className="px-4 py-4 text-body text-secondary">
-          No slices need intervention right now.
+        <div className="px-4 py-6 text-center text-caption text-white/30">
+          Nothing needs attention right now.
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -303,24 +292,23 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
               const when = item.updatedAt ?? item.lastEventAt ?? null;
               const accent = statusAccentColor(item.status);
               const isSelected = selected.has(item.sliceRunId);
+              const isReview = item.status === 'needs_review';
 
               return (
                 <motion.article
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 200, scale: 0.95 }}
+                  exit={{ opacity: 0, x: 120, scale: 0.97 }}
                   transition={{
-                    duration: 0.22,
-                    delay: Math.min(index, 7) * 0.02,
+                    duration: 0.2,
+                    delay: Math.min(index, 5) * 0.015,
                     ease: [0.22, 1, 0.36, 1],
                   }}
                   layout
                   key={item.sliceRunId}
-                  className="group flex items-start gap-3 border-b border-white/[0.04] px-4 py-3 transition-colors hover:bg-white/[0.02] cursor-pointer"
+                  className="group relative cursor-pointer border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
                   style={{
-                    borderLeftWidth: 3,
-                    borderLeftColor: `${accent}60`,
-                    backgroundColor: isSelected ? 'rgba(191,255,0,0.04)' : undefined,
+                    backgroundColor: isSelected ? 'rgba(191,255,0,0.03)' : undefined,
                   }}
                   role="button"
                   tabIndex={0}
@@ -332,75 +320,90 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                     }
                   }}
                 >
-                  {/* Checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleSelect(item.sliceRunId)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="mt-1 h-3.5 w-3.5 flex-shrink-0 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                  {/* Left accent — 2px strip */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 w-[2px]"
+                    style={{ backgroundColor: `${accent}50` }}
                   />
 
-                  {/* Content — flat, no nested card */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="flex min-w-0 items-center gap-1.5 text-body font-semibold leading-snug text-white">
-                          <span className="line-clamp-1">{label}</span>
-                        </p>
-                        <p className="mt-0.5 text-caption text-secondary line-clamp-1">
-                          {summaryText}
-                        </p>
-                      </div>
-                      <span
-                        className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-                        style={{
-                          color: accent,
-                          backgroundColor: `${accent}18`,
-                          borderWidth: 1,
-                          borderColor: `${accent}30`,
-                        }}
-                      >
-                        {statusLabel(item.status)}
-                      </span>
-                    </div>
-
-                    {/* Meta row — flat inline */}
-                    <div className="mt-1.5 flex items-center gap-2 text-micro text-muted">
-                      <span className="flex items-center gap-1 truncate">
-                        <EntityIcon type="initiative" size={9} className="opacity-70" />
-                        {initiativeText}
-                      </span>
-                      {duplicateCount > 1 && (
-                        <span className="text-micro text-muted">
-                          +{duplicateCount - 1} similar
-                        </span>
-                      )}
-                      {when && <span>{formatRelativeTime(when)}</span>}
-                    </div>
-                  </div>
-
-                  {/* Inline actions — no border, no card */}
-                  <div
-                    className="flex flex-shrink-0 items-center gap-1.5 self-center"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {item.status === 'needs_review' && onAcceptSlice && (
-                      <button
-                        type="button"
-                        onClick={() => onAcceptSlice(item)}
-                        className="rounded-md border border-lime/25 bg-lime/10 px-2 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20"
-                      >
-                        Accept
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => runPrimaryAction(item)}
-                      className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.06] hover:text-white"
+                  <div className="flex items-start gap-2.5 py-2.5 pl-4 pr-3">
+                    {/* Checkbox — compact */}
+                    <div
+                      className="flex-shrink-0 pt-0.5"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {actionLabel(item)}
-                    </button>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(item.sliceRunId)}
+                        className="h-3 w-3 rounded-sm border-white/15 bg-transparent text-[#BFFF00] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Content */}
+                    <div className="min-w-0 flex-1">
+                      {/* Line 1: status dot + label + time */}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                          style={{ backgroundColor: accent }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight text-white/90">
+                          {label}
+                        </span>
+                        <span className="flex-shrink-0 text-[10px] tabular-nums text-white/25">
+                          {when ? formatRelativeTime(when) : statusLabel(item.status)}
+                        </span>
+                      </div>
+
+                      {/* Line 2: summary + meta */}
+                      <div className="mt-0.5 flex items-baseline gap-1.5 pl-[14px]">
+                        <span className="min-w-0 truncate text-[11px] leading-relaxed text-white/35">
+                          {summaryText}
+                        </span>
+                        {duplicateCount > 1 && (
+                          <span className="flex-shrink-0 text-[10px] text-white/20">
+                            +{duplicateCount - 1}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Line 3: initiative */}
+                      <div className="mt-px flex items-center gap-1 pl-[14px] text-[10px] text-white/20">
+                        <EntityIcon type="initiative" size={8} className="opacity-50" />
+                        <span className="truncate">{initiativeText}</span>
+                      </div>
+                    </div>
+
+                    {/* Action — appears on hover, accept is always hinted for review */}
+                    <div
+                      className="flex flex-shrink-0 items-center gap-1 self-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {isReview && onAcceptSlice ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAcceptSlice(item);
+                          }}
+                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00]"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          Accept
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => runPrimaryAction(item, e)}
+                          className="flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-white/30 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/[0.04] hover:text-white/50"
+                        >
+                          {item.status === 'failed' ? 'Retry' : 'View'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </motion.article>
               );

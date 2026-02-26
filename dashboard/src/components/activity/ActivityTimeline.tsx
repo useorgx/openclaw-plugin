@@ -4886,7 +4886,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
                   className="min-h-full w-full overscroll-contain"
                 >
-                  <div className="space-y-4 pb-1">
+                  <div className="space-y-6 pb-1">
+                    {/* Header group — title, timestamp, breadcrumbs */}
                     <div>
                       <h3 className="text-title font-semibold tracking-[-0.02em] text-white whitespace-pre-wrap break-words">
                         {detailHeadlineOverride ||
@@ -4899,9 +4900,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           <span className="text-muted">· AI title</span>
                         )}
                       </p>
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-caption">
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-caption">
                       {(() => {
                         const workstreamId =
                           activeAutopilotContext?.workstreamId ??
@@ -4936,9 +4936,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </Pill>
                       {activeIsSyncReplay && <Pill tone="lime">Sync replay</Pill>}
                     </div>
+                    </div>
 
                     {/* Activity summary card */}
-                    <ActivityDetailSummary item={activeDecorated.item} className="mb-3" />
+                    <ActivityDetailSummary item={activeDecorated.item} />
 
                     {activeOutcome && (
                       <div
@@ -5106,555 +5107,414 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {activeResultItems.length > 0 && (
-                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
                           Results
                         </p>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-caption text-primary sm:grid-cols-3">
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-caption sm:grid-cols-3">
                           {activeResultItems.map((item) => (
-                            <div
-                              key={item.label}
-                              className={
-                                item.tone === 'critical'
-                                  ? 'rounded-lg border border-red-300/28 bg-red-400/[0.08] px-2.5 py-2'
-                                  : 'rounded-lg border border-white/[0.1] bg-black/20 px-2.5 py-2'
-                              }
-                            >
-                              <div className="text-micro text-secondary">{item.label}</div>
-                              <div className="mt-1 break-words tabular-nums">{item.value}</div>
+                            <div key={item.label} className="py-1">
+                              <div className="text-micro text-muted">{item.label}</div>
+                              <div className={`mt-0.5 break-words tabular-nums ${item.tone === 'critical' ? 'text-red-300' : 'text-primary'}`}>
+                                {item.value}
+                              </div>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {(activeActorFlow || activeAutopilotContext) && (
-                      <details className="rounded-xl border border-white/[0.08] bg-black/20 p-3" open>
-                        <summary className="cursor-pointer text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
-                          Execution details
-                        </summary>
-                        <div className="mt-3 space-y-3">
+                    {/* --- Execution context (flat layout) --- */}
                     {activeActorFlow && !activeAutopilotContext && (
-                      <div className="rounded-xl border border-cyan-300/24 bg-cyan-500/[0.07] p-3">
-                        <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
-                          Delegation flow
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          Delegation
                         </p>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requester</div>
-                            <div className="mt-1 flex items-center gap-2 text-body text-primary">
-                              {activeActorFlow.requester ? (
-                                <>
-                                  <AgentAvatar
-                                    name={activeActorFlow.requester.label}
-                                    hint={actorAvatarHint(activeActorFlow.requester)}
-                                    size="xs"
-                                  />
-                                  <span>{activeActorFlow.requester.label}</span>
-                                </>
-                              ) : (
-                                <span className="text-secondary">{humanizeActorName('System / unknown')}</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Flow</div>
-                            <p className="mt-1 text-body text-primary">
-                              {activeActorFlow.mode === 'handoff'
-                                ? 'Delegated handoff'
-                                : activeActorFlow.mode === 'requested'
-                                  ? 'Dispatch requested'
-                                  : activeActorFlow.mode === 'single'
-                                    ? 'Direct execution'
-                                    : 'System event'}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body text-secondary">
+                          <span className="flex items-center gap-1.5">
+                            {activeActorFlow.requester ? (
+                              <>
+                                <AgentAvatar
+                                  name={activeActorFlow.requester.label}
+                                  hint={actorAvatarHint(activeActorFlow.requester)}
+                                  size="xs"
+                                />
+                                <span className="text-primary">{activeActorFlow.requester.label}</span>
+                              </>
+                            ) : (
+                              <span>{humanizeActorName('System / unknown')}</span>
+                            )}
+                          </span>
+                          <span className="text-white/[0.15]">→</span>
+                          <span className="text-primary">
+                            {activeActorFlow.mode === 'handoff'
+                              ? 'Delegated handoff'
+                              : activeActorFlow.mode === 'requested'
+                                ? 'Dispatch requested'
+                                : activeActorFlow.mode === 'single'
+                                  ? 'Direct execution'
+                                  : 'System event'}
+                          </span>
+                          <span className="text-white/[0.15]">→</span>
+                          <span className="flex items-center gap-1.5">
+                            {activeActorFlow.executor ? (
+                              <>
+                                <AgentAvatar
+                                  name={activeActorFlow.executor.label}
+                                  hint={actorAvatarHint(activeActorFlow.executor)}
+                                  size="xs"
+                                />
+                                <span className="text-primary">{activeActorFlow.executor.label}</span>
+                              </>
+                            ) : (
+                              <span>{humanizeActorName('Not assigned')}</span>
+                            )}
+                          </span>
+                        </div>
+                        {activeActorFlow.subtitle && (
+                          <p className="mt-1 text-caption text-muted">{activeActorFlow.subtitle}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {activeAutopilotContext && (
+                      <div className="space-y-5">
+                        {/* Session status — compact inline */}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                              Session
                             </p>
-                            <p className="mt-1 text-caption text-secondary">{activeActorFlow.subtitle}</p>
+                            <span className="rounded-full border border-lime/30 bg-lime/[0.08] px-2 py-0.5 text-micro font-semibold text-lime/85">
+                              {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
+                            </span>
                           </div>
-                          <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-                            <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executor</div>
-                            <div className="mt-1 flex items-center gap-2 text-body text-primary">
-                              {activeActorFlow.executor ? (
-                                <>
-                                  <AgentAvatar
-                                    name={activeActorFlow.executor.label}
-                                    hint={actorAvatarHint(activeActorFlow.executor)}
-                                    size="xs"
+                          {activeRelatedAutopilotSlice && (
+                            <p className="mt-1 px-1 text-caption text-muted">
+                              Based on related activity ({humanizeText(activeRelatedAutopilotSlice.relation)}).
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Progress bar — inline, no card wrapper */}
+                        {activeAutopilotProgress && (
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                                {activeAutopilotProgressIsTerminalStop ? 'Terminal state' : 'Progress'}
+                              </p>
+                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
+                                {activeAutopilotProgressIsTerminalStop
+                                  ? activeOutcome?.label ?? 'Stopped'
+                                  : `${activeAutopilotProgress.pct}%`}
+                              </p>
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
+                              <div
+                                className="h-full rounded-full transition-[width] duration-300"
+                                style={{
+                                  width: `${Math.max(4, activeAutopilotProgress.pct)}%`,
+                                  backgroundColor: activeAutopilotProgressColor,
+                                }}
+                              />
+                            </div>
+                            <p className="mt-1 text-micro text-muted">
+                              {activeAutopilotProgress.label}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* People — flat inline row */}
+                        <div>
+                          <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                            People
+                          </p>
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+                            <div>
+                              <div className="text-micro text-muted">Requester</div>
+                              <div className="mt-0.5 flex items-center gap-1.5 text-body text-primary">
+                                <AgentAvatar
+                                  name={activeAutopilotRequesterDisplay.primary}
+                                  hint={activeAutopilotRequesterDisplay.secondary ?? activeAutopilotRequesterDisplay.primary}
+                                  size="xs"
+                                />
+                                <span>{activeAutopilotRequesterDisplay.primary}</span>
+                              </div>
+                              {activeAutopilotRequesterDisplay.secondary && (
+                                <p className="mt-0.5 text-micro text-muted">
+                                  via {activeAutopilotRequesterDisplay.secondary}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-micro text-muted">Executor</div>
+                              <div className="mt-0.5 flex items-center gap-1.5 text-body text-primary">
+                                <AgentAvatar
+                                  name={activeAutopilotExecutorLabel}
+                                  hint={activeAutopilotExecutorLabel}
+                                  size="xs"
+                                />
+                                <span>{activeAutopilotExecutorLabel}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-micro text-muted">Dispatcher</div>
+                              <div className="mt-0.5 text-body text-primary">
+                                {activeAutopilotContext.dispatcherClient
+                                  ? humanizeText(activeAutopilotContext.dispatcherClient)
+                                  : 'OrgX'}
+                              </div>
+                            </div>
+                            {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
+                              <div>
+                                <div className="text-micro text-muted">Policy</div>
+                                <div className="mt-0.5 text-body text-primary">
+                                  {activeAutopilotContext.domain ?? ''}
+                                  {activeAutopilotContext.requiredSkills.length > 0
+                                    ? `${activeAutopilotContext.domain ? ' · ' : ''}${activeAutopilotContext.requiredSkills.join(', ')}`
+                                    : ''}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Scope — flat inline */}
+                        {activeExecutionBreakdown && (
+                          <div>
+                            <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                              Scope
+                            </p>
+                            <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                              <div className="flex items-center justify-between gap-2 py-1">
+                                <div>
+                                  <div className="text-micro text-muted">Initiative</div>
+                                  <p className="mt-0.5 text-body text-primary">
+                                    {activeExecutionBreakdown.initiativeTitle ?? (activeExecutionBreakdown.initiativeId ? humanizeId(activeExecutionBreakdown.initiativeId) : '\u2014')}
+                                  </p>
+                                </div>
+                                {activeExecutionBreakdown.initiativeStatus && (
+                                  <span className="flex-shrink-0 text-micro text-muted">
+                                    {humanizeText(activeExecutionBreakdown.initiativeStatus)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between gap-2 py-1">
+                                <div>
+                                  <div className="text-micro text-muted">Workstream</div>
+                                  <p className="mt-0.5 text-body text-primary">
+                                    {activeExecutionBreakdown.workstreamTitle ?? (activeExecutionBreakdown.workstreamId ? humanizeId(activeExecutionBreakdown.workstreamId) : '\u2014')}
+                                  </p>
+                                </div>
+                                {activeExecutionBreakdown.workstreamStatus && (
+                                  <span className="flex-shrink-0 text-micro text-muted">
+                                    {humanizeText(activeExecutionBreakdown.workstreamStatus)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {activeExecutionBreakdown.initiativeWorkstreamPct !== null && (
+                              <div className="mt-3">
+                                <div className="mb-1 flex items-center justify-between text-micro text-muted">
+                                  <span>Workstreams complete</span>
+                                  <span className="tabular-nums">
+                                    {activeExecutionBreakdown.doneInitiativeWorkstreams ?? 0}/
+                                    {activeExecutionBreakdown.totalInitiativeWorkstreams ?? 0}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
+                                  <div
+                                    className="h-full rounded-full bg-[#BFFF00]/80"
+                                    style={{ width: `${Math.max(4, activeExecutionBreakdown.initiativeWorkstreamPct)}%` }}
                                   />
-                                  <span>{activeActorFlow.executor.label}</span>
-                                </>
-                              ) : (
-                                <span className="text-secondary">{humanizeActorName('Not assigned')}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Current step — simple key-value */}
+                        {(activeExecutionBreakdown?.taskTitle ||
+                          activeExecutionBreakdown?.milestoneTitle ||
+                          activeExecutionBreakdown?.phase ||
+                          activeExecutionBreakdown?.nextStep ||
+                          activeExecutionBreakdown?.parsedStatus ||
+                          activeExecutionBreakdown?.stopReason) && (
+                          <div>
+                            <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                              Current step
+                            </p>
+                            <div className="space-y-1 text-caption">
+                              {activeExecutionBreakdown?.taskTitle && (
+                                <p>
+                                  <span className="text-muted">Task</span>{' '}
+                                  <span className="text-primary">{activeExecutionBreakdown.taskTitle}</span>
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.milestoneTitle && (
+                                <p>
+                                  <span className="text-muted">Milestone</span>{' '}
+                                  <span className="text-primary">{activeExecutionBreakdown.milestoneTitle}</span>
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.phase && (
+                                <p>
+                                  <span className="text-muted">Phase</span>{' '}
+                                  <span className="text-primary">{humanizeStopReason(activeExecutionBreakdown.phase) ?? humanizeText(activeExecutionBreakdown.phase)}</span>
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.nextStep && (
+                                <p>
+                                  <span className="text-muted">Next step</span>{' '}
+                                  <span className="text-primary">{activeExecutionBreakdown.nextStep}</span>
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.parsedStatus &&
+                                activeExecutionBreakdown.parsedStatus !== activeExecutionBreakdown?.phase && (
+                                <p>
+                                  <span className="text-muted">Status</span>{' '}
+                                  <span className="text-primary">{humanizeStopReason(activeExecutionBreakdown.parsedStatus) ?? humanizeText(activeExecutionBreakdown.parsedStatus)}</span>
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.stopReason &&
+                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown?.phase &&
+                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown?.parsedStatus && (
+                                <p>
+                                  <span className="text-muted">Stop reason</span>{' '}
+                                  <span className="text-primary">{humanizeStopReason(activeExecutionBreakdown.stopReason) ?? humanizeText(activeExecutionBreakdown.stopReason)}</span>
+                                </p>
                               )}
                             </div>
                           </div>
+                        )}
+
+                        {/* Error — stays prominent */}
+                        {activeAutopilotContext.error && (
+                          <div className="rounded-lg border border-red-400/20 bg-red-500/10 px-4 py-3 text-body text-red-100/80">
+                            {activeAutopilotContext.error}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Summary — flat, no card wrapper */}
+                    {activeSummaryText && (
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          Summary
+                        </p>
+                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
+                          <p className="mb-1 text-caption text-amber-200/75">
+                            Full local turn transcript was unavailable; showing the event summary payload.
+                          </p>
+                        )}
+                        <MarkdownText
+                          mode="block"
+                          text={activeSummaryText}
+                          className="text-body leading-relaxed text-primary"
+                        />
+                      </div>
+                    )}
+
+                    {/* Details — flat, no card wrapper */}
+                    {humanizeActivityBody(activeDecorated.item.description) &&
+                      humanizeActivityBody(activeDecorated.item.description) !== activeSummaryText && (
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          Details
+                        </p>
+                        <MarkdownText
+                          mode="block"
+                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
+                          className="text-body leading-relaxed text-secondary"
+                        />
+                      </div>
+                    )}
+
+                    {/* Slice narrative — flat */}
+                    {activeNarrative && (
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          Narrative
+                        </p>
+                        <div className="space-y-1.5 text-caption">
+                          <p>
+                            <span className="text-muted">Intent</span>{' '}
+                            <span className="text-primary">{activeNarrative.intent}</span>
+                          </p>
+                          <p>
+                            <span className="text-muted">Dispatch</span>{' '}
+                            <span className="text-primary">{activeNarrative.dispatch}</span>
+                          </p>
+                          {activeNarrative.highlights.length > 0 && (
+                            <div>
+                              <span className="text-muted">Highlights</span>
+                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-primary">
+                                {activeNarrative.highlights.slice(0, 3).map((highlight, index) => (
+                                  <li key={`${activeNarrative.sliceRunId}:highlight:${index}`}>
+                                    {highlight}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p>
+                            <span className="text-muted">Outcome</span>{' '}
+                            <span className="text-primary">{activeNarrative.outcome.summary}</span>
+                          </p>
                         </div>
                       </div>
                     )}
 
-	                    {activeAutopilotContext && (
-	                      <div className="rounded-xl border border-lime/20 bg-lime/[0.08] p-3">
-	                        <div className="flex flex-wrap items-center justify-between gap-2">
-	                          <p className="text-caption font-semibold tracking-[0.02em] text-lime/80">
-	                            {activeRelatedAutopilotSlice ? 'Related session status' : 'Session status'}
-	                          </p>
-	                          <span className="rounded-full border border-lime/30 bg-black/20 px-2 py-0.5 text-micro font-semibold text-lime/85">
-	                            {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
-	                          </span>
-	                        </div>
-	                        {activeRelatedAutopilotSlice && (
-	                          <p className="mt-1 text-micro text-lime/70">
-	                            Based on related activity ({humanizeText(activeRelatedAutopilotSlice.relation)}).
-	                          </p>
-	                        )}
-
-		                        {activeAutopilotProgress && (
-		                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-		                            <div className="flex items-center justify-between gap-2">
-		                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
-		                                {activeAutopilotProgressIsTerminalStop ? 'Terminal state' : 'Progress'}
-		                              </p>
-		                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
-		                                {activeAutopilotProgressIsTerminalStop
-		                                  ? activeOutcome?.label ?? 'Stopped'
-		                                  : `${activeAutopilotProgress.pct}%`}
-		                              </p>
-		                            </div>
-	                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
-	                              <div
-	                                className="h-full rounded-full transition-[width] duration-300"
-	                                style={{
-	                                  width: `${Math.max(4, activeAutopilotProgress.pct)}%`,
-	                                  backgroundColor: activeAutopilotProgressColor,
-	                                }}
-	                              />
-	                            </div>
-	                            <p className="mt-1 text-micro text-secondary">
-	                              {activeAutopilotProgress.label}
-	                            </p>
-	                          </div>
-	                        )}
-
-	                        <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-	                          <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
-	                            <ActivityEventIcon icon="handoff" size={12} className="text-lime/80" />
-	                            People
-	                          </div>
-	                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Requester</div>
-	                              <div className="mt-1 flex items-center gap-2 text-body text-primary">
-	                                <AgentAvatar
-	                                  name={activeAutopilotRequesterDisplay.primary}
-	                                  hint={activeAutopilotRequesterDisplay.secondary ?? activeAutopilotRequesterDisplay.primary}
-	                                  size="xs"
-	                                />
-	                                <span>{activeAutopilotRequesterDisplay.primary}</span>
-	                              </div>
-	                              {activeAutopilotRequesterDisplay.secondary && (
-	                                <p className="mt-1 text-micro text-secondary">
-	                                  via {activeAutopilotRequesterDisplay.secondary}
-	                                </p>
-	                              )}
-	                            </div>
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Executor</div>
-	                              <div className="mt-1 flex items-center gap-2 text-body text-primary">
-	                                <AgentAvatar
-	                                  name={activeAutopilotExecutorLabel}
-	                                  hint={activeAutopilotExecutorLabel}
-	                                  size="xs"
-	                                />
-	                                <span>{activeAutopilotExecutorLabel}</span>
-	                              </div>
-	                            </div>
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Dispatcher</div>
-	                              <div className="mt-1 text-body text-primary">
-	                                {activeAutopilotContext.dispatcherClient
-	                                  ? humanizeText(activeAutopilotContext.dispatcherClient)
-	                                  : 'OrgX'}
-	                              </div>
-	                            </div>
-	                            {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Policy</div>
-	                              <div className="mt-1 text-body text-primary">
-	                                {activeAutopilotContext.domain ?? ''}
-	                                {activeAutopilotContext.requiredSkills.length > 0
-	                                  ? `${activeAutopilotContext.domain ? ' · ' : ''}${activeAutopilotContext.requiredSkills.join(', ')}`
-	                                  : ''}
-	                              </div>
-	                            </div>
-	                            )}
-	                          </div>
-	                        </div>
-
-	                        {activeExecutionBreakdown && (
-	                          <div className="mt-3 space-y-3">
-	                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2.5">
-	                              <div className="flex items-center gap-2 text-micro font-semibold tracking-[0.12em] text-secondary">
-	                                <ActivityEventIcon icon="workflow" size={12} className="text-lime/80" />
-	                                Scope
-	                              </div>
-	                              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-	                                <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                                  <div className="flex items-center justify-between gap-2">
-	                                    <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Initiative</div>
-	                                    {activeExecutionBreakdown.initiativeStatus && (
-	                                      <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
-	                                        {humanizeText(activeExecutionBreakdown.initiativeStatus)}
-	                                      </span>
-	                                    )}
-	                                  </div>
-	                                  <p className="mt-1 text-body text-primary">
-	                                    {activeExecutionBreakdown.initiativeTitle ?? (activeExecutionBreakdown.initiativeId ? humanizeId(activeExecutionBreakdown.initiativeId) : '—')}
-	                                  </p>
-	                                </div>
-	                                <div className="rounded-lg border border-white/[0.10] bg-black/30 px-3 py-2">
-	                                  <div className="flex items-center justify-between gap-2">
-	                                    <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Workstream</div>
-	                                    {activeExecutionBreakdown.workstreamStatus && (
-	                                      <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
-	                                        {humanizeText(activeExecutionBreakdown.workstreamStatus)}
-	                                      </span>
-	                                    )}
-	                                  </div>
-	                                  <p className="mt-1 text-body text-primary">
-	                                    {activeExecutionBreakdown.workstreamTitle ?? (activeExecutionBreakdown.workstreamId ? humanizeId(activeExecutionBreakdown.workstreamId) : '—')}
-	                                  </p>
-	                                </div>
-	                              </div>
-	                              {activeExecutionBreakdown.initiativeWorkstreamPct !== null && (
-	                                <div className="mt-2">
-	                                  <div className="mb-1 flex items-center justify-between text-micro text-secondary">
-	                                    <span>Workstreams complete</span>
-	                                    <span className="tabular-nums">
-	                                      {activeExecutionBreakdown.doneInitiativeWorkstreams ?? 0}/
-	                                      {activeExecutionBreakdown.totalInitiativeWorkstreams ?? 0}
-	                                    </span>
-	                                  </div>
-	                                  <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
-	                                    <div
-	                                      className="h-full rounded-full bg-[#BFFF00]/80"
-	                                      style={{ width: `${Math.max(4, activeExecutionBreakdown.initiativeWorkstreamPct)}%` }}
-	                                    />
-	                                  </div>
-	                                </div>
-	                              )}
-	                            </div>
-
-	                          </div>
-	                        )}
-
-	                        {(activeExecutionBreakdown?.taskTitle ||
-	                          activeExecutionBreakdown?.milestoneTitle ||
-	                          activeExecutionBreakdown?.phase ||
-	                          activeExecutionBreakdown?.nextStep ||
-	                          activeExecutionBreakdown?.parsedStatus ||
-	                          activeExecutionBreakdown?.stopReason) && (
-	                          <div className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <div className="text-micro font-semibold tracking-[0.12em] text-secondary">
-	                              Current step
-	                            </div>
-	                            <div className="mt-1.5 space-y-1 text-caption text-primary">
-	                              {activeExecutionBreakdown.taskTitle && (
-	                                <p>
-	                                  <span className="text-secondary">Task:</span> {activeExecutionBreakdown.taskTitle}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown.milestoneTitle && (
-	                                <p>
-	                                  <span className="text-secondary">Milestone:</span> {activeExecutionBreakdown.milestoneTitle}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown.phase && (
-	                                <p>
-	                                  <span className="text-secondary">Phase:</span> {humanizeStopReason(activeExecutionBreakdown.phase) ?? humanizeText(activeExecutionBreakdown.phase)}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown.nextStep && (
-	                                <p>
-	                                  <span className="text-secondary">Next step:</span> {activeExecutionBreakdown.nextStep}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown.parsedStatus &&
-	                                activeExecutionBreakdown.parsedStatus !== activeExecutionBreakdown.phase && (
-	                                <p>
-	                                  <span className="text-secondary">Status:</span>{' '}
-	                                  {humanizeStopReason(activeExecutionBreakdown.parsedStatus) ?? humanizeText(activeExecutionBreakdown.parsedStatus)}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown.stopReason &&
-	                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown.phase &&
-	                                activeExecutionBreakdown.stopReason !== activeExecutionBreakdown.parsedStatus && (
-	                                <p>
-	                                  <span className="text-secondary">Stop reason:</span>{' '}
-	                                  {humanizeStopReason(activeExecutionBreakdown.stopReason) ?? humanizeText(activeExecutionBreakdown.stopReason)}
-	                                </p>
-	                              )}
-	                            </div>
-	                          </div>
-	                        )}
-
-	                        {(activeAutopilotContext.logPath ||
-	                          activeAutopilotContext.outputPath ||
-	                          activeExecutionBreakdown?.initiativeId ||
-	                          activeExecutionBreakdown?.workstreamId) && (
-	                          <details className="mt-3 rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                            <summary className="cursor-pointer text-micro font-semibold tracking-[0.12em] text-secondary">
-	                              Technical details
-	                            </summary>
-	                            <div className="mt-2 space-y-2">
-	                              {activeExecutionBreakdown?.initiativeId && (
-	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  initiative: {humanizeId(activeExecutionBreakdown.initiativeId)}
-	                                </p>
-	                              )}
-	                              {activeExecutionBreakdown?.workstreamId && (
-	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  workstream: {humanizeId(activeExecutionBreakdown.workstreamId)}
-	                                </p>
-	                              )}
-	                              {activeAutopilotContext.logPath && (
-	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  log: {humanizePath(activeAutopilotContext.logPath)}
-	                                </p>
-	                              )}
-	                              {activeAutopilotContext.outputPath && (
-	                                <p className="break-all font-mono text-caption text-secondary">
-	                                  output: {humanizePath(activeAutopilotContext.outputPath)}
-	                                </p>
-	                              )}
-	                              <div className="flex flex-wrap gap-2">
-	                                {activeAutopilotContext.logPath && (
-	                                  <button
-	                                    type="button"
-	                                    onClick={() => void copyText('Log path', activeAutopilotContext.logPath ?? '')}
-	                                    className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                                  >
-	                                    Copy log path
-	                                  </button>
-	                                )}
-	                                {activeAutopilotContext.outputPath && (
-	                                  <button
-	                                    type="button"
-	                                    onClick={() => void copyText('Output path', activeAutopilotContext.outputPath ?? '')}
-	                                    className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                                  >
-	                                    Copy output path
-	                                  </button>
-	                                )}
-	                              </div>
-	                            </div>
-	                          </details>
-	                        )}
-
-	                        {activeAutopilotContext.error && (
-	                          <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-body text-red-100/80">
-	                            {activeAutopilotContext.error}
-	                          </div>
-	                        )}
-	                      </div>
-	                    )}
-                        </div>
-                      </details>
-                    )}
-
-                    {activeProvenance && (
-                      <details className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
-                        <summary className="cursor-pointer text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
-                          Technical
-                        </summary>
-                        <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
-	                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">Provenance</p>
-                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {activeProvenance.domain && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Domain</div>
-                              <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.domain)}</div>
-                            </div>
-                          )}
-                          {(activeProvenance.provider || activeProvenance.model) && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Model</div>
-                              <div className="mt-1 text-body text-primary">
-                                {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
-                                {activeProvenance.model ? humanizeModel(activeProvenance.model) : '—'}
-                              </div>
-                            </div>
-                          )}
-                          {activeProvenance.modelTier && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Model tier</div>
-                              <div className="mt-1 text-body text-primary">{humanizeText(activeProvenance.modelTier)}</div>
-                            </div>
-                          )}
-                          {activeProvenance.pluginVersion && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Plugin</div>
-                              <div className="mt-1 text-body text-primary">v{activeProvenance.pluginVersion}</div>
-                            </div>
-                          )}
-                          {activeProvenance.skillPack && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Skill pack</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-body text-primary">
-                                <span>
-                                  {activeProvenance.skillPack.name ?? '—'}
-                                  {activeProvenance.skillPack.version ? `@${activeProvenance.skillPack.version}` : ''}
-                                  {activeProvenance.skillPack.source ? ` · ${activeProvenance.skillPack.source}` : ''}
-                                </span>
-                                {activeProvenance.skillPack.checksum && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void copyText('Skill pack checksum', activeProvenance.skillPack?.checksum ?? '')}
-                                    className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                  >
-                                    sha {activeProvenance.skillPack.checksum.slice(0, 12)}…
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          {activeProvenance.kickoffContextHash && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-                              <div className="flex items-center justify-between gap-2">
-	                                <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Kickoff context</div>
-                                <button
-                                  type="button"
-                                  onClick={() => void copyText('Kickoff context hash', activeProvenance.kickoffContextHash ?? '')}
-                                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                >
-                                  Copy hash
-                                </button>
-                              </div>
-                              <div className="mt-1 text-body text-primary">
-                                {activeProvenance.kickoffContextSource ? `${activeProvenance.kickoffContextSource} · ` : ''}
-                                <span className="font-mono text-body text-primary">{activeProvenance.kickoffContextHash}</span>
-                              </div>
-                            </div>
-                          )}
-                          {activeProvenance.requiredSkills.length > 0 && (
-                            <div className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2 sm:col-span-2">
-	                              <div className="text-micro font-semibold tracking-[0.02em] text-secondary">Required skills</div>
-                              <div className="mt-1 flex flex-wrap gap-1.5">
-                                {activeProvenance.requiredSkills.map((skill) => (
-                                  <span
-                                    key={skill}
-                                    className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-caption text-secondary"
-                                  >
-                                    {skill}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        </div>
-                      </details>
-                    )}
-
-	                    {activeSummaryText && (
-		                      <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
-		                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Summary</p>
-	                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
-	                          <p className="mt-1 text-caption text-amber-200/75">
-	                            Full local turn transcript was unavailable; showing the event summary payload.
-	                          </p>
-	                        )}
-	                        <MarkdownText
-	                          mode="block"
-	                          text={activeSummaryText}
-	                          className="mt-1.5 text-body leading-relaxed text-primary"
-	                        />
-	                      </div>
-	                    )}
-
-	                    {humanizeActivityBody(activeDecorated.item.description) &&
-	                      humanizeActivityBody(activeDecorated.item.description) !== activeSummaryText && (
-			                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
-			                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Details</p>
-		                        <MarkdownText
-	                          mode="block"
-	                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
-	                          className="mt-1.5 text-body leading-relaxed text-secondary"
-	                        />
-		                      </div>
-	                    )}
-
-	                    {activeNarrative && (
-	                      <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
-	                        <p className="text-micro font-semibold tracking-[0.02em] text-secondary">Slice narrative</p>
-	                        <div className="mt-2 space-y-2 text-caption text-secondary">
-	                          <p>
-	                            <span className="text-white/80">Intent:</span> {activeNarrative.intent}
-	                          </p>
-	                          <p>
-	                            <span className="text-white/80">Dispatch:</span> {activeNarrative.dispatch}
-	                          </p>
-	                          {activeNarrative.highlights.length > 0 && (
-	                            <div>
-	                              <span className="text-white/80">Highlights:</span>
-	                              <ul className="mt-1 list-disc space-y-1 pl-4">
-	                                {activeNarrative.highlights.slice(0, 3).map((highlight, index) => (
-	                                  <li key={`${activeNarrative.sliceRunId}:highlight:${index}`}>
-	                                    {highlight}
-	                                  </li>
-	                                ))}
-	                              </ul>
-	                            </div>
-	                          )}
-	                          <p>
-	                            <span className="text-white/80">Outcome:</span> {activeNarrative.outcome.summary}
-	                          </p>
-	                        </div>
-	                      </div>
-	                    )}
-
-	                    {activeFileEvidence.length > 0 && (
-	                      <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                        <p className="text-caption font-semibold tracking-[0.02em] text-secondary">
-                          Evidence files
+                    {/* Evidence files — flat rows, deduplicated */}
+                    {activeFileEvidence.length > 0 && (
+                      <div>
+                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          Evidence
                         </p>
-	                        <div className="mt-2 space-y-2">
-	                          {activeFileEvidence.map((entry, index) => {
-	                            const evidenceHref = resolveFileEvidenceHref(entry.path);
-	                            return (
-	                            <div
-	                              key={`${entry.key}:${entry.path}:${index}`}
-	                              className="rounded-lg border border-white/[0.10] bg-black/20 px-3 py-2"
-	                            >
-	                              <p className="text-micro font-semibold tracking-[0.02em] text-secondary">
-                                {humanizeText(entry.key)}
-                              </p>
-	                              <p className="mt-1 break-all font-mono text-caption text-primary">
-	                                {humanizePath(entry.path)}
-	                              </p>
-	                              <div className="mt-2 flex flex-wrap gap-2">
-	                                {evidenceHref ? (
-	                                  <a
-	                                    href={evidenceHref}
-	                                    target="_blank"
-	                                    rel="noopener noreferrer"
-	                                    className="inline-flex items-center rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-2.5 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
-	                                  >
-	                                    Open in tab
-	                                  </a>
-	                                ) : null}
-	                                <button
-	                                  type="button"
-	                                  onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
-	                                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-	                                >
-	                                  Copy path
-	                                </button>
-	                              </div>
-	                            </div>
-	                            );
-	                          })}
-	                        </div>
-	                      </div>
-	                    )}
+                        <div className="space-y-2">
+                          {activeFileEvidence
+                            .filter((entry, i, arr) =>
+                              arr.findIndex((e) => e.path === entry.path) === i
+                            )
+                            .map((entry, index) => {
+                              const evidenceHref = resolveFileEvidenceHref(entry.path);
+                              return (
+                                <div
+                                  key={`${entry.key}:${entry.path}:${index}`}
+                                  className="flex items-center justify-between gap-3 py-1"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
+                                    <p className="mt-0.5 truncate font-mono text-caption text-primary">
+                                      {humanizePath(entry.path)}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                                    {evidenceHref && (
+                                      <a
+                                        href={evidenceHref}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                      >
+                                        Open
+                                      </a>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
+                                      className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                    >
+                                      Copy
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* View registered artifact button (loop closure) */}
                     {activeDecorated && extractArtifactId(activeDecorated.item) && (
@@ -5676,12 +5536,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </button>
                     )}
 
+                    {/* Artifact output — subtle container */}
                     {activeArtifact && (
-	                      <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
-	                        <div className="flex items-center justify-between gap-2">
-	                          <p className="text-caption font-semibold tracking-[0.02em] text-cyan-100/85">
-	                            Artifact output
-	                          </p>
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                            Artifact
+                            <span className="ml-2 font-normal normal-case tracking-normal text-muted">
+                              {activeArtifact.source}
+                            </span>
+                          </p>
                           <div className="inline-flex rounded-full border border-strong bg-black/30 p-0.5 text-caption">
                             <button
                               type="button"
@@ -5709,8 +5573,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             </button>
                           </div>
                         </div>
-                        <p className="mt-1 text-micro text-cyan-100/55">Source: {activeArtifact.source}</p>
-                        <div className="mt-2">
+                        <div className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
                           {artifactViewMode === 'structured' ? (
                             renderArtifactValue(activeArtifact.value)
                           ) : (
@@ -5722,23 +5585,165 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-	                    {activeResolvedMetadataJson && activeResolvedMetadataJson !== activeMetadataJson && (
-	                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
-	                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
-	                          Parsed metadata
-	                        </summary>
-	                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-secondary">
-	                          {activeResolvedMetadataJson}
-	                        </pre>
-	                      </details>
-	                    )}
+                    {/* Separator before debug sections */}
+                    {(activeProvenance ||
+                      activeAutopilotContext?.logPath ||
+                      activeMetadataJson) && (
+                      <div className="border-t border-white/[0.06]" />
+                    )}
 
-	                    {activeMetadataJson && (
-		                      <details className="rounded-xl border border-white/[0.08] bg-black/35 p-3">
-		                        <summary className="cursor-pointer select-none text-caption font-semibold tracking-[0.02em] text-secondary">
-		                          Raw metadata
-		                        </summary>
-                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-secondary">
+                    {/* --- Technical & Provenance — collapsible near bottom --- */}
+                    {(activeProvenance ||
+                      activeAutopilotContext?.logPath ||
+                      activeAutopilotContext?.outputPath ||
+                      activeExecutionBreakdown?.initiativeId ||
+                      activeExecutionBreakdown?.workstreamId) && (
+                      <details className="group">
+                        <summary className="flex cursor-pointer items-center gap-1.5 px-1 text-micro font-semibold uppercase tracking-wider text-muted select-none">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform group-open:rotate-90">
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
+                          Technical
+                        </summary>
+                        <div className="mt-3 space-y-3 text-caption">
+                          {activeProvenance && (
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+                              {activeProvenance.domain && (
+                                <div className="py-1">
+                                  <div className="text-micro text-muted">Domain</div>
+                                  <div className="mt-0.5 text-primary">{humanizeText(activeProvenance.domain)}</div>
+                                </div>
+                              )}
+                              {(activeProvenance.provider || activeProvenance.model) && (
+                                <div className="py-1">
+                                  <div className="text-micro text-muted">Model</div>
+                                  <div className="mt-0.5 text-primary">
+                                    {activeProvenance.provider ? `${humanizeText(activeProvenance.provider)} · ` : ''}
+                                    {activeProvenance.model ? humanizeModel(activeProvenance.model) : '\u2014'}
+                                  </div>
+                                </div>
+                              )}
+                              {activeProvenance.modelTier && (
+                                <div className="py-1">
+                                  <div className="text-micro text-muted">Model tier</div>
+                                  <div className="mt-0.5 text-primary">{humanizeText(activeProvenance.modelTier)}</div>
+                                </div>
+                              )}
+                              {activeProvenance.pluginVersion && (
+                                <div className="py-1">
+                                  <div className="text-micro text-muted">Plugin</div>
+                                  <div className="mt-0.5 text-primary">v{activeProvenance.pluginVersion}</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {activeProvenance?.skillPack && (
+                            <div className="flex flex-wrap items-center gap-2 py-1">
+                              <span className="text-micro text-muted">Skill pack</span>
+                              <span className="text-primary">
+                                {activeProvenance.skillPack.name ?? '\u2014'}
+                                {activeProvenance.skillPack.version ? `@${activeProvenance.skillPack.version}` : ''}
+                                {activeProvenance.skillPack.source ? ` · ${activeProvenance.skillPack.source}` : ''}
+                              </span>
+                              {activeProvenance.skillPack.checksum && (
+                                <button
+                                  type="button"
+                                  onClick={() => void copyText('Skill pack checksum', activeProvenance.skillPack?.checksum ?? '')}
+                                  className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-muted transition hover:bg-white/[0.1] hover:text-primary"
+                                >
+                                  sha {activeProvenance.skillPack.checksum.slice(0, 12)}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {activeProvenance && activeProvenance.requiredSkills.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 py-1">
+                              <span className="text-micro text-muted">Skills</span>
+                              {activeProvenance.requiredSkills.map((skill) => (
+                                <span key={skill} className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {activeProvenance?.kickoffContextHash && (
+                            <div className="flex items-center justify-between gap-2 py-1">
+                              <div>
+                                <span className="text-micro text-muted">Kickoff context</span>{' '}
+                                <span className="font-mono text-muted">
+                                  {activeProvenance.kickoffContextSource ? `${activeProvenance.kickoffContextSource} · ` : ''}
+                                  {activeProvenance.kickoffContextHash.slice(0, 16)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void copyText('Kickoff context hash', activeProvenance.kickoffContextHash ?? '')}
+                                className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-muted transition hover:bg-white/[0.1] hover:text-primary"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          )}
+                          {(activeAutopilotContext?.logPath || activeAutopilotContext?.outputPath) && (
+                            <div className="space-y-1 border-t border-white/[0.06] pt-3">
+                              {activeAutopilotContext?.logPath && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="min-w-0 truncate font-mono text-muted">
+                                    log: {humanizePath(activeAutopilotContext.logPath)}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText('Log path', activeAutopilotContext?.logPath ?? '')}
+                                    className="flex-shrink-0 rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-muted transition hover:bg-white/[0.1] hover:text-primary"
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                              )}
+                              {activeAutopilotContext?.outputPath && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="min-w-0 truncate font-mono text-muted">
+                                    output: {humanizePath(activeAutopilotContext.outputPath)}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText('Output path', activeAutopilotContext?.outputPath ?? '')}
+                                    className="flex-shrink-0 rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro text-muted transition hover:bg-white/[0.1] hover:text-primary"
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {(activeExecutionBreakdown?.initiativeId || activeExecutionBreakdown?.workstreamId) && (
+                            <div className="space-y-1 border-t border-white/[0.06] pt-3">
+                              {activeExecutionBreakdown?.initiativeId && (
+                                <p className="break-all font-mono text-muted">
+                                  initiative: {humanizeId(activeExecutionBreakdown.initiativeId)}
+                                </p>
+                              )}
+                              {activeExecutionBreakdown?.workstreamId && (
+                                <p className="break-all font-mono text-muted">
+                                  workstream: {humanizeId(activeExecutionBreakdown.workstreamId)}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Raw metadata — single collapsible for power users */}
+                    {activeMetadataJson && (
+                      <details className="group">
+                        <summary className="flex cursor-pointer items-center gap-1.5 px-1 text-micro font-semibold uppercase tracking-wider text-muted select-none">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform group-open:rotate-90">
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
+                          Raw metadata
+                        </summary>
+                        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-muted">
                           {activeMetadataJson}
                         </pre>
                       </details>

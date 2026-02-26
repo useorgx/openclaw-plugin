@@ -3,7 +3,7 @@ import { buildOrgxHeaders } from '@/lib/http';
 import { formatAbsoluteTime } from '@/lib/time';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
-type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision';
+type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision' | 'slice_run' | 'run';
 
 type EntityComment = {
   id: string;

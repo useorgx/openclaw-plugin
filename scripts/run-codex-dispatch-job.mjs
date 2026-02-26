@@ -470,7 +470,12 @@ export function classifyTaskState(status) {
   ) {
     return "done";
   }
-  if (canonical === "blocked" || canonical === "at_risk") {
+  if (
+    canonical === "blocked" ||
+    canonical === "at_risk" ||
+    canonical === "on_hold" ||
+    canonical === "onhold"
+  ) {
     return "blocked";
   }
   if (
@@ -478,7 +483,8 @@ export function classifyTaskState(status) {
     canonical === "active" ||
     canonical === "running" ||
     canonical === "queued" ||
-    canonical === "retry_pending"
+    canonical === "retry_pending" ||
+    canonical === "pending_review"
   ) {
     return "active";
   }

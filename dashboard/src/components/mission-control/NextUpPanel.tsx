@@ -546,20 +546,17 @@ export function NextUpPanel({
   const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const activeElsewhereCount = useMemo(
-    () => items.filter((item) => item.queueState === 'running' || item.queueState === 'blocked').length,
+    () => items.filter((item) => item.queueState === 'running').length,
     [items]
   );
+  // Show all items except those actively running a session. Blocked items
+  // stay visible because they need user attention. If nothing remains,
+  // fall back to showing running items so the panel isn't empty.
   const queueItems = useMemo(
     () => {
-      const queued = items.filter(
-        (item) => item.queueState !== 'running' && item.queueState !== 'blocked'
-      );
-      if (queued.length > 0) return queued;
-      const blocked = items.filter((item) => item.queueState === 'blocked');
-      if (blocked.length > 0) return blocked;
-      const running = items.filter((item) => item.queueState === 'running');
-      if (running.length > 0) return running;
-      return queued;
+      const actionable = items.filter((item) => item.queueState !== 'running');
+      if (actionable.length > 0) return actionable;
+      return items;
     },
     [items]
   );
@@ -859,7 +856,7 @@ export function NextUpPanel({
   const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
   const emptyStateMessage =
     activeElsewhereCount > 0
-      ? `No queued workstreams yet. ${activeElsewhereCount} running/blocked item${activeElsewhereCount === 1 ? '' : 's'} are still in-flight.`
+      ? `No queued workstreams yet. ${activeElsewhereCount} running item${activeElsewhereCount === 1 ? '' : 's'} still in-flight.`
       : degraded.length > 0
         ? 'Queue signal is delayed right now.'
         : 'No queued workstreams right now.';

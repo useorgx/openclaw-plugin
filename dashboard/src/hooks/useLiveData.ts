@@ -1961,8 +1961,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
         const rawActivity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
         const rawHandoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
-        const rawDecisions =
-          enableDecisions && Array.isArray(snapshot.decisions) ? snapshot.decisions : [];
+        const rawDecisions = Array.isArray(snapshot.decisions) ? snapshot.decisions : [];
 
         const shouldPreserveActivity =
           rawActivity.length === 0 &&
@@ -1974,7 +1973,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         const shouldPreserveHandoffs =
           rawHandoffs.length === 0 && hasDegradedReason('handoffs unavailable');
         const shouldPreserveDecisions =
-          enableDecisions &&
           rawDecisions.length === 0 &&
           hasDegradedReason('decisions unavailable');
 
@@ -2365,10 +2363,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   useEffect(() => {
     if (enableDecisions) return;
     publishDecisionMutation(EMPTY_DECISION_MUTATION);
-    setData((prev) => {
-      if (prev.decisions.length === 0) return prev;
-      return { ...prev, decisions: [] };
-    });
   }, [enableDecisions, publishDecisionMutation]);
 
   useEffect(() => {
@@ -2621,7 +2615,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sessions: payload.sessions,
           activity: payload.activity ?? [],
           handoffs: payload.handoffs ?? [],
-          decisions: enableDecisions ? payload.decisions ?? null : [],
+          decisions: payload.decisions ?? null,
           sliceRuns: Array.isArray(payload.sliceRuns)
             ? normalizeSliceRuns(payload.sliceRuns)
             : Array.isArray(payload.projections)
@@ -2707,7 +2701,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     });
 
     eventSource.addEventListener('decision.updated', (event) => {
-      if (!enableDecisions) return;
       try {
         pendingDecisions = JSON.parse((event as MessageEvent).data) as LiveDecision[];
         scheduleFlush();

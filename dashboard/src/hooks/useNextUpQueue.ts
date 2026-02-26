@@ -404,11 +404,15 @@ function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueSta
   const status = item.status.trim().toLowerCase();
   if (
     status === 'running' ||
-    status === 'active' ||
     status === 'in_progress' ||
     status === 'dispatching'
   ) {
     return 'running';
+  }
+  // 'active' means the workstream is enabled/configured, not that a session
+  // is currently executing. Treat it as queued so the card stays visible.
+  if (status === 'active') {
+    return 'queued';
   }
   if (
     item.runnable === false ||
@@ -506,7 +510,7 @@ export function useNextUpQueue({
   initiativeId = null,
   projectId = null,
   offset = 0,
-  limit = 24,
+  limit = 100,
   authToken = null,
   embedMode = false,
   enabled = true,
