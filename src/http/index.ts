@@ -188,7 +188,6 @@ import { registerSettingsByokRoutes } from "./routes/settings-byok.js";
 import { registerSummaryRoutes } from "./routes/summary.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
-import { registerLiveTerminalRoutes } from "./routes/live-terminal.js";
 import { registerLiveTriageRoutes } from "./routes/live-triage.js";
 import { registerRealtimeOrchestratorRoutes } from "./routes/realtime-orchestrator.js";
 
