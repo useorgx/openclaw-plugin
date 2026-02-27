@@ -338,7 +338,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                     ease: [0.22, 1, 0.36, 1],
                   }}
                   key={item.sliceRunId}
-                  className="group relative cursor-pointer border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
+                  className="group relative cursor-pointer border-b border-subtle transition-colors hover:bg-white/[0.02]"
                   style={{
                     backgroundColor: isSelected ? 'rgba(191,255,0,0.03)' : undefined,
                     opacity: isPending ? 0.5 : undefined,
@@ -359,20 +359,14 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                     }
                   }}
                 >
-                  {/* Left accent — 2px strip */}
-                  <div
-                    className="absolute left-0 top-0 bottom-0 w-[2px]"
-                    style={{ backgroundColor: `${accent}50` }}
-                  />
-
-                  <div className="flex items-start gap-2.5 py-2.5 pl-4 pr-3">
+                  <div className="flex items-start gap-2.5 py-2.5 pl-3 pr-3">
                     {/* Checkbox — compact */}
                     <div className="flex-shrink-0 pt-0.5">
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => toggleSelect(item.sliceRunId)}
-                        className="h-3 w-3 rounded-sm border-white/15 bg-transparent text-[#BFFF00] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                        className="h-4 w-4 rounded-sm border-white/15 bg-transparent text-[#BFFF00] focus:ring-0 focus:ring-offset-0 cursor-pointer"
                       />
                     </div>
 
@@ -429,7 +423,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                         <button
                           type="button"
                           onClick={() => runPrimaryAction(item)}
-                          className="flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-white/30 opacity-0 transition-all group-hover:opacity-100 hover:bg-white/[0.04] hover:text-white/50"
+                          className="flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-white/45 opacity-100 transition-all md:opacity-0 md:group-hover:opacity-100 hover:bg-white/[0.04] hover:text-white/70"
                         >
                           {item.status === 'failed' ? 'Retry' : 'View'}
                         </button>

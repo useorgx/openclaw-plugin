@@ -3083,22 +3083,9 @@ function DashboardShell({
                           <section
                             className={cn(
                               'overflow-hidden rounded-xl border border-subtle bg-white/[0.02]',
-                              needsInputRows.length === 0 ? 'flex-1 min-h-[220px]' : 'min-h-[220px] max-h-[50%]'
+                              needsInputRows.length === 0 ? 'flex-1 min-h-[220px]' : 'min-h-[220px] max-h-[52%]'
                             )}
                           >
-                            <div className="border-b border-subtle px-3 py-2.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
-                                  Decision queue
-                                </p>
-                                <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/55">
-                                  {data.decisions.length}
-                                </span>
-                              </div>
-                              <p className="mt-1 text-caption text-white/35">
-                                Resolve blockers and approvals to keep dispatch moving.
-                              </p>
-                            </div>
                             <div className="min-h-0 p-2">
                               <Suspense
                                 fallback={
@@ -3109,7 +3096,7 @@ function DashboardShell({
                               >
                                 <LazyDecisionQueue
                                   className="h-full min-h-0"
-                                  showHeader={false}
+                                  showHeader
                                   panelStyle="flat"
                                   decisions={data.decisions}
                                   focusDecisionId={requestedDecisionId}
@@ -3134,24 +3121,11 @@ function DashboardShell({
                             'flex min-h-[180px] flex-1 flex-col overflow-hidden rounded-xl border border-subtle bg-white/[0.02]'
                           )}
                         >
-                          <div className="border-b border-subtle px-3 py-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
-                                {decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
-                              </p>
-                              <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/55">
-                                {needsInputRows.length}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-caption text-white/35">
-                              Retry, approve, or manually intervene on execution slices.
-                            </p>
-                          </div>
                           <div className="min-h-0 flex-1 p-2">
                             <NeedsInputPanel
                               className={cn('h-full min-h-0')}
                               title={decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
-                              showHeader={false}
+                              showHeader
                               panelStyle="flat"
                               sliceRuns={actionableSliceRuns}
                               initiatives={initiatives}

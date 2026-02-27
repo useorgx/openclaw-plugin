@@ -9,6 +9,7 @@ import type { DecisionActionType } from './shared-types.js';
 import type { RetroArtifactSchemaVersion } from './retro-schema.js';
 
 export type {
+  ActivityEventName,
   HandoffEvent,
   HandoffSummary,
   LiveActivityItem,
