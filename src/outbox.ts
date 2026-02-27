@@ -242,10 +242,17 @@ export async function appendToOutbox(
   sessionId: string,
   event: OutboxEvent
 ): Promise<void> {
+  let normalizedSessionId: string;
+  try {
+    normalizedSessionId = normalizeSessionId(sessionId);
+  } catch {
+    return;
+  }
+
   const skipReason = classifyOutboxReplaySkip(event);
   if (skipReason) {
     await appendOutboxDeadLetter(
-      sessionId,
+      normalizedSessionId,
       event,
       `suppressed_on_append:${skipReason}`,
       null
@@ -254,8 +261,8 @@ export async function appendToOutbox(
   }
 
   await ensureDir();
-  const targetPath = outboxPath(sessionId);
-  const existing = await readOutbox(sessionId);
+  const targetPath = outboxPath(normalizedSessionId);
+  const existing = await readOutbox(normalizedSessionId);
   const idx = existing.findIndex((item) => item.id === event.id);
   if (idx >= 0) {
     existing[idx] = event;
@@ -269,8 +276,15 @@ export async function replaceOutbox(
   sessionId: string,
   events: OutboxEvent[]
 ): Promise<void> {
+  let normalizedSessionId: string;
+  try {
+    normalizedSessionId = normalizeSessionId(sessionId);
+  } catch {
+    return;
+  }
+
   await ensureDir();
-  const targetPath = outboxPath(sessionId);
+  const targetPath = outboxPath(normalizedSessionId);
   if (events.length === 0) {
     try {
       await unlink(targetPath);
@@ -357,8 +371,15 @@ export async function readOutboxSummary(): Promise<OutboxSummary> {
 }
 
 export async function clearOutbox(sessionId: string): Promise<void> {
+  let normalizedSessionId: string;
   try {
-    await unlink(outboxPath(sessionId));
+    normalizedSessionId = normalizeSessionId(sessionId);
+  } catch {
+    return;
+  }
+
+  try {
+    await unlink(outboxPath(normalizedSessionId));
   } catch {
     // File may not exist
   }

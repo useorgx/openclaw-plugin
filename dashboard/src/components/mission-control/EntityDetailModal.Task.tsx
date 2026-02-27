@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { colors, stateTones } from '@/lib/tokens';
+import { useState } from 'react';
+import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeTask } from '@/types';
 import {
@@ -19,26 +19,6 @@ interface TaskDetailProps {
   initiative: Initiative;
 }
 
-function dueDateLabel(dueDate: string | null | undefined): { text: string; tone: string } | null {
-  if (!dueDate) return null;
-  const due = Date.parse(dueDate);
-  if (!Number.isFinite(due)) return null;
-  const now = Date.now();
-  const daysUntil = Math.ceil((due - now) / 86_400_000);
-  if (daysUntil < 0) return { text: `${Math.abs(daysUntil)}d overdue`, tone: colors.red };
-  if (daysUntil <= 3) return { text: `Due in ${daysUntil}d`, tone: colors.red };
-  if (daysUntil <= 7) return { text: `Due in ${daysUntil}d`, tone: colors.amber };
-  return { text: `Due ${new Date(due).toLocaleDateString()}`, tone: 'rgba(255,255,255,0.5)' };
-}
-
-function statusDotColor(status: string): string {
-  const s = status.toLowerCase();
-  if (['active', 'in_progress', 'running'].includes(s)) return stateTones.active.text;
-  if (['done', 'completed'].includes(s)) return stateTones.done.text;
-  if (s === 'blocked') return stateTones.blocked.text;
-  return stateTones.planned.text;
-}
-
 export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const { agentEntityMap, openModal, mutations, closeModal, authToken, embedMode } = useMissionControl();
   const agents = agentEntityMap.get(task.id) ?? agentEntityMap.get(initiative.id) ?? [];
@@ -52,7 +32,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
   const [draftStatus, setDraftStatus] = useState(task.status);
 
   const status = task.status.toLowerCase();
-  const dueInfo = useMemo(() => dueDateLabel(task.dueDate), [task.dueDate]);
   const formatNoticeError = (raw: string | undefined, fallback: string) =>
     raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
@@ -146,35 +125,15 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           <div className="flex flex-wrap items-center gap-3">
             <EntityIcon type="task" size={16} />
             <h2 className="break-words text-title font-semibold text-white">{task.title}</h2>
-          </div>
-
-          {/* Inline metadata sentence */}
-          <div className="flex flex-wrap items-center gap-2 text-caption text-secondary">
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: statusDotColor(task.status) }}
-              />
+            <span
+              className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(task.status)}`}
+            >
               {formatEntityStatus(task.status)}
             </span>
-            {task.priority && (
-              <>
-                <span className="text-faint">·</span>
-                <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro font-medium uppercase tracking-wider text-secondary">
-                  {task.priority}
-                </span>
-              </>
-            )}
-            {dueInfo && (
-              <>
-                <span className="text-faint">·</span>
-                <span style={{ color: dueInfo.tone }}>{dueInfo.text}</span>
-              </>
-            )}
           </div>
 
           {editMode ? (
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
               <label className="block">
                 <span className="text-micro uppercase tracking-[0.08em] text-muted">Title</span>
                 <input
@@ -241,9 +200,32 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
 
           {agents.length > 0 && (
             <div className="flex items-center gap-2">
+              <span className="text-micro text-muted uppercase tracking-wider">Agents</span>
               <InferredAgentAvatars agents={agents} max={4} />
             </div>
           )}
+        </div>
+
+        {/* Details */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Status</div>
+            <div className="text-body text-primary mt-0.5">
+              {formatEntityStatus(task.status)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Priority</div>
+            <div className="text-body text-primary mt-0.5">
+              {task.priority ?? '-'}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
+            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
+            <div className="text-body text-primary mt-0.5">
+              {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
+            </div>
+          </div>
         </div>
 
         {notice && (
@@ -251,8 +233,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             {notice}
           </div>
         )}
-
-        <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
         {/* Artifacts */}
         <EntityArtifactsPanel
@@ -262,8 +242,11 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           embedMode={embedMode}
         />
 
-        {/* Notes — inline, always visible */}
-        <div className="space-y-2">
+        {/* Notes (inline) */}
+        <div className="mt-4 pt-4 border-t border-subtle">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+            Notes
+          </p>
           <EntityCommentsPanel
             entityType="task"
             entityId={task.id}

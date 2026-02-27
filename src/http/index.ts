@@ -176,6 +176,7 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerLiveLegacyRoutes } from "./routes/live-legacy.js";
 import { registerLiveMiscRoutes } from "./routes/live-misc.js";
+import { registerLiveTerminalRoutes } from "./routes/live-terminal.js";
 import { registerLiveSnapshotRoutes } from "./routes/live-snapshot.js";
 import { registerMissionControlActionsRoutes } from "./routes/mission-control-actions.js";
 import { registerMissionControlReadRoutes } from "./routes/mission-control-read.js";
@@ -187,7 +188,6 @@ import { registerSettingsByokRoutes } from "./routes/settings-byok.js";
 import { registerSummaryRoutes } from "./routes/summary.js";
 import { registerUsageRoutes } from "./routes/usage.js";
 import { registerWorkArtifactsRoutes } from "./routes/work-artifacts.js";
-import { registerLiveTerminalRoutes } from "./routes/live-terminal.js";
 import { registerLiveTriageRoutes } from "./routes/live-triage.js";
 import { registerRealtimeOrchestratorRoutes } from "./routes/realtime-orchestrator.js";
 
@@ -4031,6 +4031,11 @@ export function createHttpHandler(
     toLocalLiveInitiatives,
     localInitiativeStatusOverrides,
     mapDecisionEntity,
+    sendJson,
+    safeErrorMessage,
+  });
+  registerLiveTerminalRoutes(apiRouter, {
+    parseJsonRequest,
     sendJson,
     safeErrorMessage,
   });

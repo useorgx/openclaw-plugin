@@ -3,7 +3,7 @@ import { buildOrgxHeaders } from '@/lib/http';
 import { formatAbsoluteTime } from '@/lib/time';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 
-type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision' | 'slice_run' | 'run';
+type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision' | 'run';
 
 type EntityComment = {
   id: string;
@@ -68,6 +68,7 @@ export function EntityCommentsPanel(props: {
   authToken?: string | null;
   embedMode?: boolean;
   className?: string;
+  /** When "inline", renders borderless textarea and simple note blocks without heavy container */
   variant?: 'default' | 'inline';
 }) {
   const { entityType, entityId, authToken, embedMode, className, variant = 'default' } = props;
@@ -201,7 +202,7 @@ export function EntityCommentsPanel(props: {
           {demoMode ? 'Notes are unavailable in demo mode.' : 'No notes yet.'}
         </div>
       ) : (
-        <div className={`mt-2 ${isInline ? 'space-y-2 divide-y divide-white/[0.06]' : 'space-y-3'}`}>
+        <div className={`mt-2 space-y-2 ${isInline ? 'divide-y divide-white/[0.06]' : 'space-y-3'}`}>
           {comments.map((comment) => {
             const createdAtLabel = comment.created_at
               ? formatRelativeTime(comment.created_at)
@@ -209,6 +210,7 @@ export function EntityCommentsPanel(props: {
             const authorLabel =
               comment.author_name ??
               (comment.author_type === 'agent' ? comment.author_id : 'Unknown');
+
             if (isInline) {
               return (
                 <div key={comment.id} className="pt-2 first:pt-0">
@@ -224,6 +226,7 @@ export function EntityCommentsPanel(props: {
                 </div>
               );
             }
+
             const typeLabel = comment.comment_type ?? 'note';
             const severity = typeof comment.severity === 'string' ? comment.severity : 'info';
 

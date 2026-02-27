@@ -867,6 +867,46 @@ export interface RecordRunRetroResponse {
 }
 
 // =============================================================================
+// PROOF LADDER
+// =============================================================================
+
+export type ProofLevel =
+  | "L1_traceability"
+  | "L2_correctness"
+  | "L3_completion"
+  | "L4_adoption"
+  | "L5_impact"
+  | "L6_economics"
+  | "L7_repeatability";
+
+export type ProofEnforcement = "hard_block" | "soft_warn" | "reporting_only";
+
+export interface ProofLevelStatus {
+  level: ProofLevel;
+  label: string;
+  passed: boolean;
+  enforcement: ProofEnforcement;
+  missingFields: string[];
+  details?: string;
+}
+
+export interface ProofChainStatus {
+  task_id?: string;
+  run_id?: string;
+  domain?: OrgxAgentDomain;
+  levels: ProofLevelStatus[];
+  overall_passed: boolean;
+  missing_count: number;
+  /** Codes like "no_artifact", "no_quality_gate", "no_outcome" etc. */
+  reason_codes: string[];
+}
+
+export interface ProofStatusRequest {
+  task_id?: string;
+  run_id?: string;
+}
+
+// =============================================================================
 // LIVE SESSION GRAPH + HANDOFFS
 // =============================================================================
 // Live/session/handoff activity shapes are imported and re-exported from

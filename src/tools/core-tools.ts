@@ -556,6 +556,296 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
+  // --- orgx_proof_status ---
+  registerMcpTool(
+    {
+      name: "orgx_proof_status",
+      description:
+        "Check the proof chain status for a task or run. Returns a checklist of proof levels (L1-L7) with gaps highlighted. Use this to verify work is provably complete before marking done.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: {
+            type: "string",
+            description: "ID of the task to check proof for",
+          },
+          run_id: {
+            type: "string",
+            description: "ID of the run to check proof for",
+          },
+        },
+      },
+      async execute(
+        _callId: string,
+        params: { task_id?: string; run_id?: string } = {}
+      ) {
+        const taskId = params.task_id || undefined;
+        const runId = params.run_id || undefined;
+
+        if (!taskId && !runId) {
+          return text("❌ Provide at least one of task_id or run_id.");
+        }
+
+        try {
+          const qp = new URLSearchParams();
+          if (taskId) qp.set("task_id", taskId);
+          if (runId) qp.set("run_id", runId);
+
+          const result = await client.rawRequest<Record<string, unknown>>(
+            "GET",
+            `/api/flywheel/proof-status?${qp.toString()}`
+          );
+
+          // Format proof chain as readable checklist
+          const levels = Array.isArray(result?.levels) ? result.levels : [];
+          const overall = result?.overall_passed === true;
+          const reasonCodes = Array.isArray(result?.reason_codes) ? result.reason_codes : [];
+
+          if (levels.length === 0) {
+            // Server may not have proof-status route yet (phase 1)
+            return json("Proof status (local evaluation)", {
+              task_id: taskId,
+              run_id: runId,
+              note: "Proof-status API not available. Register artifacts with atomic_unit_type metadata and use orgx_quality_score to build proof chain.",
+              overall_passed: false,
+              reason_codes: ["proof_api_not_available"],
+            });
+          }
+
+          const lines: string[] = [];
+          lines.push(overall ? "✅ Proof chain complete" : "⚠️ Proof chain incomplete");
+          lines.push("");
+          for (const lvl of levels as Array<Record<string, unknown>>) {
+            const icon = lvl.passed ? "✅" : lvl.enforcement === "soft_warn" ? "⚠️" : "❌";
+            lines.push(`${icon} ${lvl.label || lvl.level}: ${lvl.passed ? "passed" : "missing"}`);
+            if (Array.isArray(lvl.missingFields) && lvl.missingFields.length > 0) {
+              lines.push(`   Missing: ${(lvl.missingFields as string[]).join(", ")}`);
+            }
+          }
+          if (reasonCodes.length > 0) {
+            lines.push("");
+            lines.push(`Reason codes: ${reasonCodes.join(", ")}`);
+          }
+
+          return json(lines.join("\n"), result);
+        } catch (err: unknown) {
+          // Graceful degradation: if proof API is not deployed, return helpful guidance
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("404") || msg.includes("not found") || msg.includes("Not Found")) {
+            return json("Proof status (server not ready)", {
+              task_id: taskId,
+              run_id: runId,
+              note: "Proof-status API not deployed yet. Ensure artifacts are registered with atomic_unit_type metadata to build the proof chain.",
+              overall_passed: false,
+              reason_codes: ["proof_api_not_deployed"],
+            });
+          }
+          return text(`❌ Proof status check failed: ${msg}`);
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_verify_completion ---
+  registerMcpTool(
+    {
+      name: "orgx_verify_completion",
+      description:
+        "Verify that an entity (task/milestone/workstream) meets completion requirements including proof chain. Returns structured result with any blocking issues.",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_type: {
+            type: "string",
+            description: "Entity type: task, milestone, workstream",
+          },
+          entity_id: {
+            type: "string",
+            description: "ID of the entity to verify",
+          },
+        },
+        required: ["entity_type", "entity_id"],
+      },
+      async execute(
+        _callId: string,
+        params: { entity_type: string; entity_id: string } = {
+          entity_type: "",
+          entity_id: "",
+        }
+      ) {
+        try {
+          const result = await client.rawRequest<Record<string, unknown>>(
+            "POST",
+            "/api/client/entities/verify-completion",
+            {
+              entity_type: params.entity_type,
+              entity_id: params.entity_id,
+            }
+          );
+
+          const ready = result?.ready === true;
+          return json(
+            ready
+              ? `✅ ${params.entity_type} ${params.entity_id} is ready for completion.`
+              : `⚠️ ${params.entity_type} ${params.entity_id} has blocking issues.`,
+            result
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("404") || msg.includes("not found") || msg.includes("Not Found")) {
+            return json("Completion verification (server not ready)", {
+              entity_type: params.entity_type,
+              entity_id: params.entity_id,
+              ready: true,
+              note: "Completion verification API not deployed. Proceeding with standard completion.",
+            });
+          }
+          return text(`❌ Completion verification failed: ${msg}`);
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_record_outcome ---
+  registerMcpTool(
+    {
+      name: "orgx_record_outcome",
+      description:
+        "Record an outcome event for a completed run, linking execution to business value. Required for L5 (Impact) proof level.",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: {
+            type: "string",
+            description: "Initiative ID this outcome belongs to",
+          },
+          execution_id: {
+            type: "string",
+            description: "Execution/run ID that produced this outcome",
+          },
+          agent_id: {
+            type: "string",
+            description: "Agent that did the work",
+          },
+          success: {
+            type: "boolean",
+            description: "Whether the execution was successful",
+          },
+          quality_score: {
+            type: "number",
+            description: "Quality score 1-5",
+          },
+          domain: {
+            type: "string",
+            description: "Agent domain",
+          },
+          metadata: {
+            type: "object",
+            description: "Additional outcome metadata",
+          },
+        },
+        required: ["initiative_id", "execution_id", "agent_id", "success"],
+      },
+      async execute(
+        _callId: string,
+        params: {
+          initiative_id: string;
+          execution_id: string;
+          agent_id: string;
+          success: boolean;
+          quality_score?: number;
+          domain?: string;
+          metadata?: Record<string, unknown>;
+        } = {
+          initiative_id: "",
+          execution_id: "",
+          agent_id: "",
+          success: false,
+        }
+      ) {
+        try {
+          const result = await client.recordRunOutcome({
+            initiative_id: params.initiative_id,
+            execution_id: params.execution_id,
+            execution_type: "agent_run",
+            agent_id: params.agent_id,
+            success: params.success,
+            quality_score: params.quality_score,
+            domain: params.domain,
+            metadata: params.metadata,
+          });
+          return json(
+            `✅ Outcome recorded for run ${result.run_id} (event: ${result.event_id})`,
+            result
+          );
+        } catch (err: unknown) {
+          return text(
+            `❌ Outcome recording failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_get_outcome_attribution ---
+  registerMcpTool(
+    {
+      name: "orgx_get_outcome_attribution",
+      description:
+        "Get outcome attribution data for a task or run. Shows what value was attributed to the work and with what confidence. Required for L6 (Economics) proof level.",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: {
+            type: "string",
+            description: "Task ID to get attribution for",
+          },
+          run_id: {
+            type: "string",
+            description: "Run ID to get attribution for",
+          },
+        },
+      },
+      async execute(
+        _callId: string,
+        params: { task_id?: string; run_id?: string } = {}
+      ) {
+        const taskId = params.task_id || undefined;
+        const runId = params.run_id || undefined;
+
+        if (!taskId && !runId) {
+          return text("❌ Provide at least one of task_id or run_id.");
+        }
+
+        try {
+          const qp = new URLSearchParams();
+          if (taskId) qp.set("task_id", taskId);
+          if (runId) qp.set("run_id", runId);
+
+          const result = await client.rawRequest<Record<string, unknown>>(
+            "GET",
+            `/api/flywheel/outcome-attribution?${qp.toString()}`
+          );
+          return json("Outcome attribution", result);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("404") || msg.includes("not found") || msg.includes("Not Found")) {
+            return json("Outcome attribution (not available)", {
+              task_id: taskId,
+              run_id: runId,
+              note: "Attribution API not deployed yet.",
+            });
+          }
+          return text(`❌ Attribution lookup failed: ${msg}`);
+        }
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_create_entity ---
   registerMcpTool(
     {

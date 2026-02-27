@@ -82,6 +82,80 @@ test("progress replay keeps run_id first and falls back to correlation_id on 404
   assert.equal(calls[1].correlation_id, "openclaw_run_abcdef0123456789abcdef01");
 });
 
+test("progress replay fallback also handles HTTP-prefixed 404 run-not-found errors", async () => {
+  const { createOutboxReplayer } = await importFreshModule();
+
+  const calls = [];
+  const runId = "00000000-0000-0000-0000-000000000333";
+  const replayer = createOutboxReplayer({
+    client: {
+      emitActivity: async (payload) => {
+        calls.push(payload);
+        if (calls.length === 1) {
+          throw new Error("HTTP 404 Not Found: run not found");
+        }
+        return { ok: true, run_id: "run_1", event_id: null, reused_run: false };
+      },
+      applyChangeset: async () => ({ ok: true, run_id: "run_1", applied_count: 0, replayed: false }),
+      recordRunOutcome: async () => ({ ok: true, run_id: "run_1", status: "recorded" }),
+      recordRunRetro: async () => ({ ok: true, run_id: "run_1", accepted_count: 0 }),
+      registerArtifact: async () => ({ ok: true, artifact: { id: "art_1" } }),
+    },
+    logger: {},
+    toErrorMessage: (err) => (err instanceof Error ? err.message : String(err)),
+    stableHash: () => "abcdef0123456789abcdef0123456789",
+    resolveReportingContext: () => ({
+      ok: true,
+      value: {
+        initiativeId: "11111111-1111-1111-1111-111111111111",
+        runId,
+        sourceClient: "openclaw",
+      },
+    }),
+    pickStringField: (input, ...keys) => {
+      for (const key of keys) {
+        const value = input[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+          return value.trim();
+        }
+      }
+      return null;
+    },
+    pickStringArrayField: () => undefined,
+    toReportingPhase: () => "execution",
+    parseRetroEntityType: () => null,
+    isUuid: (value) =>
+      typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+    readOutboxReplayState: () => ({
+      status: "idle",
+      lastReplayAttemptAt: null,
+      lastReplaySuccessAt: null,
+      lastReplayFailureAt: null,
+      lastReplayError: null,
+    }),
+    writeOutboxReplayState: () => {},
+  });
+
+  await replayer.replayOutboxEvent({
+    id: "evt-http-404",
+    type: "progress",
+    timestamp: "2026-02-19T00:00:00.000Z",
+    payload: {
+      initiative_id: "11111111-1111-1111-1111-111111111111",
+      run_id: runId,
+      message: "replaying progress",
+      phase: "execution",
+    },
+    activityItem: null,
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].run_id, runId);
+  assert.equal(calls[1].run_id, undefined);
+  assert.equal(calls[1].correlation_id, "openclaw_run_abcdef0123456789abcdef01");
+});
+
 test("retro replay normalizes structured retro payload before submit", async () => {
   const { createOutboxReplayer } = await importFreshModule();
   const longSummary = `  ${"s".repeat(4505)}  `;
@@ -182,4 +256,180 @@ test("retro replay normalizes structured retro payload before submit", async () 
     ],
     signals: { retries: 2 },
   });
+});
+
+// --- Proof Ladder: metadata preservation through outbox replay ---
+
+test("artifact replay preserves proof metadata fields (atomic_unit_type, queue_ref, run_ref, artifact_hash)", async () => {
+  const { createOutboxReplayer } = await importFreshModule();
+
+  const artifactCalls = [];
+  const replayer = createOutboxReplayer({
+    client: {
+      emitActivity: async () => ({ ok: true, run_id: "run_1", event_id: null, reused_run: false }),
+      applyChangeset: async () => ({ ok: true, run_id: "run_1", applied_count: 0, replayed: false }),
+      recordRunOutcome: async () => ({ ok: true, run_id: "run_1", status: "recorded" }),
+      recordRunRetro: async () => ({ ok: true, run_id: "run_1", accepted_count: 0 }),
+      getBaseUrl: () => "https://www.useorgx.com",
+      rawRequest: async (method, path, body) => {
+        if (method === "POST" && path === "/api/client/artifacts") {
+          artifactCalls.push(body);
+          return { ok: true, artifact: { id: body.artifact_id ?? "art-replay-1" } };
+        }
+        throw new Error(`Unexpected: ${method} ${path}`);
+      },
+      createEntity: async () => { throw new Error("should not be called"); },
+      updateEntity: async () => { throw new Error("should not be called"); },
+      registerArtifact: undefined,
+    },
+    logger: {},
+    toErrorMessage: (err) => (err instanceof Error ? err.message : String(err)),
+    stableHash: () => "abcdef0123456789abcdef0123456789",
+    resolveReportingContext: () => ({
+      ok: true,
+      value: {
+        initiativeId: "11111111-1111-1111-1111-111111111111",
+        runId: "00000000-0000-0000-0000-000000000999",
+        sourceClient: "openclaw",
+      },
+    }),
+    pickStringField: (input, ...keys) => {
+      for (const key of keys) {
+        const value = input[key];
+        if (typeof value === "string" && value.trim().length > 0) return value.trim();
+      }
+      return null;
+    },
+    pickStringArrayField: () => undefined,
+    toReportingPhase: () => "execution",
+    parseRetroEntityType: () => null,
+    isUuid: (value) =>
+      typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+    readOutboxReplayState: () => ({
+      status: "idle",
+      lastReplayAttemptAt: null,
+      lastReplaySuccessAt: null,
+      lastReplayFailureAt: null,
+      lastReplayError: null,
+    }),
+    writeOutboxReplayState: () => {},
+  });
+
+  await replayer.replayOutboxEvent({
+    id: "evt-proof-meta",
+    type: "artifact",
+    timestamp: "2026-02-26T00:00:00.000Z",
+    payload: {
+      initiative_id: "11111111-1111-1111-1111-111111111111",
+      entity_type: "task",
+      entity_id: "22222222-2222-2222-2222-222222222222",
+      name: "Proof Metadata Artifact",
+      artifact_type: "engineering.commit",
+      confidence_score: 0.9,
+      url: "https://example.com/commit/abc123",
+      metadata: {
+        atomic_unit_type: "engineering.commit",
+        queue_ref: { initiative_id: "init-1", workstream_id: "ws-1", task_id: "task-1" },
+        run_ref: { run_id: "run-1", correlation_id: "corr-1" },
+        artifact_hash: "deadbeef1234567890",
+        quality_gate: { passed: true, score: 4, threshold: 4 },
+        schema_validated: true,
+        commit_sha: "abc123",
+        branch: "main",
+      },
+    },
+    activityItem: null,
+  });
+
+  assert.equal(artifactCalls.length, 1);
+  const sentMetadata = artifactCalls[0].metadata;
+  assert.equal(sentMetadata.atomic_unit_type, "engineering.commit");
+  assert.deepEqual(sentMetadata.queue_ref, {
+    initiative_id: "init-1",
+    workstream_id: "ws-1",
+    task_id: "task-1",
+  });
+  assert.deepEqual(sentMetadata.run_ref, { run_id: "run-1", correlation_id: "corr-1" });
+  assert.equal(sentMetadata.commit_sha, "abc123");
+  assert.equal(sentMetadata.branch, "main");
+  // artifact_hash may be re-computed by registerArtifact, but the original is in payload
+  assert.ok(typeof sentMetadata.artifact_hash === "string");
+});
+
+test("outcome replay preserves proof metadata fields in metadata object", async () => {
+  const { createOutboxReplayer } = await importFreshModule();
+
+  const outcomeCalls = [];
+  const replayer = createOutboxReplayer({
+    client: {
+      emitActivity: async () => ({ ok: true, run_id: "run_1", event_id: null, reused_run: false }),
+      applyChangeset: async () => ({ ok: true, run_id: "run_1", applied_count: 0, replayed: false }),
+      recordRunOutcome: async (payload) => {
+        outcomeCalls.push(payload);
+        return { ok: true, run_id: "run_1", reused_run: false, execution_id: "exec_1", event_id: "evt_1" };
+      },
+      recordRunRetro: async () => ({ ok: true, run_id: "run_1", accepted_count: 0 }),
+      registerArtifact: async () => ({ ok: true, artifact: { id: "art_1" } }),
+    },
+    logger: {},
+    toErrorMessage: (err) => (err instanceof Error ? err.message : String(err)),
+    stableHash: () => "abcdef0123456789abcdef0123456789",
+    resolveReportingContext: () => ({
+      ok: true,
+      value: {
+        initiativeId: "11111111-1111-1111-1111-111111111111",
+        runId: "00000000-0000-0000-0000-000000000888",
+        sourceClient: "openclaw",
+      },
+    }),
+    pickStringField: (input, ...keys) => {
+      for (const key of keys) {
+        const value = input[key];
+        if (typeof value === "string" && value.trim().length > 0) return value.trim();
+      }
+      return null;
+    },
+    pickStringArrayField: () => undefined,
+    toReportingPhase: () => "execution",
+    parseRetroEntityType: () => null,
+    isUuid: (value) =>
+      typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+    readOutboxReplayState: () => ({
+      status: "idle",
+      lastReplayAttemptAt: null,
+      lastReplaySuccessAt: null,
+      lastReplayFailureAt: null,
+      lastReplayError: null,
+    }),
+    writeOutboxReplayState: () => {},
+  });
+
+  await replayer.replayOutboxEvent({
+    id: "evt-outcome-proof",
+    type: "outcome",
+    timestamp: "2026-02-26T00:00:00.000Z",
+    payload: {
+      initiative_id: "11111111-1111-1111-1111-111111111111",
+      execution_id: "exec-proof-1",
+      execution_type: "agent_run",
+      agent_id: "agent-eng-1",
+      success: true,
+      quality_score: 4,
+      metadata: {
+        proof_chain_complete: true,
+        atomic_unit_type: "engineering.commit",
+        quality_gate: { passed: true, score: 4, threshold: 4 },
+      },
+    },
+    activityItem: null,
+  });
+
+  assert.equal(outcomeCalls.length, 1);
+  const sentMeta = outcomeCalls[0].metadata;
+  assert.equal(sentMeta.proof_chain_complete, true);
+  assert.equal(sentMeta.atomic_unit_type, "engineering.commit");
+  assert.deepEqual(sentMeta.quality_gate, { passed: true, score: 4, threshold: 4 });
+  assert.equal(sentMeta.source, "orgx_openclaw_outbox_replay");
 });
