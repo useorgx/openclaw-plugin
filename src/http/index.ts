@@ -66,6 +66,7 @@ import {
   toLocalSessionTree,
 } from "../local-openclaw.js";
 import { defaultOutboxAdapter, type OutboxAdapter } from "../adapters/outbox.js";
+import { appendToOutbox } from "../outbox.js";
 import { readAgentContexts, upsertAgentContext, upsertRunContext } from "../agent-context-store.js";
 import type { AgentLaunchContext, RunLaunchContext } from "../agent-context-store.js";
 import {
@@ -331,7 +332,7 @@ async function mapWithConcurrency<T, R>(
 
 const ACTIVITY_WARM_THROTTLE_MS = 30_000;
 const activityWarmByKey = new Map<string, number>();
-const SNAPSHOT_RESPONSE_CACHE_TTL_MS = 1_500;
+const SNAPSHOT_RESPONSE_CACHE_TTL_MS = 800;
 const SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES = 16;
 const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
@@ -384,9 +385,10 @@ const LIVE_WORKSPACE_INITIATIVE_STATUSES = [
 ] as const;
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
+let snapshotCacheGeneration = 0;
 const snapshotResponseCache = new Map<
   string,
-  { expiresAt: number; payload: Record<string, unknown> }
+  { expiresAt: number; generation: number; payload: Record<string, unknown> }
 >();
 
 type ActivityBucket = "message" | "artifact" | "decision";
@@ -532,7 +534,7 @@ function snapshotActivityFingerprint(items: LiveActivityItem[]): string {
 function readSnapshotResponseCache(key: string): Record<string, unknown> | null {
   const entry = snapshotResponseCache.get(key);
   if (!entry) return null;
-  if (entry.expiresAt <= Date.now()) {
+  if (entry.generation !== snapshotCacheGeneration || entry.expiresAt <= Date.now()) {
     snapshotResponseCache.delete(key);
     return null;
   }
@@ -546,6 +548,7 @@ function writeSnapshotResponseCache(
   const now = Date.now();
   snapshotResponseCache.set(key, {
     expiresAt: now + SNAPSHOT_RESPONSE_CACHE_TTL_MS,
+    generation: snapshotCacheGeneration,
     payload,
   });
 
@@ -563,6 +566,7 @@ function writeSnapshotResponseCache(
 }
 
 function clearSnapshotResponseCache(): void {
+  snapshotCacheGeneration += 1;
   snapshotResponseCache.clear();
 }
 
@@ -783,22 +787,27 @@ function applyAgentContextsToActivity(
   });
 }
 
+function sessionNodeEpoch(node: SessionTreeResponse["nodes"][number]): number {
+  const raw = node.updatedAt ?? node.lastEventAt ?? node.startedAt;
+  if (!raw) return 0;
+  const epoch = Date.parse(raw);
+  return Number.isFinite(epoch) ? epoch : 0;
+}
+
 function mergeSessionTrees(
   base: SessionTreeResponse,
   extra: SessionTreeResponse
 ): SessionTreeResponse {
-  const seenNodes = new Set<string>();
-  const nodes: SessionTreeResponse["nodes"] = [];
-
-  for (const node of base.nodes ?? []) {
-    seenNodes.add(node.id);
-    nodes.push(node);
-  }
+  const nodeById = new Map<string, SessionTreeResponse["nodes"][number]>();
+  for (const node of base.nodes ?? []) nodeById.set(node.id, node);
   for (const node of extra.nodes ?? []) {
-    if (seenNodes.has(node.id)) continue;
-    seenNodes.add(node.id);
-    nodes.push(node);
+    const existing = nodeById.get(node.id);
+    if (!existing) { nodeById.set(node.id, node); continue; }
+    const existingEpoch = sessionNodeEpoch(existing);
+    const extraEpoch = sessionNodeEpoch(node);
+    if (extraEpoch > existingEpoch) nodeById.set(node.id, node);
   }
+  const nodes = Array.from(nodeById.values());
 
   const seenEdges = new Set<string>();
   const edges: SessionTreeResponse["edges"] = [];
@@ -838,93 +847,93 @@ function mergeSessionTrees(
   };
 }
 
+function asActivityMetadataRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function activityMetadataStr(
+  metadata: Record<string, unknown> | null,
+  keys: string[]
+): string | null {
+  if (!metadata) return null;
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value !== "string") continue;
+    const normalized = value.trim();
+    if (normalized.length > 0) return normalized;
+  }
+  return null;
+}
+
+const SEMANTIC_ACTIVITY_EVENTS = new Set([
+  "autopilot_slice_result",
+  "auto_continue_started",
+  "auto_continue_stopped",
+  "next_up_manual_dispatch_started",
+  "autopilot_slice_mcp_handshake_failed",
+  "autopilot_slice_timeout",
+  "autopilot_slice_log_stall",
+  "auto_continue_spawn_guard_blocked",
+  "auto_continue_spawn_guard_rate_limited",
+  "autopilot_autofix_scheduled",
+  "autopilot_autofix_executed",
+  "autopilot_autofix_skipped",
+]);
+
+function semanticActivityKey(item: LiveActivityItem): string | null {
+  const metadata = asActivityMetadataRecord(item.metadata);
+  const eventRaw = metadata?.event;
+  const event =
+    typeof eventRaw === "string" ? eventRaw.trim().toLowerCase() : "";
+  if (!event || !SEMANTIC_ACTIVITY_EVENTS.has(event)) return null;
+
+  const runLike =
+    (typeof item.runId === "string" && item.runId.trim().length > 0
+      ? item.runId.trim()
+      : null) ??
+    activityMetadataStr(metadata, [
+      "run_id",
+      "runId",
+      "slice_run_id",
+      "sliceRunId",
+      "active_run_id",
+      "activeRunId",
+      "last_run_id",
+      "lastRunId",
+    ]);
+  const correlationId = activityMetadataStr(metadata, ["correlation_id", "correlationId"]);
+  const initiativeId =
+    (typeof item.initiativeId === "string" && item.initiativeId.trim().length > 0
+      ? item.initiativeId.trim()
+      : null) ??
+    activityMetadataStr(metadata, ["initiative_id", "initiativeId"]);
+  const workstreamId = activityMetadataStr(metadata, ["workstream_id", "workstreamId"]);
+  const taskId = activityMetadataStr(metadata, ["task_id", "taskId"]);
+  const stopReason = activityMetadataStr(metadata, ["stop_reason", "stopReason"]);
+  const parsedStatus = activityMetadataStr(metadata, ["parsed_status", "parsedStatus"]);
+  const title = (item.title ?? "").trim().toLowerCase();
+
+  if (!runLike && !correlationId && !workstreamId && !taskId) return null;
+
+  return [
+    event,
+    initiativeId ?? "",
+    workstreamId ?? "",
+    taskId ?? "",
+    runLike ?? "",
+    correlationId ?? "",
+    stopReason ?? "",
+    parsedStatus ?? "",
+    title,
+  ].join("|");
+}
+
 function mergeActivities(
   base: LiveActivityItem[],
   extra: LiveActivityItem[],
   limit: number
 ): LiveActivityItem[] {
-  const asMetadataRecord = (value: unknown): Record<string, unknown> | null => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    return value as Record<string, unknown>;
-  };
-
-  const metadataString = (
-    metadata: Record<string, unknown> | null,
-    keys: string[]
-  ): string | null => {
-    if (!metadata) return null;
-    for (const key of keys) {
-      const value = metadata[key];
-      if (typeof value !== "string") continue;
-      const normalized = value.trim();
-      if (normalized.length > 0) return normalized;
-    }
-    return null;
-  };
-
-  const semanticEvents = new Set([
-    "autopilot_slice_result",
-    "auto_continue_started",
-    "auto_continue_stopped",
-    "next_up_manual_dispatch_started",
-    "autopilot_slice_mcp_handshake_failed",
-    "autopilot_slice_timeout",
-    "autopilot_slice_log_stall",
-    "auto_continue_spawn_guard_blocked",
-    "auto_continue_spawn_guard_rate_limited",
-    "autopilot_autofix_scheduled",
-    "autopilot_autofix_executed",
-    "autopilot_autofix_skipped",
-  ]);
-
-  const semanticActivityKey = (item: LiveActivityItem): string | null => {
-    const metadata = asMetadataRecord(item.metadata);
-    const eventRaw = metadata?.event;
-    const event =
-      typeof eventRaw === "string" ? eventRaw.trim().toLowerCase() : "";
-    if (!event || !semanticEvents.has(event)) return null;
-
-    const runLike =
-      (typeof item.runId === "string" && item.runId.trim().length > 0
-        ? item.runId.trim()
-        : null) ??
-      metadataString(metadata, [
-        "run_id",
-        "runId",
-        "slice_run_id",
-        "sliceRunId",
-        "active_run_id",
-        "activeRunId",
-        "last_run_id",
-        "lastRunId",
-      ]);
-    const correlationId = metadataString(metadata, ["correlation_id", "correlationId"]);
-    const initiativeId =
-      (typeof item.initiativeId === "string" && item.initiativeId.trim().length > 0
-        ? item.initiativeId.trim()
-        : null) ??
-      metadataString(metadata, ["initiative_id", "initiativeId"]);
-    const workstreamId = metadataString(metadata, ["workstream_id", "workstreamId"]);
-    const taskId = metadataString(metadata, ["task_id", "taskId"]);
-    const stopReason = metadataString(metadata, ["stop_reason", "stopReason"]);
-    const parsedStatus = metadataString(metadata, ["parsed_status", "parsedStatus"]);
-    const title = (item.title ?? "").trim().toLowerCase();
-
-    if (!runLike && !correlationId && !workstreamId && !taskId) return null;
-
-    return [
-      event,
-      initiativeId ?? "",
-      workstreamId ?? "",
-      taskId ?? "",
-      runLike ?? "",
-      correlationId ?? "",
-      stopReason ?? "",
-      parsedStatus ?? "",
-      title,
-    ].join("|");
-  };
-
   const merged = [...(base ?? []), ...(extra ?? [])].sort((a, b) => {
     const timestampDelta = Date.parse(b.timestamp) - Date.parse(a.timestamp);
     if (timestampDelta !== 0) return timestampDelta;
@@ -936,9 +945,9 @@ function mergeActivities(
   for (const item of merged) {
     if (seenIds.has(item.id)) continue;
     seenIds.add(item.id);
-    const semanticKey = semanticActivityKey(item);
-    if (semanticKey && seenSemantic.has(semanticKey)) continue;
-    if (semanticKey) seenSemantic.add(semanticKey);
+    const sk = semanticActivityKey(item);
+    if (sk && seenSemantic.has(sk)) continue;
+    if (sk) seenSemantic.add(sk);
     deduped.push(item);
     if (deduped.length >= limit) break;
   }
@@ -3893,6 +3902,50 @@ export function createHttpHandler(
         console.error(`[markRunCompleted] appendActivity failed for ${normalizedRunId}:`, err);
       }
 
+      // ── Write to outbox so snapshot merge picks up the completion ───────
+      try {
+        const outboxSessionId =
+          runtimeRecord?.initiativeId ?? existingRun?.initiativeId ?? normalizedRunId;
+        const outboxActivityItem: LiveActivityItem = {
+          id: randomUUID(),
+          type: "run_completed",
+          title: message,
+          description: reason,
+          agentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+          agentName: runtimeRecord?.agentName ?? null,
+          requesterAgentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+          requesterAgentName: runtimeRecord?.agentName ?? null,
+          executorAgentId: runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+          executorAgentName: runtimeRecord?.agentName ?? null,
+          runId: normalizedRunId,
+          initiativeId: runtimeRecord?.initiativeId ?? existingRun?.initiativeId ?? null,
+          timestamp: nowIso,
+          phase: "completed",
+          state: "done",
+          summary: message,
+          metadata: {
+            source: "dashboard_manual_complete",
+            reason,
+            remoteOk,
+            event: "dashboard_run_mark_completed",
+          },
+        };
+        await appendToOutbox(outboxSessionId, {
+          id: outboxActivityItem.id,
+          type: "outcome",
+          timestamp: nowIso,
+          payload: {
+            runId: normalizedRunId,
+            status: "completed",
+            reason,
+            remoteOk,
+          },
+          activityItem: outboxActivityItem,
+        });
+      } catch (err: unknown) {
+        console.error(`[markRunCompleted] outbox write failed for ${normalizedRunId}:`, err);
+      }
+
       return {
         ok: true,
         data: {
@@ -4120,6 +4173,7 @@ export function createHttpHandler(
     applyAgentContextsToActivity,
     mergeSessionTrees,
     mergeActivities,
+    semanticActivityKey,
     listRuntimeInstances,
     injectRuntimeInstancesAsSessions,
     enrichSessionsWithRuntime,

@@ -139,7 +139,7 @@ const LIVE_SESSION_STATUSES = new Set([
   'blocked',
 ]);
 
-const SESSION_CARRYOVER_WINDOW_MS = 45 * 60_000;
+const SESSION_CARRYOVER_WINDOW_MS = 10 * 60_000;
 
 function isAbortLikeMessage(message: string): boolean {
   const normalized = message.trim().toLowerCase();
@@ -280,7 +280,14 @@ function mergeSessionSnapshots(
     const now = Date.now();
     const carryNodes = previous.nodes.filter((node) => {
       const lastTouched = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
-      return isLiveSession(node) || now - lastTouched <= SESSION_CARRYOVER_WINDOW_MS;
+      if (isLiveSession(node)) return true;
+      const isTerminal = ['completed', 'archived', 'failed'].includes(
+        (node.status ?? '').toLowerCase()
+      );
+      const effectiveWindow = isTerminal
+        ? SESSION_CARRYOVER_WINDOW_MS / 3
+        : SESSION_CARRYOVER_WINDOW_MS;
+      return now - lastTouched <= effectiveWindow;
     });
     if (!carryNodes.length) return incoming;
 
@@ -313,7 +320,13 @@ function mergeSessionSnapshots(
     if (hasIdentity) continue;
 
     const lastTouched = toEpoch(node.updatedAt ?? node.lastEventAt ?? node.startedAt);
-    const withinWindow = now - lastTouched <= SESSION_CARRYOVER_WINDOW_MS;
+    const isTerminal = ['completed', 'archived', 'failed'].includes(
+      (node.status ?? '').toLowerCase()
+    );
+    const effectiveWindow = isTerminal
+      ? SESSION_CARRYOVER_WINDOW_MS / 3
+      : SESSION_CARRYOVER_WINDOW_MS;
+    const withinWindow = now - lastTouched <= effectiveWindow;
     if (isLiveSession(node) || withinWindow) {
       carryoverNodes.push(node);
       nodes.push(node);
