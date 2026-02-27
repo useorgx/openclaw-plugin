@@ -70,3 +70,29 @@ export const statusColor = (status: string): string => {
   if (s === 'archived' || s === 'draft') return 'rgba(255,255,255,0.5)';
   return 'rgba(255,255,255,0.35)';
 };
+
+// ---------------------------------------------------------------------------
+// LifecycleState visual mappings (used by Mission Control status pills)
+// ---------------------------------------------------------------------------
+
+/** CSS classes for LifecycleState values — used on status pills throughout Mission Control. */
+export const lifecycleStateClass: Record<string, string> = {
+  'Queued': 'text-white/60 bg-white/5 border-white/10',
+  'Dispatching': 'text-[#0AD4C4] bg-[#0AD4C4]/10 border-[#0AD4C4]/20',
+  'In Progress': 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20',
+  'Blocked': 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20',
+  'Completed': 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20',
+  'Paused': 'text-[#F5B700] bg-[#F5B700]/10 border-[#F5B700]/20',
+  'Failed': 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20',
+};
+
+/** Hex color for LifecycleState — used for progress bars and indicators. */
+export const lifecycleStateColor: Record<string, string> = {
+  'Queued': 'rgba(255,255,255,0.6)',
+  'Dispatching': '#0AD4C4',
+  'In Progress': '#14B8A6',
+  'Blocked': '#FF6B88',
+  'Completed': '#14B8A6',
+  'Paused': '#F5B700',
+  'Failed': '#FF6B88',
+};
