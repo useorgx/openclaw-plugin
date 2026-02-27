@@ -15,6 +15,8 @@ type WorkstreamApiItem = {
   summary?: string | null;
   status?: string;
   progress?: number | null;
+  sequence?: number | null;
+  order?: number | null;
   initiative_id?: string;
   created_at?: string | null;
 };
@@ -25,6 +27,8 @@ type MilestoneApiItem = {
   description?: string | null;
   status?: string;
   due_date?: string | null;
+  sequence?: number | null;
+  order?: number | null;
   initiative_id?: string;
   workstream_id?: string | null;
   created_at?: string | null;
@@ -37,6 +41,8 @@ type TaskApiItem = {
   status?: string;
   priority?: string | null;
   due_date?: string | null;
+  sequence?: number | null;
+  order?: number | null;
   initiative_id?: string;
   milestone_id?: string | null;
   workstream_id?: string | null;
@@ -61,48 +67,96 @@ interface UseInitiativeDetailsOptions {
   enabled?: boolean;
 }
 
+function normalizeSequenceIndex(value: number | null | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const integer = Math.max(0, Math.trunc(value));
+  // OrgX persists sequence as 1-based; dashboard sequenceIndex is 0-based.
+  if (integer > 0) return integer - 1;
+  return integer;
+}
+
+function sequenceHierarchyLabel(prefix: 'W' | 'M' | 'T', sequenceIndex: number | undefined): string | undefined {
+  if (typeof sequenceIndex !== 'number') return undefined;
+  return `${prefix}${sequenceIndex + 1}`;
+}
+
 const mapWorkstream = (
   item: WorkstreamApiItem,
   fallbackInitiativeId: string
-): InitiativeWorkstream => ({
-  id: item.id,
-  name: item.name ?? 'Untitled workstream',
-  summary: item.summary ?? null,
-  status: item.status ?? 'planned',
-  progress:
-    typeof item.progress === 'number' && !Number.isNaN(item.progress)
-      ? Math.max(0, Math.min(100, item.progress <= 1 ? item.progress * 100 : item.progress))
-      : null,
-  initiativeId: item.initiative_id ?? fallbackInitiativeId,
-  createdAt: item.created_at ?? null,
-});
+): InitiativeWorkstream => {
+  const sequenceIndex = normalizeSequenceIndex(item.sequence ?? item.order);
+  return {
+    id: item.id,
+    name: item.name ?? 'Untitled workstream',
+    summary: item.summary ?? null,
+    status: item.status ?? 'planned',
+    progress:
+      typeof item.progress === 'number' && !Number.isNaN(item.progress)
+        ? Math.max(0, Math.min(100, item.progress <= 1 ? item.progress * 100 : item.progress))
+        : null,
+    initiativeId: item.initiative_id ?? fallbackInitiativeId,
+    createdAt: item.created_at ?? null,
+    sequenceIndex,
+    hierarchyLabel: sequenceHierarchyLabel('W', sequenceIndex),
+  };
+};
 
 const mapMilestone = (
   item: MilestoneApiItem,
   fallbackInitiativeId: string
-): InitiativeMilestone => ({
-  id: item.id,
-  title: item.title ?? 'Untitled milestone',
-  description: item.description ?? null,
-  status: item.status ?? 'planned',
-  dueDate: item.due_date ?? null,
-  initiativeId: item.initiative_id ?? fallbackInitiativeId,
-  workstreamId: item.workstream_id ?? null,
-  createdAt: item.created_at ?? null,
-});
+): InitiativeMilestone => {
+  const sequenceIndex = normalizeSequenceIndex(item.sequence ?? item.order);
+  return {
+    id: item.id,
+    title: item.title ?? 'Untitled milestone',
+    description: item.description ?? null,
+    status: item.status ?? 'planned',
+    dueDate: item.due_date ?? null,
+    initiativeId: item.initiative_id ?? fallbackInitiativeId,
+    workstreamId: item.workstream_id ?? null,
+    createdAt: item.created_at ?? null,
+    sequenceIndex,
+    hierarchyLabel: sequenceHierarchyLabel('M', sequenceIndex),
+  };
+};
 
-const mapTask = (item: TaskApiItem, fallbackInitiativeId: string): InitiativeTask => ({
-  id: item.id,
-  title: item.title ?? 'Untitled task',
-  description: item.description ?? null,
-  status: item.status ?? 'todo',
-  priority: item.priority ?? null,
-  dueDate: item.due_date ?? null,
-  initiativeId: item.initiative_id ?? fallbackInitiativeId,
-  milestoneId: item.milestone_id ?? null,
-  workstreamId: item.workstream_id ?? null,
-  createdAt: item.created_at ?? null,
-});
+const mapTask = (item: TaskApiItem, fallbackInitiativeId: string): InitiativeTask => {
+  const sequenceIndex = normalizeSequenceIndex(item.sequence ?? item.order);
+  return {
+    id: item.id,
+    title: item.title ?? 'Untitled task',
+    description: item.description ?? null,
+    status: item.status ?? 'todo',
+    priority: item.priority ?? null,
+    dueDate: item.due_date ?? null,
+    initiativeId: item.initiative_id ?? fallbackInitiativeId,
+    milestoneId: item.milestone_id ?? null,
+    workstreamId: item.workstream_id ?? null,
+    createdAt: item.created_at ?? null,
+    sequenceIndex,
+    hierarchyLabel: sequenceHierarchyLabel('T', sequenceIndex),
+  };
+};
+
+function sortBySequence<T extends { sequenceIndex?: number; createdAt?: string | null }>(
+  rows: T[]
+): T[] {
+  return [...rows].sort((left, right) => {
+    const leftSeq =
+      typeof left.sequenceIndex === 'number'
+        ? left.sequenceIndex
+        : Number.POSITIVE_INFINITY;
+    const rightSeq =
+      typeof right.sequenceIndex === 'number'
+        ? right.sequenceIndex
+        : Number.POSITIVE_INFINITY;
+    if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+    const leftEpoch = left.createdAt ? Date.parse(left.createdAt) : 0;
+    const rightEpoch = right.createdAt ? Date.parse(right.createdAt) : 0;
+    if (leftEpoch !== rightEpoch) return leftEpoch - rightEpoch;
+    return 0;
+  });
+}
 
 function buildDemoInitiativeDetails(initiativeId: string): InitiativeDetails {
   const nowIso = new Date().toISOString();
@@ -270,13 +324,19 @@ export function useInitiativeDetails({
       ]);
 
       const workstreams = Array.isArray(workstreamsResponse.data)
-        ? workstreamsResponse.data.map((item) => mapWorkstream(item, initiativeId))
+        ? sortBySequence(
+            workstreamsResponse.data.map((item) => mapWorkstream(item, initiativeId))
+          )
         : [];
       const milestones = Array.isArray(milestonesResponse.data)
-        ? milestonesResponse.data.map((item) => mapMilestone(item, initiativeId))
+        ? sortBySequence(
+            milestonesResponse.data.map((item) => mapMilestone(item, initiativeId))
+          )
         : [];
       const tasks = Array.isArray(tasksResponse.data)
-        ? tasksResponse.data.map((item) => mapTask(item, initiativeId))
+        ? sortBySequence(
+            tasksResponse.data.map((item) => mapTask(item, initiativeId))
+          )
         : [];
 
       return {
