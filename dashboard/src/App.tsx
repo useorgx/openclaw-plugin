@@ -897,21 +897,34 @@ function DashboardShell({
     authToken: null,
     embedMode: false,
   });
+  const triageDiagnosticsItems = useMemo(
+    () => triageModel.items.filter((item) => item.kind === 'failure_diagnostic'),
+    [triageModel.items]
+  );
+  const triageDiagnosticsModel = useMemo(
+    () => ({
+      ...triageModel,
+      items: triageDiagnosticsItems,
+      total: triageDiagnosticsItems.length,
+    }),
+    [triageDiagnosticsItems, triageModel]
+  );
   const [triageDetailItem, setTriageDetailItem] = useState<import('@/types').LiveTriageItem | null>(null);
   const [triageDetailIndex, setTriageDetailIndex] = useState(0);
 
   const openTriageDetail = useCallback((item: import('@/types').LiveTriageItem) => {
     setTriageDetailItem(item);
-    const idx = triageModel.items.findIndex((i) => i.id === item.id);
+    const idx = triageDiagnosticsItems.findIndex((i) => i.id === item.id);
     setTriageDetailIndex(idx >= 0 ? idx : 0);
-  }, [triageModel.items]);
+  }, [triageDiagnosticsItems]);
 
   const navigateTriageDetail = useCallback((direction: 1 | -1) => {
-    if (triageModel.items.length === 0) return;
-    const nextIdx = (triageDetailIndex + direction + triageModel.items.length) % triageModel.items.length;
+    if (triageDiagnosticsItems.length === 0) return;
+    const nextIdx =
+      (triageDetailIndex + direction + triageDiagnosticsItems.length) % triageDiagnosticsItems.length;
     setTriageDetailIndex(nextIdx);
-    setTriageDetailItem(triageModel.items[nextIdx] ?? null);
-  }, [triageDetailIndex, triageModel.items]);
+    setTriageDetailItem(triageDiagnosticsItems[nextIdx] ?? null);
+  }, [triageDetailIndex, triageDiagnosticsItems]);
 
   const activityNextUpQueue = sharedNextUpQueue;
   const activityAutopilotRun = useMemo(
@@ -3066,12 +3079,12 @@ function DashboardShell({
                   {initiativesSidebarTab === 'in_progress' ? (
                     inProgressSubFilter === 'needs_attention' ? (
                       <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2">
-                        {/* Triage Queue - unified view */}
-                        {triageModel.items.length > 0 && (
+                        {/* Diagnostics only — decisions/blocked slices are handled by dedicated panels below. */}
+                        {triageDiagnosticsModel.items.length > 0 && (
                           <div className="min-h-[180px] max-h-[34%]">
                             <Suspense fallback={<div className="p-4 text-body text-secondary">Loading triage…</div>}>
                               <LazyTriageQueue
-                                model={triageModel}
+                                model={triageDiagnosticsModel}
                                 actions={triageActions}
                                 onOpenDetail={openTriageDetail}
                               />
@@ -3455,7 +3468,7 @@ function DashboardShell({
                 onClose={() => setTriageDetailItem(null)}
                 onNavigate={navigateTriageDetail}
                 currentIndex={triageDetailIndex}
-                totalCount={triageModel.items.length}
+                totalCount={triageDiagnosticsItems.length}
                 decisions={decisionsVisible ? data.decisions : undefined}
                 onApproveDecision={approveDecision}
                 onRejectDecision={rejectDecision}

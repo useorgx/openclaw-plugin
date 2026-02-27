@@ -476,6 +476,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   const selectedScope: DecisionBulkScope =
     selectedBulkOption?.id.includes('visible') ? 'visible' : 'selected';
   const selectedVerb: 'approve' | 'reject' = selectedBulkOption?.action ?? 'approve';
+  const showStatusBanner = statusMessage !== null || statusTone !== 'idle';
   const Wrapper = panelStyle === 'card' ? PremiumCard : 'div';
 
   return (
@@ -550,49 +551,49 @@ export const DecisionQueue = memo(function DecisionQueue({
             )}
           </div>
 
-          <div
-            aria-live="polite"
-            className={cn(
-              'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
-              statusTone === 'processing'
-                ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
-                : statusTone === 'success'
-                  ? 'border-lime/30 bg-lime/10 text-lime'
-                  : statusTone === 'warning'
-                    ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
-                    : 'border-strong bg-white/[0.02] text-secondary'
-            )}
-          >
-            {statusTone === 'processing' ? (
-              <span
-                aria-hidden
-                className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
-              />
-            ) : statusTone === 'success' ? (
-              <EntityIcon type="decision" size={12} className="opacity-90" />
-            ) : statusTone === 'warning' ? (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="opacity-90"
-              >
-                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                <line x1="12" x2="12" y1="9" y2="13" />
-                <line x1="12" x2="12.01" y1="17" y2="17" />
-              </svg>
-            ) : (
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
-            )}
-            <span className="min-w-0 truncate">
-              {statusMessage ?? 'Resolve decisions here. Status will remain visible until sync settles.'}
-            </span>
-          </div>
+          {showStatusBanner ? (
+            <div
+              aria-live="polite"
+              className={cn(
+                'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
+                statusTone === 'processing'
+                  ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
+                  : statusTone === 'success'
+                    ? 'border-lime/30 bg-lime/10 text-lime'
+                    : statusTone === 'warning'
+                      ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
+                      : 'border-strong bg-white/[0.02] text-secondary'
+              )}
+            >
+              {statusTone === 'processing' ? (
+                <span
+                  aria-hidden
+                  className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
+                />
+              ) : statusTone === 'success' ? (
+                <EntityIcon type="decision" size={12} className="opacity-90" />
+              ) : statusTone === 'warning' ? (
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="opacity-90"
+                >
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <line x1="12" x2="12" y1="9" y2="13" />
+                  <line x1="12" x2="12.01" y1="17" y2="17" />
+                </svg>
+              ) : (
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
+              )}
+              <span className="min-w-0 truncate">{statusMessage}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
