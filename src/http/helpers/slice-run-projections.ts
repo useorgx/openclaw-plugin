@@ -88,6 +88,8 @@ type MutableSliceRunProjection = SliceRunProjection & {
   _statusUpdatedEpoch: number;
   _updatedEpoch: number;
   _artifactIds: Set<string>;
+  _hasExplicitCompletion: boolean;
+  _peakReportedArtifacts: number;
 };
 
 const TERMINAL_STATES = new Set<SliceRunLifecycleState>([
@@ -243,6 +245,20 @@ function resolveSliceRunId(item: LiveActivityItem, metadata: Record<string, unkn
   return null;
 }
 
+function resolveDecisionSliceRunId(
+  decision: Record<string, unknown>,
+  metadata: Record<string, unknown> | null
+): string | null {
+  return (
+    metadataString(metadata, ["slice_run_id", "sliceRunId", "run_id", "runId", "correlation_id", "correlationId"]) ??
+    normalizeText(decision.runId) ??
+    normalizeText(decision.run_id) ??
+    normalizeText(decision.correlationId) ??
+    normalizeText(decision.correlation_id) ??
+    null
+  );
+}
+
 function resolveCorrelationId(
   item: LiveActivityItem,
   metadata: Record<string, unknown> | null
@@ -383,6 +399,8 @@ function createProjection(sliceRunId: string): MutableSliceRunProjection {
     _statusUpdatedEpoch: 0,
     _updatedEpoch: 0,
     _artifactIds: new Set<string>(),
+    _hasExplicitCompletion: false,
+    _peakReportedArtifacts: 0,
   };
 }
 
@@ -720,6 +738,10 @@ export function buildSliceRunProjections(
         0,
         Math.floor(metadataNumber(metadata, ["artifacts"]) ?? 0)
       );
+      projection._peakReportedArtifacts = Math.max(
+        projection._peakReportedArtifacts,
+        reportedArtifacts,
+      );
       projection.decisionCount = Math.max(
         projection.decisionCount,
         Math.max(0, Math.floor(metadataNumber(metadata, ["decisions"]) ?? 0))
@@ -817,6 +839,7 @@ export function buildSliceRunProjections(
     }
 
     if (item.type === "run_completed") {
+      projection._hasExplicitCompletion = true;
       setStatus({
         projection,
         status: "completed",
@@ -905,7 +928,9 @@ export function buildSliceRunProjections(
   for (const decision of input.decisions) {
     const decisionRecord = asRecord(decision);
     const metadata = asRecord(decisionRecord?.metadata);
-    const sliceRunId = metadataString(metadata, ["slice_run_id", "sliceRunId", "run_id", "runId", "correlation_id", "correlationId"]);
+    const sliceRunId = decisionRecord
+      ? resolveDecisionSliceRunId(decisionRecord, metadata)
+      : null;
     if (!sliceRunId) continue;
     const projection = projections.get(sliceRunId);
     if (!projection) continue;
@@ -986,7 +1011,12 @@ export function buildSliceRunProjections(
   const output: SliceRunProjection[] = [];
 
   for (const projection of projections.values()) {
-    if (projection.status === "completed" && !projection.hasArtifact) {
+    if (
+      projection.status === "completed" &&
+      !projection.hasArtifact &&
+      !projection._hasExplicitCompletion &&
+      projection._peakReportedArtifacts === 0
+    ) {
       setStatus({
         projection,
         status: "needs_review",

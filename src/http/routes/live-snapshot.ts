@@ -144,6 +144,7 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
     extra: LiveActivityItem[],
     limit: number
   ) => LiveActivityItem[];
+  semanticActivityKey: (item: LiveActivityItem) => string | null;
 
   listRuntimeInstances: (input: { limit: number }) => RuntimeInstanceRecord[];
   injectRuntimeInstancesAsSessions: (
@@ -767,13 +768,21 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       const buffered = await deps.readOutboxItems();
       if (buffered.length > 0) {
         const merged = [...activity, ...buffered]
-          .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+          .sort((a, b) => {
+            const d = Date.parse(b.timestamp) - Date.parse(a.timestamp);
+            if (d !== 0) return d;
+            return b.id.localeCompare(a.id);
+          })
           .slice(0, activityLimit);
         const deduped: LiveActivityItem[] = [];
-        const seen = new Set<string>();
+        const seenIds = new Set<string>();
+        const seenSemantic = new Set<string>();
         for (const item of merged) {
-          if (seen.has(item.id)) continue;
-          seen.add(item.id);
+          if (seenIds.has(item.id)) continue;
+          seenIds.add(item.id);
+          const sk = deps.semanticActivityKey(item);
+          if (sk && seenSemantic.has(sk)) continue;
+          if (sk) seenSemantic.add(sk);
           deduped.push(item);
         }
         activity = deduped;
