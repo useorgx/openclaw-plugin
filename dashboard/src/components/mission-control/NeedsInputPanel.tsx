@@ -184,28 +184,13 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
   const acceptOne = useCallback(async (item: SliceRunProjection, note?: string) => {
     const id = item.sliceRunId ?? item.id ?? '';
-    const runId = item.runId ?? id;
     try {
       setLastAction(`Accepting ${id.slice(0, 8)}…`);
       setPending((prev) => new Set(prev).add(id));
 
-      // Direct API call — bypass parent callback chain for reliability
-      const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
-      const url = `/orgx/api/runs/${encodeURIComponent(runId)}/actions/complete`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
-        setLastAction(`Error: ${body?.error ?? body?.message ?? response.status}`);
-      } else {
-        setLastAction(`Accepted ${id.slice(0, 8)}`);
-      }
-
-      // Also fire the parent callback so it can refetch
-      try { onAcceptSlice?.(item, note); } catch { /* ignore */ }
+      // Delegate to parent callback which calls the API and triggers refetch
+      try { await onAcceptSlice?.(item, note); } catch { /* ignore */ }
+      setLastAction(`Accepted ${id.slice(0, 8)}`);
     } catch (err) {
       setLastAction(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
     } finally {

@@ -278,6 +278,16 @@ function resolveRelevantActivity(
     return Boolean(runId && knownSliceIds.has(runId));
   }
 
+  if (item.type === "run_completed" || item.type === "run_failed") {
+    const runId = resolveSliceRunId(item, metadata);
+    return Boolean(runId && knownSliceIds.has(runId));
+  }
+
+  if (item.type === "run_started" || item.type === "delegation") {
+    const runId = resolveSliceRunId(item, metadata);
+    return Boolean(runId && knownSliceIds.has(runId));
+  }
+
   return false;
 }
 
@@ -543,7 +553,7 @@ function mergeDecisionOptions(
       label,
       description: normalizeText(record.description),
       impliedStatus: normalizeText(record.impliedStatus ?? record.implied_status),
-      requiresNote: Boolean(record.requiresNote ?? record.requires_note),
+      requiresNote: metadataBoolean(record, ["requiresNote", "requires_note"]) ?? false,
     });
   }
   if (next.length === 0) return;
@@ -787,6 +797,17 @@ export function buildSliceRunProjections(
           });
         }
       }
+      continue;
+    }
+
+    if (item.type === "run_completed") {
+      setStatus({
+        projection,
+        status: "completed",
+        atIso,
+        explainer: item.summary ?? item.description ?? "Accepted and marked complete.",
+        force: true,
+      });
       continue;
     }
 
