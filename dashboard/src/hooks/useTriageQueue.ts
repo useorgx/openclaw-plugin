@@ -6,7 +6,25 @@ import type {
   TriageActionRequest,
   TriageActionResponse,
   TriageListResponse,
+  TriageSeverity,
 } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Noise threshold
+// ---------------------------------------------------------------------------
+
+/** Controls which triage items pass the noise filter. */
+export type NoiseThreshold = 'all' | 'low' | 'medium' | 'high';
+
+const SEVERITY_ORDER: Record<TriageSeverity, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+/** Kinds considered routine noise when noise threshold is 'medium'. */
+const ROUTINE_NOISE_KINDS = new Set(['review_required']);
 
 // ---------------------------------------------------------------------------
 // Hook options
@@ -18,6 +36,10 @@ interface UseTriageQueueOptions {
   status?: string;
   authToken?: string | null;
   embedMode?: boolean;
+  /** Filter threshold — suppress low-severity noise items. Default: 'medium'. */
+  noiseThreshold?: NoiseThreshold;
+  /** Window (ms) for grouping duplicates by title. Default: 60000. */
+  dedupWindowMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,12 +59,20 @@ async function fetchTriageQueue(
   workspaceId: string | null,
   status: string,
   authToken?: string | null,
-  embedMode?: boolean
+  embedMode?: boolean,
+  noiseThreshold?: NoiseThreshold,
+  dedupWindowMs?: number
 ): Promise<TriageListResponse> {
   const params = new URLSearchParams();
   if (workspaceId) params.set('workspace_id', workspaceId);
   if (status) params.set('status', status);
   params.set('limit', '100');
+  if (noiseThreshold && noiseThreshold !== 'medium') {
+    params.set('noise_threshold', noiseThreshold);
+  }
+  if (dedupWindowMs != null && dedupWindowMs !== 60000) {
+    params.set('dedup_window', String(dedupWindowMs));
+  }
 
   const url = `/orgx/api/live/triage?${params.toString()}`;
   const res = await fetch(url, {
@@ -54,6 +84,88 @@ async function fetchTriageQueue(
   }
 
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Client-side noise filtering and dedup grouping
+// ---------------------------------------------------------------------------
+
+export interface DedupedTriageGroup {
+  /** The canonical (most recent) item in the group. */
+  item: LiveTriageItem;
+  /** All items in this group, including the canonical one. */
+  members: LiveTriageItem[];
+  /** Number of duplicate items collapsed into this group. */
+  count: number;
+}
+
+function applyNoiseFilter(
+  items: LiveTriageItem[],
+  threshold: NoiseThreshold
+): LiveTriageItem[] {
+  if (threshold === 'all' || threshold === 'low') return items;
+
+  if (threshold === 'high') {
+    return items.filter(
+      (item) => item.severity === 'critical' || item.severity === 'high'
+    );
+  }
+
+  // threshold === 'medium': suppress low-severity routine items
+  return items.filter((item) => {
+    if (item.severity === 'low' && ROUTINE_NOISE_KINDS.has(item.kind)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function groupByTitle(
+  items: LiveTriageItem[],
+  windowMs: number
+): DedupedTriageGroup[] {
+  const groups = new Map<string, DedupedTriageGroup>();
+
+  for (const item of items) {
+    const key = item.title.trim().toLowerCase();
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, { item, members: [item], count: 1 });
+      continue;
+    }
+
+    // Check time window: compare with the canonical item's lastSeenAt
+    const existingTs = new Date(existing.item.lastSeenAt).getTime();
+    const itemTs = new Date(item.lastSeenAt).getTime();
+    const diff = Math.abs(existingTs - itemTs);
+
+    if (diff <= windowMs) {
+      existing.members.push(item);
+      existing.count += 1;
+      // Keep the most recent item as canonical
+      if (itemTs > existingTs) {
+        existing.item = item;
+      }
+    } else {
+      // Outside window — treat as separate (use item id as unique key)
+      groups.set(`${key}::${item.id}`, { item, members: [item], count: 1 });
+    }
+  }
+
+  return Array.from(groups.values());
+}
+
+function sortBySeverityThenRecency(groups: DedupedTriageGroup[]): DedupedTriageGroup[] {
+  return [...groups].sort((a, b) => {
+    const sevA = SEVERITY_ORDER[a.item.severity] ?? 3;
+    const sevB = SEVERITY_ORDER[b.item.severity] ?? 3;
+    if (sevA !== sevB) return sevA - sevB;
+    return (
+      new Date(b.item.lastSeenAt).getTime() -
+      new Date(a.item.lastSeenAt).getTime()
+    );
+  });
 }
 
 async function postTriageAction(
@@ -83,8 +195,15 @@ async function postTriageAction(
 // ---------------------------------------------------------------------------
 
 export interface TriageQueueModel {
+  /** Raw items from the API (post-server-side filtering). */
   items: LiveTriageItem[];
+  /** Grouped and noise-filtered items for display. */
+  groups: DedupedTriageGroup[];
   total: number;
+  /** Total after noise filtering. */
+  filteredTotal: number;
+  /** How many items were suppressed by the noise filter. */
+  suppressedCount: number;
   isLoading: boolean;
   isFetching: boolean;
   error: Error | null;
@@ -112,6 +231,8 @@ export function useTriageQueue(options: UseTriageQueueOptions = {}): {
     status = 'open',
     authToken = null,
     embedMode = false,
+    noiseThreshold = 'medium',
+    dedupWindowMs = 60_000,
   } = options;
 
   const queryClient = useQueryClient();
@@ -125,7 +246,8 @@ export function useTriageQueue(options: UseTriageQueueOptions = {}): {
 
   const query = useQuery({
     queryKey,
-    queryFn: () => fetchTriageQueue(workspaceId, status, authToken, embedMode),
+    queryFn: () =>
+      fetchTriageQueue(workspaceId, status, authToken, embedMode, noiseThreshold, dedupWindowMs),
     enabled,
     refetchInterval: 8000,
     staleTime: 4000,
@@ -163,17 +285,35 @@ export function useTriageQueue(options: UseTriageQueueOptions = {}): {
     [actionMutation]
   );
 
+  const rawItems = query.data?.items ?? [];
+
+  const { filteredItems, suppressedCount } = useMemo(() => {
+    const filtered = applyNoiseFilter(rawItems, noiseThreshold);
+    return {
+      filteredItems: filtered,
+      suppressedCount: rawItems.length - filtered.length,
+    };
+  }, [rawItems, noiseThreshold]);
+
+  const groups = useMemo(
+    () => sortBySeverityThenRecency(groupByTitle(filteredItems, dedupWindowMs)),
+    [filteredItems, dedupWindowMs]
+  );
+
   const model: TriageQueueModel = useMemo(
     () => ({
-      items: query.data?.items ?? [],
+      items: rawItems,
+      groups,
       total: query.data?.total ?? 0,
+      filteredTotal: filteredItems.length,
+      suppressedCount,
       isLoading: query.isLoading,
       isFetching: query.isFetching,
       error: query.error as Error | null,
       degraded: query.data?.degraded ?? [],
       refetch: query.refetch,
     }),
-    [query]
+    [rawItems, groups, filteredItems.length, suppressedCount, query]
   );
 
   const actions: TriageQueueActions = useMemo(

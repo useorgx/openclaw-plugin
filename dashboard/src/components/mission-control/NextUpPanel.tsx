@@ -10,8 +10,9 @@ import { InlineToast } from '@/components/shared/InlineToast';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
-import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
+import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
+import { useAutoContinue } from '@/hooks/useAutoContinue';
 import type { NextUpQueueBulkAction } from '@/types';
 
 type UseNextUpQueueActionsResult = ReturnType<typeof useNextUpQueueActions>;
@@ -148,6 +149,40 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+const ZOOM_LEVELS: Array<{ value: ZoomLevel; label: string }> = [
+  { value: 'initiative', label: 'Initiative' },
+  { value: 'workstream', label: 'Workstream' },
+  { value: 'milestone', label: 'Milestone' },
+];
+
+function ZoomLevelToggle({
+  value,
+  onChange,
+}: {
+  value: ZoomLevel;
+  onChange: (level: ZoomLevel) => void;
+}) {
+  return (
+    <div className="flex gap-1 p-1 rounded-lg bg-white/5 border border-white/[0.08]">
+      {ZOOM_LEVELS.map((level) => (
+        <button
+          key={level.value}
+          type="button"
+          onClick={() => onChange(level.value)}
+          className={cn(
+            'px-3 py-1 text-[11px] font-medium rounded-md transition-all duration-150',
+            value === level.value
+              ? 'bg-white/10 text-white shadow-[inset_0_0_8px_rgba(191,255,0,0.08)]'
+              : 'text-white/50 hover:text-white/70'
+          )}
+        >
+          {level.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -511,6 +546,8 @@ export function NextUpPanel({
     else setLocalCompact(next);
   };
   const [notice, setNotice] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('workstream');
+  const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
   const triagePlacement: QueuePlacement = 'bottom';
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
@@ -529,6 +566,7 @@ export function NextUpPanel({
     embedMode,
     enabled: queueModel ? false : true,
     snapshotVersion,
+    zoomLevel,
   });
   const queue = queueModel ?? internalQueue;
   const {
@@ -540,7 +578,16 @@ export function NextUpPanel({
     refetch,
     playWorkstream,
     startWorkstreamAutoContinue,
+    initiativeGroups,
+    milestoneGroups,
   } = queue;
+
+  const autoContinue = useAutoContinue({
+    initiativeId,
+    authToken,
+    embedMode,
+    enabled: Boolean(initiativeId),
+  });
 
   const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextUpActions = queueActions ?? internalNextUpActions;
@@ -632,6 +679,12 @@ export function NextUpPanel({
     const exists = visibleItems.some((item) => itemKey(item) === menuKey);
     if (!exists) setMenuKey(null);
   }, [menuKey, visibleItems]);
+
+  useEffect(() => {
+    if (!launchFeedback) return;
+    const timeout = window.setTimeout(() => setLaunchFeedback(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [launchFeedback]);
 
   useEffect(() => {
     if (degraded.length === 0) {
@@ -883,6 +936,37 @@ export function NextUpPanel({
     }
   };
 
+  const handleLaunch = async () => {
+    if (!initiativeId) return;
+    setLaunchFeedback('Dispatching...');
+    try {
+      const workstreamIds = items
+        .filter((item) => item.queueState !== 'running' && item.queueState !== 'completed')
+        .map((item) => item.workstreamId);
+      const result = await autoContinue.launchSingle({
+        initiativeId,
+        workstreamIds: workstreamIds.length > 0 ? workstreamIds : undefined,
+      });
+      const count = result?.dispatched ?? workstreamIds.length;
+      setLaunchFeedback(`${count} workstream${count === 1 ? '' : 's'} dispatched`);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : '';
+      setLaunchFeedback(formatQueueActionError(raw, 'Launch failed'));
+    }
+  };
+
+  const handleAutopilot = async () => {
+    if (!initiativeId) return;
+    setLaunchFeedback('Enabling autopilot...');
+    try {
+      await autoContinue.start({});
+      setLaunchFeedback('Autopilot enabled');
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : '';
+      setLaunchFeedback(formatQueueActionError(raw, 'Autopilot failed'));
+    }
+  };
+
   const statusTone: 'upgrade' | 'error' | 'notice' | null = upgradeGate
     ? 'upgrade'
     : error
@@ -1004,6 +1088,48 @@ export function NextUpPanel({
           </div>
         </div>
       ) : null}
+
+      {/* Zoom-level toggle + Launch / Autopilot controls */}
+      <div className="flex items-center justify-between gap-2 border-b border-subtle px-3 py-2">
+        <ZoomLevelToggle value={zoomLevel} onChange={setZoomLevel} />
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={autoContinue.isLaunching || !initiativeId}
+            onClick={() => void handleLaunch()}
+            className="border border-[#BFFF00]/30 text-[#BFFF00] hover:bg-[#BFFF00]/10 px-3 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-40 transition-colors"
+            title="Launch queued workstreams"
+          >
+            <PlayGlyph className="h-3 w-3" />
+            <span>Launch</span>
+          </button>
+          <button
+            type="button"
+            disabled={autoContinue.isStarting || !initiativeId}
+            onClick={() => void handleAutopilot()}
+            className="border border-[#14B8A6]/30 text-[#14B8A6] hover:bg-[#14B8A6]/10 px-3 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-40 transition-colors"
+            title="Enable autopilot for this initiative"
+          >
+            <AutoGlyph className="h-3 w-3" />
+            <span>Autopilot</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Launch feedback toast */}
+      {launchFeedback && (
+        <div className="px-3 pt-1.5">
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18 }}
+            className="rounded-lg border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-2.5 py-1.5 text-[11px] text-[#E1FFB2]"
+          >
+            {launchFeedback}
+          </motion.div>
+        </div>
+      )}
 
       {showStatusBanner && (
         <div className="px-3 pt-2">

@@ -3,6 +3,9 @@ import type { MissionControlEdge, MissionControlNode } from '@/types';
 import { colors } from '@/lib/tokens';
 import { LevelIcon } from './LevelIcon';
 
+// Status values that indicate a blocked node
+const BLOCKED_STATUSES = new Set(['blocked', 'failed', 'cancelled']);
+
 interface DependencyMapPanelProps {
   nodes: MissionControlNode[];
   edges: MissionControlEdge[];
@@ -75,6 +78,17 @@ export function DependencyMapPanel({
     }
     return ids;
   }, [selectedNodeId, baseVisibleEdges]);
+
+  /** Set of node IDs that have a blocked/failed status. */
+  const blockedNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of nodes) {
+      if (BLOCKED_STATUSES.has(node.status)) {
+        ids.add(node.id);
+      }
+    }
+    return ids;
+  }, [nodes]);
 
   const filteredNodeIds = useMemo(() => {
     let ids = new Set<string>(Array.from(visibleNodeIds));
@@ -171,6 +185,7 @@ export function DependencyMapPanel({
                 {grouped[groupKey].slice(0, 10).map((node) => {
                   const selected = selectedNodeId === node.id;
                   const related = !selected && relatedNodeIds.has(node.id);
+                  const isBlocked = blockedNodeIds.has(node.id);
 
                   return (
                     <button
@@ -181,13 +196,15 @@ export function DependencyMapPanel({
                       className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
                         selected
                           ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12'
-                          : related
-                            ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12'
-                            : 'border-strong bg-white/[0.03] hover:bg-white/[0.08]'
+                          : isBlocked
+                            ? 'border-[#FF6B88]/35 bg-[#FF6B88]/8 animate-[pulseSoft_2s_ease-in-out_infinite]'
+                            : related
+                              ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12'
+                              : 'border-strong bg-white/[0.03] hover:bg-white/[0.08]'
                       }`}
                     >
                       <LevelIcon type={node.type} />
-                      <span className="truncate text-caption text-primary">{node.title}</span>
+                      <span className={`truncate text-caption ${isBlocked && !selected ? 'text-[#FF6B88]' : 'text-primary'}`}>{node.title}</span>
                     </button>
                   );
                 })}
@@ -214,21 +231,31 @@ export function DependencyMapPanel({
               if (!from || !to) return null;
               const highlighted =
                 selectedNodeId === from.id || selectedNodeId === to.id;
+              const edgeTouchesBlocked =
+                blockedNodeIds.has(from.id) || blockedNodeIds.has(to.id);
 
               return (
                 <button
                   key={`${edge.from}-${edge.to}`}
                   type="button"
                   onClick={() => onSelectNode(to.id)}
-                  className="flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left hover:bg-white/[0.06]"
+                  className={`flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left hover:bg-white/[0.06] ${
+                    edgeTouchesBlocked && !highlighted ? 'bg-[#FF6B88]/[0.04]' : ''
+                  }`}
                 >
                   <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: highlighted ? colors.lime : 'rgba(255,255,255,0.35)' }}
+                    className={`h-1.5 w-1.5 rounded-full ${edgeTouchesBlocked && !highlighted ? 'animate-[pulseSoft_2s_ease-in-out_infinite]' : ''}`}
+                    style={{
+                      backgroundColor: highlighted
+                        ? colors.lime
+                        : edgeTouchesBlocked
+                          ? '#FF6B88'
+                          : 'rgba(255,255,255,0.35)',
+                    }}
                   />
-                  <span className="truncate text-micro text-primary">{from.title}</span>
-                  <span className="text-micro text-muted">→</span>
-                  <span className="truncate text-micro text-primary">{to.title}</span>
+                  <span className={`truncate text-micro ${blockedNodeIds.has(from.id) ? 'text-[#FF6B88]' : 'text-primary'}`}>{from.title}</span>
+                  <span className={`text-micro ${edgeTouchesBlocked ? 'text-[#FF6B88]/60' : 'text-muted'}`}>→</span>
+                  <span className={`truncate text-micro ${blockedNodeIds.has(to.id) ? 'text-[#FF6B88]' : 'text-primary'}`}>{to.title}</span>
                 </button>
               );
             })}

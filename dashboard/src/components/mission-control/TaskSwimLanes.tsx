@@ -2,6 +2,9 @@ import { colors } from '@/lib/tokens';
 import type { InitiativeTask, Initiative } from '@/types';
 import { statusRank } from '@/lib/entityStatusColors';
 import { TaskChip } from './TaskChip';
+import { resolveAgentPersona } from './AgentInference';
+
+const RUNNING_STATUSES = new Set(['active', 'in_progress', 'running', 'working', 'dispatching']);
 
 function parsePriorityNum(priority: string | null | undefined): number {
   if (!priority) return 50;
@@ -17,12 +20,17 @@ function parsePriorityNum(priority: string | null | undefined): number {
 interface TaskSwimLanesProps {
   tasks: InitiativeTask[];
   initiative: Initiative;
+  /** Optional: agent identifier executing this initiative's workstream. */
+  agentId?: string | null;
+  /** Optional: agent display name. */
+  agentName?: string | null;
 }
 
 type StatusGroup = {
   label: string;
   color: string;
   tasks: InitiativeTask[];
+  isRunning: boolean;
 };
 
 const groupTasks = (tasks: InitiativeTask[]): StatusGroup[] => {
@@ -55,41 +63,76 @@ const groupTasks = (tasks: InitiativeTask[]): StatusGroup[] => {
   );
 
   return [
-    { label: 'Blocked', color: colors.red, tasks: groups.blocked },
-    { label: 'Active', color: colors.lime, tasks: groups.active },
-    { label: 'Todo', color: 'rgba(255,255,255,0.4)', tasks: groups.todo },
-    { label: 'Done', color: colors.teal, tasks: groups.done },
+    { label: 'Blocked', color: colors.red, tasks: groups.blocked, isRunning: false },
+    { label: 'Active', color: colors.lime, tasks: groups.active, isRunning: true },
+    { label: 'Todo', color: 'rgba(255,255,255,0.4)', tasks: groups.todo, isRunning: false },
+    { label: 'Done', color: colors.teal, tasks: groups.done, isRunning: false },
   ].filter((g) => g.tasks.length > 0);
 };
 
-export function TaskSwimLanes({ tasks, initiative }: TaskSwimLanesProps) {
+export function TaskSwimLanes({ tasks, initiative, agentId, agentName }: TaskSwimLanesProps) {
   if (!tasks.length) return null;
 
   const groups = groupTasks(tasks);
 
+  // Resolve agent persona for running lane accent
+  const agentPersona = agentId || agentName
+    ? resolveAgentPersona(agentId, agentName)
+    : null;
+
   return (
     <div className="flex items-start gap-4 overflow-x-auto pb-1">
-      {groups.map((group) => (
-        <div key={group.label} className="flex items-center gap-1.5 flex-shrink-0">
-          <span
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: group.color }}
-          />
-          <span className="text-micro text-muted uppercase tracking-wider">
-            {group.label} ({group.tasks.length})
-          </span>
-          <div className="flex items-center gap-1 ml-1">
-            {group.tasks.slice(0, 6).map((task) => (
-              <TaskChip key={task.id} task={task} initiative={initiative} />
-            ))}
-            {group.tasks.length > 6 && (
-              <span className="text-micro text-muted ml-0.5">
-                +{group.tasks.length - 6}
+      {groups.map((group) => {
+        // Determine if any tasks in this group are in a running state
+        const hasRunningTask = group.isRunning &&
+          group.tasks.some((t) => RUNNING_STATUSES.has(t.status.toLowerCase()));
+        const laneAgentColor = hasRunningTask && agentPersona ? agentPersona.color : null;
+
+        return (
+          <div
+            key={group.label}
+            className="flex items-center gap-1.5 flex-shrink-0 rounded-md px-1.5 py-0.5 transition-colors"
+            style={
+              laneAgentColor
+                ? {
+                    borderLeft: `2px solid ${laneAgentColor}`,
+                    backgroundColor: `${laneAgentColor}08`,
+                  }
+                : undefined
+            }
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: group.color }}
+            />
+            <span className="text-micro text-muted uppercase tracking-wider">
+              {group.label} ({group.tasks.length})
+            </span>
+
+            {/* Show agent executing indicator for running lane */}
+            {laneAgentColor && agentPersona && (
+              <span
+                className="text-[10px] font-semibold truncate max-w-[80px]"
+                style={{ color: laneAgentColor }}
+                title={agentPersona.displayLabel}
+              >
+                {agentPersona.name}
               </span>
             )}
+
+            <div className="flex items-center gap-1 ml-1">
+              {group.tasks.slice(0, 6).map((task) => (
+                <TaskChip key={task.id} task={task} initiative={initiative} />
+              ))}
+              {group.tasks.length > 6 && (
+                <span className="text-micro text-muted ml-0.5">
+                  +{group.tasks.length - 6}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
