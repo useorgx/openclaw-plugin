@@ -2,6 +2,23 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.1 - 2026-02-27
+
+### Mission Control Hierarchy + Queue Clarity
+- Added sequence-aware normalization and ordering across live initiatives, initiative details, and mission graph nodes (`I/W/M/T` label consistency).
+- Updated Mission Control default initiative sorting to prioritize explicit sequence before status/priority tie-breaks.
+- Expanded Next Up to support initiative/workstream/milestone rendering modes with mode-aware counts, empty states, and controls.
+- Added explicit Autopilot confirmation and direct dispatch affordances for grouped Next Up cards.
+
+### Canonical Queue Contract Hardening
+- Improved canonical Next Up normalization for snake_case pagination and runner fields.
+- Added parsing support for JSON-string array payloads (`runner_agents`, `slice_task_ids`) in canonical responses.
+- Normalized dependency-wait queue states (for example `waiting_dependency`) to blocked semantics.
+- Mapped ambiguous `active` queue state to queued semantics to avoid misleading in-progress UI.
+
+### Test Coverage
+- Added/expanded Mission Control next-up tests for noise-threshold behavior, pagination metadata forwarding, runner normalization, dependency-blocked queue states, and blocked-reason surfacing.
+
 ## 0.5.0 - 2026-02-20
 
 ### Mission Control + Activity UX
