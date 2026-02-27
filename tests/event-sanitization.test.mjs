@@ -72,6 +72,31 @@ test("classifyOutboxReplaySkip only skips mock events when explicitly enabled", 
     }),
     null
   );
+  assert.equal(
+    mod.classifyOutboxReplaySkip({
+      type: "artifact",
+      payload: {
+        source_client: "OpenClaw",
+        initiative_id: "init-local-2",
+        entity_type: "workstream",
+      },
+    }),
+    null
+  );
+  assert.equal(
+    mod.classifyOutboxReplaySkip({
+      type: "artifact",
+      payload: {
+        initiative_id: "init-local-3",
+        entity_type: "workstream",
+      },
+      activityItem: baseActivity({
+        id: "evt-local-artifact-upper",
+        metadata: { event: "AUTOPILOT_SLICE_ARTIFACT_BUFFERED" },
+      }),
+    }),
+    null
+  );
 });
 
 test("shouldHideActivityItem hides mock activity only when env toggle is enabled", async () => {
