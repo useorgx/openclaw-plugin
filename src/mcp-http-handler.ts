@@ -72,7 +72,7 @@ type ToolScope = {
 // NOTE: This scopes only the tools exposed by this plugin (OrgX reporting + mutation).
 // It cannot restrict OpenClaw-native tools (filesystem, shell, etc).
 // Base tools available to all domain scopes
-const ORGX_BASE_TOOLS = [
+export const ORGX_BASE_TOOLS = [
   "orgx_status",
   "orgx_sync",
   "list_agent_configs",
@@ -91,7 +91,7 @@ const ORGX_BASE_TOOLS = [
   "orgx_verify_completion",
 ] as const;
 
-const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
+export const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
   engineering: [...ORGX_BASE_TOOLS],
   product: [...ORGX_BASE_TOOLS],
   design: [...ORGX_BASE_TOOLS],

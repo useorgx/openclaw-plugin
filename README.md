@@ -163,17 +163,48 @@ Environment overrides:
 
 ### MCP Tools
 
-The plugin registers these tools for your agents:
+The plugin currently registers **27 MCP tools** from `src/tools/core-tools.ts`.
 
-- **`orgx_status`** — Get current org status (initiatives, agents, tasks, decisions)
-- **`orgx_status_json`** — Get current org status as JSON (for MCP Apps / automation)
-- **`orgx_live_app`** — Open the OrgX Live MCP App (interactive widget)
-- **`orgx_sync`** — Bidirectional memory sync with OrgX
-- **`orgx_spawn_check`** — Pre-spawn quality gate + model routing
-- **`orgx_quality_score`** — Record quality scores for completed work
-- **`orgx_create_entity`** — Create initiatives, tasks, decisions, etc.
-- **`orgx_update_entity`** — Update entity status and fields
-- **`orgx_list_entities`** — Query entities by type and status
+Core sync/reporting:
+- `orgx_status`
+- `orgx_sync`
+- `orgx_emit_activity`
+- `orgx_report_progress`
+- `orgx_register_artifact`
+
+Delegation, checkpoints, run control:
+- `orgx_delegation_preflight`
+- `orgx_spawn_check`
+- `orgx_run_action`
+- `orgx_checkpoints_list`
+- `orgx_checkpoint_restore`
+
+Quality, proof, and outcomes:
+- `orgx_quality_score`
+- `orgx_proof_status`
+- `orgx_verify_completion`
+- `orgx_record_outcome`
+- `orgx_get_outcome_attribution`
+
+Entity and stream management:
+- `orgx_create_entity`
+- `orgx_update_entity`
+- `orgx_list_entities`
+- `orgx_reassign_stream`
+- `orgx_reassign_streams`
+- `orgx_apply_changeset`
+- `update_stream_progress`
+
+Decision and config/policy:
+- `orgx_request_decision`
+- `orgx_sentinel_catalog`
+- `list_agent_configs`
+- `get_agent_config`
+- `update_agent_config`
+
+The local MCP bridge endpoints are:
+- `/orgx/mcp` (full tool surface)
+- `/orgx/mcp/{domain}` (domain-scoped subset)
 
 ### Live Dashboard
 
