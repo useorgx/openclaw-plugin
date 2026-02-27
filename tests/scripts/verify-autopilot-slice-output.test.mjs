@@ -461,6 +461,30 @@ test("verifier rejects blank optional task update reason values", () => {
   assert.match(combined, /task_updates\[\]\.reason must be a non-empty string or null/i);
 });
 
+test("verifier rejects duplicate task_updates task_id entries", () => {
+  const output = makeValidOutput();
+  output.task_updates = [
+    { task_id: "task-1", status: "in_progress", reason: "started" },
+    { task_id: "task-1", status: "done", reason: "completed" },
+  ];
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /task_updates contains duplicate task_id "task-1"/i);
+});
+
+test("verifier rejects duplicate milestone_updates milestone_id entries", () => {
+  const output = makeValidOutput();
+  output.milestone_updates = [
+    { milestone_id: "ms-1", status: "planned", reason: "queued" },
+    { milestone_id: "ms-1", status: "completed", reason: "done" },
+  ];
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /milestone_updates contains duplicate milestone_id "ms-1"/i);
+});
+
 test("verifier rejects completed status when no artifacts or status updates are reported", () => {
   const output = makeValidOutput();
   output.artifacts = [];

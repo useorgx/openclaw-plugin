@@ -3068,7 +3068,7 @@ function DashboardShell({
                       <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2">
                         {/* Triage Queue - unified view */}
                         {triageModel.items.length > 0 && (
-                          <div className="min-h-[200px] max-h-[40%]">
+                          <div className="min-h-[180px] max-h-[34%]">
                             <Suspense fallback={<div className="p-4 text-body text-secondary">Loading triage…</div>}>
                               <LazyTriageQueue
                                 model={triageModel}
@@ -3080,52 +3080,89 @@ function DashboardShell({
                         )}
 
                         {decisionsVisible ? (
-                          <div
+                          <section
                             className={cn(
-                              'min-h-[240px]',
-                              needsInputRows.length === 0 ? 'flex-1' : 'max-h-[58%]'
+                              'overflow-hidden rounded-xl border border-subtle bg-white/[0.02]',
+                              needsInputRows.length === 0 ? 'flex-1 min-h-[220px]' : 'min-h-[220px] max-h-[50%]'
                             )}
                           >
-                            <Suspense
-                              fallback={
-                                <PremiumCard className="h-full min-h-[220px] p-4 text-body text-secondary">
-                                  Loading decisions…
-                                </PremiumCard>
-                              }
-                            >
-                              <LazyDecisionQueue
-                                decisions={data.decisions}
-                                focusDecisionId={requestedDecisionId}
-                                onFocusDecisionHandled={() => setRequestedDecisionId(null)}
-                                onApproveDecision={approveDecision}
-                                onRejectDecision={rejectDecision}
-                                onApproveAll={approveAllDecisions}
-                                onBulkDecisionAction={bulkDecisionAction}
-                                mutationState={decisionMutation}
-                              />
-                            </Suspense>
-                          </div>
+                            <div className="border-b border-subtle px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                                  Decision queue
+                                </p>
+                                <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/55">
+                                  {data.decisions.length}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-caption text-white/35">
+                                Resolve blockers and approvals to keep dispatch moving.
+                              </p>
+                            </div>
+                            <div className="min-h-0 p-2">
+                              <Suspense
+                                fallback={
+                                  <div className="h-full min-h-[160px] rounded-lg border border-subtle bg-white/[0.02] p-4 text-body text-secondary">
+                                    Loading decisions…
+                                  </div>
+                                }
+                              >
+                                <LazyDecisionQueue
+                                  className="h-full min-h-0"
+                                  showHeader={false}
+                                  panelStyle="flat"
+                                  decisions={data.decisions}
+                                  focusDecisionId={requestedDecisionId}
+                                  onFocusDecisionHandled={() => setRequestedDecisionId(null)}
+                                  onApproveDecision={approveDecision}
+                                  onRejectDecision={rejectDecision}
+                                  onApproveAll={approveAllDecisions}
+                                  onBulkDecisionAction={bulkDecisionAction}
+                                  mutationState={decisionMutation}
+                                />
+                              </Suspense>
+                            </div>
+                          </section>
                         ) : (
                           <PremiumCard className="border border-subtle bg-white/[0.02] px-4 py-3 text-body text-secondary">
                             OrgX is not connected. Decision actions are hidden until connectivity returns.
                           </PremiumCard>
                         )}
 
-                        <NeedsInputPanel
+                        <section
                           className={cn(
-                            decisionsVisible ? 'min-h-[200px] flex-1' : 'h-full min-h-0'
+                            'flex min-h-[180px] flex-1 flex-col overflow-hidden rounded-xl border border-subtle bg-white/[0.02]'
                           )}
-                          title={decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
-                          showHeader={decisionsVisible}
-                          panelStyle={decisionsVisible ? 'card' : 'flat'}
-                          sliceRuns={actionableSliceRuns}
-                          initiatives={initiatives}
-                          onOpenDecisions={() => openDecisionsFromActivity()}
-                          onFocusRunId={focusActivityRunId}
-                          onReviewActivity={openReviewActivityForSlice}
-                          onOpenSliceDetail={openSliceDetailFromNeedsInput}
-                          onAcceptSlice={handleAcceptSlice}
-                        />
+                        >
+                          <div className="border-b border-subtle px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
+                                {decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
+                              </p>
+                              <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/55">
+                                {needsInputRows.length}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-caption text-white/35">
+                              Retry, approve, or manually intervene on execution slices.
+                            </p>
+                          </div>
+                          <div className="min-h-0 flex-1 p-2">
+                            <NeedsInputPanel
+                              className={cn('h-full min-h-0')}
+                              title={decisionsVisible ? 'Blocked & review-required slices' : 'Needs attention'}
+                              showHeader={false}
+                              panelStyle="flat"
+                              sliceRuns={actionableSliceRuns}
+                              initiatives={initiatives}
+                              onOpenDecisions={() => openDecisionsFromActivity()}
+                              onFocusRunId={focusActivityRunId}
+                              onReviewActivity={openReviewActivityForSlice}
+                              onOpenSliceDetail={openSliceDetailFromNeedsInput}
+                              onAcceptSlice={handleAcceptSlice}
+                            />
+                          </div>
+                        </section>
                       </div>
                     ) : (
                       <InProgressPanel

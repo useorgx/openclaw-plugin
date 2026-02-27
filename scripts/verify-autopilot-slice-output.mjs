@@ -251,6 +251,8 @@ function main() {
   const artifacts = Array.isArray(output.artifacts) ? output.artifacts : [];
   const taskUpdates = Array.isArray(output.task_updates) ? output.task_updates : [];
   const milestoneUpdates = Array.isArray(output.milestone_updates) ? output.milestone_updates : [];
+  const taskUpdateIds = new Set();
+  const milestoneUpdateIds = new Set();
   assertNonEmptyStringArrayOrNull(output.next_actions, "next_actions");
   const hasOutcome = artifacts.length > 0 || taskUpdates.length > 0 || milestoneUpdates.length > 0;
   if (status === "completed") {
@@ -367,6 +369,11 @@ function main() {
       "task_updates[].status must be one of todo|in_progress|done|blocked"
     );
     assertOptionalNonEmptyString(taskUpdate.reason, "task_updates[].reason");
+    assert(
+      !taskUpdateIds.has(taskUpdate.task_id),
+      `task_updates contains duplicate task_id "${taskUpdate.task_id}"`
+    );
+    taskUpdateIds.add(taskUpdate.task_id);
   }
 
   for (const milestoneUpdate of milestoneUpdates) {
@@ -384,6 +391,11 @@ function main() {
       "milestone_updates[].status must be one of planned|in_progress|completed|at_risk|cancelled"
     );
     assertOptionalNonEmptyString(milestoneUpdate.reason, "milestone_updates[].reason");
+    assert(
+      !milestoneUpdateIds.has(milestoneUpdate.milestone_id),
+      `milestone_updates contains duplicate milestone_id "${milestoneUpdate.milestone_id}"`
+    );
+    milestoneUpdateIds.add(milestoneUpdate.milestone_id);
   }
 
   if (requiredSkills.length > 0) {

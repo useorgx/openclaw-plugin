@@ -690,9 +690,12 @@ test("classifyTaskState buckets task lifecycle states", () => {
   assert.equal(classifyTaskState("on hold"), "blocked");
   assert.equal(classifyTaskState("in_progress"), "active");
   assert.equal(classifyTaskState("in-progress"), "active");
+  assert.equal(classifyTaskState("inprogress"), "active");
   assert.equal(classifyTaskState("retry_pending"), "active");
   assert.equal(classifyTaskState("retry pending"), "active");
   assert.equal(classifyTaskState("pending-review"), "active");
+  assert.equal(classifyTaskState("pendingreview"), "active");
+  assert.equal(classifyTaskState("onhold"), "blocked");
   assert.equal(classifyTaskState("todo"), "todo");
 });
 

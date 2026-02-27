@@ -480,11 +480,13 @@ export function classifyTaskState(status) {
   }
   if (
     canonical === "in_progress" ||
+    canonical === "inprogress" ||
     canonical === "active" ||
     canonical === "running" ||
     canonical === "queued" ||
     canonical === "retry_pending" ||
-    canonical === "pending_review"
+    canonical === "pending_review" ||
+    canonical === "pendingreview"
   ) {
     return "active";
   }

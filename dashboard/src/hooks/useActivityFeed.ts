@@ -51,6 +51,12 @@ function resolveInitiativeId(item: LiveActivityItem): string | null {
   return readMetadataString(metadata, ['initiative_id', 'initiativeId']);
 }
 
+function normalizeOptionalToken(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function areJsonValuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (typeof left !== typeof right) return false;
@@ -179,12 +185,18 @@ export function useActivityFeed(options: {
     timeFilterId,
     customSinceIso = null,
     customUntilIso = null,
-    runId = null,
-    initiativeId = null,
-    projectId = null,
+    runId: rawRunId = null,
+    initiativeId: rawInitiativeId = null,
+    projectId: rawProjectId = null,
     pageSize = 50,
     demoMode = isDemoModeEnabled(),
   } = options;
+  const runId = useMemo(() => normalizeOptionalToken(rawRunId), [rawRunId]);
+  const initiativeId = useMemo(
+    () => normalizeOptionalToken(rawInitiativeId),
+    [rawInitiativeId]
+  );
+  const projectId = useMemo(() => normalizeOptionalToken(rawProjectId), [rawProjectId]);
 
   const presetCutoffEpoch = useMemo(
     () => cutoffEpochForActivityFilter(timeFilterId),
@@ -316,11 +328,11 @@ export function useActivityFeed(options: {
         if (cursor.trim().length > 0) search.set('cursor', cursor);
         if (sinceIso) search.set('since', sinceIso);
         if (untilIso) search.set('until', untilIso);
-        if (runId && runId.trim().length > 0) search.set('run', runId.trim());
-        if (initiativeId && initiativeId.trim().length > 0) {
-          search.set('initiative', initiativeId.trim());
+        if (runId) search.set('run', runId);
+        if (initiativeId) {
+          search.set('initiative', initiativeId);
         }
-        if (projectId && projectId.trim().length > 0) {
+        if (projectId) {
           appendWorkspaceScopeParams(search, projectId);
         }
 
