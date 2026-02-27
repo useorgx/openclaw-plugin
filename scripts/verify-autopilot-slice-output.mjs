@@ -29,7 +29,16 @@ function isObject(value) {
 
 function parseRequiredSkills(value) {
   const addSkill = (target, entry) => {
-    const skill = String(entry || "").replace(/^\$/, "").trim();
+    const skill = String(entry || "")
+      .trim()
+      .replace(/^[-*•\s]+/, "")
+      .replace(/["'`()[\]{}]/g, "")
+      .replace(/^[A-Za-z]+\s*:\s*/, "")
+      .replace(/[,:;.\s]+$/, "")
+      .replace(/^\$/, "")
+      .trim();
+    if (!skill) return;
+    if (/^required$/i.test(skill) || /^skills?$/i.test(skill)) return;
     if (skill) target.add(skill);
   };
 
@@ -368,6 +377,12 @@ function main() {
     );
     assertOptionalNonEmptyString(taskUpdate.reason, "task_updates[].reason");
   }
+  const taskUpdateIds = new Set();
+  for (const taskUpdate of taskUpdates) {
+    const taskId = taskUpdate.task_id.trim();
+    assert(!taskUpdateIds.has(taskId), `task_updates contains duplicate task_id "${taskId}"`);
+    taskUpdateIds.add(taskId);
+  }
 
   for (const milestoneUpdate of milestoneUpdates) {
     assert(isObject(milestoneUpdate), "milestone_updates entries must be objects");
@@ -384,6 +399,15 @@ function main() {
       "milestone_updates[].status must be one of planned|in_progress|completed|at_risk|cancelled"
     );
     assertOptionalNonEmptyString(milestoneUpdate.reason, "milestone_updates[].reason");
+  }
+  const milestoneUpdateIds = new Set();
+  for (const milestoneUpdate of milestoneUpdates) {
+    const milestoneId = milestoneUpdate.milestone_id.trim();
+    assert(
+      !milestoneUpdateIds.has(milestoneId),
+      `milestone_updates contains duplicate milestone_id "${milestoneId}"`
+    );
+    milestoneUpdateIds.add(milestoneId);
   }
 
   if (requiredSkills.length > 0) {

@@ -79,6 +79,11 @@ export function classifyOutboxReplaySkip(event: OutboxEventLike): string | null 
   const activity = toRecord(event.activityItem);
   const payloadMetadata = toRecord(payload?.metadata);
   const activityMetadata = toRecord(activity?.metadata);
+  const normalizedSourceClient = pickString(payload, "source_client", "sourceClient")
+    ?.trim()
+    .toLowerCase();
+  const normalizedPayloadEvent = pickString(payloadMetadata, "event")?.trim().toLowerCase();
+  const normalizedActivityEvent = pickString(activityMetadata, "event")?.trim().toLowerCase();
   const skipMockOutboxReplay =
     String(process.env.ORGX_SKIP_MOCK_OUTBOX_REPLAY ?? "false")
       .trim()
@@ -96,13 +101,10 @@ export function classifyOutboxReplaySkip(event: OutboxEventLike): string | null 
   if (eventType === "artifact") {
     const initiativeId = pickString(payload, "initiative_id", "initiativeId");
     const entityId = pickString(payload, "entity_id", "entityId");
-    const sourceClient = pickString(payload, "source_client", "sourceClient");
-    const payloadEvent = pickString(payloadMetadata, "event");
-    const activityEvent = pickString(activityMetadata, "event");
     const allowSyntheticArtifact =
-      sourceClient === "openclaw" ||
-      payloadEvent === "autopilot_slice_artifact_buffered" ||
-      activityEvent === "autopilot_slice_artifact_buffered";
+      normalizedSourceClient === "openclaw" ||
+      normalizedPayloadEvent === "autopilot_slice_artifact_buffered" ||
+      normalizedActivityEvent === "autopilot_slice_artifact_buffered";
 
     if (!allowSyntheticArtifact && isSyntheticIdentifier(initiativeId)) {
       return "synthetic_initiative_id";
