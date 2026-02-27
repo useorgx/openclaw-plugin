@@ -178,6 +178,14 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     }
   }
 
+  function createSafeAppendStream(pathname: string) {
+    const stream = createWriteStream(pathname, { flags: "a" });
+    stream.on("error", () => {
+      // Best-effort logging only.
+    });
+    return stream;
+  }
+
   function hasSliceOutput(pathname: string): boolean {
     try {
       if (!existsSync(pathname)) return false;
@@ -243,8 +251,8 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
         "scripts",
         "mock-autopilot-slice-worker.mjs"
       );
-      const logStream = createWriteStream(input.logPath, { flags: "a" });
-      const outStream = createWriteStream(input.outputPath, { flags: "a" });
+      const logStream = createSafeAppendStream(input.logPath);
+      const outStream = createSafeAppendStream(input.outputPath);
       logStream.write(`\n==== ${new Date().toISOString()} :: mock slice ${input.runId} ====\n`);
 
       const child = spawn("node", [scriptPath], {
@@ -392,8 +400,8 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       }
       if (schemaArg) claudeExtraArgs.push("--json-schema", schemaArg);
 
-      const logStream = createWriteStream(input.logPath, { flags: "a" });
-      const outStream = createWriteStream(input.outputPath, { flags: "a" });
+      const logStream = createSafeAppendStream(input.logPath);
+      const outStream = createSafeAppendStream(input.outputPath);
       logStream.write(`\n==== ${new Date().toISOString()} :: claude slice ${input.runId} ====\n`);
       logStream.write(`claude_bin: ${claudeBin}\n`);
       if (claudeExtraArgs.length > 0) {
@@ -535,7 +543,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
 
     const extraArgs: string[] = [];
 
-    const logStream = createWriteStream(input.logPath, { flags: "a" });
+    const logStream = createSafeAppendStream(input.logPath);
     logStream.write(`\n==== ${new Date().toISOString()} :: slice ${input.runId} ====\n`);
     logStream.write(
       `codex_bin: ${codexBin}${codexInfo.versionString ? ` (${codexInfo.versionString})` : ""}\n`

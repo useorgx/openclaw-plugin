@@ -145,6 +145,62 @@ test("paths ignore overrides that become empty after quote normalization", async
   }
 });
 
+test("paths ignore overrides with unbalanced quotes", async () => {
+  const originalHome = process.env.HOME;
+  const originalPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  const originalOpenClawHome = process.env.OPENCLAW_HOME;
+  const originalOutboxDir = process.env.ORGX_OUTBOX_DIR;
+
+  const home = mkdtempSync(join(tmpdir(), "orgx-paths-unbalanced-quotes-"));
+  process.env.HOME = home;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = '"unterminated-config';
+  process.env.OPENCLAW_HOME = "'unterminated-openclaw";
+  process.env.ORGX_OUTBOX_DIR = '"unterminated-outbox';
+
+  try {
+    const paths = await importFreshPaths();
+    assert.equal(
+      paths.getOrgxPluginConfigDir(),
+      join(home, ".config", "useorgx", "openclaw-plugin")
+    );
+    assert.equal(paths.getOpenClawDir(), join(home, ".openclaw"));
+    assert.equal(paths.getOrgxOutboxDir(), join(home, ".openclaw", "orgx-outbox"));
+  } finally {
+    restoreEnv("HOME", originalHome);
+    restoreEnv("ORGX_OPENCLAW_PLUGIN_CONFIG_DIR", originalPluginDir);
+    restoreEnv("OPENCLAW_HOME", originalOpenClawHome);
+    restoreEnv("ORGX_OUTBOX_DIR", originalOutboxDir);
+  }
+});
+
+test("paths ignore overrides with mismatched quote wrappers", async () => {
+  const originalHome = process.env.HOME;
+  const originalPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  const originalOpenClawHome = process.env.OPENCLAW_HOME;
+  const originalOutboxDir = process.env.ORGX_OUTBOX_DIR;
+
+  const home = mkdtempSync(join(tmpdir(), "orgx-paths-mismatched-quotes-"));
+  process.env.HOME = home;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = "\"mismatched-config'";
+  process.env.OPENCLAW_HOME = "'mismatched-openclaw\"";
+  process.env.ORGX_OUTBOX_DIR = "\"mismatched-outbox'";
+
+  try {
+    const paths = await importFreshPaths();
+    assert.equal(
+      paths.getOrgxPluginConfigDir(),
+      join(home, ".config", "useorgx", "openclaw-plugin")
+    );
+    assert.equal(paths.getOpenClawDir(), join(home, ".openclaw"));
+    assert.equal(paths.getOrgxOutboxDir(), join(home, ".openclaw", "orgx-outbox"));
+  } finally {
+    restoreEnv("HOME", originalHome);
+    restoreEnv("ORGX_OPENCLAW_PLUGIN_CONFIG_DIR", originalPluginDir);
+    restoreEnv("OPENCLAW_HOME", originalOpenClawHome);
+    restoreEnv("ORGX_OUTBOX_DIR", originalOutboxDir);
+  }
+});
+
 test("paths expand leading tilde in overrides", async () => {
   const originalHome = process.env.HOME;
   const originalPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;

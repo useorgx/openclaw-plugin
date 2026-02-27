@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback } from 'react';
+import { memo, useMemo, useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type {
   Initiative,
@@ -190,12 +190,23 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   onOpenSliceDetail,
   onAcceptSlice,
 }: NeedsInputPanelProps) {
-  const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
+  const allRows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
+  const [optimisticallyAccepted, setOptimisticallyAccepted] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
+
+  // Reset optimistic state when fresh data arrives
+  useEffect(() => {
+    setOptimisticallyAccepted(new Set());
+  }, [sliceRuns]);
+
+  const rows = useMemo(
+    () => allRows.filter((r) => !optimisticallyAccepted.has(r.item.sliceRunId)),
+    [allRows, optimisticallyAccepted],
+  );
 
   // Sort triage groups: high severity first, then medium, then low. Within same severity, newest first.
   const sortedTriageGroups = useMemo(() => {
@@ -297,6 +308,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
 
       // Delegate to parent callback which calls the API and triggers refetch
       try { await onAcceptSlice?.(item, note); } catch { /* ignore */ }
+      setOptimisticallyAccepted((prev) => new Set(prev).add(id));
       setLastAction(`Accepted ${id.slice(0, 8)}`);
     } catch (err) {
       setLastAction(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
@@ -618,7 +630,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                     }
                   }}
                 >
-                  <div className="flex items-start gap-2.5 py-2.5 pl-3 pr-3">
+                  <div className="flex items-start gap-2 py-2.5 pl-2.5 pr-2.5 sm:gap-2.5 sm:pl-3 sm:pr-3">
                     {/* Checkbox — compact */}
                     <div className="flex-shrink-0 pt-0.5">
                       <input
@@ -640,13 +652,13 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                         <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight text-white/90">
                           {label}
                         </span>
-                        <span className="flex-shrink-0 text-[10px] tabular-nums text-white/25">
+                        <span className="hidden sm:inline flex-shrink-0 text-[10px] tabular-nums text-white/25">
                           {when ? formatRelativeTime(when) : statusLabel(item.status)}
                         </span>
                       </div>
 
                       {/* Line 2: summary + meta */}
-                      <div className="mt-0.5 flex items-baseline gap-1.5 pl-[14px]">
+                      <div className="mt-0.5 flex items-baseline gap-1 sm:gap-1.5 pl-3 sm:pl-[14px] overflow-hidden">
                         <span className="min-w-0 truncate text-[11px] leading-relaxed text-white/35">
                           {summaryText}
                         </span>
@@ -658,7 +670,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                       </div>
 
                       {/* Line 3: initiative */}
-                      <div className="mt-px flex items-center gap-1 pl-[14px] text-[10px] text-white/20">
+                      <div className="mt-px flex items-center gap-1 pl-3 sm:pl-[14px] text-[10px] text-white/20 overflow-hidden">
                         <EntityIcon type="initiative" size={8} className="opacity-50" />
                         <span className="truncate">{initiativeText}</span>
                       </div>
@@ -671,7 +683,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                           type="button"
                           disabled={isPending}
                           onClick={() => acceptOne(item)}
-                          className="flex h-6 items-center gap-1 rounded-md bg-[#BFFF00]/8 px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40"
+                          className="flex h-6 items-center gap-0.5 sm:gap-1 rounded-md bg-[#BFFF00]/8 px-1.5 sm:px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40"
                         >
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="20 6 9 17 4 12" />

@@ -1,6 +1,6 @@
 # OrgX OpenClaw Plugin Feature Index
 
-Last reviewed: 2026-02-07
+Last reviewed: 2026-02-27
 Scope: current repository state in `src/` and `dashboard/src/`
 
 ## 1) Core Runtime Features
@@ -33,7 +33,12 @@ Scope: current repository state in `src/` and `dashboard/src/`
 
 ## 3) MCP Tool Inventory (Current)
 
+Source of truth: `src/tools/core-tools.ts` (registered by `registerCoreTools`).
+
+Current count: **27 tools**
+
 - `orgx_status`
+- `orgx_sentinel_catalog`
 - `orgx_sync`
 - `orgx_delegation_preflight`
 - `orgx_run_action`
@@ -41,10 +46,22 @@ Scope: current repository state in `src/` and `dashboard/src/`
 - `orgx_checkpoint_restore`
 - `orgx_spawn_check`
 - `orgx_quality_score`
+- `orgx_proof_status`
+- `orgx_verify_completion`
+- `orgx_record_outcome`
+- `orgx_get_outcome_attribution`
 - `orgx_create_entity`
 - `orgx_update_entity`
+- `orgx_reassign_stream`
+- `orgx_reassign_streams`
 - `orgx_list_entities`
+- `list_agent_configs`
+- `get_agent_config`
+- `update_agent_config`
+- `orgx_emit_activity`
+- `orgx_apply_changeset`
 - `orgx_report_progress`
+- `update_stream_progress`
 - `orgx_request_decision`
 - `orgx_register_artifact`
 

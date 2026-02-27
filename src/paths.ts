@@ -4,10 +4,21 @@ import { join, resolve } from "node:path";
 function normalizeDirOverride(value: string | undefined): string | null {
   let trimmed = (value ?? "").trim();
   if (!trimmed) return null;
+  const startsDoubleQuoted = trimmed.startsWith('"');
+  const startsSingleQuoted = trimmed.startsWith("'");
+  const endsDoubleQuoted = trimmed.endsWith('"');
+  const endsSingleQuoted = trimmed.endsWith("'");
+  const startsQuoted = startsDoubleQuoted || startsSingleQuoted;
+  const endsQuoted = endsDoubleQuoted || endsSingleQuoted;
+  if (startsQuoted !== endsQuoted) return null;
+  // Reject mismatched wrappers like `"path'` and `'path"`.
+  if ((startsDoubleQuoted && endsSingleQuoted) || (startsSingleQuoted && endsDoubleQuoted)) {
+    return null;
+  }
   // `.env` values are often quoted; normalize them before validation.
   if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    (startsDoubleQuoted && endsDoubleQuoted) ||
+    (startsSingleQuoted && endsSingleQuoted)
   ) {
     trimmed = trimmed.slice(1, -1).trim();
     if (!trimmed) return null;

@@ -840,7 +840,13 @@ function DashboardShell({
         showOpsNotice(msg);
         return;
       }
-      showOpsNotice('Slice accepted and marked complete.');
+      const result = (await response.json().catch(() => null)) as { data?: { remoteOk?: boolean } } | null;
+      const remoteOk = result?.data?.remoteOk === true;
+      showOpsNotice(
+        remoteOk
+          ? 'Slice accepted and marked complete.'
+          : 'Slice accepted locally. Remote sync pending.',
+      );
       void refetch();
     } catch (err) {
       console.error('[NeedsInput] Accept error:', err);

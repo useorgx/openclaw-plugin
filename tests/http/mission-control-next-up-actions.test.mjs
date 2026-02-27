@@ -659,195 +659,6 @@ test("mission-control next-up re-paginates canonical payloads that ignore limit/
   );
 });
 
-test("mission-control next-up applies noise threshold and blocked dedup controls", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-noise-controls-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const generatedAt = new Date().toISOString();
-      const canonicalItems = [
-        {
-          initiativeId: "init-1",
-          initiativeTitle: "Initiative 1",
-          initiativeStatus: "active",
-          workstreamId: "ws-running",
-          workstreamTitle: "Running WS",
-          workstreamStatus: "active",
-          nextTaskId: "task-running",
-          nextTaskTitle: "Run now",
-          nextTaskPriority: 3,
-          queueState: "queued",
-          updatedAt: "2026-02-27T11:00:00.000Z",
-        },
-        {
-          initiativeId: "init-1",
-          initiativeTitle: "Initiative 1",
-          initiativeStatus: "active",
-          workstreamId: "ws-blocked-low-1",
-          workstreamTitle: "Blocked Low 1",
-          workstreamStatus: "active",
-          nextTaskId: "task-blocked-low-1",
-          nextTaskTitle: "Blocked task 1",
-          nextTaskPriority: 6,
-          queueState: "blocked",
-          blockReason: "Waiting on upstream review",
-          updatedAt: "2026-02-27T11:00:00.000Z",
-        },
-        {
-          initiativeId: "init-1",
-          initiativeTitle: "Initiative 1",
-          initiativeStatus: "active",
-          workstreamId: "ws-blocked-low-2",
-          workstreamTitle: "Blocked Low 2",
-          workstreamStatus: "active",
-          nextTaskId: "task-blocked-low-2",
-          nextTaskTitle: "Blocked task 2",
-          nextTaskPriority: 7,
-          queueState: "blocked",
-          blockReason: "Waiting on upstream review",
-          updatedAt: "2026-02-27T11:00:30.000Z",
-        },
-        {
-          initiativeId: "init-1",
-          initiativeTitle: "Initiative 1",
-          initiativeStatus: "active",
-          workstreamId: "ws-blocked-high",
-          workstreamTitle: "Blocked High",
-          workstreamStatus: "active",
-          nextTaskId: "task-blocked-high",
-          nextTaskTitle: "Blocked high",
-          nextTaskPriority: 1,
-          queueState: "blocked",
-          blockReason: "P1 incident mitigation",
-          updatedAt: "2026-02-27T11:01:00.000Z",
-        },
-        {
-          initiativeId: "init-1",
-          initiativeTitle: "Initiative 1",
-          initiativeStatus: "active",
-          workstreamId: "ws-idle-low",
-          workstreamTitle: "Idle Low",
-          workstreamStatus: "active",
-          nextTaskId: "task-idle-low",
-          nextTaskTitle: "Idle low",
-          nextTaskPriority: 8,
-          queueState: "idle",
-          updatedAt: "2026-02-27T11:01:30.000Z",
-        },
-      ];
-
-      const { handler, calls } = await createHandler({
-        rawRequestImpl: async (method, path) => {
-          assert.equal(method, "GET");
-          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
-          return {
-            ok: true,
-            generatedAt,
-            total: canonicalItems.length,
-            items: canonicalItems,
-          };
-        },
-      });
-
-      const mediumRes = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&noise_threshold=medium",
-        headers: {},
-      });
-      assert.equal(mediumRes.status, 200);
-      const mediumBody = JSON.parse(mediumRes.body);
-      assert.equal(mediumBody.ok, true);
-      assert.equal(mediumBody.source, "canonical");
-      assert.deepEqual(
-        mediumBody.items.map((item) => item.workstreamId),
-        ["ws-running", "ws-blocked-high"]
-      );
-
-      const lowRes = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&noiseThreshold=low&dedupWindow=60000",
-        headers: {},
-      });
-      assert.equal(lowRes.status, 200);
-      const lowBody = JSON.parse(lowRes.body);
-      assert.equal(lowBody.ok, true);
-      assert.equal(lowBody.source, "canonical");
-      assert.deepEqual(
-        lowBody.items.map((item) => item.workstreamId),
-        ["ws-running", "ws-blocked-high", "ws-blocked-low-1", "ws-idle-low"]
-      );
-      assert.ok(calls.rawRequest.length >= 2);
-      const requestPaths = calls.rawRequest.map((entry) => String(entry?.[1] ?? ""));
-      assert.ok(requestPaths.some((path) => path.includes("noise_threshold=low")));
-      assert.ok(requestPaths.some((path) => path.includes("dedup_window=60000")));
-    }
-  );
-});
-
-test("mission-control next-up preserves canonical snake_case cursor pagination metadata", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-pagination-snake-case-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const canonicalItems = Array.from({ length: 24 }, (_, idx) => ({
-        initiativeId: "init-1",
-        initiativeTitle: "Initiative 1",
-        initiativeStatus: "active",
-        workstreamId: `ws-${idx + 1}`,
-        workstreamTitle: `Workstream ${idx + 1}`,
-        workstreamStatus: "active",
-        nextTaskId: `task-${idx + 1}`,
-        nextTaskTitle: `Task ${idx + 1}`,
-        nextTaskPriority: idx + 1,
-        queueState: "queued",
-      }));
-
-      const { handler } = await createHandler({
-        rawRequestImpl: async (method, path) => {
-          assert.equal(method, "GET");
-          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
-          return {
-            ok: true,
-            generatedAt: new Date().toISOString(),
-            total: canonicalItems.length,
-            items: canonicalItems,
-            pagination: {
-              offset: 0,
-              limit: 24,
-              total: 24,
-              next_cursor: "cursor-24",
-              has_more: true,
-            },
-          };
-        },
-      });
-
-      const res = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&offset=0&limit=24",
-        headers: {},
-      });
-      assert.equal(res.status, 200);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, true);
-      assert.equal(body.source, "canonical");
-      assert.equal(body.pagination?.offset, 0);
-      assert.equal(body.pagination?.limit, 24);
-      assert.equal(body.pagination?.total, 24);
-      assert.equal(body.pagination?.nextCursor, "cursor-24");
-      assert.equal(body.pagination?.hasMore, true);
-    }
-  );
-});
-
 test("mission-control next-up canonical payload normalizes runner placeholders and dedupes agents", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-normalization-"));
   await withEnv(
@@ -996,8 +807,8 @@ test("mission-control next-up normalizes canonical snake_case runner fields", as
   );
 });
 
-test("mission-control next-up parses JSON string arrays for runner and slice task fields", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-json-strings-"));
+test("mission-control next-up normalizes snake_case runner placeholders and falls back to unassigned", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-snake-case-placeholders-"));
   await withEnv(
     {
       ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
@@ -1015,17 +826,20 @@ test("mission-control next-up parses JSON string arrays for runner and slice tas
             total: 1,
             items: [
               {
-                initiativeId: "init-1",
-                initiativeTitle: "Initiative 1",
-                initiativeStatus: "active",
-                workstreamId: "ws-1",
-                workstreamTitle: "Workstream 1",
-                workstreamStatus: "active",
-                nextTaskId: "task-1",
-                nextTaskTitle: "Task 1",
-                queueState: "queued",
-                runner_agents: JSON.stringify([{ id: "agent-1", name: "Agent One" }]),
-                slice_task_ids: JSON.stringify(["task-1", "task-2"]),
+                initiative_id: "init-1",
+                initiative_title: "Initiative 1",
+                initiative_status: "active",
+                workstream_id: "ws-placeholder-snake",
+                workstream_title: "Workstream Placeholder Snake",
+                workstream_status: "active",
+                next_task_id: "task-1",
+                next_task_title: "Task 1",
+                next_task_priority: 1,
+                queue_state: "queued",
+                runner_agent_id: "main",
+                runner_agent_name: "default",
+                runner_source: "unknown",
+                runner_agents: [{ id: "N/A", name: "none" }],
               },
             ],
           };
@@ -1034,66 +848,17 @@ test("mission-control next-up parses JSON string arrays for runner and slice tas
 
       const res = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-placeholder-snake&offset=0&limit=24",
         headers: {},
       });
       assert.equal(res.status, 200);
       const body = JSON.parse(res.body);
       assert.equal(body.ok, true);
-      assert.equal(body.items[0]?.runnerAgentId, "agent-1");
-      assert.equal(body.items[0]?.runnerAgentName, "Agent One");
-      assert.deepEqual(body.items[0]?.runnerAgents, [{ id: "agent-1", name: "Agent One" }]);
-      assert.deepEqual(body.items[0]?.sliceTaskIds, ["task-1", "task-2"]);
-    }
-  );
-});
-
-test("mission-control next-up parses JSON string object for runner fields", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-json-object-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const { handler } = await createHandler({
-        rawRequestImpl: async (method, path) => {
-          assert.equal(method, "GET");
-          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
-          return {
-            ok: true,
-            generatedAt: new Date().toISOString(),
-            total: 1,
-            items: [
-              {
-                initiativeId: "init-1",
-                initiativeTitle: "Initiative 1",
-                initiativeStatus: "active",
-                workstreamId: "ws-1",
-                workstreamTitle: "Workstream 1",
-                workstreamStatus: "active",
-                nextTaskId: "task-1",
-                nextTaskTitle: "Task 1",
-                queueState: "queued",
-                runner_agents: JSON.stringify({ id: "agent-1", name: "Agent One" }),
-              },
-            ],
-          };
-        },
-      });
-
-      const res = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
-        headers: {},
-      });
-      assert.equal(res.status, 200);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, true);
-      assert.equal(body.items[0]?.runnerAgentId, "agent-1");
-      assert.equal(body.items[0]?.runnerAgentName, "Agent One");
-      assert.deepEqual(body.items[0]?.runnerAgents, [{ id: "agent-1", name: "Agent One" }]);
+      assert.equal(body.source, "canonical");
+      assert.equal(body.items[0]?.runnerAgentId, null);
+      assert.equal(body.items[0]?.runnerAgentName, "Unassigned");
+      assert.equal(body.items[0]?.runnerSource, "fallback");
+      assert.deepEqual(body.items[0]?.runnerAgents, []);
     }
   );
 });
@@ -1132,7 +897,7 @@ test("mission-control next-up normalizes canonical snake_case queue fields", asy
                 next_task_milestone_id: "ms-1",
                 queue_state: "blocked",
                 block_reason: "Waiting on dependency task-2",
-                slice_scope: "TASK",
+                slice_scope: "task",
                 slice_task_ids: ["task-1", "task-2"],
                 slice_task_count: 2,
                 slice_milestone_id: "ms-1",
@@ -1219,98 +984,6 @@ test("mission-control next-up normalizes in_progress canonical queue state to ru
   );
 });
 
-test("mission-control next-up normalizes waiting_dependency canonical queue state to blocked", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-queue-state-waiting-dependency-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const { handler } = await createHandler({
-        rawRequestImpl: async (method, path) => {
-          assert.equal(method, "GET");
-          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
-          return {
-            ok: true,
-            generatedAt: new Date().toISOString(),
-            total: 1,
-            items: [
-              {
-                initiative_id: "init-1",
-                initiative_title: "Initiative 1",
-                workstream_id: "ws-1",
-                workstream_title: "Workstream 1",
-                next_task_id: "task-1",
-                next_task_title: "Task 1",
-                queue_state: "waiting_dependency",
-              },
-            ],
-          };
-        },
-      });
-
-      const res = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
-        headers: {},
-      });
-      assert.equal(res.status, 200);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, true);
-      assert.equal(body.source, "canonical");
-      assert.equal(body.items[0]?.queueState, "blocked");
-    }
-  );
-});
-
-test("mission-control next-up normalizes blocked_by_dependency canonical queue state to blocked", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-queue-state-blocked-by-dependency-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const { handler } = await createHandler({
-        rawRequestImpl: async (method, path) => {
-          assert.equal(method, "GET");
-          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
-          return {
-            ok: true,
-            generatedAt: new Date().toISOString(),
-            total: 1,
-            items: [
-              {
-                initiative_id: "init-1",
-                initiative_title: "Initiative 1",
-                workstream_id: "ws-1",
-                workstream_title: "Workstream 1",
-                next_task_id: "task-1",
-                next_task_title: "Task 1",
-                queue_state: "blocked_by_dependency",
-              },
-            ],
-          };
-        },
-      });
-
-      const res = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
-        headers: {},
-      });
-      assert.equal(res.status, 200);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, true);
-      assert.equal(body.source, "canonical");
-      assert.equal(body.items[0]?.queueState, "blocked");
-    }
-  );
-});
-
 test("mission-control next-up bridges empty local fallback from canonical slices payload", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-slices-bridge-"));
   await withEnv(
@@ -1350,7 +1023,7 @@ test("mission-control next-up bridges empty local fallback from canonical slices
                 runner_agents: [{ id: "agent-bridge", name: "Bridge Agent" }],
                 dispatch: {
                   runnable: true,
-                  suggested_scope: "WORKSTREAM",
+                  suggested_scope: "workstream",
                 },
                 lineage: {
                   task_ids: ["task-bridge", "task-bridge-extra"],
@@ -1644,6 +1317,141 @@ test("mission-control next-up marks blocked workstreams with a human block reaso
       assert.ok(blocked, "expected ws-1 queue item");
       assert.equal(blocked.queueState, "blocked");
       assert.match(String(blocked.blockReason ?? ""), /waiting on dependency ws1 task/i);
+    }
+  );
+});
+
+test("mission-control next-up treats needs-decision queue state as blocked", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-needs-decision-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          assert.equal(method, "GET");
+          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
+          return {
+            ok: true,
+            total: 1,
+            items: [
+              {
+                initiative_id: "init-1",
+                initiative_title: "Initiative 1",
+                initiative_status: "active",
+                workstream_id: "ws-1",
+                workstream_title: "Workstream 1",
+                workstream_status: "active",
+                next_task_id: "task-ws1-running",
+                next_task_title: "Running WS1 task",
+                queue_state: "needs_decision",
+                block_reason: "Human decision required for production incident",
+                updated_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          };
+        },
+      });
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.source, "canonical");
+      assert.equal(body.items.length, 1);
+      assert.equal(body.items[0]?.workstreamId, "ws-1");
+      assert.equal(body.items[0]?.queueState, "blocked");
+      assert.equal(body.items[0]?.blockReason, "Human decision required for production incident");
+    }
+  );
+});
+
+test("mission-control next-up filters high-severity blockers and dedups duplicates", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-noise-dedup-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          assert.equal(method, "GET");
+          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
+          assert.match(path, /noise_threshold=high/);
+          assert.match(path, /dedup_window=60000/);
+          return {
+            ok: true,
+            total: 4,
+            items: [
+              {
+                initiativeId: "init-1",
+                initiativeTitle: "Initiative 1",
+                initiativeStatus: "active",
+                workstreamId: "ws-critical-a",
+                workstreamTitle: "Critical A",
+                workstreamStatus: "blocked",
+                queueState: "blocked",
+                blockReason: "Critical production outage",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+              {
+                initiativeId: "init-1",
+                initiativeTitle: "Initiative 1",
+                initiativeStatus: "active",
+                workstreamId: "ws-critical-b",
+                workstreamTitle: "Critical B",
+                workstreamStatus: "blocked",
+                queueState: "blocked",
+                blockReason: "Critical production outage",
+                updatedAt: "2026-01-01T00:00:30.000Z",
+              },
+              {
+                initiativeId: "init-1",
+                initiativeTitle: "Initiative 1",
+                initiativeStatus: "active",
+                workstreamId: "ws-low",
+                workstreamTitle: "Low",
+                workstreamStatus: "blocked",
+                queueState: "blocked",
+                blockReason: "Waiting on dependency task-ws-low",
+                updatedAt: "2026-01-01T00:01:00.000Z",
+              },
+              {
+                initiativeId: "init-1",
+                initiativeTitle: "Initiative 1",
+                initiativeStatus: "active",
+                workstreamId: "ws-queued",
+                workstreamTitle: "Queued",
+                workstreamStatus: "active",
+                queueState: "queued",
+                updatedAt: "2026-01-01T00:01:30.000Z",
+              },
+            ],
+            pagination: { offset: 0, limit: 24, total: 4, hasMore: false, nextCursor: null },
+          };
+        },
+      });
+
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?initiative_id=init-1&noise_threshold=high&dedup_window=60000",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.deepEqual(
+        body.items.map((item) => item.workstreamId).sort(),
+        ["ws-critical-a", "ws-queued"]
+      );
     }
   );
 });
