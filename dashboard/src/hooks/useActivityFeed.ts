@@ -252,8 +252,9 @@ export function useActivityFeed(options: {
   // Composite key of the filter parameters that should cause a full reset.
   // When only the SSE seed changes the key stays stable → no reset.
   const filterIdentity = useMemo(
-    () => `${runId ?? ''}|${initiativeId ?? ''}|${timeFilterId}|${sinceIso ?? ''}|${untilIso ?? ''}|${projectId ?? ''}`,
-    [runId, initiativeId, timeFilterId, sinceIso, untilIso, projectId]
+    () =>
+      `${runId ?? ''}|${initiativeId ?? ''}|${timeFilterId}|${sinceIso ?? ''}|${untilIso ?? ''}|${projectId ?? ''}|${demoMode ? 'demo' : 'live'}`,
+    [runId, initiativeId, timeFilterId, sinceIso, untilIso, projectId, demoMode]
   );
   const prevFilterIdentityRef = useRef(filterIdentity);
 

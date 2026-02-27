@@ -27,7 +27,7 @@ import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
-import { ActivityTimelineItem } from './ActivityTimelineItem';
+import { ActivityTimelineItem, type ArtifactSnippet } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
 import { ActivityDetailSummary } from './ActivityDetailSummary';
 import { ChatDockProvider } from './chat/ChatDockContext';
@@ -1317,6 +1317,39 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload 
   }
 
   return null;
+}
+
+function extractArtifactSnippet(item: LiveActivityItem): ArtifactSnippet | null {
+  const metadata = metadataForItem(item);
+  const hasRegisteredId = !!(
+    (metadata && typeof metadata.artifact_id === 'string') ||
+    (metadata && typeof metadata.artifactId === 'string') ||
+    (metadata && typeof metadata.work_artifact_id === 'string')
+  );
+  const payload = extractArtifactPayload(item);
+  if (!payload && !hasRegisteredId) return null;
+
+  let label = 'Artifact';
+  if (item.type === 'artifact_created') label = 'Created artifact';
+  else if (payload?.source === 'toolOutput' || payload?.source === 'toolOutputs') label = 'Tool output';
+  else if (payload?.source === 'toolResult' || payload?.source === 'toolResults') label = 'Result';
+  else if (payload?.source === 'output' || payload?.source === 'outputs') label = 'Output';
+  else if (hasRegisteredId) label = 'Registered artifact';
+
+  let preview = '';
+  if (payload) {
+    const v = payload.value;
+    if (typeof v === 'string') {
+      preview = v.length > 80 ? v.slice(0, 80) + '…' : v;
+    } else if (Array.isArray(v)) {
+      preview = `${v.length} item${v.length === 1 ? '' : 's'}`;
+    } else if (v && typeof v === 'object') {
+      const keys = Object.keys(v as Record<string, unknown>);
+      preview = keys.length <= 4 ? keys.join(', ') : `${keys.length} fields`;
+    }
+  }
+
+  return { label, preview, hasRegisteredId };
 }
 
 function looksLikeFilesystemPath(value: string): boolean {
@@ -3938,6 +3971,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       minute: '2-digit',
     });
     const relativeTime = formatRelativeTime(item.timestamp);
+    const artifactSnippet = decorated.bucket === 'artifact' ? extractArtifactSnippet(item) : null;
 
     return (
       <ActivityTimelineItem
@@ -3960,6 +3994,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           setActiveItemId(item.id);
         }}
         ariaLabel={`Open activity details for ${displayTitle || labelForType(item.type)}`}
+        artifactSnippet={artifactSnippet}
       />
     );
   };
@@ -4941,6 +4976,71 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {/* Activity summary card */}
                     <ActivityDetailSummary item={activeDecorated.item} />
 
+                    {/* Artifact hero — promoted from bottom */}
+                    {activeArtifact && (
+                      <div className="rounded-xl border border-cyan-400/25 bg-gradient-to-b from-cyan-500/[0.10] to-cyan-500/[0.04]">
+                        <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2">
+                          <div className="flex items-center gap-2">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#67e8f9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                              <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                              <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                            </svg>
+                            <span className="text-micro font-semibold uppercase tracking-wider text-cyan-200/80">
+                              {activeArtifact.source === 'metadata' ? 'Artifact' : humanizeText(activeArtifact.source)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="inline-flex rounded-full border border-cyan-400/20 bg-black/30 p-0.5 text-caption">
+                              <button
+                                type="button"
+                                onClick={() => setArtifactViewMode('structured')}
+                                aria-pressed={artifactViewMode === 'structured'}
+                                className={`rounded-full px-2.5 py-0.5 transition-colors ${
+                                  artifactViewMode === 'structured'
+                                    ? 'bg-cyan-500/[0.25] text-cyan-100'
+                                    : 'text-cyan-300/50 hover:text-cyan-200'
+                                }`}
+                              >
+                                Structured
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setArtifactViewMode('json')}
+                                aria-pressed={artifactViewMode === 'json'}
+                                className={`rounded-full px-2.5 py-0.5 transition-colors ${
+                                  artifactViewMode === 'json'
+                                    ? 'bg-cyan-500/[0.25] text-cyan-100'
+                                    : 'text-cyan-300/50 hover:text-cyan-200'
+                                }`}
+                              >
+                                JSON
+                              </button>
+                            </div>
+                            {activeArtifactId && (
+                              <button
+                                type="button"
+                                onClick={() => openArtifactViewer(activeArtifactId)}
+                                className="rounded-full border border-cyan-400/25 bg-cyan-500/[0.12] px-2.5 py-0.5 text-caption font-semibold text-cyan-100 transition hover:bg-cyan-500/[0.2]"
+                              >
+                                Open full artifact
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="max-h-[320px] overflow-y-auto px-4 pb-4">
+                          <div className="rounded-lg border border-white/[0.06] bg-black/20 p-3.5">
+                            {artifactViewMode === 'structured' ? (
+                              renderArtifactValue(activeArtifact.value)
+                            ) : (
+                              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-primary">
+                                {JSON.stringify(activeArtifact.value, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {activeOutcome && (
                       <div
                         className={cn(
@@ -4987,7 +5087,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               {activeDecisionIds.length > 0 ? 'Resolve decision' : 'Resolve decisions'}
                             </button>
                           )}
-                          {activeArtifactId && (
+                          {activeArtifactId && !activeArtifact && (
                             <button
                               type="button"
                               onClick={() => openArtifactViewer(activeArtifactId)}
@@ -5516,8 +5616,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {/* View registered artifact button (loop closure) */}
-                    {activeDecorated && extractArtifactId(activeDecorated.item) && (
+                    {/* View registered artifact — only when there's no inline artifact already shown in hero */}
+                    {activeDecorated && extractArtifactId(activeDecorated.item) && !activeArtifact && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5534,55 +5634,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           View registered artifact
                         </span>
                       </button>
-                    )}
-
-                    {/* Artifact output — subtle container */}
-                    {activeArtifact && (
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
-                            Artifact
-                            <span className="ml-2 font-normal normal-case tracking-normal text-muted">
-                              {activeArtifact.source}
-                            </span>
-                          </p>
-                          <div className="inline-flex rounded-full border border-strong bg-black/30 p-0.5 text-caption">
-                            <button
-                              type="button"
-                              onClick={() => setArtifactViewMode('structured')}
-                              aria-pressed={artifactViewMode === 'structured'}
-                              className={`rounded-full px-2.5 py-0.5 transition-colors ${
-                                artifactViewMode === 'structured'
-                                  ? 'bg-white/[0.12] text-white'
-                                  : 'text-secondary hover:text-primary'
-                              }`}
-                            >
-                              Structured
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setArtifactViewMode('json')}
-                              aria-pressed={artifactViewMode === 'json'}
-                              className={`rounded-full px-2.5 py-0.5 transition-colors ${
-                                artifactViewMode === 'json'
-                                  ? 'bg-white/[0.12] text-white'
-                                  : 'text-secondary hover:text-primary'
-                              }`}
-                            >
-                              JSON
-                            </button>
-                          </div>
-                        </div>
-                        <div className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                          {artifactViewMode === 'structured' ? (
-                            renderArtifactValue(activeArtifact.value)
-                          ) : (
-                            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-caption leading-relaxed text-primary">
-                              {JSON.stringify(activeArtifact.value, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      </div>
                     )}
 
                     {/* Separator before debug sections */}
