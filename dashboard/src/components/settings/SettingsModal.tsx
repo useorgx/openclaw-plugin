@@ -65,6 +65,9 @@ export function SettingsModal({
   onToggleDevMode,
   showSyntheticEntities,
   onToggleShowSyntheticEntities,
+  workspaceOptions,
+  selectedWorkspaceId,
+  onSelectWorkspace,
   onboarding,
   authToken = null,
   embedMode = false,
@@ -80,6 +83,9 @@ export function SettingsModal({
   onToggleDevMode?: (next: boolean) => void;
   showSyntheticEntities: boolean;
   onToggleShowSyntheticEntities: (next: boolean) => void;
+  workspaceOptions: Array<{ id: string; title: string }>;
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (workspaceId: string | null) => void;
   onboarding: {
     state: OnboardingState;
     isStarting: boolean;
@@ -206,6 +212,9 @@ export function SettingsModal({
                 state={onboarding.state}
                 isStarting={onboarding.isStarting}
                 isSubmittingManual={onboarding.isSubmittingManual}
+                workspaceOptions={workspaceOptions}
+                selectedWorkspaceId={selectedWorkspaceId}
+                onSelectWorkspace={onSelectWorkspace}
                 onRefresh={onboarding.refreshStatus}
                 onStartPairing={onboarding.startPairing}
                 onSubmitManualKey={onboarding.submitManualKey}
