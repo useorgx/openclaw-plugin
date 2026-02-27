@@ -1058,6 +1058,15 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         const workspaceId = scope.workspaceId;
         const order = parseSliceOrderForMutation((payload as any)?.order);
         const canonicalOrder = order.map((sliceId) => ({ sliceId }));
+        if (canonicalOrder.length === 0) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.slices.reorder.validation",
+            "order must contain at least one slice id"
+          );
+          return;
+        }
 
         const rawRequest =
           deps.rawRequest ??

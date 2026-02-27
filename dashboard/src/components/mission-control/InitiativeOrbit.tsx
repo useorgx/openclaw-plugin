@@ -11,6 +11,7 @@ interface InitiativeOrbitProps {
     string,
     { activeCount: number; totalCount: number; lastHeartbeatAt: string | null }
   >;
+  queuedInitiativeIds?: ReadonlySet<string>;
 }
 
 const container = {
@@ -37,6 +38,7 @@ export function InitiativeOrbit({
   onToggleInitiativeSelection,
   isSquished = false,
   runtimeActivityByInitiativeId,
+  queuedInitiativeIds,
 }: InitiativeOrbitProps) {
   return (
     <motion.div
@@ -58,6 +60,7 @@ export function InitiativeOrbit({
             onSelectionChange={onToggleInitiativeSelection}
             isSquished={isSquished}
             runtimeActivity={runtimeActivityByInitiativeId?.get(initiative.id) ?? null}
+            isQueued={queuedInitiativeIds?.has(initiative.id) ?? false}
           />
         </motion.div>
       ))}

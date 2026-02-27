@@ -33,6 +33,7 @@ interface InitiativeSectionProps {
   selected?: boolean;
   onSelectionChange?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
   isSquished?: boolean;
+  isQueued?: boolean;
   runtimeActivity?: {
     activeCount: number;
     totalCount: number;
@@ -311,6 +312,7 @@ export function InitiativeSection({
   selected = false,
   onSelectionChange,
   isSquished = false,
+  isQueued = false,
   runtimeActivity = null,
 }: InitiativeSectionProps) {
   const {
@@ -802,6 +804,25 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
+        {/* Priority badge */}
+        {priorityFromLabel(initiative.priority).priorityLabel != null && (() => {
+          const label = priorityFromLabel(initiative.priority).priorityLabel!;
+          const tag = label === 'urgent' ? 'P0' : label === 'high' ? 'P1' : label === 'medium' ? 'P2' : 'P3';
+          const tone =
+            label === 'urgent'
+              ? 'text-red-300 border-red-400/20 bg-red-400/[0.08]'
+              : label === 'high'
+                ? 'text-amber-300 border-amber-400/20 bg-amber-400/[0.08]'
+                : label === 'medium'
+                  ? 'text-secondary border-white/[0.08] bg-white/[0.03]'
+                  : 'text-muted border-white/[0.06] bg-transparent';
+          return (
+            <span className={`hidden sm:block flex-shrink-0 rounded-md border px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wider leading-none ${tone}`}>
+              {tag}
+            </span>
+          );
+        })()}
+
         <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-1.5 sm:pr-2">
           <button
             type="button"
@@ -904,10 +925,11 @@ export function InitiativeSection({
           >
             {showQueueControl && (
               <QueuePlacementControl
-                label="Queue"
+                label={isQueued ? 'Queued' : 'Queue'}
                 size="sm"
                 busy={queueActionBusy}
                 disabled={queueTargets.length === 0}
+                isQueued={isQueued}
                 stopPropagation
                 title={`Queue initiative: ${initiative.name}`}
                 onSelectPlacement={queueInitiative}
@@ -940,12 +962,20 @@ export function InitiativeSection({
           }`}
         >
           {runtimeActiveCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
-              {runtimeActiveCount} live
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
+                {runtimeActiveCount} live
+              </span>
+              {agents.length > 0 && <InferredAgentAvatars agents={agents} max={2} />}
             </span>
           ) : agents.length > 0 ? (
-            <InferredAgentAvatars agents={agents} max={3} />
+            <span className="inline-flex items-center gap-1.5">
+              <InferredAgentAvatars agents={agents} max={3} />
+              {runtimeTotalCount > 0 && (
+                <span className="text-micro text-muted">idle</span>
+              )}
+            </span>
           ) : runtimeTotalCount > 0 ? (
             <span className="w-full text-right text-micro text-muted">
               {runtimeTotalCount} idle

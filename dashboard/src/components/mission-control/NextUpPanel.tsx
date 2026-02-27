@@ -671,6 +671,8 @@ export function NextUpPanel({
   const removeQueueItem = async (item: NextUpQueueItem) => {
     const key = itemKey(item);
     const label = sanitizeDisplayText(item.workstreamTitle);
+    const previousOrder = orderedKeysRef.current.slice();
+    applyLocalRemoval(new Set([key]));
     try {
       await nextUpActions.remove({
         initiativeId: item.initiativeId,
@@ -685,6 +687,9 @@ export function NextUpPanel({
       setSelectionAnchorKey((previous) => (previous === key ? null : previous));
       setNotice(`Removed ${label} from queue.`);
     } catch (err) {
+      if (!isCompact) {
+        setOrderedKeys(previousOrder);
+      }
       const raw = err instanceof Error ? err.message : '';
       setNotice(formatQueueActionError(raw, 'Failed to remove from queue'));
     }
@@ -733,6 +738,26 @@ export function NextUpPanel({
     setSelectionAnchorKey(null);
   };
 
+  const applyLocalPlacement = (keys: Set<string>, placement: QueuePlacement) => {
+    if (keys.size === 0) return;
+    setOrderedKeys((previous) => {
+      const base = previous.length > 0 ? previous : visibleKeys;
+      const selected: string[] = [];
+      const remaining: string[] = [];
+      for (const entry of base) {
+        if (keys.has(entry)) selected.push(entry);
+        else remaining.push(entry);
+      }
+      if (selected.length === 0) return previous;
+      return placement === 'top' ? [...selected, ...remaining] : [...remaining, ...selected];
+    });
+  };
+
+  const applyLocalRemoval = (keys: Set<string>) => {
+    if (keys.size === 0) return;
+    setOrderedKeys((previous) => previous.filter((entry) => !keys.has(entry)));
+  };
+
   const runBulkQueueAction = async (action: NextUpQueueBulkAction) => {
     if (selectedKeys.size === 0) {
       setNotice('Select one or more queue items first.');
@@ -745,6 +770,16 @@ export function NextUpPanel({
     if (selectedItems.length === 0) {
       setNotice('Selected queue items are no longer visible.');
       return;
+    }
+
+    const selectedKeySet = new Set(selectedItems.map(({ key }) => key));
+    const previousOrder = orderedKeysRef.current.slice();
+    if (action === 'move_top') {
+      applyLocalPlacement(selectedKeySet, 'top');
+    } else if (action === 'move_bottom') {
+      applyLocalPlacement(selectedKeySet, 'bottom');
+    } else if (action === 'remove') {
+      applyLocalRemoval(selectedKeySet);
     }
 
     setActionKey(`bulk:${action}`);
@@ -797,6 +832,9 @@ export function NextUpPanel({
       setSelectedKeys(new Set());
       setSelectionAnchorKey(null);
     } catch (err) {
+      if (!isCompact) {
+        setOrderedKeys(previousOrder);
+      }
       const raw = err instanceof Error ? err.message : '';
       setNotice(formatQueueActionError(raw, 'Bulk queue action failed'));
     } finally {
@@ -817,16 +855,22 @@ export function NextUpPanel({
   const runAction = async (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string | ((result: unknown) => string)
+    successMessage: string | ((result: unknown) => string),
+    options?: {
+      optimistic?: () => void;
+      rollback?: () => void;
+    }
   ) => {
     setNotice(null);
     setUpgradeGate(null);
     onUpgradeGate?.(null);
+    options?.optimistic?.();
     setActionKey(key);
     try {
       const result = await action();
       setNotice(typeof successMessage === 'function' ? successMessage(result) : successMessage);
     } catch (err) {
+      options?.rollback?.();
       if (err instanceof UpgradeRequiredError) {
         setUpgradeGate(err);
         onUpgradeGate?.(err);
@@ -1366,6 +1410,7 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
+                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:top`,
                                 () =>
@@ -1374,7 +1419,11 @@ export function NextUpPanel({
                                     workstreamId: item.workstreamId,
                                     placement: 'top',
                                   }),
-                                `Moved ${workstreamTitle} to top of queue.`
+                                `Moved ${workstreamTitle} to top of queue.`,
+                                {
+                                  optimistic: () => applyLocalPlacement(new Set([key]), 'top'),
+                                  rollback: () => setOrderedKeys(previousOrder),
+                                }
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1385,6 +1434,7 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
+                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:bottom`,
                                 () =>
@@ -1393,7 +1443,11 @@ export function NextUpPanel({
                                     workstreamId: item.workstreamId,
                                     placement: 'bottom',
                                   }),
-                                `Moved ${workstreamTitle} to bottom of queue.`
+                                `Moved ${workstreamTitle} to bottom of queue.`,
+                                {
+                                  optimistic: () => applyLocalPlacement(new Set([key]), 'bottom'),
+                                  rollback: () => setOrderedKeys(previousOrder),
+                                }
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1404,6 +1458,7 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
+                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:auto`,
                                 async () => {
@@ -1419,7 +1474,11 @@ export function NextUpPanel({
                                     scope: 'initiative',
                                   });
                                 },
-                                `Start+Auto enabled for ${initiativeTitle}.`
+                                `Start+Auto enabled for ${initiativeTitle}.`,
+                                {
+                                  optimistic: () => applyLocalPlacement(new Set([key]), 'top'),
+                                  rollback: () => setOrderedKeys(previousOrder),
+                                }
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1492,6 +1551,9 @@ export function NextUpPanel({
                       placement,
                     })
                   }
+                  onApplyLocalPlacement={applyLocalPlacement}
+                  onRestoreOrder={(keys) => setOrderedKeys(keys)}
+                  captureOrder={() => orderedKeysRef.current.slice()}
                   onCommitReorder={() => void persistOrder().catch(() => null)}
                   onDismiss={removeQueueItem}
                   runAction={runAction}
@@ -1534,6 +1596,9 @@ function NextUpReorderRow({
   triagePlacement,
   onPauseWorkstream,
   onMoveWorkstream,
+  onApplyLocalPlacement,
+  onRestoreOrder,
+  captureOrder,
   onCommitReorder,
   onDismiss,
   runAction,
@@ -1561,12 +1626,19 @@ function NextUpReorderRow({
   triagePlacement: QueuePlacement;
   onPauseWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
   onMoveWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
+  onApplyLocalPlacement: (keys: Set<string>, placement: QueuePlacement) => void;
+  onRestoreOrder: (keys: string[]) => void;
+  captureOrder: () => string[];
   onCommitReorder: () => void;
   onDismiss: (item: NextUpQueueItem) => void;
   runAction: (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string | ((result: unknown) => string)
+    successMessage: string | ((result: unknown) => string),
+    options?: {
+      optimistic?: () => void;
+      rollback?: () => void;
+    }
   ) => Promise<void>;
 }) {
   const controls = useDragControls();
@@ -1818,10 +1890,15 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
+                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:top`,
                       () => onMoveWorkstream(item, 'top'),
-                      `Moved ${workstreamTitle} to top of queue.`
+                      `Moved ${workstreamTitle} to top of queue.`,
+                      {
+                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'top'),
+                        rollback: () => onRestoreOrder(previousOrder),
+                      }
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1832,10 +1909,15 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
+                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:bottom`,
                       () => onMoveWorkstream(item, 'bottom'),
-                      `Moved ${workstreamTitle} to bottom of queue.`
+                      `Moved ${workstreamTitle} to bottom of queue.`,
+                      {
+                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'bottom'),
+                        rollback: () => onRestoreOrder(previousOrder),
+                      }
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1846,6 +1928,7 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
+                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:auto`,
                       async () => {
@@ -1857,7 +1940,11 @@ function NextUpReorderRow({
                           scope: 'initiative',
                         });
                       },
-                      `Start+Auto enabled for ${initiativeTitle}.`
+                      `Start+Auto enabled for ${initiativeTitle}.`,
+                      {
+                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'top'),
+                        rollback: () => onRestoreOrder(previousOrder),
+                      }
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
