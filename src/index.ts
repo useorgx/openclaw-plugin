@@ -59,6 +59,7 @@ import {
 } from "./skill-pack-state.js";
 import {
   resolveConfig,
+  resolveDocsUrl,
   resolveRuntimeUserId,
   type ResolvedConfig,
 } from "./config/resolution.js";
@@ -87,6 +88,8 @@ import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
 export { OrgXClient } from "./api.js";
+
+const ORGX_CANONICAL_BASE_URL = "https://www.useorgx.com";
 
 // =============================================================================
 // PLUGIN INTERFACE TYPES
@@ -584,6 +587,32 @@ export default function register(api: PluginAPI): void {
       options,
       toErrorMessage,
     });
+  }
+
+  function looksLikeTransientFetchFailure(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("fetch failed") ||
+      normalized.includes("networkerror") ||
+      normalized.includes("econnrefused") ||
+      normalized.includes("enotfound") ||
+      normalized.includes("eai_again")
+    );
+  }
+
+  function applyRuntimeBaseUrl(nextBaseUrl: string): void {
+    const normalized = nextBaseUrl.trim().replace(/\/+$/, "");
+    if (!normalized) return;
+    if (config.baseUrl === normalized && baseApiUrl === normalized) return;
+
+    config.baseUrl = normalized;
+    baseApiUrl = normalized;
+    client.setCredentials({
+      apiKey: config.apiKey,
+      userId: config.userId,
+      baseUrl: config.baseUrl,
+    });
+    updateOnboardingState({ docsUrl: resolveDocsUrl(config.baseUrl) });
   }
 
   function setRuntimeApiKey(input: {
@@ -1350,27 +1379,57 @@ export default function register(api: PluginAPI): void {
       lastError: null,
       nextAction: "connect",
     });
+    const pairingPayload = {
+      installationId: config.installationId,
+      pluginVersion: config.pluginVersion,
+      openclawVersion: input.openclawVersion,
+      platform: input.platform || process.platform,
+      deviceName: input.deviceName,
+    };
+    const requestPairing = (targetBaseApiUrl: string) =>
+      fetchOrgxJsonRequest<{
+        pairingId: string;
+        pollToken: string;
+        connectUrl: string;
+        expiresAt: string;
+        pollIntervalMs: number;
+      }>({
+        baseApiUrl: targetBaseApiUrl,
+        method: "POST",
+        path: "/api/plugin/openclaw/pairings",
+        body: pairingPayload,
+        // Pairing can hit a cold serverless boot + supabase insert + rate-limit checks.
+        // Give it more headroom than typical lightweight API calls.
+        options: { timeoutMs: 30_000 },
+        toErrorMessage,
+      });
 
-    const started = await fetchOrgxJson<{
-      pairingId: string;
-      pollToken: string;
-      connectUrl: string;
-      expiresAt: string;
-      pollIntervalMs: number;
-    }>(
-      "POST",
-      "/api/plugin/openclaw/pairings",
-      {
-        installationId: config.installationId,
-        pluginVersion: config.pluginVersion,
-        openclawVersion: input.openclawVersion,
-        platform: input.platform || process.platform,
-        deviceName: input.deviceName,
-      },
-      // Pairing can hit a cold serverless boot + supabase insert + rate-limit checks.
-      // Give it more headroom than typical lightweight API calls.
-      { timeoutMs: 30_000 }
-    );
+    let started = await requestPairing(baseApiUrl);
+    const shouldRetryAgainstCanonical =
+      !started.ok &&
+      started.status === 0 &&
+      looksLikeTransientFetchFailure(started.error) &&
+      baseApiUrl.replace(/\/+$/, "") !== ORGX_CANONICAL_BASE_URL;
+
+    if (shouldRetryAgainstCanonical) {
+      const initialStatus = started.ok ? 0 : started.status;
+      const initialError = started.ok ? "Pairing request failed" : started.error;
+      const fallbackStarted = await requestPairing(ORGX_CANONICAL_BASE_URL);
+      if (fallbackStarted.ok) {
+        api.log?.info?.("[orgx] Pairing start succeeded via canonical OrgX base URL", {
+          previousBaseUrl: baseApiUrl,
+          nextBaseUrl: ORGX_CANONICAL_BASE_URL,
+        });
+        applyRuntimeBaseUrl(ORGX_CANONICAL_BASE_URL);
+        started = fallbackStarted;
+      } else {
+        started = {
+          ok: false,
+          status: fallbackStarted.status || initialStatus,
+          error: `${initialError}; fallback via ${ORGX_CANONICAL_BASE_URL} failed: ${fallbackStarted.error}`,
+        };
+      }
+    }
 
     if (!started.ok) {
       if (isAuthRequiredError(started)) {
@@ -1397,7 +1456,11 @@ export default function register(api: PluginAPI): void {
       }
 
       const statusLabel = started.status ? ` (HTTP ${started.status})` : "";
-      const message = `Pairing start failed${statusLabel}: ${started.error}`;
+      const networkHint =
+        started.status === 0
+          ? ` Could not reach OrgX at ${baseApiUrl}. Check network/VPN/firewall or update ORGX_BASE_URL.`
+          : "";
+      const message = `Pairing start failed${statusLabel}: ${started.error}${networkHint}`;
       updateOnboardingState({
         status: "error",
         hasApiKey: Boolean(config.apiKey),
