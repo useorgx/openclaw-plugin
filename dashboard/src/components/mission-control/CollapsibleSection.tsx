@@ -9,6 +9,10 @@ interface CollapsibleSectionProps {
   stickyOffsetClass?: string;
   stickyTop?: string;
   contentOverflowVisible?: boolean;
+  /** Optional count badge displayed next to the title (e.g. "3 completed"). */
+  badge?: number | string | null;
+  /** Optional hex color for an accent underline on the header. */
+  accentColor?: string | null;
   children: React.ReactNode;
 }
 
@@ -39,6 +43,8 @@ export function CollapsibleSection({
   stickyOffsetClass = 'top-0',
   stickyTop,
   contentOverflowVisible = false,
+  badge,
+  accentColor,
   children,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(() =>
@@ -109,7 +115,25 @@ export function CollapsibleSection({
         <span className="text-caption font-semibold tracking-[0.02em] text-white/68">
           {title}
         </span>
+        {badge != null && badge !== '' && (
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums"
+            style={
+              accentColor
+                ? { color: accentColor, backgroundColor: `${accentColor}15` }
+                : { color: 'rgba(255,255,255,0.5)', backgroundColor: 'rgba(255,255,255,0.06)' }
+            }
+          >
+            {badge}
+          </span>
+        )}
       </button>
+      {accentColor && (
+        <div
+          className="h-px w-full"
+          style={{ backgroundColor: `${accentColor}20` }}
+        />
+      )}
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div

@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { formatDistanceToNow } from 'date-fns';
 import type { Initiative, SessionTreeNode, SliceRunProjection, SliceScope } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
@@ -10,6 +11,7 @@ import { getAgentPersonality, inferAgentDomain } from '@/lib/agentPersonality';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
 import { normalizeStatus } from '@/lib/tokens';
+import { resolveAgentPersona } from './AgentInference';
 
 const IN_PROGRESS_STATUSES = new Set([
   'running',
@@ -379,6 +381,93 @@ export const InProgressPanel = memo(function InProgressPanel({
     return rows.filter((row) => normalizeStatus(row.status) === activeFilter);
   }, [activeFilter, rows]);
 
+  // ── Group filtered rows by initiative → workstream ──────────
+  const groupedRows = useMemo(() => {
+    type WorkstreamBucket = {
+      workstreamId: string;
+      workstreamTitle: string;
+      rows: InProgressRow[];
+      completedCount: number;
+      lastActivityAt: string | null;
+    };
+    type InitiativeBucket = {
+      initiativeId: string;
+      initiativeTitle: string;
+      workstreams: WorkstreamBucket[];
+    };
+
+    const initiativeMap = new Map<string, {
+      title: string;
+      wsMap: Map<string, { title: string; rows: InProgressRow[]; completedCount: number; lastActivity: string | null }>;
+    }>();
+    const ungrouped: InProgressRow[] = [];
+
+    for (const row of filtered) {
+      const iId = (row.initiativeIds?.[0] ?? row.initiativeId ?? '').trim();
+      const wId = (row.workstreamIds?.[0] ?? row.workstreamId ?? '').trim();
+      if (!iId) {
+        ungrouped.push(row);
+        continue;
+      }
+      let initEntry = initiativeMap.get(iId);
+      if (!initEntry) {
+        const iTitle = row.initiativeTitle ?? iId;
+        initEntry = { title: iTitle, wsMap: new Map() };
+        initiativeMap.set(iId, initEntry);
+      }
+      const wsKey = wId || '__none__';
+      let wsEntry = initEntry.wsMap.get(wsKey);
+      if (!wsEntry) {
+        wsEntry = { title: row.workstreamTitle ?? (wId || 'Unassigned'), rows: [], completedCount: 0, lastActivity: null };
+        initEntry.wsMap.set(wsKey, wsEntry);
+      }
+      const status = normalizeStatus(row.status);
+      if (status === 'completed' || status === 'done') {
+        wsEntry.completedCount += 1;
+      } else {
+        wsEntry.rows.push(row);
+      }
+      if (row.updatedAt) {
+        const epoch = Date.parse(row.updatedAt);
+        const prevEpoch = wsEntry.lastActivity ? Date.parse(wsEntry.lastActivity) : 0;
+        if (Number.isFinite(epoch) && epoch > prevEpoch) {
+          wsEntry.lastActivity = row.updatedAt;
+        }
+      }
+    }
+
+    const groups: InitiativeBucket[] = [];
+    for (const [initiativeId, entry] of initiativeMap) {
+      const workstreams: WorkstreamBucket[] = [];
+      for (const [workstreamId, wsEntry] of entry.wsMap) {
+        workstreams.push({
+          workstreamId,
+          workstreamTitle: wsEntry.title,
+          rows: wsEntry.rows,
+          completedCount: wsEntry.completedCount,
+          lastActivityAt: wsEntry.lastActivity,
+        });
+      }
+      // Sort workstreams by most recent activity
+      workstreams.sort((a, b) => {
+        const aEp = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
+        const bEp = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
+        return bEp - aEp;
+      });
+      groups.push({ initiativeId, initiativeTitle: entry.title, workstreams });
+    }
+    // Sort initiatives by most recent activity across their workstreams
+    groups.sort((a, b) => {
+      const aMax = Math.max(0, ...a.workstreams.map(w => w.lastActivityAt ? Date.parse(w.lastActivityAt) : 0));
+      const bMax = Math.max(0, ...b.workstreams.map(w => w.lastActivityAt ? Date.parse(w.lastActivityAt) : 0));
+      return bMax - aMax;
+    });
+
+    return { groups, ungrouped };
+  }, [filtered]);
+
+  const [collapsedCompleted, setCollapsedCompleted] = useState<Set<string>>(new Set());
+
   const runWorkstreamAction = async (
     row: InProgressRow,
     action: (session: SessionTreeNode) => Promise<void> | void,
@@ -486,290 +575,534 @@ export const InProgressPanel = memo(function InProgressPanel({
         )
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-          <div className="space-y-2">
-            {filtered.map((row, index) => {
-              const status = normalizeStatus(row.status ?? '');
-              const when = row.updatedAt;
-              const subtitle = row.subtitle
-                ? row.subtitle
-                : when
-                  ? `Updated ${formatRelativeTime(when)}`
-                  : null;
-              const initiativeDisplay =
-                row.initiativeTitle || row.initiativeId
-                  ? sanitizeDisplayText(
-                      row.initiativeTitle && !isOpaqueId(row.initiativeTitle)
-                        ? row.initiativeTitle
-                        : compactOpaqueLabel(row.initiativeId, 'Initiative')
-                    )
-                  : null;
-              const rowTitleRaw = row.title?.trim() ? row.title : row.workstreamTitle ?? '';
-              const rowTitleFallback = compactOpaqueLabel(
-                row.workstreamId ?? row.runId,
-                row.scope === 'milestone' ? 'Milestone' : row.scope === 'task' ? 'Task' : 'Workstream'
-              );
-              const rowTitleDisplay = sanitizeDisplayText(
-                rowTitleRaw && !isOpaqueId(rowTitleRaw) ? rowTitleRaw : rowTitleFallback
-              );
-              const subtitleDisplay = subtitle ? sanitizeDisplayText(subtitle) : null;
-              const progressValue = coerceProgress(row.progress);
-              const canPauseAction = ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
-              const canResumeAction = ['paused', 'blocked', 'queued', 'pending'].includes(status);
-              const restartHandler = onRestartSession ?? onPlayWorkstream;
-              const showEstimatedProgress =
-                progressValue === null &&
-                ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
-              const sessionBusy = row.session ? busySessionId === row.session.id : false;
-              const isExpanded = expandedRowKey === row.key;
-              const hasSliceDetails =
-                row.source === 'slice' &&
-                (row.taskIds.length > 0 ||
-                  row.milestoneIds.length > 0 ||
-                  row.artifactCount > 0 ||
-                  row.decisionCount > 0);
+          <motion.div
+            className="space-y-4"
+            initial="hidden"
+            animate="show"
+            variants={{ show: { transition: { staggerChildren: 0.04 } } }}
+          >
+            {groupedRows.groups.map((initGroup) => (
+              <div key={initGroup.initiativeId}>
+                {/* Initiative heading */}
+                <h3 className="text-[15px] font-semibold text-white/90 mb-2">
+                  {sanitizeDisplayText(
+                    initGroup.initiativeTitle && !isOpaqueId(initGroup.initiativeTitle)
+                      ? initGroup.initiativeTitle
+                      : compactOpaqueLabel(initGroup.initiativeId, 'Initiative')
+                  )}
+                </h3>
 
-              const linkedSliceRun =
-                (row.initiativeId && row.workstreamId
-                  ? sliceRunByScope.get(`${row.initiativeId}:${row.workstreamId}`) ?? null
-                  : null) ??
-                (row.runId ? sliceRunByScope.get(`run:${row.runId}`) ?? null : null);
+                {/* Workstream subsections */}
+                {initGroup.workstreams.map((wsGroup) => {
+                  const wsCompletedKey = `${initGroup.initiativeId}:${wsGroup.workstreamId}`;
+                  const showCompleted = collapsedCompleted.has(wsCompletedKey);
+                  // Resolve agent persona from first active row in workstream
+                  const firstRow = wsGroup.rows[0] ?? null;
+                  const agentPersona = firstRow
+                    ? resolveAgentPersona(firstRow.session?.agentId, firstRow.session?.agentName)
+                    : null;
+                  // Scope progress from first row
+                  const scopeTotal = firstRow?.milestoneProgress
+                    ? firstRow.milestoneProgress.reduce((s, m) => s + m.total, 0)
+                    : null;
+                  const scopeDone = firstRow?.milestoneProgress
+                    ? firstRow.milestoneProgress.reduce((s, m) => s + m.done, 0)
+                    : null;
+                  const taskPosition =
+                    scopeTotal && scopeTotal > 0
+                      ? `Task ${(scopeDone ?? 0) + 1} of ${scopeTotal}`
+                      : null;
+                  const taskPercent =
+                    scopeTotal && scopeTotal > 0
+                      ? Math.round(((scopeDone ?? 0) / scopeTotal) * 100)
+                      : firstRow?.progress != null
+                        ? coerceProgress(firstRow.progress)
+                        : null;
 
-              return (
-                <motion.article
-                  initial={{ opacity: 0, y: 10, scale: 0.985 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{
-                    duration: 0.24,
-                    delay: Math.min(index, 7) * 0.02,
-                    ease: [0.22, 1, 0.36, 1],
-                  }}
-                  key={row.key}
-                  className="group hover-lift relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 cursor-pointer transition-colors hover:border-white/[0.14]"
-                  onClick={() => onOpenSliceDetail?.(row, linkedSliceRun)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(row, linkedSliceRun); } }}
-                >
-                  <div
-                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(status)}`}
-                    aria-hidden
-                  />
-                  <div className="flex min-w-0 items-start gap-2.5">
+                  return (
                     <div
-                      className={row.status === 'running' ? 'agent-glow-ring rounded-full' : ''}
-                      style={row.status === 'running' ? { '--agent-glow-color': getAgentPersonality(inferAgentDomain(row.session?.agentId)).glowColor } as React.CSSProperties : undefined}
+                      key={wsGroup.workstreamId}
+                      className="pl-4 border-l border-white/[0.08] mb-3"
                     >
-                      <AgentAvatar
-                        name={row.session?.agentName ?? 'OrgX'}
-                        hint={row.session?.agentId ?? row.runId}
-                        size="sm"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {initiativeDisplay ? (
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">
-                          {initiativeDisplay}
-                        </p>
-                      ) : null}
-                      <div className="flex min-w-0 items-start gap-1.5">
-                        <EntityIcon type="session" size={12} className="mt-[3px] flex-shrink-0 opacity-80" />
-                        <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={rowTitleDisplay}>
-                          {rowTitleDisplay}
-                        </p>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        {row.scope && row.scope !== 'task' && (
-                          <Pill tone={row.scope === 'milestone' ? 'cyan' : 'lime'}>
-                            {row.scope}
-                          </Pill>
-                        )}
-                        <span className={`inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
-                          {statusLabel(status)}
-                        </span>
-                      </div>
-                      {subtitleDisplay ? (
-                        <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={subtitleDisplay}>
-                          {subtitleDisplay}
-                        </p>
-                      ) : null}
-                      {(progressValue !== null || showEstimatedProgress) && (
-                        <div className="mt-2">
-                          <div className="mb-1 flex items-center justify-between text-micro">
-                            <span className="text-secondary">Progress</span>
-                            <span className="font-semibold text-primary tabular-nums">
-                              {progressValue === null ? 'In progress' : `${progressValue}%`}
+                      {/* Workstream header with agent persona */}
+                      <div className="flex items-center gap-2 mb-2">
+                        {agentPersona && (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                              style={{
+                                backgroundColor: `${agentPersona.color}20`,
+                                color: agentPersona.color,
+                              }}
+                            >
+                              {agentPersona.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span
+                              className="text-[13px] font-medium truncate"
+                              style={{ color: agentPersona.color }}
+                            >
+                              {agentPersona.displayLabel}
                             </span>
                           </div>
-                          <div className={`h-1.5 overflow-hidden rounded-full bg-white/[0.09]${progressValue === 100 ? ' shimmer-on-complete' : ''}`}>
-                            {progressValue === null ? (
-                              <div className="h-full w-1/3 animate-pulse rounded-full bg-[#7dd3c0]/70" />
-                            ) : (
+                        )}
+
+                        {/* Task position + mini progress bar */}
+                        {taskPosition && (
+                          <div className="flex items-center gap-2 ml-auto">
+                            <span className="font-mono tabular-nums text-[11px] text-white/50">
+                              {taskPosition}
+                            </span>
+                            <div className="h-1 rounded-full bg-white/10 w-24">
                               <div
                                 className="h-full rounded-full transition-[width] duration-500"
                                 style={{
-                                  width: `${Math.max(3, progressValue)}%`,
-                                  background: `linear-gradient(90deg, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[0]}, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[1]})`,
+                                  width: `${Math.max(3, taskPercent ?? 0)}%`,
+                                  backgroundColor: agentPersona?.color ?? '#14B8A6',
                                 }}
                               />
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {row.milestoneProgress && row.milestoneProgress.length > 0 && (
-                        <div className="mt-2">
-                          <ScopeProgressCard
-                            nodes={buildScopeFromSliceRun({
-                              initiativeId: row.initiativeId,
-                              initiativeTitle: row.initiativeTitle,
-                              workstreamId: row.workstreamId,
-                              workstreamTitle: row.workstreamTitle,
-                              taskIds: row.taskIds,
-                              milestoneIds: row.milestoneIds,
-                              scopeProgress: row.milestoneProgress
-                                ? {
-                                    totalTasks: row.milestoneProgress.reduce((s, m) => s + m.total, 0),
-                                    completedTasks: row.milestoneProgress.reduce((s, m) => s + m.done, 0),
-                                    milestones: row.milestoneProgress,
-                                  }
-                                : null,
-                              status: row.status,
-                              agentName: row.session?.agentName ?? null,
-                              agentId: row.session?.agentId ?? null,
-                            })}
-                            activeId={row.workstreamId}
-                            compact
-                          />
-                        </div>
-                      )}
-
-                      {hasSliceDetails ? (
-                        <div className="mt-2">
-                          <button
-                            type="button"
-                            onClick={() => setExpandedRowKey((prev) => (prev === row.key ? null : row.key))}
-                            className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.08] hover:text-white"
-                          >
-                            {isExpanded ? 'Hide details' : 'Slice details'}
-                          </button>
-                          {isExpanded ? (
-                            <div className="mt-2 space-y-2 rounded-lg border border-white/[0.08] bg-black/[0.18] px-2.5 py-2">
-                              {row.workstreamTitle ? (
-                                <p className="text-caption text-secondary">
-                                  Workstream: <span className="text-white/90">{row.workstreamTitle}</span>
-                                </p>
-                              ) : null}
-                              <div className="flex flex-wrap gap-1.5 text-micro">
-                                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                                  Tasks {row.taskIds.length}
-                                </span>
-                                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                                  Milestones {row.milestoneIds.length}
-                                </span>
-                                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                                  Artifacts {row.artifactCount}
-                                </span>
-                                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                                  Needs input {row.decisionCount}
-                                </span>
-                              </div>
                             </div>
-                          ) : null}
-                        </div>
-                      ) : null}
+                          </div>
+                        )}
 
-                      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-white/[0.07] pt-2" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (row.session) {
-                              onOpenSession?.(row.session.id);
-                              return;
-                            }
-                            onFocusRunId?.(row.runId);
-                          }}
-                          className="control-pill h-7 px-2.5 text-micro font-semibold"
-                          title={row.session ? 'Open session detail' : 'Focus in Activity'}
-                        >
-                          {row.session ? 'Open' : 'Focus'}
-                        </button>
-                        {row.session && canPauseAction && onPauseWorkstream && row.session.initiativeId && row.session.workstreamId && (
-                          <button
-                            type="button"
-                            disabled={sessionBusy}
-                            onClick={() =>
-                              void runWorkstreamAction(
-                                row,
-                                onPauseWorkstream,
-                                `Paused ${row.title}.`
-                              )
-                            }
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                            title="Pause and return this workstream to queue"
-                          >
-                            Pause
-                          </button>
-                        )}
-                        {row.session && canResumeAction && onResumeWorkstream && row.session.initiativeId && row.session.workstreamId && (
-                          <button
-                            type="button"
-                            disabled={sessionBusy}
-                            onClick={() =>
-                              void runWorkstreamAction(
-                                row,
-                                onResumeWorkstream,
-                                `Resumed ${row.title}.`
-                              )
-                            }
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                            title="Resume this workstream"
-                          >
-                            Resume
-                          </button>
-                        )}
-                        {row.session && restartHandler && row.session.initiativeId && row.session.workstreamId && (
-                          <button
-                            type="button"
-                            disabled={sessionBusy}
-                            onClick={() =>
-                              void runWorkstreamAction(
-                                row,
-                                restartHandler,
-                                `Restarted ${row.title}.`
-                              )
-                            }
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                            title="Restart this workstream"
-                          >
-                            Restart
-                          </button>
-                        )}
-                        {row.session && onIntervene && (
-                          <button
-                            type="button"
-                            disabled={sessionBusy}
-                            onClick={() =>
-                              void runWorkstreamAction(
-                                row,
-                                onIntervene,
-                                `Opened intervention for ${row.title}.`
-                              )
-                            }
-                            className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                            title="Intervene with context and guidance"
-                          >
-                            Intervene
-                          </button>
+                        {/* Heartbeat */}
+                        {wsGroup.lastActivityAt && (
+                          <span className="font-mono tabular-nums text-[11px] text-white/40 ml-auto flex-shrink-0">
+                            {formatDistanceToNow(new Date(wsGroup.lastActivityAt), { addSuffix: true })}
+                          </span>
                         )}
                       </div>
+
+                      {/* Active rows */}
+                      <div className="space-y-2">
+                        {wsGroup.rows.map((row, index) => (
+                          <InProgressRowCard
+                            key={row.key}
+                            row={row}
+                            index={index}
+                            sliceRunByScope={sliceRunByScope}
+                            busySessionId={busySessionId}
+                            expandedRowKey={expandedRowKey}
+                            setExpandedRowKey={setExpandedRowKey}
+                            onOpenSession={onOpenSession}
+                            onFocusRunId={onFocusRunId}
+                            onPauseWorkstream={onPauseWorkstream}
+                            onResumeWorkstream={onResumeWorkstream}
+                            onRestartSession={onRestartSession}
+                            onPlayWorkstream={onPlayWorkstream}
+                            onIntervene={onIntervene}
+                            onOpenSliceDetail={onOpenSliceDetail}
+                            runWorkstreamAction={runWorkstreamAction}
+                            showInitiativeLabel={false}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Completed task collapse */}
+                      {wsGroup.completedCount > 0 && (
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollapsedCompleted((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(wsCompletedKey)) next.delete(wsCompletedKey);
+                                else next.add(wsCompletedKey);
+                                return next;
+                              })
+                            }
+                            className="text-[11px] text-[#14B8A6] cursor-pointer hover:underline"
+                          >
+                            {showCompleted
+                              ? `Hide ${wsGroup.completedCount} completed`
+                              : `${wsGroup.completedCount} completed`}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* Ungrouped rows */}
+            {groupedRows.ungrouped.length > 0 && (
+              <div>
+                {groupedRows.groups.length > 0 && (
+                  <h3 className="text-[15px] font-semibold text-white/90 mb-2">Ungrouped</h3>
+                )}
+                <div className="space-y-2">
+                  {groupedRows.ungrouped.map((row, index) => (
+                    <InProgressRowCard
+                      key={row.key}
+                      row={row}
+                      index={index}
+                      sliceRunByScope={sliceRunByScope}
+                      busySessionId={busySessionId}
+                      expandedRowKey={expandedRowKey}
+                      setExpandedRowKey={setExpandedRowKey}
+                      onOpenSession={onOpenSession}
+                      onFocusRunId={onFocusRunId}
+                      onPauseWorkstream={onPauseWorkstream}
+                      onResumeWorkstream={onResumeWorkstream}
+                      onRestartSession={onRestartSession}
+                      onPlayWorkstream={onPlayWorkstream}
+                      onIntervene={onIntervene}
+                      onOpenSliceDetail={onOpenSliceDetail}
+                      runWorkstreamAction={runWorkstreamAction}
+                      showInitiativeLabel
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.div>
         </div>
       )}
     </PremiumCard>
   );
 });
+
+// ── Extracted Row Card ─────────────────────────────────────────
+// Renders a single in-progress row card (extracted to avoid duplication
+// between grouped and ungrouped sections).
+
+interface InProgressRowCardProps {
+  row: InProgressRow;
+  index: number;
+  sliceRunByScope: Map<string, SliceRunProjection>;
+  busySessionId: string | null;
+  expandedRowKey: string | null;
+  setExpandedRowKey: (fn: (prev: string | null) => string | null) => void;
+  onOpenSession?: (sessionId: string) => void;
+  onFocusRunId?: (runId: string) => void;
+  onPauseWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onResumeWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onRestartSession?: (session: SessionTreeNode) => Promise<void> | void;
+  onPlayWorkstream?: (session: SessionTreeNode) => Promise<void> | void;
+  onIntervene?: (session: SessionTreeNode) => Promise<void> | void;
+  onOpenSliceDetail?: (row: InProgressRow, sliceRun: SliceRunProjection | null) => void;
+  runWorkstreamAction: (
+    row: InProgressRow,
+    action: (session: SessionTreeNode) => Promise<void> | void,
+    successMessage: string
+  ) => Promise<void>;
+  showInitiativeLabel?: boolean;
+}
+
+function InProgressRowCard({
+  row,
+  index,
+  sliceRunByScope,
+  busySessionId,
+  expandedRowKey,
+  setExpandedRowKey,
+  onOpenSession,
+  onFocusRunId,
+  onPauseWorkstream,
+  onResumeWorkstream,
+  onRestartSession,
+  onPlayWorkstream,
+  onIntervene,
+  onOpenSliceDetail,
+  runWorkstreamAction,
+  showInitiativeLabel = true,
+}: InProgressRowCardProps) {
+  const status = normalizeStatus(row.status ?? '');
+  const when = row.updatedAt;
+  const subtitle = row.subtitle
+    ? row.subtitle
+    : when
+      ? `Updated ${formatRelativeTime(when)}`
+      : null;
+  const initiativeDisplay =
+    showInitiativeLabel && (row.initiativeTitle || row.initiativeId)
+      ? sanitizeDisplayText(
+          row.initiativeTitle && !isOpaqueId(row.initiativeTitle)
+            ? row.initiativeTitle
+            : compactOpaqueLabel(row.initiativeId, 'Initiative')
+        )
+      : null;
+  const rowTitleRaw = row.title?.trim() ? row.title : row.workstreamTitle ?? '';
+  const rowTitleFallback = compactOpaqueLabel(
+    row.workstreamId ?? row.runId,
+    row.scope === 'milestone' ? 'Milestone' : row.scope === 'task' ? 'Task' : 'Workstream'
+  );
+  const rowTitleDisplay = sanitizeDisplayText(
+    rowTitleRaw && !isOpaqueId(rowTitleRaw) ? rowTitleRaw : rowTitleFallback
+  );
+  const subtitleDisplay = subtitle ? sanitizeDisplayText(subtitle) : null;
+  const progressValue = coerceProgress(row.progress);
+  const canPauseAction = ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
+  const canResumeAction = ['paused', 'blocked', 'queued', 'pending'].includes(status);
+  const restartHandler = onRestartSession ?? onPlayWorkstream;
+  const showEstimatedProgress =
+    progressValue === null &&
+    ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
+  const sessionBusy = row.session ? busySessionId === row.session.id : false;
+  const isExpanded = expandedRowKey === row.key;
+  const hasSliceDetails =
+    row.source === 'slice' &&
+    (row.taskIds.length > 0 ||
+      row.milestoneIds.length > 0 ||
+      row.artifactCount > 0 ||
+      row.decisionCount > 0);
+
+  const linkedSliceRun =
+    (row.initiativeId && row.workstreamId
+      ? sliceRunByScope.get(`${row.initiativeId}:${row.workstreamId}`) ?? null
+      : null) ??
+    (row.runId ? sliceRunByScope.get(`run:${row.runId}`) ?? null : null);
+
+  // Resolve agent persona for the row card
+  const persona = resolveAgentPersona(row.session?.agentId, row.session?.agentName);
+
+  // Last activity summary (status explainer as italic quote)
+  const statusExplainerText = row.subtitle && row.subtitle !== subtitleDisplay
+    ? row.subtitle
+    : null;
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 10, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{
+        duration: 0.24,
+        delay: Math.min(index, 7) * 0.02,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      key={row.key}
+      className="group hover-lift relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 cursor-pointer transition-colors hover:border-white/[0.14]"
+      onClick={() => onOpenSliceDetail?.(row, linkedSliceRun)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(row, linkedSliceRun); } }}
+    >
+      <div
+        className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(status)}`}
+        aria-hidden
+      />
+      <div className="flex min-w-0 items-start gap-2.5">
+        <div
+          className={row.status === 'running' ? 'agent-glow-ring rounded-full' : ''}
+          style={row.status === 'running' ? { '--agent-glow-color': persona.color } as React.CSSProperties : undefined}
+        >
+          <AgentAvatar
+            name={row.session?.agentName ?? 'OrgX'}
+            hint={row.session?.agentId ?? row.runId}
+            size="sm"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          {initiativeDisplay ? (
+            <p className="text-micro uppercase tracking-[0.08em] text-muted">
+              {initiativeDisplay}
+            </p>
+          ) : null}
+          <div className="flex min-w-0 items-start gap-1.5">
+            <EntityIcon type="session" size={12} className="mt-[3px] flex-shrink-0 opacity-80" />
+            <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={rowTitleDisplay}>
+              {rowTitleDisplay}
+            </p>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {row.scope && row.scope !== 'task' && (
+              <Pill tone={row.scope === 'milestone' ? 'cyan' : 'lime'}>
+                {row.scope}
+              </Pill>
+            )}
+            <span className={`inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
+              {statusLabel(status)}
+            </span>
+            {/* Heartbeat timestamp */}
+            {when && (
+              <span className="font-mono tabular-nums text-[11px] text-white/40 ml-auto">
+                {formatDistanceToNow(new Date(when), { addSuffix: true })}
+              </span>
+            )}
+          </div>
+          {subtitleDisplay ? (
+            <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={subtitleDisplay}>
+              {subtitleDisplay}
+            </p>
+          ) : null}
+          {/* Last activity summary as italic quote */}
+          {statusExplainerText ? (
+            <p className="mt-1 line-clamp-2 text-[11px] text-white/50 italic">
+              {sanitizeDisplayText(statusExplainerText)}
+            </p>
+          ) : null}
+          {(progressValue !== null || showEstimatedProgress) && (
+            <div className="mt-2">
+              <div className="mb-1 flex items-center justify-between text-micro">
+                <span className="text-secondary">Progress</span>
+                <span className="font-semibold text-primary tabular-nums">
+                  {progressValue === null ? 'In progress' : `${progressValue}%`}
+                </span>
+              </div>
+              <div className={`h-1.5 overflow-hidden rounded-full bg-white/[0.09]${progressValue === 100 ? ' shimmer-on-complete' : ''}`}>
+                {progressValue === null ? (
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-[#7dd3c0]/70" />
+                ) : (
+                  <div
+                    className="h-full rounded-full transition-[width] duration-500"
+                    style={{
+                      width: `${Math.max(3, progressValue)}%`,
+                      background: `linear-gradient(90deg, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[0]}, ${getAgentPersonality(inferAgentDomain(row.session?.agentId)).gradient[1]})`,
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          {row.milestoneProgress && row.milestoneProgress.length > 0 && (
+            <div className="mt-2">
+              <ScopeProgressCard
+                nodes={buildScopeFromSliceRun({
+                  initiativeId: row.initiativeId,
+                  initiativeTitle: row.initiativeTitle,
+                  workstreamId: row.workstreamId,
+                  workstreamTitle: row.workstreamTitle,
+                  taskIds: row.taskIds,
+                  milestoneIds: row.milestoneIds,
+                  scopeProgress: row.milestoneProgress
+                    ? {
+                        totalTasks: row.milestoneProgress.reduce((s, m) => s + m.total, 0),
+                        completedTasks: row.milestoneProgress.reduce((s, m) => s + m.done, 0),
+                        milestones: row.milestoneProgress,
+                      }
+                    : null,
+                  status: row.status,
+                  agentName: row.session?.agentName ?? null,
+                  agentId: row.session?.agentId ?? null,
+                })}
+                activeId={row.workstreamId}
+                compact
+              />
+            </div>
+          )}
+
+          {hasSliceDetails ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpandedRowKey((prev) => (prev === row.key ? null : row.key)); }}
+                className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.08] hover:text-white"
+              >
+                {isExpanded ? 'Hide details' : 'Slice details'}
+              </button>
+              {isExpanded ? (
+                <div className="mt-2 space-y-2 rounded-lg border border-white/[0.08] bg-black/[0.18] px-2.5 py-2">
+                  {row.workstreamTitle ? (
+                    <p className="text-caption text-secondary">
+                      Workstream: <span className="text-white/90">{row.workstreamTitle}</span>
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-1.5 text-micro">
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      Tasks {row.taskIds.length}
+                    </span>
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      Milestones {row.milestoneIds.length}
+                    </span>
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      Artifacts {row.artifactCount}
+                    </span>
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      Needs input {row.decisionCount}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-white/[0.07] pt-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => {
+                if (row.session) {
+                  onOpenSession?.(row.session.id);
+                  return;
+                }
+                onFocusRunId?.(row.runId);
+              }}
+              className="control-pill h-7 px-2.5 text-micro font-semibold"
+              title={row.session ? 'Open session detail' : 'Focus in Activity'}
+            >
+              {row.session ? 'Open' : 'Focus'}
+            </button>
+            {row.session && canPauseAction && onPauseWorkstream && row.session.initiativeId && row.session.workstreamId && (
+              <button
+                type="button"
+                disabled={sessionBusy}
+                onClick={() =>
+                  void runWorkstreamAction(
+                    row,
+                    onPauseWorkstream,
+                    `Paused ${row.title}.`
+                  )
+                }
+                className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                title="Pause and return this workstream to queue"
+              >
+                Pause
+              </button>
+            )}
+            {row.session && canResumeAction && onResumeWorkstream && row.session.initiativeId && row.session.workstreamId && (
+              <button
+                type="button"
+                disabled={sessionBusy}
+                onClick={() =>
+                  void runWorkstreamAction(
+                    row,
+                    onResumeWorkstream,
+                    `Resumed ${row.title}.`
+                  )
+                }
+                className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                title="Resume this workstream"
+              >
+                Resume
+              </button>
+            )}
+            {row.session && restartHandler && row.session.initiativeId && row.session.workstreamId && (
+              <button
+                type="button"
+                disabled={sessionBusy}
+                onClick={() =>
+                  void runWorkstreamAction(
+                    row,
+                    restartHandler,
+                    `Restarted ${row.title}.`
+                  )
+                }
+                className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                title="Restart this workstream"
+              >
+                Restart
+              </button>
+            )}
+            {row.session && onIntervene && (
+              <button
+                type="button"
+                disabled={sessionBusy}
+                onClick={() =>
+                  void runWorkstreamAction(
+                    row,
+                    onIntervene,
+                    `Opened intervention for ${row.title}.`
+                  )
+                }
+                className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                title="Intervene with context and guidance"
+              >
+                Intervene
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.article>
+  );
+}

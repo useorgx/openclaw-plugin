@@ -1107,6 +1107,24 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const includeLineage = parseBoolean(
       query.get("include_lineage") ?? query.get("includeLineage")
     );
+
+    // Noise reduction params — suppress blocked/idle queue items by severity.
+    // noise_threshold: 'low' (show all) | 'medium' (default, hide low-severity blocked) | 'high' (only critical/high blocked)
+    const noiseThresholdRaw = query.get("noise_threshold") ?? query.get("noiseThreshold");
+    const noiseThreshold: "low" | "medium" | "high" =
+      noiseThresholdRaw === "low" || noiseThresholdRaw === "high"
+        ? noiseThresholdRaw
+        : "medium";
+    // dedup_window: time window in ms for grouping duplicate blocked items (default: 60000)
+    const dedupWindowRaw = query.get("dedup_window") ?? query.get("dedupWindow");
+    const dedupWindowMs =
+      dedupWindowRaw != null
+        ? Math.max(0, parseInt(dedupWindowRaw, 10) || 60000)
+        : 60000;
+    // TODO: wire noiseThreshold + dedupWindowMs into triage query once server-side filtering lands
+    void noiseThreshold;
+    void dedupWindowMs;
+
     const nextUpCanonicalCacheKey = canonicalReadCacheKey({
       route: "next-up",
       workspaceId: projectId,

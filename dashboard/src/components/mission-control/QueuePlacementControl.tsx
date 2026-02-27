@@ -3,6 +3,13 @@ import type { SliceScope } from '@/types';
 
 type QueuePlacement = 'top' | 'bottom';
 
+type QueueMenuAction =
+  | { kind: 'launch'; scope?: SliceScope }
+  | { kind: 'autopilot'; scope?: SliceScope }
+  | { kind: 'move'; placement: QueuePlacement }
+  | { kind: 'pause' }
+  | { kind: 'archive' };
+
 interface QueuePlacementControlProps {
   label?: string;
   defaultPlacement?: QueuePlacement;
@@ -17,6 +24,10 @@ interface QueuePlacementControlProps {
   title?: string;
   stopPropagation?: boolean;
   onSelectPlacement: (placement: QueuePlacement, scope?: SliceScope) => void | Promise<void>;
+  onLaunch?: (scope?: SliceScope) => void | Promise<void>;
+  onAutopilot?: (scope?: SliceScope) => void | Promise<void>;
+  onPause?: () => void | Promise<void>;
+  onArchive?: () => void | Promise<void>;
 }
 
 const placementCopy: Record<QueuePlacement, string> = {
@@ -80,6 +91,10 @@ export function QueuePlacementControl({
   title,
   stopPropagation = false,
   onSelectPlacement,
+  onLaunch,
+  onAutopilot,
+  onPause,
+  onArchive,
 }: QueuePlacementControlProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
