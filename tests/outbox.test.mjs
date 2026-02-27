@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mkdtempSync, writeFileSync, readdirSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -201,6 +201,37 @@ test("readOutbox returns empty list for invalid queue identifiers", async () => 
     const outbox = await importFreshOutbox();
     const events = await outbox.readOutbox("../bad-queue");
     assert.deepEqual(events, []);
+  } finally {
+    process.env.HOME = originalHome;
+  }
+});
+
+test("write APIs no-op for invalid queue identifiers", async () => {
+  const originalHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "orgx-outbox-invalid-write-id-test-"));
+  process.env.HOME = home;
+
+  try {
+    const outbox = await importFreshOutbox();
+    await assert.doesNotReject(async () => {
+      await outbox.appendToOutbox("../bad-queue", {
+        id: "evt-1",
+        type: "progress",
+        timestamp: new Date().toISOString(),
+        payload: { summary: "ignored" },
+        activityItem: sampleActivityItem("evt-1"),
+      });
+      await outbox.replaceOutbox("../bad-queue", []);
+      await outbox.clearOutbox("../bad-queue");
+    });
+
+    const outboxRoot = join(home, ".openclaw", "orgx-outbox");
+    if (existsSync(outboxRoot)) {
+      const contents = readdirSync(outboxRoot, { withFileTypes: true })
+        .map((entry) => entry.name);
+      assert.equal(contents.includes(".."), false);
+      assert.equal(contents.includes("../bad-queue.json"), false);
+    }
   } finally {
     process.env.HOME = originalHome;
   }

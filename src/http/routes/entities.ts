@@ -500,6 +500,15 @@ export function registerEntitiesRoutes<TReq, TRes>(
         });
         return;
       }
+      if (type.trim().toLowerCase() === "command_center") {
+        deps.sendJson(res, 200, {
+          data: [],
+          pagination: { total: 0, has_more: false },
+          localFallback: true,
+          warning: deps.safeErrorMessage(err),
+        });
+        return;
+      }
       deps.sendJson(res, 500, {
         error: deps.safeErrorMessage(err),
       });

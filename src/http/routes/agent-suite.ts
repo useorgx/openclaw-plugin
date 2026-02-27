@@ -144,6 +144,26 @@ function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
   return patch;
 }
 
+function buildRuntimeSettingsFallbackEnvelope(workspaceId?: string | null): {
+  ok: true;
+  workspace_id: string | null;
+  command_center_id: string | null;
+  project_id: string | null;
+  agents: [];
+} {
+  const normalizedWorkspaceId =
+    typeof workspaceId === "string" && workspaceId.trim().length > 0
+      ? workspaceId.trim()
+      : null;
+  return {
+    ok: true,
+    workspace_id: normalizedWorkspaceId,
+    command_center_id: normalizedWorkspaceId,
+    project_id: normalizedWorkspaceId,
+    agents: [],
+  };
+}
+
 export function registerAgentSuiteRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterAgentSuiteRoutesDeps<TReq, TRes>
@@ -194,25 +214,26 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
     "GET",
     "agent-suite/runtime-settings",
     async ({ req, res }) => {
+      const requestUrl = new URL(String((req as any).url ?? "/"), "http://localhost");
+      const workspaceId = toOptionalUuid(
+        requestUrl.searchParams.get("workspace_id") ??
+          requestUrl.searchParams.get("workspaceId") ??
+          requestUrl.searchParams.get("command_center_id") ??
+          requestUrl.searchParams.get("commandCenterId") ??
+          requestUrl.searchParams.get("project_id")
+      );
       try {
-        const requestUrl = new URL(
-          String((req as any).url ?? "/"),
-          "http://localhost"
-        );
-        const workspaceId = toOptionalUuid(
-          requestUrl.searchParams.get("workspace_id") ??
-            requestUrl.searchParams.get("workspaceId") ??
-            requestUrl.searchParams.get("command_center_id") ??
-            requestUrl.searchParams.get("commandCenterId") ??
-            requestUrl.searchParams.get("project_id")
-        );
         const response = await deps.fetchAgentRuntimeSettings({
           workspaceId: workspaceId ?? null,
         });
         if (!response?.ok) {
-          deps.sendJson(res, 502, {
-            ok: false,
-            error: response?.error ?? "Failed to load agent runtime settings",
+          deps.sendJson(res, 200, {
+            ok: true,
+            data: {
+              ...buildRuntimeSettingsFallbackEnvelope(workspaceId ?? null),
+              warning:
+                response?.error ?? "Failed to load agent runtime settings",
+            },
           });
           return;
         }
@@ -221,9 +242,12 @@ export function registerAgentSuiteRoutes<TReq, TRes>(
           data: response,
         });
       } catch (err: unknown) {
-        deps.sendJson(res, 500, {
-          ok: false,
-          error: deps.safeErrorMessage(err),
+        deps.sendJson(res, 200, {
+          ok: true,
+          data: {
+            ...buildRuntimeSettingsFallbackEnvelope(workspaceId ?? null),
+            warning: deps.safeErrorMessage(err),
+          },
         });
       }
     },

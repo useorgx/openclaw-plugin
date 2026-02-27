@@ -200,6 +200,34 @@ test("verifier rejects invalid task update status", () => {
   assert.match(result.stderr, /task_updates\[\]\.status/);
 });
 
+test("verifier rejects duplicate task update ids", () => {
+  const output = makeValidOutput();
+  output.task_updates.push({
+    task_id: "task-1",
+    status: "in_progress",
+    reason: "conflicting duplicate update",
+  });
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /task_updates contains duplicate task_id "task-1"/i);
+});
+
+test("verifier rejects duplicate milestone update ids", () => {
+  const output = makeValidOutput();
+  output.milestone_updates = [
+    { milestone_id: "ms-1", status: "in_progress", reason: "first" },
+    { milestone_id: "ms-1", status: "completed", reason: "duplicate" },
+  ];
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(
+    combined,
+    /milestone_updates contains duplicate milestone_id "ms-1"/i
+  );
+});
+
 test("verifier rejects missing required skill evidence when ORGX_REQUIRED_SKILLS is set", () => {
   const output = makeValidOutput();
   output.skill_evidence = [];
@@ -289,6 +317,26 @@ test("verifier accepts required skills provided as a JSON array string", () => {
     makeValidOutput(),
     makeSchema(),
     '["$orgx-engineering-agent","orgx-engineering-agent"]'
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier accepts required skills provided as a prompt-style label line", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "Required skills: $orgx-engineering-agent"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier accepts required skills provided as a markdown bullet list", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "- $orgx-engineering-agent\n- orgx-engineering-agent"
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /\[verify\] ok/i);
@@ -506,6 +554,24 @@ test("verifier rejects non-array artifacts values", () => {
   assert.notEqual(result.status, 0);
   const combined = `${result.stderr}\n${result.stdout}`;
   assert.match(combined, /artifacts must be an array or null/i);
+});
+
+test("verifier rejects blank optional workstream_title values", () => {
+  const output = makeValidOutput();
+  output.workstream_title = "   ";
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /workstream_title must be a non-empty string or null/i);
+});
+
+test("verifier rejects blank optional slice_id values", () => {
+  const output = makeValidOutput();
+  output.slice_id = " ";
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /slice_id must be a non-empty string or null/i);
 });
 
 test("verifier rejects artifact task_ids containing blank strings", () => {

@@ -1,4 +1,4 @@
-import type { LiveActivityItem, SessionTreeNode } from "../../types.js";
+import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 
 export type SliceRunLifecycleState =
@@ -255,30 +255,56 @@ function resolveCorrelationId(
   );
 }
 
+/**
+ * Determines whether an activity item is relevant to slice run projections.
+ * Every LiveActivityType variant MUST be handled explicitly to prevent
+ * silent gaps (like the run_completed bug where accepts were ignored).
+ */
 function resolveRelevantActivity(
   item: LiveActivityItem,
   event: string,
   metadata: Record<string, unknown> | null,
   knownSliceIds: Set<string>
 ): boolean {
+  // Event-name based relevance (metadata.event prefix matches)
   if (event.startsWith("autopilot_slice_")) return true;
   if (event.startsWith("auto_continue_spawn_guard_")) return true;
   if (event === "next_up_manual_dispatch_started") return true;
   if (event === "auto_continue_stopped") return true;
 
-  if (item.type === "artifact_created") {
-    const source = metadataString(metadata, ["source"]);
-    if ((source ?? "").toLowerCase() === "autopilot_slice") return true;
-    const runId = resolveSliceRunId(item, metadata);
-    return Boolean(runId && knownSliceIds.has(runId));
+  // Type-based relevance — exhaustive over LiveActivityType
+  const type: LiveActivityType = item.type;
+  switch (type) {
+    case "artifact_created": {
+      const source = metadataString(metadata, ["source"]);
+      if ((source ?? "").toLowerCase() === "autopilot_slice") return true;
+      const runId = resolveSliceRunId(item, metadata);
+      return Boolean(runId && knownSliceIds.has(runId));
+    }
+    case "decision_requested":
+    case "decision_resolved":
+    case "run_completed":
+    case "run_failed":
+    case "run_started":
+    case "delegation":
+    case "milestone_completed":
+    case "blocker_created": {
+      const runId = resolveSliceRunId(item, metadata);
+      return Boolean(runId && knownSliceIds.has(runId));
+    }
+    case "handoff_requested":
+    case "handoff_claimed":
+    case "handoff_fulfilled":
+      // Handoff types are not relevant to slice projections today
+      return false;
+    default: {
+      // Exhaustiveness guard: if a new LiveActivityType is added and not
+      // handled above, this will be a compile error.
+      const _exhaustive: never = type;
+      void _exhaustive;
+      return false;
+    }
   }
-
-  if (item.type === "decision_requested" || item.type === "decision_resolved") {
-    const runId = resolveSliceRunId(item, metadata);
-    return Boolean(runId && knownSliceIds.has(runId));
-  }
-
-  return false;
 }
 
 function defaultExplainer(status: SliceRunLifecycleState): string {
@@ -543,7 +569,7 @@ function mergeDecisionOptions(
       label,
       description: normalizeText(record.description),
       impliedStatus: normalizeText(record.impliedStatus ?? record.implied_status),
-      requiresNote: Boolean(record.requiresNote ?? record.requires_note),
+      requiresNote: metadataBoolean(record, ["requiresNote", "requires_note"]) ?? false,
     });
   }
   if (next.length === 0) return;
@@ -790,6 +816,17 @@ export function buildSliceRunProjections(
       continue;
     }
 
+    if (item.type === "run_completed") {
+      setStatus({
+        projection,
+        status: "completed",
+        atIso,
+        explainer: item.summary ?? item.description ?? "Accepted and marked complete.",
+        force: true,
+      });
+      continue;
+    }
+
     if (item.type === "run_failed") {
       setStatus({
         projection,
@@ -811,6 +848,34 @@ export function buildSliceRunProjections(
       continue;
     }
 
+    if (item.type === "decision_resolved") {
+      // Decision resolved may unblock a slice — revert to running if currently awaiting
+      if (projection.status === "awaiting_input") {
+        setStatus({
+          projection,
+          status: "running",
+          atIso,
+          explainer: item.summary ?? "Decision resolved. Resuming.",
+        });
+      }
+      continue;
+    }
+
+    if (item.type === "milestone_completed") {
+      // Milestone completions update context but don't change slice status
+      continue;
+    }
+
+    if (item.type === "blocker_created") {
+      setStatus({
+        projection,
+        status: "awaiting_input",
+        atIso,
+        explainer: item.summary ?? item.description ?? "Blocker raised.",
+      });
+      continue;
+    }
+
     if (item.type === "run_started" || item.type === "delegation") {
       setStatus({
         projection,
@@ -819,7 +884,22 @@ export function buildSliceRunProjections(
         explainer: item.summary ?? item.description ?? defaultExplainer("running"),
       });
       projection.startedAt = projection.startedAt ?? atIso;
+      continue;
     }
+
+    // Handoff types — no slice status change
+    if (
+      item.type === "handoff_requested" ||
+      item.type === "handoff_claimed" ||
+      item.type === "handoff_fulfilled"
+    ) {
+      continue;
+    }
+
+    // Exhaustiveness guard: compile error if a new LiveActivityType is
+    // added without being handled in this loop.
+    const _exhaustiveType: never = item.type;
+    void _exhaustiveType;
   }
 
   for (const decision of input.decisions) {

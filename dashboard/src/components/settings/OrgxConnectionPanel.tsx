@@ -91,6 +91,9 @@ export function OrgxConnectionPanel({
   state,
   isStarting,
   isSubmittingManual,
+  workspaceOptions,
+  selectedWorkspaceId,
+  onSelectWorkspace,
   onRefresh,
   onStartPairing,
   onSubmitManualKey,
@@ -101,6 +104,9 @@ export function OrgxConnectionPanel({
   state: OnboardingState;
   isStarting: boolean;
   isSubmittingManual: boolean;
+  workspaceOptions: Array<{ id: string; title: string }>;
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (workspaceId: string | null) => void;
   onRefresh: () => Promise<unknown>;
   onStartPairing: () => Promise<void>;
   onSubmitManualKey: (apiKey: string) => Promise<unknown>;
@@ -171,12 +177,49 @@ export function OrgxConnectionPanel({
 
           {/* -- Connection metadata (only when connected) ---------------- */}
           {phase === 'connected' && (
-            <div className="mt-4 grid gap-1.5 text-body text-secondary">
-              {state.workspaceName && (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-muted">Workspace</span>
-                  <span className="text-primary">{state.workspaceName}</span>
+            <div className="mt-4 grid gap-3 text-body text-secondary">
+              <div className="max-w-sm">
+                <label
+                  htmlFor="settings-workspace-scope"
+                  className="mb-1.5 block text-caption uppercase tracking-[0.08em] text-muted"
+                >
+                  Workspace scope
+                </label>
+                <div className="relative">
+                  <select
+                    id="settings-workspace-scope"
+                    value={selectedWorkspaceId ?? '__all__'}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      onSelectWorkspace(next === '__all__' ? null : next);
+                    }}
+                    className="h-9 w-full appearance-none rounded-full border border-strong bg-white/[0.03] pl-3 pr-9 text-body font-semibold text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/40"
+                    title="Select workspace scope"
+                  >
+                    <option value="__all__">All workspaces</option>
+                    {workspaceOptions.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.title}
+                      </option>
+                    ))}
+                  </select>
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-secondary"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
                 </div>
+              </div>
+              {state.workspaceName && (
+                <p className="text-caption text-muted">
+                  Connected account: <span className="text-secondary">{state.workspaceName}</span>
+                </p>
               )}
               {keyLabel && (
                 <div className="flex items-baseline gap-1.5">

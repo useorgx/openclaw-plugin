@@ -214,3 +214,81 @@ test("Onboarding pairing start surfaces request tracing on failure", async () =>
     }
   }
 });
+
+test("Onboarding pairing start retries against canonical OrgX URL when configured base URL is unreachable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-pairing-retry-canonical-"));
+  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  const prevFetch = globalThis.fetch;
+  const calls = [];
+
+  try {
+    globalThis.fetch = async (url, init) => {
+      calls.push(String(url));
+      assert.equal(init?.method, "POST");
+      assert.ok(String(url).includes("/api/plugin/openclaw/pairings"));
+
+      if (String(url).startsWith("https://stale.useorgx.invalid")) {
+        throw new Error("fetch failed");
+      }
+
+      if (String(url).startsWith("https://www.useorgx.com")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({
+              ok: true,
+              data: {
+                pairingId: "pair-fallback-1",
+                pollToken: "poll-fallback-1",
+                connectUrl:
+                  "https://www.useorgx.com/connect/openclaw?pairingId=pair-fallback-1",
+                expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                pollIntervalMs: 1500,
+              },
+            }),
+        };
+      }
+
+      throw new Error(`unexpected url ${String(url)}`);
+    };
+
+    const api = createApiStub({ baseUrl: "https://stale.useorgx.invalid" });
+    register(api);
+    assert.equal(typeof api._httpHandler, "function");
+
+    const res = createStubResponse();
+    await api._httpHandler(
+      {
+        method: "POST",
+        url: "/orgx/api/onboarding/start",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ platform: "darwin", openclawVersion: "0.0-test" }),
+      },
+      res
+    );
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.pairingId, "pair-fallback-1");
+    assert.ok(
+      calls.some((entry) => entry.startsWith("https://stale.useorgx.invalid")),
+      "expected initial pairing call against configured stale base URL"
+    );
+    assert.ok(
+      calls.some((entry) => entry.startsWith("https://www.useorgx.com")),
+      "expected fallback pairing call against canonical OrgX base URL"
+    );
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevPluginDir === undefined) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
+    }
+  }
+});

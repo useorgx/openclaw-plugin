@@ -1,11 +1,14 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import { cn } from '@/lib/utils';
+import { tabCrossFade, motion as motionTokens } from '@/lib/tokens';
 import type { OnboardingState } from '@/types';
 import { OrgxConnectionPanel } from '@/components/settings/OrgxConnectionPanel';
 import { AgentSuitePanel } from '@/components/settings/AgentSuitePanel';
 import { ByokSettingsPanel } from '@/components/settings/ByokSettingsPanel';
 import { AgentBehaviorPanel } from '@/components/settings/AgentBehaviorPanel';
 import { UsageControlPlanePanel } from '@/components/settings/UsageControlPlanePanel';
+import { UserProfileSection } from '@/components/settings/UserProfileSection';
 import { LegalLinks } from '@/components/shared/LegalLinks';
 import type { AgentSuiteDomain } from '@/types';
 
@@ -65,6 +68,9 @@ export function SettingsModal({
   onToggleDevMode,
   showSyntheticEntities,
   onToggleShowSyntheticEntities,
+  workspaceOptions,
+  selectedWorkspaceId,
+  onSelectWorkspace,
   onboarding,
   authToken = null,
   embedMode = false,
@@ -80,6 +86,9 @@ export function SettingsModal({
   onToggleDevMode?: (next: boolean) => void;
   showSyntheticEntities: boolean;
   onToggleShowSyntheticEntities: (next: boolean) => void;
+  workspaceOptions: Array<{ id: string; title: string }>;
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (workspaceId: string | null) => void;
   onboarding: {
     state: OnboardingState;
     isStarting: boolean;
@@ -109,7 +118,7 @@ export function SettingsModal({
             <div>
               <h3 className="text-title font-medium text-white">Settings</h3>
               <p className="mt-1.5 text-body text-secondary">
-                OrgX connection, agent behavior, and provider keys.
+                Profile, OrgX connection, agent behavior, and provider keys.
               </p>
             </div>
             <button
@@ -161,9 +170,11 @@ export function SettingsModal({
                 >
                   {tab.label}
                   {selected && (
-                    <span
+                    <motion.span
+                      layoutId="settings-tab-indicator"
                       className="absolute bottom-0 left-0 right-0 h-px bg-white shadow-[0_0_8px_rgba(255,255,255,0.4)]"
                       aria-hidden="true"
+                      transition={{ duration: 0.22, ease: motionTokens.easingStandard as unknown as number[] }}
                     />
                   )}
                 </button>
@@ -173,11 +184,27 @@ export function SettingsModal({
         </div>
 
         <div className="min-h-0 w-full flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+          <AnimatePresence mode="wait">
           {activeTab === 'orgx' ? (
-            <div className="grid gap-12">
+            <motion.div key="orgx" {...tabCrossFade} className="grid gap-12">
+              <UserProfileSection
+                connectionPhase={
+                  onboarding.state.status === 'connected'
+                    ? 'connected'
+                    : onboarding.state.status === 'error'
+                      ? 'error'
+                      : onboarding.state.status === 'starting' ||
+                          onboarding.state.status === 'awaiting_browser_auth' ||
+                          onboarding.state.status === 'pairing'
+                        ? 'connecting'
+                        : 'idle'
+                }
+                workspaceName={onboarding.state.workspaceName}
+              />
               <div>
-                <h3 className="text-body font-medium text-white mb-4">Developer tools</h3>
-                <div className="grid gap-1 border-t border-white/[0.04] pt-2">
+                <h3 className="text-heading font-semibold text-white">Developer tools</h3>
+                <p className="mt-1 text-body leading-relaxed text-secondary">Toggle debug features and synthetic data.</p>
+                <div className="mt-4 grid gap-1 border-t border-white/[0.04] pt-2">
                   <PreferenceToggle
                     label="Developer mode"
                     description="Show technical details, config paths, and raw data in session inspectors."
@@ -206,6 +233,9 @@ export function SettingsModal({
                 state={onboarding.state}
                 isStarting={onboarding.isStarting}
                 isSubmittingManual={onboarding.isSubmittingManual}
+                workspaceOptions={workspaceOptions}
+                selectedWorkspaceId={selectedWorkspaceId}
+                onSelectWorkspace={onSelectWorkspace}
                 onRefresh={onboarding.refreshStatus}
                 onStartPairing={onboarding.startPairing}
                 onSubmitManualKey={onboarding.submitManualKey}
@@ -224,21 +254,26 @@ export function SettingsModal({
                 embedMode={embedMode}
                 enabled={open && !demoMode}
               />
-            </div>
+            </motion.div>
           ) : activeTab === 'agents' ? (
-            <AgentBehaviorPanel
-              authToken={authToken}
-              embedMode={embedMode}
-              enabled={open && !demoMode}
-              initialDomain={agentBehaviorInitialDomain}
-            />
+            <motion.div key="agents" {...tabCrossFade}>
+              <AgentBehaviorPanel
+                authToken={authToken}
+                embedMode={embedMode}
+                enabled={open && !demoMode}
+                initialDomain={agentBehaviorInitialDomain}
+              />
+            </motion.div>
           ) : (
-            <ByokSettingsPanel
-              authToken={authToken}
-              embedMode={embedMode}
-              enabled={open && !demoMode}
-            />
+            <motion.div key="providers" {...tabCrossFade}>
+              <ByokSettingsPanel
+                authToken={authToken}
+                embedMode={embedMode}
+                enabled={open && !demoMode}
+              />
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
         <div className="w-full border-t border-subtle px-5 py-2.5 sm:px-6">
           <LegalLinks compact />
