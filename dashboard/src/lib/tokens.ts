@@ -177,7 +177,7 @@ export const agentColors: Record<string, string> = {
 };
 
 export const agentRoles: Record<string, string> = {
-  Pace: 'Engineering',
+  Pace: 'Product',
   Eli: 'Engineering',
   Dana: 'Product Design',
   Mark: 'Marketing',

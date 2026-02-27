@@ -11,6 +11,7 @@ interface QueuePlacementControlProps {
   menuDirection?: 'up' | 'down';
   disabled?: boolean;
   busy?: boolean;
+  isQueued?: boolean;
   className?: string;
   menuClassName?: string;
   title?: string;
@@ -73,6 +74,7 @@ export function QueuePlacementControl({
   menuDirection = 'up',
   disabled = false,
   busy = false,
+  isQueued = false,
   className = '',
   menuClassName = '',
   title,
@@ -123,26 +125,47 @@ export function QueuePlacementControl({
         title={title ?? `Queue ${defaultPlacement === 'top' ? 'to top' : 'to end'}`}
         onClick={(event) => runAction(event, defaultPlacement)}
         disabled={isDisabled}
-        className={`control-pill ${sizeClass} ${mainPaddingClass} rounded-r-none border-r-0 font-semibold text-primary disabled:opacity-45`}
+        className={`control-pill ${sizeClass} ${mainPaddingClass} rounded-r-none border-r-0 font-semibold disabled:opacity-45 ${
+          isQueued
+            ? 'border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] text-[#D8FFA1]'
+            : 'text-primary'
+        }`}
       >
-        <svg
-          width={size === 'md' ? 13 : 12}
-          height={size === 'md' ? 13 : 12}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="opacity-90"
-          aria-hidden
-        >
-          <path d="M4 6h16" />
-          <path d="M4 12h11" />
-          <path d="M4 18h9" />
-          <path d="m17 15 3 3 3-3" />
-          <path d="M20 8v10" />
-        </svg>
+        {isQueued ? (
+          <svg
+            width={size === 'md' ? 13 : 12}
+            height={size === 'md' ? 13 : 12}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="opacity-90"
+            aria-hidden
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg
+            width={size === 'md' ? 13 : 12}
+            height={size === 'md' ? 13 : 12}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="opacity-90"
+            aria-hidden
+          >
+            <path d="M4 6h16" />
+            <path d="M4 12h11" />
+            <path d="M4 18h9" />
+            <path d="m17 15 3 3 3-3" />
+            <path d="M20 8v10" />
+          </svg>
+        )}
         <span>{busy ? 'Queueing...' : label}</span>
       </button>
       <button
@@ -157,7 +180,11 @@ export function QueuePlacementControl({
           setMenuOpen((previous) => !previous);
         }}
         disabled={isDisabled}
-        className={`control-pill ${menuButtonSizeClass} rounded-l-none px-0 text-secondary disabled:opacity-45`}
+        className={`control-pill ${menuButtonSizeClass} rounded-l-none px-0 disabled:opacity-45 ${
+          isQueued
+            ? 'border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] text-[#D8FFA1]'
+            : 'text-secondary'
+        }`}
       >
         <svg
           width="12"

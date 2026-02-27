@@ -122,8 +122,8 @@ const CANONICAL_ORGX_AGENTS: CanonicalOrgxAgent[] = [
   {
     id: 'pace',
     name: 'Pace',
-    role: 'Engineering',
-    aliases: [/\bpace\b/i, /\borgx[\s_-]*pace\b/i],
+    role: 'Product',
+    aliases: [/\bpace\b/i, /\borgx[\s_-]*pace\b/i, /\borgx[\s_-]*product\b/i],
   },
 ];
 

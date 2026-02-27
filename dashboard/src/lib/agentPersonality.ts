@@ -83,11 +83,22 @@ export const AGENT_PERSONALITIES: Record<string, AgentPersonality> = {
 };
 
 const KNOWN_DOMAINS = Object.keys(AGENT_PERSONALITIES);
+const DOMAIN_OVERRIDES_BY_AGENT_ID: Record<string, string> = {
+  eli: 'engineering',
+  dana: 'design',
+  mark: 'marketing',
+  sage: 'sales',
+  orion: 'operations',
+  xandy: 'orchestrator',
+  pace: 'product',
+};
 
 /** Infer agent domain from agentId string (e.g. "engineering-bot" → "engineering"). */
 export function inferAgentDomain(agentId: string | null | undefined): string {
   if (!agentId) return 'engineering';
   const normalized = agentId.trim().toLowerCase();
+  const exactOverride = DOMAIN_OVERRIDES_BY_AGENT_ID[normalized];
+  if (exactOverride) return exactOverride;
   for (const domain of KNOWN_DOMAINS) {
     if (normalized.includes(domain)) return domain;
   }

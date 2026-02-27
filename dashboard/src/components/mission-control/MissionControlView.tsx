@@ -831,6 +831,10 @@ function MissionControlInner({
   const railFocusItem = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem ?? null;
   const autopilotInitiativeId =
     railFocusItem?.initiativeId ?? nextActionInitiative?.id ?? null;
+  const queuedInitiativeIds = useMemo(
+    () => new Set(nextActionQueue.items.map((item) => item.initiativeId)),
+    [nextActionQueue.items]
+  );
 
   const setInitiativeSelected = useCallback(
     (initiativeId: string, selected: boolean, shiftKey: boolean) => {
@@ -2313,6 +2317,7 @@ function MissionControlInner({
                                     onToggleInitiativeSelection={setInitiativeSelected}
                                     isSquished={nextUpRailOpen}
                                     runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
+                                    queuedInitiativeIds={queuedInitiativeIds}
                                   />
                                 </div>
                               </motion.div>
@@ -2330,6 +2335,7 @@ function MissionControlInner({
                       onToggleInitiativeSelection={setInitiativeSelected}
                       isSquished={nextUpRailOpen}
                       runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
+                      queuedInitiativeIds={queuedInitiativeIds}
                     />
                   </div>
                 )}
