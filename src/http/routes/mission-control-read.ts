@@ -141,6 +141,20 @@ function asString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function asArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") return [parsed];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeRunnerValue(value: unknown): string | null {
   const raw = asString(value);
   if (!raw) return null;
@@ -165,10 +179,11 @@ function normalizeRunnerSource(
 }
 
 function normalizeRunnerAgents(value: unknown): SliceRunnerAgent[] {
-  if (!Array.isArray(value)) return [];
+  const entries = asArray(value);
+  if (entries.length === 0) return [];
   const output: SliceRunnerAgent[] = [];
   const seen = new Set<string>();
-  for (const entry of value) {
+  for (const entry of entries) {
     const record = asRecord(entry);
     if (!record) continue;
     const id = normalizeRunnerValue(record.id);
@@ -217,9 +232,10 @@ function asNumber(value: unknown): number | null {
 }
 
 function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
+  const entries = asArray(value);
+  if (entries.length === 0) return [];
   const values: string[] = [];
-  for (const entry of value) {
+  for (const entry of entries) {
     const normalized = asString(entry);
     if (!normalized) continue;
     values.push(normalized);
@@ -358,11 +374,13 @@ function parsePaginationEnvelope(
     0,
     Math.floor(asNumber(record?.total) ?? fallback.total)
   );
-  const nextCursor = asString(record?.nextCursor);
+  const nextCursor = asString(record?.nextCursor) ?? asString(record?.next_cursor);
   const hasMore =
     typeof record?.hasMore === "boolean"
       ? record.hasMore
-      : offset + limit < total;
+      : typeof record?.has_more === "boolean"
+        ? record.has_more
+        : offset + limit < total;
   return { offset, limit, total, nextCursor, hasMore };
 }
 
@@ -411,7 +429,9 @@ function canonicalReadCacheKey(input: {
   mixPolicy?: string | null;
   search?: string | null;
 }): string {
+  const cacheNamespace = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR ?? "__default__";
   return [
+    cacheNamespace,
     input.route,
     input.workspaceId ?? "__all__",
     input.scopeMode ?? "implicit",
@@ -571,13 +591,26 @@ async function requestCanonicalWithLegacyFallback(
 
 function normalizeQueueState(value: unknown): NextUpQueueItem["queueState"] {
   const normalized = normalizeStatus(asString(value));
-  if (normalized === "running" || normalized === "in_progress" || normalized === "active") {
+  if (normalized === "running" || normalized === "in_progress") {
     return "running";
   }
-  if (normalized === "queued" || normalized === "pending" || normalized === "todo" || normalized === "ready") {
+  if (
+    normalized === "active" ||
+    normalized === "queued" ||
+    normalized === "pending" ||
+    normalized === "todo" ||
+    normalized === "ready"
+  ) {
     return "queued";
   }
-  if (normalized === "blocked" || normalized === "waiting") return "blocked";
+  if (
+    normalized === "blocked" ||
+    normalized === "waiting" ||
+    normalized === "waiting_dependency" ||
+    normalized === "blocked_by_dependency"
+  ) {
+    return "blocked";
+  }
   if (normalized === "completed" || normalized === "done") return "completed";
   return "idle";
 }
@@ -721,10 +754,14 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       ? runnerSourceHint ?? "inferred"
       : "fallback";
     const queueState = normalizeQueueState(record.queueState ?? record.queue_state);
-    const rawSliceScope = asString(record.sliceScope) ?? asString(record.slice_scope);
+    const normalizedSliceScope = normalizeStatus(
+      asString(record.sliceScope) ?? asString(record.slice_scope)
+    );
     const sliceScope =
-      rawSliceScope === "task" || rawSliceScope === "milestone" || rawSliceScope === "workstream"
-        ? (rawSliceScope as "task" | "milestone" | "workstream")
+      normalizedSliceScope === "task" ||
+      normalizedSliceScope === "milestone" ||
+      normalizedSliceScope === "workstream"
+        ? (normalizedSliceScope as "task" | "milestone" | "workstream")
         : null;
     const sliceTaskCountRaw = asNumber(
       record.sliceTaskCount ?? record.slice_task_count
@@ -806,6 +843,67 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
   });
 }
 
+function isHighSeverityQueueItem(item: NextUpQueueItem): boolean {
+  if (item.scoringTier === "urgent") return true;
+  if (typeof item.nextTaskPriority === "number" && item.nextTaskPriority <= 2) {
+    return true;
+  }
+  if (typeof item.initiativePriorityNum === "number" && item.initiativePriorityNum <= 2) {
+    return true;
+  }
+  if (typeof item.compositeScore === "number" && item.compositeScore >= 80) {
+    return true;
+  }
+  const reason = (item.blockReason ?? "").toLowerCase();
+  return /(critical|sev[ -]?0|sev[ -]?1|p0|p1|incident|outage)/.test(reason);
+}
+
+function applyQueueNoiseControls(
+  items: NextUpQueueItem[],
+  options: {
+    noiseThreshold: "low" | "medium" | "high";
+    dedupWindowMs: number;
+  }
+): NextUpQueueItem[] {
+  const filteredByThreshold =
+    options.noiseThreshold === "low"
+      ? items
+      : items.filter((item) => {
+          if (item.queueState !== "blocked" && item.queueState !== "idle") {
+            return true;
+          }
+          const highSeverity = isHighSeverityQueueItem(item);
+          if (options.noiseThreshold === "medium") {
+            return highSeverity;
+          }
+          return item.queueState === "blocked" && highSeverity;
+        });
+
+  if (options.dedupWindowMs <= 0) return filteredByThreshold;
+
+  const deduped: NextUpQueueItem[] = [];
+  const lastSeenByReason = new Map<string, number>();
+  for (const item of filteredByThreshold) {
+    if (item.queueState !== "blocked") {
+      deduped.push(item);
+      continue;
+    }
+    const updated = updatedEpoch(item.updatedAt);
+    if (updated <= 0) {
+      deduped.push(item);
+      continue;
+    }
+    const reasonKey = `${item.initiativeId}|${(item.blockReason ?? item.nextTaskTitle ?? "blocked").trim().toLowerCase()}`;
+    const previous = lastSeenByReason.get(reasonKey);
+    if (typeof previous === "number" && Math.abs(updated - previous) <= options.dedupWindowMs) {
+      continue;
+    }
+    lastSeenByReason.set(reasonKey, updated);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
 function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
   const queueLike: Record<string, unknown>[] = [];
 
@@ -872,10 +970,11 @@ function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
       normalizeRunnerSource(record.runnerSource) ?? normalizeRunnerSource(record.runner_source);
     const runnerSource = runnerAgents.length > 0 ? runnerSourceHint ?? "inferred" : "fallback";
 
-    const suggestedScope =
+    const suggestedScope = normalizeStatus(
       asString(dispatch.suggestedScope) ??
-      asString(dispatch.suggested_scope) ??
-      asString(record.level);
+        asString(dispatch.suggested_scope) ??
+        asString(record.level)
+    );
     const sliceScope =
       suggestedScope === "task" ||
       suggestedScope === "milestone" ||
@@ -914,8 +1013,17 @@ function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
         rawStatus,
       nextTaskId: taskId ?? sliceTaskIds[0] ?? null,
       nextTaskTitle: asString(record.nextTaskTitle) ?? asString(record.next_task_title),
-      nextTaskPriority: asNumber(record.priorityNum ?? record.nextTaskPriority),
-      nextTaskDueAt: asString(record.dueAt) ?? asString(record.nextTaskDueAt),
+      nextTaskPriority: asNumber(
+        record.priorityNum ??
+          record.priority_num ??
+          record.nextTaskPriority ??
+          record.next_task_priority
+      ),
+      nextTaskDueAt:
+        asString(record.dueAt) ??
+        asString(record.due_at) ??
+        asString(record.nextTaskDueAt) ??
+        asString(record.next_task_due_at),
       nextTaskMilestoneId: asString(record.milestoneId) ?? asString(record.milestone_id),
       runnerAgentId: runnerAgentIdRaw,
       runnerAgentName: runnerAgentNameRaw,
@@ -1109,22 +1217,26 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     );
 
     // Noise reduction params — suppress blocked/idle queue items by severity.
-    // noise_threshold: 'low' (show all) | 'medium' (default, hide low-severity blocked) | 'high' (only critical/high blocked)
+    // noise_threshold: 'low' (default, show all) | 'medium' (hide low-severity blocked/idle) | 'high' (only critical/high blocked)
     const noiseThresholdRaw = query.get("noise_threshold") ?? query.get("noiseThreshold");
     const noiseThreshold: "low" | "medium" | "high" =
       noiseThresholdRaw === "low" || noiseThresholdRaw === "high"
         ? noiseThresholdRaw
-        : "medium";
+        : noiseThresholdRaw === "medium"
+          ? "medium"
+          : "low";
     // dedup_window: time window in ms for grouping duplicate blocked items (default: 60000)
     const dedupWindowRaw = query.get("dedup_window") ?? query.get("dedupWindow");
     const dedupWindowMs =
       dedupWindowRaw != null
         ? Math.max(0, parseInt(dedupWindowRaw, 10) || 60000)
         : 60000;
-    // TODO: wire noiseThreshold + dedupWindowMs into triage query once server-side filtering lands
-    void noiseThreshold;
-    void dedupWindowMs;
 
+    const queueNoiseCacheTag = dedupeStrings([
+      includeLineage ? "lineage:1" : "",
+      `noise:${noiseThreshold}`,
+      `dedup:${dedupWindowMs}`,
+    ]).join(",");
     const nextUpCanonicalCacheKey = canonicalReadCacheKey({
       route: "next-up",
       workspaceId: projectId,
@@ -1136,7 +1248,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       scope: requestedSliceLevelContext,
       order: requestedOrderMode,
       mixPolicy: requestedMixPolicy,
-      search: includeLineage ? "lineage:1" : null,
+      search: queueNoiseCacheTag || null,
     });
 
     const cachedCanonicalNextUp = readCanonicalReadCache(nextUpCanonicalCacheKey, {
@@ -1188,6 +1300,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         params.set("offset", String(offset));
         params.set("limit", String(pageSize));
         params.set("include_completed", includeCompleted ? "1" : "0");
+        params.set("noise_threshold", noiseThreshold);
+        params.set("dedup_window", String(dedupWindowMs));
         if (requestedSliceLevelContext) {
           params.set("slice_level_context", requestedSliceLevelContext);
         }
@@ -1209,8 +1323,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           throw new Error("canonical next-up all-workspaces scope mismatch");
         }
 
-        const canonicalItems = normalizeQueueItems(canonicalRecord.items).filter((item) =>
-          includeCompleted ? true : item.queueState !== "completed"
+        const canonicalItems = applyQueueNoiseControls(
+          normalizeQueueItems(canonicalRecord.items).filter((item) =>
+            includeCompleted ? true : item.queueState !== "completed"
+          ),
+          { noiseThreshold, dedupWindowMs }
         );
         const canonicalTotal =
           Math.max(
@@ -1346,6 +1463,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               "include_completed",
               includeCompleted ? "1" : "0"
             );
+            bridgeParams.set("noise_threshold", noiseThreshold);
+            bridgeParams.set("dedup_window", String(dedupWindowMs));
             bridgeParams.set("mix_policy", requestedMixPolicy ?? "iwmt_v1");
             if (requestedOrderMode) {
               bridgeParams.set("order_mode", requestedOrderMode);
@@ -1363,10 +1482,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             if (isCanonicalAllScopeMismatch(canonicalSlicesRecord, useAllScope)) {
               throw new Error("canonical slices all-workspaces scope mismatch");
             }
-            const bridgedItems = mapCanonicalSlicesToQueueItems(
-              canonicalSlicesRecord.items
-            ).filter((item) =>
-              includeCompleted ? true : item.queueState !== "completed"
+            const bridgedItems = applyQueueNoiseControls(
+              mapCanonicalSlicesToQueueItems(canonicalSlicesRecord.items).filter((item) =>
+                includeCompleted ? true : item.queueState !== "completed"
+              ),
+              { noiseThreshold, dedupWindowMs }
             );
             if (bridgedItems.length > 0) {
               const paged = applySliceSearchAndPagination({
@@ -1411,8 +1531,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             initiativeId,
             projectId,
           });
-          const items = normalizeQueueItems(queue.items ?? []).filter((item) =>
-            includeCompleted ? true : item.queueState !== "completed"
+          const items = applyQueueNoiseControls(
+            normalizeQueueItems(queue.items ?? []).filter((item) =>
+              includeCompleted ? true : item.queueState !== "completed"
+            ),
+            { noiseThreshold, dedupWindowMs }
           );
           const paged = applySliceSearchAndPagination({
             items,
@@ -1450,8 +1573,11 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         initiativeId,
         projectId,
       });
-      const items = normalizeQueueItems(queue.items ?? []).filter((item) =>
-        includeCompleted ? true : item.queueState !== "completed"
+      const items = applyQueueNoiseControls(
+        normalizeQueueItems(queue.items ?? []).filter((item) =>
+          includeCompleted ? true : item.queueState !== "completed"
+        ),
+        { noiseThreshold, dedupWindowMs }
       );
       const paged = applySliceSearchAndPagination({
         items,

@@ -572,6 +572,9 @@ function MissionControlInner({
       if (sortBy === 'priority_low' && aPriority !== bPriority) return bPriority - aPriority;
 
       if (sortBy === 'default') {
+        const aSequence = typeof a.sequenceIndex === 'number' ? a.sequenceIndex : Number.POSITIVE_INFINITY;
+        const bSequence = typeof b.sequenceIndex === 'number' ? b.sequenceIndex : Number.POSITIVE_INFINITY;
+        if (aSequence !== bSequence) return aSequence - bSequence;
         const statusDelta = initiativeStatusSortRank(a.status) - initiativeStatusSortRank(b.status);
         if (statusDelta !== 0) return statusDelta;
         if (aPriority !== bPriority) return aPriority - bPriority;

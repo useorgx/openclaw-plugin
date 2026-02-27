@@ -425,7 +425,13 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
 
 function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueState {
   const explicit = (item.queueState ?? '').trim().toLowerCase();
-  if (explicit === 'queued' || explicit === 'running' || explicit === 'blocked' || explicit === 'idle') {
+  if (
+    explicit === 'queued' ||
+    explicit === 'running' ||
+    explicit === 'blocked' ||
+    explicit === 'idle' ||
+    explicit === 'completed'
+  ) {
     return explicit as NextUpQueueState;
   }
 
@@ -451,7 +457,7 @@ function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueSta
     return 'blocked';
   }
   if (status === 'completed' || status === 'done' || status === 'resolved') {
-    return 'idle';
+    return 'completed';
   }
   return 'queued';
 }
@@ -594,7 +600,7 @@ export function useNextUpQueue({
   initiativeId = null,
   projectId = null,
   offset = 0,
-  limit = 100,
+  limit = 20,
   authToken = null,
   embedMode = false,
   enabled = true,
