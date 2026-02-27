@@ -12,7 +12,10 @@ import {
   initiativeStatusClass,
   formatEntityStatus,
   statusColor,
+  lifecycleStateClass,
+  lifecycleStateColor,
 } from '@/lib/entityStatusColors';
+import { deriveLifecycleState } from '@/lib/status-taxonomy';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
@@ -547,6 +550,20 @@ export function InitiativeSection({
     effectiveInitiativeStatus === 'in_progress'
       ? 'In Progress'
       : formatEntityStatus(effectiveInitiativeStatus);
+
+  // Derive lifecycle state from raw status + child context
+  const lifecycleState = deriveLifecycleState(
+    initiative.rawStatus ?? initiative.status,
+    {
+      hasActiveStreams: activeTaskCount > 0 || runtimeActiveCount > 0,
+      hasDispatchingStreams: false,
+      totalTasks: taskNodes.length,
+      completedTasks: doneTaskCount,
+      blockedTasks: taskNodes.filter((n) => n.status.toLowerCase() === 'blocked').length,
+    },
+  );
+  const lifecyclePillClass = lifecycleStateClass[lifecycleState] ?? lifecycleStateClass['Queued'];
+  const lifecyclePillColor = lifecycleStateColor[lifecycleState] ?? lifecycleStateColor['Queued'];
   const budgetSourceNodes =
     taskNodes.length > 0
       ? taskNodes
@@ -838,19 +855,24 @@ export function InitiativeSection({
         </div>
 
         <div
-          className={`ml-1 flex flex-shrink-0 justify-start ${
+          className={`ml-1 flex flex-shrink-0 items-center gap-1.5 justify-start ${
             isSquished
-              ? 'w-[80px] min-w-[80px]'
-              : 'w-[90px] min-w-[90px] sm:w-[102px] sm:min-w-[102px]'
+              ? 'w-[120px] min-w-[120px]'
+              : 'w-[160px] min-w-[160px] sm:w-[180px] sm:min-w-[180px]'
           }`}
         >
           <span
-            className={`w-full truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
+            className={`truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
               isSquished ? 'px-1.5' : 'px-2'
-            } ${initiativeStatusToneClass}`}
+            } ${lifecyclePillClass}`}
           >
-            {initiativeStatusLabel}
+            {lifecycleState}
           </span>
+          {taskNodes.length > 0 && (
+            <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
+              {doneTaskCount}/{taskNodes.length}
+            </span>
+          )}
         </div>
 
         {/* Radial progress — compact, shown below lg */}
@@ -904,13 +926,12 @@ export function InitiativeSection({
                   opacity: progress === 0 ? 0.45 : 1,
                 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 34, mass: 0.75 }}
-                style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
+                style={{ backgroundColor: lifecyclePillColor }}
               />
             </div>
           </div>
           <span
-            className="w-[42px] text-right text-micro text-muted xl:w-[48px] xl:text-caption"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
+            className="w-[42px] text-right text-micro text-muted xl:w-[48px] xl:text-caption font-mono tabular-nums"
           >
             {progress}%
           </span>

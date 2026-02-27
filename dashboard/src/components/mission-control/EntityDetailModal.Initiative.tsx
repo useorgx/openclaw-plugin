@@ -8,8 +8,11 @@ import {
   initiativeStatusClass,
   formatEntityStatus,
   getWorkstreamStatusClass,
+  lifecycleStateClass,
+  lifecycleStateColor,
 } from '@/lib/entityStatusColors';
-import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
+import { deriveLifecycleState } from '@/lib/status-taxonomy';
+import { clampPercent, completionPercent, completionFromItems, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { InferredAgentAvatars } from './AgentInference';
@@ -65,6 +68,18 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   ).length;
   const doneTasks = details.tasks.filter((t) => isDoneStatus(t.status)).length;
   const currentStatus = optimisticStatus ?? initiative.status;
+
+  // Derive lifecycle state for header display
+  const detailLifecycleState = deriveLifecycleState(
+    initiative.rawStatus ?? initiative.status,
+    {
+      hasActiveStreams: activeTasks > 0,
+      totalTasks: details.tasks.length,
+      completedTasks: doneTasks,
+      blockedTasks,
+    },
+  );
+  const detailLifecyclePillClass = lifecycleStateClass[detailLifecycleState] ?? lifecycleStateClass['Queued'];
   const currentStatusKey = normalizeInitiativeStatusKey(
     optimisticStatus ?? initiative.rawStatus ?? initiative.status
   );
@@ -230,10 +245,15 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             {initiative.name}
           </h2>
           <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
+            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${detailLifecyclePillClass}`}
           >
-            {formatEntityStatus(currentStatus)}
+            {detailLifecycleState}
           </span>
+          {details.tasks.length > 0 && (
+            <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
+              {doneTasks}/{details.tasks.length} tasks
+            </span>
+          )}
           <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
             {formatPriorityLabel(initiative.priority)}
           </span>
@@ -334,6 +354,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               {details.workstreams.map((ws) => {
                 const wsTasks = details.tasks.filter((t) => t.workstreamId === ws.id);
                 const doneWsTasks = wsTasks.filter((t) => isDoneStatus(t.status)).length;
+                const activeWsTasks = wsTasks.filter((t) => ['active', 'in_progress'].includes(t.status.toLowerCase())).length;
+                const blockedWsTasks = wsTasks.filter((t) => t.status.toLowerCase() === 'blocked').length;
                 const completion =
                   wsTasks.length > 0
                     ? completionPercent(doneWsTasks, wsTasks.length)
@@ -342,6 +364,13 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                       : isDoneStatus(ws.status)
                         ? 100
                         : null;
+                const wsLifecycle = deriveLifecycleState(ws.status, {
+                  hasActiveStreams: activeWsTasks > 0,
+                  totalTasks: wsTasks.length,
+                  completedTasks: doneWsTasks,
+                  blockedTasks: blockedWsTasks,
+                });
+                const wsLifecyclePill = lifecycleStateClass[wsLifecycle] ?? lifecycleStateClass['Queued'];
                 return (
                   <button
                     key={ws.id}
@@ -358,15 +387,22 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                       <span className="text-body text-bright break-words">
                         {ws.name}
                       </span>
-                      <span
-                        className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(ws.status)}`}
-                      >
-                        {formatEntityStatus(ws.status)}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span
+                          className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${wsLifecyclePill}`}
+                        >
+                          {wsLifecycle}
+                        </span>
+                        {wsTasks.length > 0 && (
+                          <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
+                            {doneWsTasks}/{wsTasks.length}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1.5 flex items-center gap-3 text-micro text-muted uppercase tracking-[0.08em]">
                       <span>{wsTasks.length} tasks</span>
-                      {completion !== null && <span>{completion}%</span>}
+                      {completion !== null && <span className="font-mono tabular-nums">{completion}%</span>}
                     </div>
                   </button>
                 );
