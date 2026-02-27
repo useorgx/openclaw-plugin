@@ -67,6 +67,9 @@ interface DecisionQueueProps {
     note?: string
   ) => Promise<DecisionActionSummary>;
   mutationState?: DecisionMutationState;
+  showHeader?: boolean;
+  panelStyle?: 'card' | 'flat';
+  className?: string;
 }
 
 function composeBulkActionId(
@@ -91,6 +94,9 @@ export const DecisionQueue = memo(function DecisionQueue({
   onApproveAll,
   onBulkDecisionAction,
   mutationState,
+  showHeader = true,
+  panelStyle = 'card',
+  className,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);
@@ -476,9 +482,16 @@ export const DecisionQueue = memo(function DecisionQueue({
   const selectedScope: DecisionBulkScope =
     selectedBulkOption?.id.includes('visible') ? 'visible' : 'selected';
   const selectedVerb: 'approve' | 'reject' = selectedBulkOption?.action ?? 'approve';
+  const Wrapper = panelStyle === 'card' ? PremiumCard : 'div';
 
   return (
-    <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
+    <Wrapper
+      className={cn(
+        'flex h-full min-h-0 flex-col',
+        panelStyle === 'card' && 'card-enter',
+        className
+      )}
+    >
       <DecisionDetailModal
         open={detailDecisionId !== null}
         decision={detailDecision}
@@ -489,105 +502,107 @@ export const DecisionQueue = memo(function DecisionQueue({
         currentIndex={detailIndex >= 0 ? detailIndex : undefined}
         totalCount={sorted.length}
       />
-      <div className="space-y-2.5 border-b border-subtle px-4 py-3.5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
-              <EntityIcon type="decision" size={14} />
-              Decisions
-            </h2>
-            <p className="mt-0.5 text-caption text-secondary">
-              {pendingCount > 0
-                ? `${pendingCount} decision${pendingCount === 1 ? '' : 's'} need${pendingCount === 1 ? 's' : ''} your input`
-                : 'All clear — no decisions pending'}
-            </p>
+      {showHeader ? (
+        <div className="space-y-2.5 border-b border-subtle px-4 py-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
+                <EntityIcon type="decision" size={14} />
+                Decisions
+              </h2>
+              <p className="mt-0.5 text-caption text-secondary">
+                {pendingCount > 0
+                  ? `${pendingCount} decision${pendingCount === 1 ? '' : 's'} need${pendingCount === 1 ? 's' : ''} your input`
+                  : 'All clear — no decisions pending'}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {sorted.length > 0 && (
-            <button
-              onClick={toggleSelectAll}
-              disabled={hasInFlightMutations}
-              className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
-            >
-              {allVisibleSelected ? 'Clear all' : 'Select all'}
-            </button>
-          )}
-          {selectedCount > 0 && (
-            <>
+          <div className="flex flex-wrap items-center gap-2">
+            {sorted.length > 0 && (
               <button
-                onClick={handleApplyBulkAction}
-                disabled={!selectedEnabled || hasInFlightMutations}
-                data-state={selectedEnabled ? 'active' : 'idle'}
+                onClick={toggleSelectAll}
+                disabled={hasInFlightMutations}
                 className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
               >
-                {isApprovingAll ? 'Approving…' : `Approve ${selectedCount} selected`}
+                {allVisibleSelected ? 'Clear all' : 'Select all'}
               </button>
-              {onRejectDecision && (
+            )}
+            {selectedCount > 0 && (
+              <>
                 <button
-                  type="button"
-                  onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
-                  disabled={hasInFlightMutations}
-                  data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
-                  className={cn(
-                    'control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45',
-                    selectedVerb === 'reject' && 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100'
-                  )}
+                  onClick={handleApplyBulkAction}
+                  disabled={!selectedEnabled || hasInFlightMutations}
+                  data-state={selectedEnabled ? 'active' : 'idle'}
+                  className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold disabled:opacity-45"
                 >
-                  Reject
+                  {isApprovingAll ? 'Approving…' : `Approve ${selectedCount} selected`}
                 </button>
-              )}
-            </>
-          )}
-        </div>
+                {onRejectDecision && (
+                  <button
+                    type="button"
+                    onClick={() => setBulkAction(composeBulkActionId('reject', selectedScope))}
+                    disabled={hasInFlightMutations}
+                    data-state={selectedVerb === 'reject' ? 'active' : 'idle'}
+                    className={cn(
+                      'control-pill h-8 px-2.5 text-caption font-semibold disabled:opacity-45',
+                      selectedVerb === 'reject' && 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100'
+                    )}
+                  >
+                    Reject
+                  </button>
+                )}
+              </>
+            )}
+          </div>
 
-        <div
-          aria-live="polite"
-          className={cn(
-            'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
-            statusTone === 'processing'
-              ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
-              : statusTone === 'success'
-                ? 'border-lime/30 bg-lime/10 text-lime'
-                : statusTone === 'warning'
-                  ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
-                  : 'border-strong bg-white/[0.02] text-secondary'
-          )}
-        >
-          {statusTone === 'processing' ? (
-            <span
-              aria-hidden
-              className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
-            />
-          ) : statusTone === 'success' ? (
-            <EntityIcon type="decision" size={12} className="opacity-90" />
-          ) : statusTone === 'warning' ? (
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="opacity-90"
-            >
-              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-              <line x1="12" x2="12" y1="9" y2="13" />
-              <line x1="12" x2="12.01" y1="17" y2="17" />
-            </svg>
-          ) : (
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
-          )}
-          <span className="min-w-0 truncate">
-            {statusMessage ?? 'Resolve decisions here. Status will remain visible until sync settles.'}
-          </span>
+          <div
+            aria-live="polite"
+            className={cn(
+              'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
+              statusTone === 'processing'
+                ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
+                : statusTone === 'success'
+                  ? 'border-lime/30 bg-lime/10 text-lime'
+                  : statusTone === 'warning'
+                    ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
+                    : 'border-strong bg-white/[0.02] text-secondary'
+            )}
+          >
+            {statusTone === 'processing' ? (
+              <span
+                aria-hidden
+                className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
+              />
+            ) : statusTone === 'success' ? (
+              <EntityIcon type="decision" size={12} className="opacity-90" />
+            ) : statusTone === 'warning' ? (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="opacity-90"
+              >
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                <line x1="12" x2="12" y1="9" y2="13" />
+                <line x1="12" x2="12.01" y1="17" y2="17" />
+              </svg>
+            ) : (
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
+            )}
+            <span className="min-w-0 truncate">
+              {statusMessage ?? 'Resolve decisions here. Status will remain visible until sync settles.'}
+            </span>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div className={cn('min-h-0 flex-1 space-y-2 overflow-y-auto', showHeader ? 'p-3' : 'p-0')}>
         {sorted.length === 0 && (
           <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] p-4 text-center">
             {hasInFlightMutations ? (
@@ -810,6 +825,6 @@ export const DecisionQueue = memo(function DecisionQueue({
       </div>
 
       <UndoToastRenderer />
-    </PremiumCard>
+    </Wrapper>
   );
 });
