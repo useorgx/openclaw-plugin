@@ -184,9 +184,7 @@ export function OnboardingGate({
                 <span className={`relative inline-flex h-2 w-2 rounded-full ${dotStyle[dot]}`} />
               </span>
               <span className="text-body text-secondary">{statusLabel(state.status)}</span>
-              {state.workspaceName && (
-                <span className="chip">{state.workspaceName}</span>
-              )}
+              {state.workspaceName && <span className="chip">Account: {state.workspaceName}</span>}
               {state.keySource && state.keySource !== 'none' && (
                 <span className="chip">{keySourceLabel(state.keySource)}</span>
               )}

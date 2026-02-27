@@ -3338,6 +3338,9 @@ function DashboardShell({
             onToggleDevMode={setDevMode}
             showSyntheticEntities={showSyntheticEntities}
             onToggleShowSyntheticEntities={setShowSyntheticEntities}
+            workspaceOptions={workspaceSelectOptions}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectWorkspace={setSelectedWorkspaceId}
             onboarding={onboarding}
             authToken={null}
             embedMode={false}
