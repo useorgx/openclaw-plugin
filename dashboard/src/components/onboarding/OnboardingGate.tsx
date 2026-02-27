@@ -1,9 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ExplainerPanel } from '@/components/onboarding/ExplainerPanel';
 import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
+import { WelcomeNameStep } from '@/components/onboarding/WelcomeNameStep';
 import { LegalLinks } from '@/components/shared/LegalLinks';
 import type { OnboardingState, OnboardingStatus } from '@/types';
+
+const NAME_ASKED_KEY = 'orgx.user.name-asked';
 
 interface OnboardingGateProps {
   state: OnboardingState;
@@ -101,6 +104,18 @@ export function OnboardingGate({
     return window.localStorage.getItem(MC_HINT_DISMISSED_KEY) === '1';
   });
 
+  const [showNameStep, setShowNameStep] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(NAME_ASKED_KEY) !== '1';
+  });
+
+  const handleNameStepComplete = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(NAME_ASKED_KEY, '1');
+    }
+    setShowNameStep(false);
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (dismissedMissionControlHint) {
@@ -145,7 +160,11 @@ export function OnboardingGate({
         ) : (
           /* ── Content ─────────────────────────────────────────── */
           <AnimatePresence mode="wait">
-            {!showManual ? (
+            {state.status === 'connected' && showNameStep ? (
+              <motion.div key="welcome-name" {...pageTransition}>
+                <WelcomeNameStep onComplete={handleNameStepComplete} />
+              </motion.div>
+            ) : !showManual ? (
               <motion.div key="explainer" {...pageTransition}>
                 <ExplainerPanel
                   state={state}
