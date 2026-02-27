@@ -224,6 +224,49 @@ test("GET /orgx/api/entities rejects project_id-only workspace scope", async () 
   }
 });
 
+test("GET /orgx/api/entities falls back to empty command_center list when upstream fails", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-command-center-fallback-"));
+  const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const client = {
+      getBaseUrl: () => "https://www.useorgx.com",
+      listEntities: async (type) => {
+        if (type === "command_center") {
+          throw new Error("500 Internal Server Error: relation does not exist");
+        }
+        return { data: [], pagination: { total: 0, has_more: false } };
+      },
+      rawRequest: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(
+      baseConfig(),
+      client,
+      () => null,
+      createNoopOnboarding()
+    );
+    const res = await call(handler, {
+      method: "GET",
+      url: "/orgx/api/entities?type=command_center&limit=50",
+      headers: {},
+    });
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.equal(Array.isArray(payload?.data), true);
+    assert.equal(payload?.data?.length, 0);
+    assert.equal(payload?.localFallback, true);
+    assert.match(String(payload?.warning ?? ""), /relation does not exist/i);
+  } finally {
+    if (previousDir == null) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
+  }
+});
+
 test("GET /orgx/api/live/initiatives forwards offset and returns pagination envelope", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-live-initiatives-pagination-"));
   const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
