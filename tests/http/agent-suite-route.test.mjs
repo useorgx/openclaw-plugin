@@ -581,3 +581,58 @@ test("Agent suite runtime settings PATCH ignores invalid project_id", async () =
     }
   }
 });
+
+test("Agent suite runtime settings GET falls back to empty payload when upstream fails", async () => {
+  const openclawHome = mkdtempSync(
+    join(tmpdir(), "orgx-openclaw-runtime-settings-fallback-http-")
+  );
+  const prevOpenclawHome = process.env.OPENCLAW_HOME;
+  process.env.OPENCLAW_HOME = openclawHome;
+  const projectId = "33333333-3333-4333-8333-333333333333";
+
+  try {
+    const config = baseConfig();
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getClientAgentRuntimeSettings: async () => {
+        throw new Error("401 Unauthorized: invalid api key");
+      },
+      updateClientAgentRuntimeSettings: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(
+      config,
+      client,
+      () => null,
+      createNoopOnboarding()
+    );
+
+    const res = createStubResponse();
+    await handler(
+      {
+        method: "GET",
+        url: `/orgx/api/agent-suite/runtime-settings?workspace_id=${projectId}`,
+        headers: {},
+      },
+      res
+    );
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.equal(payload?.ok, true);
+    assert.equal(payload?.data?.ok, true);
+    assert.equal(payload?.data?.workspace_id, projectId);
+    assert.equal(payload?.data?.command_center_id, projectId);
+    assert.equal(Array.isArray(payload?.data?.agents), true);
+    assert.equal(payload?.data?.agents?.length, 0);
+    assert.match(String(payload?.data?.warning ?? ""), /401 Unauthorized/i);
+  } finally {
+    if (prevOpenclawHome == null) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = prevOpenclawHome;
+    }
+  }
+});

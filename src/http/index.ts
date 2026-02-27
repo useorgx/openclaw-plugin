@@ -4192,11 +4192,22 @@ export function createHttpHandler(
   registerLiveTriageRoutes(apiRouter, {
     parseJsonRequest,
     sendJson,
-    getDecisions: (_workspaceId) => {
+    getDecisions: (workspaceId) => {
       // Return cached decisions from latest snapshot, or empty array
+      const normalizedWorkspaceId = (workspaceId ?? "").trim();
+      const scopedKeys = normalizedWorkspaceId
+        ? [
+            `live-snapshot:${normalizedWorkspaceId}`,
+            `live-snapshot-v2:${normalizedWorkspaceId}`,
+            `dashboard-bundle:${normalizedWorkspaceId}`,
+          ]
+        : [];
+      const fallbackKeys = ["live-snapshot", "dashboard-bundle", "live-snapshot-v2"];
+      const keys = [...scopedKeys, ...fallbackKeys];
       try {
-        const cached = readSnapshotResponseCache("live-snapshot");
-        if (cached && typeof cached === "object" && "decisions" in cached) {
+        for (const key of keys) {
+          const cached = readSnapshotResponseCache(key);
+          if (!cached || typeof cached !== "object" || !("decisions" in cached)) continue;
           const decisions = (cached as Record<string, unknown>).decisions;
           if (Array.isArray(decisions)) return decisions;
         }

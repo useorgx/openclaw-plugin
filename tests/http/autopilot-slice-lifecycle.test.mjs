@@ -1,11 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createHttpHandler } from "../../dist/http-handler.js";
+import {
+  KNOWN_ACTIVITY_ACTION_PHASES,
+  KNOWN_ACTIVITY_ACTION_TYPES,
+} from "../../dist/contracts/shared-types.js";
+import { parseSliceResult } from "../../dist/http/helpers/autopilot-slice-utils.js";
 
 function createStubResponse() {
   const res = {
@@ -82,21 +87,31 @@ async function sleep(ms) {
 }
 
 function withEnv(patch, fn) {
-  const prev = {};
-  for (const [k, v] of Object.entries(patch)) {
-    prev[k] = process.env[k];
-    if (v == null) delete process.env[k];
-    else process.env[k] = String(v);
-  }
-  return Promise.resolve()
-    .then(fn)
-    .finally(() => {
-      for (const [k, v] of Object.entries(prev)) {
-        if (v == null) delete process.env[k];
-        else process.env[k] = v;
-      }
-    });
+  const run = async () => {
+    const prev = {};
+    for (const [k, v] of Object.entries(patch)) {
+      prev[k] = process.env[k];
+      if (v == null) delete process.env[k];
+      else process.env[k] = String(v);
+    }
+    return Promise.resolve()
+      .then(fn)
+      .finally(() => {
+        for (const [k, v] of Object.entries(prev)) {
+          if (v == null) delete process.env[k];
+          else process.env[k] = v;
+        }
+      });
+  };
+  const next = withEnvQueue.then(run, run);
+  withEnvQueue = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
 }
+
+let withEnvQueue = Promise.resolve();
 
 function createClientHarness() {
   const calls = {
@@ -188,43 +203,81 @@ function createClientHarness() {
 	            const next = { ...existing, ...patch };
 	            if (typeof op.status === "string") next.status = op.status;
 	            state.tasks.set(id, next);
-	          } else if (op.op === "decision.create") {
-	            const id = `decision-${state.nextDecisionId++}`;
-	            const now = new Date().toISOString();
-	            const blocking = typeof op.blocking === "boolean" ? op.blocking : true;
-	            const options = Array.isArray(op.options)
+          } else if (op.op === "decision.create") {
+            const id = `decision-${state.nextDecisionId++}`;
+            const now = new Date().toISOString();
+            const blocking = typeof op.blocking === "boolean" ? op.blocking : true;
+            const options = Array.isArray(op.options)
 	              ? op.options.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
 	              : [];
 	            const summary =
 	              typeof op.summary === "string" && op.summary.trim().length > 0
 	                ? op.summary.trim()
 	                : null;
-	            const title =
-	              typeof op.title === "string" && op.title.trim().length > 0
-	                ? op.title.trim()
-	                : "Decision";
-	            state.decisions.set(id, {
-	              id,
-	              title,
-	              summary,
-	              context: summary,
-	              status: "pending",
-	              decision_status: "pending",
-	              blocking,
-	              options,
-	              initiative_id:
-	                typeof payload?.initiative_id === "string"
-	                  ? payload.initiative_id
-	                  : "init-1",
-	              created_at: now,
-	              updated_at: now,
-	              metadata: {
-	                source: "test_changeset",
-	                blocking,
-	                correlation_id:
-	                  typeof payload?.correlation_id === "string"
-	                    ? payload.correlation_id
-	                    : null,
+            const title =
+              typeof op.title === "string" && op.title.trim().length > 0
+                ? op.title.trim()
+                : "Decision";
+            const workstreamId =
+              (typeof op.workstream_id === "string" && op.workstream_id.trim().length > 0
+                ? op.workstream_id.trim()
+                : null) ??
+              (typeof op.workstreamId === "string" && op.workstreamId.trim().length > 0
+                ? op.workstreamId.trim()
+                : null) ??
+              (typeof op.source_stream_id === "string" && op.source_stream_id.trim().length > 0
+                ? op.source_stream_id.trim()
+                : null) ??
+              (typeof op.sourceStreamId === "string" && op.sourceStreamId.trim().length > 0
+                ? op.sourceStreamId.trim()
+                : null) ??
+              null;
+            state.decisions.set(id, {
+              id,
+              title,
+              summary,
+              context: summary,
+              status: "pending",
+              decision_status: "pending",
+              blocking,
+              options,
+              recommended_action:
+                typeof op.recommended_action === "string" &&
+                op.recommended_action.trim().length > 0
+                  ? op.recommended_action.trim()
+                  : null,
+              initiative_id:
+                typeof payload?.initiative_id === "string"
+                  ? payload.initiative_id
+                  : "init-1",
+              workstream_id: workstreamId,
+              source_ref:
+                op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                  ? op.source_ref
+                  : null,
+              created_at: now,
+              updated_at: now,
+              metadata: {
+                source: "test_changeset",
+                blocking,
+                source_system:
+                  typeof op.source_system === "string" ? op.source_system : null,
+                conflict_source:
+                  typeof op.conflict_source === "string" ? op.conflict_source : null,
+                recommended_action:
+                  typeof op.recommended_action === "string" &&
+                  op.recommended_action.trim().length > 0
+                    ? op.recommended_action.trim()
+                    : null,
+                source_stream_id: workstreamId,
+                source_ref:
+                  op.source_ref && typeof op.source_ref === "object" && !Array.isArray(op.source_ref)
+                    ? op.source_ref
+                    : null,
+                correlation_id:
+                  typeof payload?.correlation_id === "string"
+                    ? payload.correlation_id
+                    : null,
 	                run_id:
 	                  typeof payload?.run_id === "string"
 	                    ? payload.run_id
@@ -414,7 +467,7 @@ async function runPlayTickStatus({
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: scenario,
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
       ...extraEnv,
     },
@@ -520,11 +573,45 @@ async function readLiveSnapshot(handler, input = {}) {
   return JSON.parse(resSnapshot.body);
 }
 
+async function readLiveTriage(handler, input = {}) {
+  const status =
+    typeof input.status === "string" && input.status.trim().length > 0
+      ? input.status.trim()
+      : "open";
+  const limit =
+    typeof input.limit === "number" && Number.isFinite(input.limit)
+      ? Math.max(1, Math.floor(input.limit))
+      : 50;
+  const workspaceId =
+    typeof input.workspaceId === "string" && input.workspaceId.trim().length > 0
+      ? input.workspaceId.trim()
+      : null;
+  const params = new URLSearchParams();
+  params.set("status", status);
+  params.set("limit", String(limit));
+  if (workspaceId) params.set("workspace_id", workspaceId);
+  const res = await call(handler, {
+    method: "GET",
+    url: `/orgx/api/live/triage?${params.toString()}`,
+    headers: {},
+  });
+  assert.equal(res.status, 200);
+  return JSON.parse(res.body);
+}
+
 function findSnapshotActivityByEvent(snapshot, eventName) {
   if (!snapshot || !Array.isArray(snapshot.activity)) return null;
   for (const entry of snapshot.activity) {
     const event = entry?.metadata?.event;
     if (typeof event === "string" && event === eventName) return entry;
+  }
+  return null;
+}
+
+function latestActivityByEvent(calls, eventName) {
+  for (let i = calls.emitActivity.length - 1; i >= 0; i -= 1) {
+    const payload = calls.emitActivity[i];
+    if (payload?.metadata?.event === eventName) return payload;
   }
   return null;
 }
@@ -973,7 +1060,7 @@ test("autopilot slice lifecycle: behavior config approval gate blocks before dis
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       // Keep this above scheduler jitter so short mock runs are not marked stalled under full-suite load.
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
@@ -1026,7 +1113,7 @@ test("autopilot slice lifecycle: behavior config approval gate normalizes in-rev
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       // Keep this above scheduler jitter so short mock runs are not marked stalled under full-suite load.
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
@@ -1070,7 +1157,7 @@ test("autopilot slice lifecycle: behavior config drift emits alert and continues
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -1143,7 +1230,7 @@ test("autopilot slice lifecycle: task-only behavior config does not emit drift w
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -1185,7 +1272,7 @@ test("autopilot slice lifecycle: manual automation level blocks auto-continue di
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -1251,7 +1338,7 @@ test("autopilot slice lifecycle: supervised automation level stops after one dis
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -1506,7 +1593,7 @@ test("autopilot slice lifecycle: buffered status updates avoid redispatching the
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -1764,7 +1851,7 @@ test("autopilot slice lifecycle: Play override bypasses snake_case spawn-guard r
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
       ORGX_AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS: "1000",
     },
@@ -1838,7 +1925,7 @@ test("autopilot slice lifecycle: auto-continue start override persists and execu
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
       ORGX_AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS: "1000",
     },
@@ -1913,7 +2000,7 @@ test("autopilot slice lifecycle: includeVerification=false skips verification sc
       ORGX_AUTOPILOT_WORKER_KIND: "mock",
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "250",
+      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
       ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
     async () => {
@@ -2136,5 +2223,218 @@ test("autopilot slice lifecycle: emits UI contract metadata required by activity
   assert.ok(
     Object.prototype.hasOwnProperty.call(snapshotSliceResult.metadata ?? {}, "next_actions"),
     "expected next_actions on snapshot activity metadata"
+  );
+});
+
+test("autopilot slice lifecycle: emits normalized envelope across dispatch/handoff/completion with result and evidence truth", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    after: async ({ handler }) =>
+      readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      }),
+  });
+
+  const requiredEvents = [
+    { event: "auto_continue_started", expectedPhase: "intent" },
+    { event: "orchestrator_dispatch", expectedPhase: "dispatch" },
+    { event: "autopilot_slice_dispatched", expectedPhase: "dispatch", workstreamScoped: true },
+    { event: "autopilot_slice_handoff", expectedPhase: "handoff", workstreamScoped: true },
+    { event: "autopilot_slice_result", expectedPhase: "completed", workstreamScoped: true },
+    { event: "auto_continue_stopped", expectedPhase: "completed" },
+  ];
+
+  for (const item of requiredEvents) {
+    const activity = latestActivityByEvent(result.calls, item.event);
+    assert.ok(activity, `expected ${item.event} activity`);
+    const metadata = activity.metadata ?? {};
+    assert.ok(
+      (KNOWN_ACTIVITY_ACTION_TYPES ?? []).includes(metadata.action_type),
+      `expected known action_type for ${item.event}, received ${String(metadata.action_type)}`
+    );
+    assert.ok(
+      (KNOWN_ACTIVITY_ACTION_PHASES ?? []).includes(metadata.action_phase),
+      `expected known action_phase for ${item.event}, received ${String(metadata.action_phase)}`
+    );
+    assert.equal(metadata.action_phase, item.expectedPhase);
+    assert.equal(metadata.initiative_id, "init-1");
+    assert.equal(metadata.scope_context?.initiative_id, "init-1");
+    assert.ok(
+      typeof metadata.actors?.requester?.agent_id === "string" &&
+        metadata.actors.requester.agent_id.length > 0,
+      `expected requester actor context for ${item.event}`
+    );
+    if (item.workstreamScoped) {
+      assert.equal(metadata.workstream_id, "ws-1");
+      assert.equal(metadata.scope_context?.workstream_id, "ws-1");
+      assert.ok(
+        typeof metadata.executor_agent_id === "string" &&
+          metadata.executor_agent_id.length > 0,
+        `expected executor agent id for ${item.event}`
+      );
+    }
+  }
+
+  const sliceResult = latestActivityByEvent(result.calls, "autopilot_slice_result");
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  const metadata = sliceResult.metadata ?? {};
+  assert.ok(metadata.result && typeof metadata.result === "object", "expected result envelope");
+  assert.ok(
+    typeof metadata.result.summary === "string" && metadata.result.summary.trim().length > 0,
+    "expected non-empty result.summary"
+  );
+  assert.ok(metadata.evidence && typeof metadata.evidence === "object", "expected evidence envelope");
+  assert.ok(Array.isArray(metadata.evidence.files), "expected evidence.files array");
+  assert.ok(Array.isArray(metadata.evidence.logs), "expected evidence.logs array");
+  assert.ok(
+    metadata.evidence.files.includes(metadata.output_path),
+    "expected output path in evidence.files"
+  );
+  assert.ok(
+    metadata.evidence.logs.includes(metadata.log_path),
+    "expected log path in evidence.logs"
+  );
+
+  assert.ok(typeof metadata.output_path === "string" && metadata.output_path.length > 0);
+  assert.ok(existsSync(metadata.output_path), `expected output file at ${metadata.output_path}`);
+  const rawOutputText = readFileSync(metadata.output_path, "utf8");
+  const parsedOutput = parseSliceResult(rawOutputText);
+  assert.ok(parsedOutput && typeof parsedOutput === "object", "expected parseable slice output");
+  const parsedTaskUpdates = Array.isArray(parsedOutput.task_updates) ? parsedOutput.task_updates : [];
+  const parsedMilestoneUpdates = Array.isArray(parsedOutput.milestone_updates)
+    ? parsedOutput.milestone_updates
+    : [];
+  const parsedNextActions = Array.isArray(parsedOutput.next_actions)
+    ? parsedOutput.next_actions
+        .filter((entry) => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+  assert.equal(metadata.result.summary, parsedOutput.summary);
+  assert.deepEqual(metadata.result.task_updates, parsedTaskUpdates);
+  assert.deepEqual(metadata.result.milestone_updates, parsedMilestoneUpdates);
+  assert.deepEqual(metadata.result.next_actions, parsedNextActions);
+
+  const snapshot = result.afterResult;
+  const snapshotSliceResult = findSnapshotActivityByEvent(snapshot, "autopilot_slice_result");
+  assert.ok(snapshotSliceResult, "expected autopilot_slice_result in live snapshot");
+  assert.ok(snapshotSliceResult.metadata?.result, "expected snapshot result envelope");
+  assert.ok(snapshotSliceResult.metadata?.evidence, "expected snapshot evidence envelope");
+  assert.equal(snapshotSliceResult.metadata?.result?.summary, parsedOutput.summary);
+});
+
+test("autopilot slice lifecycle: needs_decision appears in triage queue with actionable review contract", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "needs_decision",
+    after: async ({ handler }) => {
+      await readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      });
+      return readLiveTriage(handler, {
+        status: "open",
+        limit: 20,
+      });
+    },
+  });
+
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.stopReason, "blocked");
+  const triage = result.afterResult;
+  assert.ok(triage?.ok, "expected triage response");
+  assert.ok(Array.isArray(triage?.items), "expected triage items array");
+  assert.ok(triage.items.length > 0, "expected at least one triage item");
+  const decisionItem = triage.items.find(
+    (item) =>
+      typeof item?.id === "string" &&
+      item.id.startsWith("triage-decision-")
+  );
+  assert.ok(decisionItem, "expected decision-backed triage item");
+  assert.equal(decisionItem.status, "open");
+  assert.equal(decisionItem.blocking, true);
+  assert.equal(decisionItem.impact?.initiativeCount, 1);
+  assert.equal(decisionItem.impact?.workstreamCount, 1);
+  assert.ok(
+    typeof decisionItem.summary === "string" && decisionItem.summary.trim().length > 0,
+    "expected triage summary text"
+  );
+  assert.ok(
+    typeof decisionItem.recommendedAction === "string" &&
+      decisionItem.recommendedAction.trim().length > 0,
+    "expected recommended action on decision triage item"
+  );
+  assert.ok(
+    Array.isArray(decisionItem.actionContract) && decisionItem.actionContract.length >= 2,
+    "expected action contract options for triage item"
+  );
+  const actionNames = decisionItem.actionContract.map((entry) => entry.action);
+  assert.ok(
+    actionNames.includes("approve") && actionNames.includes("reject"),
+    "expected approve/reject options in triage contract"
+  );
+});
+
+test("autopilot slice lifecycle: status apply failure buffers review payload and preserves completion result", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    configureHarness: async ({ client }) => {
+      const originalApplyChangeset = client.applyChangeset;
+      client.applyChangeset = async (payload) => {
+        const operations = Array.isArray(payload?.operations) ? payload.operations : [];
+        const hasStatusMutation = operations.some(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            (entry.op === "task.update" || entry.op === "milestone.update")
+        );
+        if (hasStatusMutation) {
+          throw new Error("500 status apply conflict");
+        }
+        return originalApplyChangeset(payload);
+      };
+    },
+    after: async ({ handler }) =>
+      readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      }),
+  });
+
+  assert.equal(result.status.ok, true);
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "completed");
+
+  const sliceResult = latestActivityByEvent(result.calls, "autopilot_slice_result");
+  assert.ok(sliceResult, "expected autopilot_slice_result activity");
+  assert.equal(
+    sliceResult.metadata?.status_updates_buffered,
+    true,
+    "expected buffered status flag on slice result when apply fails"
+  );
+
+  const snapshot = result.afterResult;
+  const bufferedStatus = findSnapshotActivityByEvent(
+    snapshot,
+    "autopilot_slice_status_updates_buffered"
+  );
+  assert.ok(
+    bufferedStatus,
+    "expected buffered status-update activity to surface in merged snapshot activity"
+  );
+  const bufferedMetadata = bufferedStatus.metadata ?? {};
+  assert.ok(
+    typeof bufferedMetadata.error === "string" && bufferedMetadata.error.length > 0,
+    "expected actionable error context on buffered status-update item"
+  );
+  assert.ok(
+    Array.isArray(bufferedMetadata.task_updates) && bufferedMetadata.task_updates.length > 0,
+    "expected buffered task_updates payload for manual recovery"
   );
 });

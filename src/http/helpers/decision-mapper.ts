@@ -205,7 +205,17 @@ export function mapDecisionEntity(entity: Entity) {
   const record = entity as Record<string, unknown>;
   const metadata = asRecord(record.metadata);
   const envelope = metadata ? asRecord(metadata.envelope_v2) : null;
-  const containers: Array<Record<string, unknown> | null> = [record, metadata, envelope];
+  const sourceRef = asRecord(record.source_ref);
+  const metadataSourceRef = metadata ? asRecord(metadata.source_ref) : null;
+  const envelopeSourceRef = envelope ? asRecord(envelope.source_ref) : null;
+  const containers: Array<Record<string, unknown> | null> = [
+    record,
+    metadata,
+    envelope,
+    sourceRef,
+    metadataSourceRef,
+    envelopeSourceRef,
+  ];
 
   const requestedAt = toIsoString(
     pickStringFromRecords(containers, [

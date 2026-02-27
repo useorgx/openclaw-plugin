@@ -465,6 +465,15 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     scopeError: string | null;
   };
 
+  const snapshotAliasKey = (
+    base: "live-snapshot" | "live-snapshot-v2",
+    workspaceId: string | null
+  ): string => {
+    const normalized = (workspaceId ?? "").trim();
+    if (!normalized) return base;
+    return `${base}:${normalized}`;
+  };
+
   const headerScopeFromRequest = (
     req: TReq
   ): Record<string, unknown> | null =>
@@ -916,7 +925,13 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       return;
     }
     const bundle = await buildSnapshotBundle(query, headerScope);
+    const parsed = parseSnapshotQuery(query, headerScope);
     deps.writeSnapshotResponseCache(snapshotCacheKey, bundle.payload as Record<string, unknown>);
+    deps.writeSnapshotResponseCache("live-snapshot", bundle.payload as Record<string, unknown>);
+    deps.writeSnapshotResponseCache(
+      snapshotAliasKey("live-snapshot", parsed.projectId),
+      bundle.payload as Record<string, unknown>
+    );
     deps.sendJson(res, 200, bundle.payload);
   }
 
@@ -935,6 +950,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     }
 
     const bundle = await buildSnapshotBundle(query, headerScope);
+    const parsed = parseSnapshotQuery(query, headerScope);
     const payload = {
       ...bundle.v2,
       sessions: bundle.payload.sessions,
@@ -949,6 +965,11 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       degraded: bundle.payload.degraded,
     } as Record<string, unknown>;
     deps.writeSnapshotResponseCache(snapshotCacheKey, payload);
+    deps.writeSnapshotResponseCache("live-snapshot-v2", payload);
+    deps.writeSnapshotResponseCache(
+      snapshotAliasKey("live-snapshot-v2", parsed.projectId),
+      payload
+    );
     deps.sendJson(res, 200, payload);
   }
 

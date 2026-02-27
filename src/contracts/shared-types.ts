@@ -136,6 +136,85 @@ export interface LiveActivityItem {
   metadata?: Record<string, unknown>;
 }
 
+export const KNOWN_ACTIVITY_ACTION_TYPES = [
+  "orchestrator_dispatch",
+  "dispatch_slice",
+  "spawn_worker",
+  "run_heartbeat",
+  "run_state_transition",
+  "run_started",
+  "run_completed",
+  "run_failed",
+  "slice_handoff",
+  "decision_requested",
+  "decision_resolved",
+  "status_updates_applied",
+  "status_updates_buffered",
+  "artifact_registered",
+  "spawn_guard_blocked",
+  "spawn_guard_rate_limited",
+  "behavior_config_review",
+  "auto_fix",
+  "auto_continue_started",
+  "auto_continue_stopped",
+  "milestone_completed",
+  "workflow_error",
+] as const;
+
+export type KnownActivityActionType = (typeof KNOWN_ACTIVITY_ACTION_TYPES)[number];
+export type ActivityActionType = KnownActivityActionType | (string & {});
+
+export const KNOWN_ACTIVITY_ACTION_PHASES = [
+  "intent",
+  "dispatch",
+  "execution",
+  "handoff",
+  "review",
+  "completed",
+  "blocked",
+  "error",
+] as const;
+
+export type ActivityActionPhase = (typeof KNOWN_ACTIVITY_ACTION_PHASES)[number];
+
+const ACTIVITY_ACTION_TYPE_ALIASES: Record<string, KnownActivityActionType> = {
+  orchestrator: "orchestrator_dispatch",
+  dispatch: "dispatch_slice",
+  dispatched: "dispatch_slice",
+  start: "run_started",
+  started: "run_started",
+  stop: "auto_continue_stopped",
+  stopped: "auto_continue_stopped",
+  complete: "run_completed",
+  completed: "run_completed",
+  fail: "run_failed",
+  failed: "run_failed",
+};
+
+export function normalizeActivityActionType(value: unknown): ActivityActionType | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  const alias = ACTIVITY_ACTION_TYPE_ALIASES[normalized];
+  if (alias) return alias;
+  return normalized.replace(/\s+/g, "_") as ActivityActionType;
+}
+
+export function isKnownActivityActionType(value: unknown): value is KnownActivityActionType {
+  if (typeof value !== "string") return false;
+  return (KNOWN_ACTIVITY_ACTION_TYPES as readonly string[]).includes(value);
+}
+
+export function normalizeActivityActionPhase(value: unknown): ActivityActionPhase | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if ((KNOWN_ACTIVITY_ACTION_PHASES as readonly string[]).includes(normalized)) {
+    return normalized as ActivityActionPhase;
+  }
+  return null;
+}
+
 export const KNOWN_DECISION_ACTION_TYPES = [
   "approve",
   "reject",
