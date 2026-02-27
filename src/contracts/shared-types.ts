@@ -108,6 +108,57 @@ export type LiveActivityType =
   | 'milestone_completed'
   | 'delegation';
 
+/**
+ * Canonical event names set in `metadata.event` on activity items.
+ * Keep in sync with emitters in auto-continue-engine.ts, autopilot-operations.ts,
+ * dispatch-lifecycle.ts, and http/index.ts.
+ */
+export type ActivityEventName =
+  // Autopilot slice lifecycle
+  | 'autopilot_slice_dispatched'
+  | 'autopilot_slice_started'
+  | 'autopilot_slice_heartbeat'
+  | 'autopilot_slice_finished'
+  | 'autopilot_slice_result'
+  | 'autopilot_slice_handoff'
+  | 'autopilot_slice_mcp_handshake_failed'
+  | 'autopilot_slice_timeout'
+  | 'autopilot_slice_log_stall'
+  | 'autopilot_slice_artifact_buffered'
+  | 'autopilot_slice_status_updates_buffered'
+  // Auto-continue lifecycle
+  | 'auto_continue_started'
+  | 'auto_continue_stopped'
+  | 'auto_continue_spawn_guard_blocked'
+  | 'auto_continue_spawn_guard_rate_limited'
+  | 'auto_continue_spawn_guard_rate_limit_overridden'
+  | 'auto_continue_behavior_config_drift_detected'
+  | 'auto_continue_behavior_config_approval_required'
+  | 'auto_continue_behavior_automation_manual_blocked'
+  | 'auto_continue_behavior_automation_supervised_one_shot'
+  // Autofix
+  | 'autopilot_autofix_scheduled'
+  | 'autopilot_autofix_executed'
+  | 'autopilot_autofix_skipped'
+  // Orchestration
+  | 'orchestrator_dispatch'
+  | 'autopilot_transition'
+  | 'next_up_manual_dispatch_started'
+  | 'scope_completed'
+  // Session & runtime
+  | 'session_start'
+  | 'session_stop'
+  | 'heartbeat'
+  // Decisions & dispatch
+  | 'decision_buffered'
+  | 'decision_resolved'
+  | 'spawn_guard_degraded'
+  // Dashboard actions
+  | 'dashboard_run_mark_completed'
+  // Proof & artifacts
+  | 'proof_gate_warning'
+  | 'artifact_registered';
+
 export interface LiveActivityItem {
   id: string;
   type: LiveActivityType;

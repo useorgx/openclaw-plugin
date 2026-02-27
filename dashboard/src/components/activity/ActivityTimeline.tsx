@@ -8,6 +8,7 @@ import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId } from '@/lib/humanize';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
+  ActivityEventName,
   Initiative,
   LiveChatSnapshot,
   LiveActivityItem,
@@ -577,7 +578,7 @@ function extractArtifactId(item: LiveActivityItem | null | undefined): string | 
   return null;
 }
 
-const ACTIVITY_BUCKET_BY_EVENT = new Map<string, ActivityBucket>([
+const ACTIVITY_BUCKET_BY_EVENT = new Map<ActivityEventName | string, ActivityBucket>([
   ['autopilot_slice_artifact_buffered', 'artifact'],
   ['decision_buffered', 'decision'],
   ['auto_continue_spawn_guard_blocked', 'decision'],
@@ -705,7 +706,9 @@ function classifyActivity(item: LiveActivityItem): ActivityBucket {
 }
 
 function labelForType(type: LiveActivityType): string {
-  const labels: Partial<Record<LiveActivityType, string>> = {
+  // Exhaustive Record — compile error if a new LiveActivityType is added
+  // without a label entry here.
+  const labels: Record<LiveActivityType, string> = {
     run_started: 'Run started',
     run_completed: 'Run completed',
     run_failed: 'Run failed',
@@ -719,7 +722,7 @@ function labelForType(type: LiveActivityType): string {
     milestone_completed: 'Milestone completed',
     delegation: 'Delegation',
   };
-  return labels[type] ?? humanizeText(type.split('_').join(' '));
+  return labels[type];
 }
 
 function toDayKey(value: string): string {

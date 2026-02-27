@@ -79,12 +79,6 @@ function composeBulkActionId(
   return `${action}_${scope}` as DecisionBulkActionId;
 }
 
-function urgencyAccent(waitingMinutes: number): { border: string; glow: string } {
-  if (waitingMinutes >= 15) return { border: colors.red, glow: `0 0 16px ${colors.red}20` };
-  if (waitingMinutes >= 5) return { border: colors.amber, glow: `0 0 12px ${colors.amber}18` };
-  return { border: colors.teal, glow: 'none' };
-}
-
 export const DecisionQueue = memo(function DecisionQueue({
   decisions,
   focusDecisionId = null,
@@ -639,7 +633,6 @@ export const DecisionQueue = memo(function DecisionQueue({
           <AnimatePresence mode="popLayout">
             {visible.map((decision, idx) => {
               const isApproving = approving.has(decision.id);
-              const urgency = urgencyAccent(decision.waitingMinutes);
               const isSelected = selected.has(decision.id);
               return (
                 <motion.article
@@ -672,10 +665,8 @@ export const DecisionQueue = memo(function DecisionQueue({
                   layout
                   className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
                   style={{
-                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
-                    borderLeftWidth: 3,
-                    borderLeftColor: `${urgency.border}80`,
-                    boxShadow: urgency.glow,
+                    borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
                   }}
                 >
                   <div className="flex items-start gap-2.5">
@@ -736,7 +727,6 @@ export const DecisionQueue = memo(function DecisionQueue({
           <>
             {visible.map((decision) => {
               const isApproving = approving.has(decision.id);
-              const urgency = urgencyAccent(decision.waitingMinutes);
               const isSelected = selected.has(decision.id);
               return (
                 <article
@@ -752,10 +742,8 @@ export const DecisionQueue = memo(function DecisionQueue({
                   }}
                   className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
                   style={{
-                    borderColor: isSelected ? `${colors.lime}50` : `${urgency.border}35`,
-                    borderLeftWidth: 3,
-                    borderLeftColor: `${urgency.border}80`,
-                    boxShadow: urgency.glow,
+                    borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
+                    boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
                   }}
                 >
                   <div className="flex items-start gap-2.5">

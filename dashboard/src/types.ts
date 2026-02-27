@@ -12,6 +12,7 @@ export interface DecisionMutationState {
 }
 
 import type {
+  ActivityEventName,
   DecisionActionType,
   HandoffSummary,
   LiveActivityItem,
@@ -40,6 +41,7 @@ import type {
 } from '@shared/shared-types';
 
 export type {
+  ActivityEventName,
   HandoffEvent,
   HandoffSummary,
   LiveActivityItem,
