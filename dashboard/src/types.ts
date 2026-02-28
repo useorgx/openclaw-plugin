@@ -573,6 +573,16 @@ export interface AgentRuntimeSettings {
   decisionDedupeEnabled: boolean;
   decisionEvidenceRequiredForBlocking: boolean;
   decisionAutoResolveGuardedEnabled: boolean;
+  questionAutoAnswerEnabled: boolean;
+  questionAutoAnswerTimeoutSec: number;
+  questionAutoAnswerPolicy:
+    | 'contextual'
+    | 'approve_non_blocking'
+    | 'defer_non_blocking';
+  questionBlockingBehavior: 'require_human' | 'guarded_auto_resolve_then_human';
+  questionPolicyVersion: number;
+  questionAutoAnswerDelaySeconds: number;
+  questionAutoAnswerAction: 'approve' | 'reject';
   customRunInstructions: string;
 }
 
@@ -660,8 +670,6 @@ export interface Initiative {
   targetDate?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
-  sequenceIndex?: number | undefined;
-  hierarchyLabel?: string | undefined;
   activeAgents: number;
   totalAgents: number;
   avatars?: string[];
@@ -677,8 +685,6 @@ export interface InitiativeWorkstream {
   progress: number | null;
   initiativeId: string;
   createdAt: string | null;
-  sequenceIndex?: number | undefined;
-  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeMilestone {
@@ -690,8 +696,6 @@ export interface InitiativeMilestone {
   initiativeId: string;
   workstreamId: string | null;
   createdAt: string | null;
-  sequenceIndex?: number | undefined;
-  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeTask {
@@ -705,8 +709,6 @@ export interface InitiativeTask {
   milestoneId: string | null;
   workstreamId: string | null;
   createdAt: string | null;
-  sequenceIndex?: number | undefined;
-  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeDetails {
@@ -746,8 +748,6 @@ export interface MissionControlNode {
   expectedBudgetUsd: number;
   assignedAgents: AssignedAgent[];
   updatedAt: string | null;
-  sequenceIndex?: number | undefined;
-  hierarchyLabel?: string | undefined;
 }
 
 export interface MissionControlEdge {
@@ -1136,26 +1136,4 @@ export interface ActivityItem {
   isNew: boolean;
   error?: boolean;
   artifact?: Artifact;
-}
-
-// -----------------------------------------------------------------------------
-// UX Overhaul: Lifecycle & Hierarchy Types
-// -----------------------------------------------------------------------------
-
-/** Re-export LifecycleState from status-taxonomy for convenience */
-export type { LifecycleState } from '@/lib/status-taxonomy';
-
-/** Cursor-based pagination parameters for infinite scroll */
-export interface CursorPaginationParams {
-  cursor?: string | undefined;
-  limit?: number | undefined;
-  direction?: 'forward' | 'backward' | undefined;
-}
-
-/** Cursor-based pagination response envelope */
-export interface CursorPaginationMeta {
-  nextCursor: string | null;
-  prevCursor: string | null;
-  hasMore: boolean;
-  total?: number | undefined;
 }

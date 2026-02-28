@@ -215,55 +215,6 @@ export function computeTaskCompletionReadiness(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle State Derivation (backend — authoritative source)
-// ---------------------------------------------------------------------------
-
-export type LifecycleState =
-  | 'Queued'
-  | 'Dispatching'
-  | 'In Progress'
-  | 'Blocked'
-  | 'Completed'
-  | 'Paused'
-  | 'Failed';
-
-/**
- * Derive an honest lifecycle state for an entity based on its raw status
- * and child statuses. This is the authoritative backend derivation —
- * the dashboard mirrors this logic in status-taxonomy.ts.
- */
-export function deriveLifecycleState(
-  rawStatus: unknown,
-  childStatuses?: unknown[],
-): LifecycleState {
-  const s = classifyTaskState(rawStatus);
-
-  if (s === 'done') return 'Completed';
-  if (s === 'blocked') return 'Blocked';
-
-  if (!childStatuses || childStatuses.length === 0) {
-    if (s === 'active') return 'In Progress';
-    return 'Queued';
-  }
-
-  const counts = summarizeTaskStatuses(childStatuses);
-  if (counts.total > 0 && counts.done >= counts.total) return 'Completed';
-  if (counts.blocked > 0 && counts.active === 0 && counts.done < counts.total) return 'Blocked';
-  if (counts.active > 0 || counts.done > 0) return 'In Progress';
-  return 'Queued';
-}
-
-/**
- * Compute cascaded progress: parent progress derived from child task states.
- * Returns a percentage (0–100) representing weighted completion.
- */
-export function cascadeProgressFromChildren(childStatuses: unknown[]): number {
-  if (!Array.isArray(childStatuses) || childStatuses.length === 0) return 0;
-  const counts = summarizeTaskStatuses(childStatuses);
-  return toPercent(counts.done, counts.total);
-}
-
-// ---------------------------------------------------------------------------
 // Eval pass rate drift detection
 // ---------------------------------------------------------------------------
 

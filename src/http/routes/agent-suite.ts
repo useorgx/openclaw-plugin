@@ -92,6 +92,81 @@ function readOptionalBoolean(payload: JsonRecord, ...keys: string[]): boolean | 
   return undefined;
 }
 
+function readOptionalInteger(
+  payload: JsonRecord,
+  options: { min: number; max: number },
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const raw = payload[key];
+    let parsed = Number.NaN;
+    if (typeof raw === "number") {
+      parsed = raw;
+    } else if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (/^[+-]?\d+$/.test(trimmed)) {
+        parsed = Number.parseInt(trimmed, 10);
+      }
+    }
+    if (!Number.isFinite(parsed)) continue;
+    const normalized = Math.max(options.min, Math.min(options.max, Math.floor(parsed)));
+    return normalized;
+  }
+  return undefined;
+}
+
+function readOptionalAction(
+  payload: JsonRecord,
+  ...keys: string[]
+): "approve" | "reject" | undefined {
+  for (const key of keys) {
+    const raw = payload[key];
+    if (typeof raw !== "string") continue;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "approve" || normalized === "reject") {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function readOptionalPolicy(
+  payload: JsonRecord,
+  ...keys: string[]
+): "contextual" | "approve_non_blocking" | "defer_non_blocking" | undefined {
+  for (const key of keys) {
+    const raw = payload[key];
+    if (typeof raw !== "string") continue;
+    const normalized = raw.trim().toLowerCase();
+    if (
+      normalized === "contextual" ||
+      normalized === "approve_non_blocking" ||
+      normalized === "defer_non_blocking"
+    ) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function readOptionalBlockingBehavior(
+  payload: JsonRecord,
+  ...keys: string[]
+): "require_human" | "guarded_auto_resolve_then_human" | undefined {
+  for (const key of keys) {
+    const raw = payload[key];
+    if (typeof raw !== "string") continue;
+    const normalized = raw.trim().toLowerCase();
+    if (
+      normalized === "require_human" ||
+      normalized === "guarded_auto_resolve_then_human"
+    ) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
 function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
   const runtime = toRecord(payload.runtime_settings ?? payload.runtimeSettings);
   const patch: JsonRecord = {};
@@ -132,6 +207,72 @@ function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
   if (typeof decisionAutoResolveGuardedEnabled === "boolean") {
     patch.decision_auto_resolve_guarded_enabled =
       decisionAutoResolveGuardedEnabled;
+  }
+
+  const questionAutoAnswerEnabled = readOptionalBoolean(
+    runtime,
+    "question_auto_answer_enabled",
+    "questionAutoAnswerEnabled"
+  );
+  if (typeof questionAutoAnswerEnabled === "boolean") {
+    patch.question_auto_answer_enabled = questionAutoAnswerEnabled;
+  }
+
+  const questionAutoAnswerDelaySeconds = readOptionalInteger(
+    runtime,
+    { min: 1, max: 900 },
+    "question_auto_answer_delay_seconds",
+    "questionAutoAnswerDelaySeconds"
+  );
+  if (typeof questionAutoAnswerDelaySeconds === "number") {
+    patch.question_auto_answer_delay_seconds = questionAutoAnswerDelaySeconds;
+  }
+
+  const questionAutoAnswerAction = readOptionalAction(
+    runtime,
+    "question_auto_answer_action",
+    "questionAutoAnswerAction"
+  );
+  if (questionAutoAnswerAction) {
+    patch.question_auto_answer_action = questionAutoAnswerAction;
+  }
+
+  const questionAutoAnswerTimeoutSec = readOptionalInteger(
+    runtime,
+    { min: 10, max: 3600 },
+    "question_auto_answer_timeout_sec",
+    "questionAutoAnswerTimeoutSec"
+  );
+  if (typeof questionAutoAnswerTimeoutSec === "number") {
+    patch.question_auto_answer_timeout_sec = questionAutoAnswerTimeoutSec;
+  }
+
+  const questionAutoAnswerPolicy = readOptionalPolicy(
+    runtime,
+    "question_auto_answer_policy",
+    "questionAutoAnswerPolicy"
+  );
+  if (questionAutoAnswerPolicy) {
+    patch.question_auto_answer_policy = questionAutoAnswerPolicy;
+  }
+
+  const questionBlockingBehavior = readOptionalBlockingBehavior(
+    runtime,
+    "question_blocking_behavior",
+    "questionBlockingBehavior"
+  );
+  if (questionBlockingBehavior) {
+    patch.question_blocking_behavior = questionBlockingBehavior;
+  }
+
+  const questionPolicyVersion = readOptionalInteger(
+    runtime,
+    { min: 1, max: 10 },
+    "question_policy_version",
+    "questionPolicyVersion"
+  );
+  if (typeof questionPolicyVersion === "number") {
+    patch.question_policy_version = questionPolicyVersion;
   }
 
   const customRunInstructions = toOptionalString(

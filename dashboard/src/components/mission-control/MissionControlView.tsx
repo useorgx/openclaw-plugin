@@ -572,9 +572,6 @@ function MissionControlInner({
       if (sortBy === 'priority_low' && aPriority !== bPriority) return bPriority - aPriority;
 
       if (sortBy === 'default') {
-        const aSequence = typeof a.sequenceIndex === 'number' ? a.sequenceIndex : Number.POSITIVE_INFINITY;
-        const bSequence = typeof b.sequenceIndex === 'number' ? b.sequenceIndex : Number.POSITIVE_INFINITY;
-        if (aSequence !== bSequence) return aSequence - bSequence;
         const statusDelta = initiativeStatusSortRank(a.status) - initiativeStatusSortRank(b.status);
         if (statusDelta !== 0) return statusDelta;
         if (aPriority !== bPriority) return aPriority - bPriority;
@@ -834,10 +831,6 @@ function MissionControlInner({
   const railFocusItem = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem ?? null;
   const autopilotInitiativeId =
     railFocusItem?.initiativeId ?? nextActionInitiative?.id ?? null;
-  const queuedInitiativeIds = useMemo(
-    () => new Set(nextActionQueue.items.map((item) => item.initiativeId)),
-    [nextActionQueue.items]
-  );
 
   const setInitiativeSelected = useCallback(
     (initiativeId: string, selected: boolean, shiftKey: boolean) => {
@@ -2320,7 +2313,6 @@ function MissionControlInner({
                                     onToggleInitiativeSelection={setInitiativeSelected}
                                     isSquished={nextUpRailOpen}
                                     runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
-                                    queuedInitiativeIds={queuedInitiativeIds}
                                   />
                                 </div>
                               </motion.div>
@@ -2338,7 +2330,6 @@ function MissionControlInner({
                       onToggleInitiativeSelection={setInitiativeSelected}
                       isSquished={nextUpRailOpen}
                       runtimeActivityByInitiativeId={runtimeActivityByInitiativeId}
-                      queuedInitiativeIds={queuedInitiativeIds}
                     />
                   </div>
                 )}

@@ -7,10 +7,7 @@ import {
   type MissionControlDatePreset,
   type GroupByOption,
   type SortByOption,
-  type ZoomLevel,
-  type NoiseThreshold,
 } from './MissionControlContext';
-import { lifecycleStateClass } from '@/lib/entityStatusColors';
 
 interface MissionControlFiltersProps {
   initiatives: Initiative[];
@@ -87,10 +84,6 @@ export function MissionControlFilters({
     setGroupBy,
     sortBy,
     setSortBy,
-    zoomLevel,
-    setZoomLevel,
-    noiseThreshold,
-    setNoiseThreshold,
     setStatusFilters,
     toggleStatusFilter,
     setDateField,

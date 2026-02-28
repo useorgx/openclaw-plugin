@@ -1,13 +1,6 @@
-import { memo, useMemo, useState, useCallback, useEffect } from 'react';
+import { memo, useMemo, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import type {
-  Initiative,
-  SliceRunProjection,
-  LiveTriageItem,
-  TriageSeverity,
-  TriageActionType,
-} from '@/types';
-import type { DedupedTriageGroup } from '@/hooks/useTriageQueue';
+import type { Initiative, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { formatRelativeTime } from '@/lib/time';
@@ -16,10 +9,6 @@ import { humanizeId, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 interface NeedsInputPanelProps {
   sliceRuns: SliceRunProjection[];
   initiatives?: Initiative[];
-  /** Optional triage groups from useTriageQueue for blocker/decision display. */
-  triageGroups?: DedupedTriageGroup[];
-  /** Called when a triage action button is clicked. */
-  onTriageAction?: (itemId: string, action: string) => void;
   title?: string;
   className?: string;
   showHeader?: boolean;
@@ -68,50 +57,6 @@ export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInpu
   }
 
   return Array.from(grouped.values());
-}
-
-// ---------------------------------------------------------------------------
-// Severity helpers for triage items
-// ---------------------------------------------------------------------------
-
-const SEVERITY_ORDER: Record<TriageSeverity, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-function severityBorderClass(severity: TriageSeverity): string {
-  if (severity === 'critical' || severity === 'high') return 'border-l-4 border-l-[#FF6B88]';
-  if (severity === 'medium') return 'border-l-4 border-l-[#F5B700]';
-  return 'border-l-4 border-l-white/20';
-}
-
-/** Infer severity from a triage item when the field is missing. */
-function inferSeverity(item: LiveTriageItem): TriageSeverity {
-  if (item.severity) return item.severity;
-  const totalImpact =
-    (item.impact?.initiativeCount ?? 0) +
-    (item.impact?.workstreamCount ?? 0) +
-    (item.impact?.downstreamBlockedCount ?? 0);
-  if (item.blocking || totalImpact >= 3) return 'high';
-  if (item.kind === 'review_required') return 'low';
-  return 'medium';
-}
-
-function triageActionLabel(action: TriageActionType | string): string {
-  if (action === 'approve') return 'Approve';
-  if (action === 'reject') return 'Reject';
-  if (action === 'retry') return 'Retry';
-  if (action === 'autofix') return 'Autofix';
-  if (action === 'defer') return 'Defer';
-  if (action === 'snooze') return 'Snooze';
-  if (action === 'dismiss') return 'Dismiss';
-  // Map common semantic types from the spec
-  if (action === 'choose') return 'Choose Option';
-  if (action === 'provide_info') return 'Provide Info';
-  if (action === 'review') return 'Review';
-  return 'Resolve';
 }
 
 function statusAccentColor(status: SliceRunProjection['status']): string {
@@ -178,8 +123,6 @@ function derivePrimaryLabel(
 export const NeedsInputPanel = memo(function NeedsInputPanel({
   sliceRuns,
   initiatives = [],
-  triageGroups = [],
-  onTriageAction,
   title = 'Needs Input',
   className,
   showHeader = true,
@@ -195,66 +138,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [lastAction, setLastAction] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
-
-  // Reset optimistic state when fresh data arrives
-  useEffect(() => {
-    setOptimisticallyAccepted(new Set());
-  }, [sliceRuns]);
 
   const rows = useMemo(
     () => allRows.filter((r) => !optimisticallyAccepted.has(r.item.sliceRunId)),
     [allRows, optimisticallyAccepted],
   );
-
-  // Sort triage groups: high severity first, then medium, then low. Within same severity, newest first.
-  const sortedTriageGroups = useMemo(() => {
-    if (!triageGroups || triageGroups.length === 0) return [];
-    return [...triageGroups].sort((a, b) => {
-      const sevA = SEVERITY_ORDER[inferSeverity(a.item)] ?? 3;
-      const sevB = SEVERITY_ORDER[inferSeverity(b.item)] ?? 3;
-      if (sevA !== sevB) return sevA - sevB;
-      return (
-        new Date(b.item.lastSeenAt).getTime() -
-        new Date(a.item.lastSeenAt).getTime()
-      );
-    });
-  }, [triageGroups]);
-
-  const toggleGroupExpanded = useCallback((groupKey: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupKey)) next.delete(groupKey);
-      else next.add(groupKey);
-      return next;
-    });
-  }, []);
-
-  const handleTriageAction = useCallback(
-    async (itemId: string, action: string) => {
-      setResolvingItems((prev) => new Set(prev).add(itemId));
-      setLastAction(`Resolving ${itemId.slice(0, 8)}...`);
-      try {
-        await onTriageAction?.(itemId, action);
-        setLastAction(`Resolved ${itemId.slice(0, 8)}`);
-      } catch {
-        setLastAction(`Failed to resolve ${itemId.slice(0, 8)}`);
-      } finally {
-        // Keep in resolving state briefly for exit animation
-        setTimeout(() => {
-          setResolvingItems((prev) => {
-            const next = new Set(prev);
-            next.delete(itemId);
-            return next;
-          });
-        }, 400);
-      }
-    },
-    [onTriageAction]
-  );
-
-  const totalCount = rows.length + sortedTriageGroups.length;
 
   const initiativeTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -377,7 +265,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-body font-semibold text-white/90">{title}</h2>
             <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] font-medium tabular-nums text-white/40">
-              {totalCount}
+              {rows.length}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -412,164 +300,12 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
         </div>
       )}
 
-      {totalCount === 0 ? (
+      {rows.length === 0 ? (
         <div className="px-4 py-6 text-center text-caption text-white/30">
           Nothing needs attention right now.
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* ── Triage blocker / decision cards ── */}
-          {sortedTriageGroups.length > 0 && (
-            <AnimatePresence mode="popLayout">
-              {sortedTriageGroups.map((group, groupIndex) => {
-                const triageItem = group.item;
-                const severity = inferSeverity(triageItem);
-                const borderClass = severityBorderClass(severity);
-                const isExpanded = expandedGroups.has(triageItem.id);
-                const isResolving = resolvingItems.has(triageItem.id);
-                const primaryAction = triageItem.actionContract.find((a) => a.available);
-
-                return (
-                  <motion.div
-                    key={triageItem.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: isResolving ? 0.4 : 1, y: 0 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{
-                      type: 'spring',
-                      stiffness: 400,
-                      damping: 35,
-                      delay: Math.min(groupIndex, 5) * 0.015,
-                    }}
-                    className={`${borderClass} border-b border-b-white/[0.06] bg-[#08090D] px-4 py-3 transition-colors hover:bg-white/[0.02]`}
-                  >
-                    {/* Title row */}
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                        style={{
-                          backgroundColor:
-                            severity === 'critical' || severity === 'high'
-                              ? '#FF6B88'
-                              : severity === 'medium'
-                                ? '#F5B700'
-                                : 'rgba(255,255,255,0.35)',
-                        }}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight text-white/90">
-                        {triageItem.title}
-                      </span>
-                      <span className="flex-shrink-0 text-[10px] tabular-nums text-white/25">
-                        {formatRelativeTime(triageItem.lastSeenAt)}
-                      </span>
-                    </div>
-
-                    {/* Context / summary */}
-                    {triageItem.summary && (
-                      <div className="mt-1 pl-[14px] text-[11px] text-white/50">
-                        {triageItem.summary.length > 120
-                          ? `${triageItem.summary.slice(0, 117)}...`
-                          : triageItem.summary}
-                      </div>
-                    )}
-
-                    {/* Scope context (initiative / workstream) */}
-                    {(triageItem.initiativeTitle || triageItem.workstreamTitle) && (
-                      <div className="mt-px flex items-center gap-1 pl-[14px] text-[10px] text-white/20">
-                        {triageItem.initiativeTitle && (
-                          <>
-                            <EntityIcon type="initiative" size={8} className="opacity-50" />
-                            <span className="truncate">{triageItem.initiativeTitle}</span>
-                          </>
-                        )}
-                        {triageItem.initiativeTitle && triageItem.workstreamTitle && (
-                          <span className="text-white/10">/</span>
-                        )}
-                        {triageItem.workstreamTitle && (
-                          <span className="truncate">{triageItem.workstreamTitle}</span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Duplicate grouping badge */}
-                    {group.count > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupExpanded(triageItem.id)}
-                        className="mt-1.5 ml-[14px] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 text-[10px] font-mono text-white/50 hover:bg-white/8 transition-colors"
-                      >
-                        {group.count} similar
-                        <svg
-                          width="8"
-                          height="8"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                        >
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
-                      </button>
-                    )}
-
-                    {/* Expanded duplicates */}
-                    <AnimatePresence>
-                      {isExpanded && group.members.length > 1 && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                          className="mt-1.5 ml-[14px] overflow-hidden"
-                        >
-                          {group.members.slice(1).map((member) => (
-                            <div
-                              key={member.id}
-                              className="border-l border-white/[0.06] pl-2 py-1 text-[11px] text-white/35"
-                            >
-                              <span className="truncate">{member.title}</span>
-                              <span className="ml-2 text-[10px] text-white/20">
-                                {formatRelativeTime(member.lastSeenAt)}
-                              </span>
-                            </div>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Action row */}
-                    {onTriageAction && (
-                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.06]">
-                        {primaryAction && (
-                          <button
-                            type="button"
-                            disabled={isResolving}
-                            onClick={() => handleTriageAction(triageItem.id, primaryAction.action)}
-                            className="px-3 py-1 rounded-full text-[11px] font-medium bg-[#BFFF00]/10 text-[#BFFF00] border border-[#BFFF00]/20 hover:bg-[#BFFF00]/20 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                          >
-                            {triageActionLabel(primaryAction.action)}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={isResolving}
-                          onClick={() => handleTriageAction(triageItem.id, 'dismiss')}
-                          className="px-3 py-1 rounded-full text-[11px] font-medium border border-white/10 text-white/50 hover:text-white/70 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          )}
-
-          {/* ── Existing slice-run rows ── */}
           <AnimatePresence mode="popLayout">
             {rows.map(({ item, duplicateCount }, index) => {
               const primaryInitiativeId =

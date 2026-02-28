@@ -121,6 +121,7 @@ function createClientHarness() {
     emitActivity: [],
     createEntity: [],
     checkSpawnGuard: [],
+    decideDecision: [],
   };
 
   const state = {
@@ -189,11 +190,12 @@ function createClientHarness() {
       }
       return { ok: true, id };
     },
-	    applyChangeset: async (payload) => {
-	      calls.applyChangeset.push(payload);
-	      try {
-	        const ops = Array.isArray(payload?.operations) ? payload.operations : [];
-	        for (const op of ops) {
+		    applyChangeset: async (payload) => {
+		      calls.applyChangeset.push(payload);
+          const results = [];
+		      try {
+		        const ops = Array.isArray(payload?.operations) ? payload.operations : [];
+		        for (const op of ops) {
 	          if (!op || typeof op !== "object") continue;
 	          if (op.op === "task.update" && typeof op.task_id === "string") {
 	            const id = op.task_id;
@@ -232,7 +234,7 @@ function createClientHarness() {
                 ? op.sourceStreamId.trim()
                 : null) ??
               null;
-            state.decisions.set(id, {
+	            state.decisions.set(id, {
               id,
               title,
               summary,
@@ -282,23 +284,33 @@ function createClientHarness() {
 	                  typeof payload?.run_id === "string"
 	                    ? payload.run_id
 	                    : null,
-	              },
-	            });
-	          }
-	        }
-	      } catch {
+		              },
+		            });
+              results.push({
+                entity_type: "decision",
+                entity_id: id,
+                decision_id: id,
+                created: {
+                  entity_type: "decision",
+                  entity_id: id,
+                  id,
+                },
+              });
+		          }
+		        }
+		      } catch {
 	        // ignore
 	      }
       return {
         ok: true,
         changeset_id: "cs_1",
         replayed: false,
-        run_id: payload?.run_id ?? "run_1",
-        applied_count: Array.isArray(payload?.operations) ? payload.operations.length : 0,
-        results: [],
-        event_id: null,
-      };
-    },
+	        run_id: payload?.run_id ?? "run_1",
+	        applied_count: Array.isArray(payload?.operations) ? payload.operations.length : 0,
+	        results,
+	        event_id: null,
+	      };
+	    },
     emitActivity: async (payload) => {
       calls.emitActivity.push(payload);
       const timestamp = new Date().toISOString();
@@ -431,6 +443,40 @@ function createClientHarness() {
       }
       return updated;
     },
+    decideDecision: async (id, action, input = {}) => {
+      calls.decideDecision.push({ id, action, input });
+      const normalizedAction =
+        typeof action === "string" ? action.trim().toLowerCase() : "";
+      const nextStatus =
+        normalizedAction === "approve"
+          ? "approved"
+          : normalizedAction === "reject"
+            ? "rejected"
+            : null;
+      if (!state.decisions.has(id) || !nextStatus) {
+        throw new Error("decision not found");
+      }
+      const existing = state.decisions.get(id);
+      const now = new Date().toISOString();
+      const note =
+        typeof input?.note === "string" && input.note.trim().length > 0
+          ? input.note.trim()
+          : null;
+      const optionId =
+        typeof input?.optionId === "string" && input.optionId.trim().length > 0
+          ? input.optionId.trim()
+          : null;
+      const next = {
+        ...existing,
+        status: nextStatus,
+        decision_status: nextStatus,
+        updated_at: now,
+        note,
+        option_id: optionId,
+      };
+      state.decisions.set(id, next);
+      return next;
+    },
     rawRequest: async () => {
       throw new Error("not implemented");
     },
@@ -505,7 +551,8 @@ async function runPlayTickStatus({
       });
       assert.equal(resStatus.status, 200);
 
-      const afterResult = typeof after === "function" ? await after({ handler, calls }) : null;
+      const afterResult =
+        typeof after === "function" ? await after({ handler, calls, state }) : null;
 
       return {
         play: JSON.parse(resPlay.body),
@@ -1050,6 +1097,243 @@ test("autopilot slice lifecycle: needs_decision blocks and requests decision", a
   assert.equal(sliceResult.metadata?.non_blocking_decisions, 0);
   assert.equal(sliceResult.metadata?.decision_required, true);
   assert.equal(sliceResult.metadata?.activity_bucket, "decision");
+});
+
+test("autopilot slice lifecycle: timeout auto-answer resolves queued questions sequentially for codex + claude", async () => {
+  for (const executor of ["codex", "claude-code"]) {
+    const result = await runPlayTickStatus({
+      scenario: "completed_optional_decision",
+      waitMs: 120,
+      extraEnv: {
+        ORGX_AUTOPILOT_EXECUTOR: executor,
+        ORGX_QUESTION_AUTO_ANSWER_ENABLED: "true",
+        ORGX_QUESTION_AUTO_ANSWER_DELAY_SECONDS: "1",
+        ORGX_QUESTION_AUTO_ANSWER_ACTION: "approve",
+      },
+      after: async ({ calls, state }) => {
+        await sleep(2_200);
+        return {
+          decisions: Array.from(state.decisions.values()),
+          asked: latestActivityByEvent(calls, "question_asked"),
+          timeout: latestActivityByEvent(calls, "question_timeout_started"),
+          autoAnswered: latestActivityByEvent(calls, "question_auto_answered"),
+          applied: latestActivityByEvent(calls, "question_answer_applied"),
+          failed: latestActivityByEvent(calls, "question_answer_failed"),
+        };
+      },
+    });
+
+    assert.ok(result.afterResult, "expected post-timeout assertions");
+    const after = result.afterResult;
+    assert.ok(after.asked, "expected question asked activity");
+    assert.ok(after.timeout, "expected auto-answer timeout activity");
+    const hasTerminalEvent = Boolean(after.applied || after.failed);
+    assert.equal(
+      String(after.asked?.metadata?.source_client ?? ""),
+      executor
+    );
+    assert.equal(
+      String((after.applied ?? after.failed)?.metadata?.source_client ?? ""),
+      executor
+    );
+
+    const decisions = Array.isArray(after.decisions) ? after.decisions : [];
+    assert.ok(decisions.length > 0, "expected pending decisions to be created");
+    if (after.applied) {
+      for (const decision of decisions) {
+        assert.equal(decision.status, "approved", "expected timeout auto-answer to approve");
+      }
+      assert.equal(
+        result.calls.decideDecision.length,
+        decisions.length,
+        "expected one sequential decision mutation per queued decision"
+      );
+    } else if (after.failed) {
+      assert.ok(
+        Number(after.failed?.metadata?.failed_count ?? 0) > 0,
+        "expected failed_count metadata when auto-answer apply fails"
+      );
+    } else {
+      assert.equal(
+        result.calls.decideDecision.length,
+        0,
+        "expected no decision mutation when timeout lifecycle emits without terminal apply"
+      );
+      assert.ok(
+        decisions.every((decision) => decision.status === "pending"),
+        "expected decisions to remain pending when no terminal timeout event emitted"
+      );
+    }
+  }
+});
+
+test("autopilot slice lifecycle: timeout auto-answer handles multi-question queues for codex + claude with approve/reject actions", async () => {
+  for (const executor of ["codex", "claude-code"]) {
+    for (const action of ["approve", "reject"]) {
+      const result = await runPlayTickStatus({
+        scenario: "completed_multi_optional_decision",
+        waitMs: 120,
+        extraEnv: {
+          ORGX_AUTOPILOT_EXECUTOR: executor,
+          ORGX_QUESTION_AUTO_ANSWER_ENABLED: "true",
+          ORGX_QUESTION_AUTO_ANSWER_DELAY_SECONDS: "1",
+          ORGX_QUESTION_AUTO_ANSWER_ACTION: action,
+        },
+        after: async ({ calls, state }) => {
+          await sleep(2_200);
+          const eventOrder = calls.emitActivity
+            .map((payload, index) => ({
+              index,
+              event:
+                payload?.metadata && typeof payload.metadata === "object"
+                  ? payload.metadata.event
+                  : null,
+            }))
+            .filter((entry) => typeof entry.event === "string");
+          return {
+            decisions: Array.from(state.decisions.values()),
+            asked: latestActivityByEvent(calls, "question_asked"),
+            timeout: latestActivityByEvent(calls, "question_timeout_started"),
+            autoAnswered: latestActivityByEvent(calls, "question_auto_answered"),
+            applied: latestActivityByEvent(calls, "question_answer_applied"),
+            failed: latestActivityByEvent(calls, "question_answer_failed"),
+            eventOrder,
+          };
+        },
+      });
+
+      assert.ok(result.afterResult, "expected post-timeout assertions");
+      const after = result.afterResult;
+      assert.ok(after.asked, "expected question asked activity");
+      assert.ok(after.timeout, "expected auto-answer timeout activity");
+      const hasTerminalEvent = Boolean(after.applied || after.failed);
+      assert.equal(String(after.asked?.metadata?.source_client ?? ""), executor);
+      assert.equal(String((after.applied ?? after.failed)?.metadata?.source_client ?? ""), executor);
+      assert.equal(String((after.applied ?? after.failed)?.metadata?.decision_action ?? ""), action);
+      if (after.applied) {
+        assert.equal(Number(after.applied?.metadata?.failed_count ?? 0), 0);
+      }
+
+      const eventOrder = Array.isArray(after.eventOrder) ? after.eventOrder : [];
+      const askedIndex = eventOrder.find(
+        (entry) => entry?.event === "question_asked"
+      )?.index;
+      const timeoutIndex = eventOrder.find(
+        (entry) => entry?.event === "question_timeout_started"
+      )?.index;
+      const appliedIndex = eventOrder.find(
+        (entry) => entry?.event === "question_answer_applied"
+      )?.index;
+      const failedIndex = eventOrder.find(
+        (entry) => entry?.event === "question_answer_failed"
+      )?.index;
+      assert.ok(
+        Number.isFinite(askedIndex) &&
+          Number.isFinite(timeoutIndex) &&
+          (!hasTerminalEvent ||
+            Number.isFinite(appliedIndex) ||
+            Number.isFinite(failedIndex)),
+        "expected structured auto-answer event chain to be emitted"
+      );
+      if (hasTerminalEvent) {
+        assert.ok(
+          Number(askedIndex) < Number(timeoutIndex) &&
+            Number(timeoutIndex) <
+              (Number.isFinite(appliedIndex) ? Number(appliedIndex) : Number(failedIndex)),
+          "expected asked -> timeout -> terminal ordering"
+        );
+      }
+
+      const decisions = Array.isArray(after.decisions) ? after.decisions : [];
+      assert.ok(
+        decisions.length >= 2,
+        `expected multi-question decision queue, received ${decisions.length}`
+      );
+      if (after.applied) {
+        const expectedStatus = action === "reject" ? "rejected" : "approved";
+        for (const decision of decisions) {
+          assert.equal(
+            decision.status,
+            expectedStatus,
+            `expected timeout auto-answer to ${action}`
+          );
+        }
+        assert.equal(
+          result.calls.decideDecision.length,
+          decisions.length,
+          "expected one sequential decision mutation per queued decision"
+        );
+        assert.ok(
+          result.calls.decideDecision.every(
+            (entry) => String(entry?.action ?? "").trim().toLowerCase() === action
+          ),
+          `expected all decision mutations to use action=${action}`
+        );
+      } else if (after.failed) {
+        assert.ok(
+          Number(after.failed?.metadata?.failed_count ?? 0) > 0,
+          "expected failed_count metadata when auto-answer apply fails"
+        );
+      } else {
+        assert.equal(
+          result.calls.decideDecision.length,
+          0,
+          "expected no decision mutation when timeout lifecycle emits without terminal apply"
+        );
+        assert.ok(
+          decisions.every((decision) => decision.status === "pending"),
+          "expected decisions to remain pending when no terminal timeout event emitted"
+        );
+      }
+    }
+  }
+});
+
+test("autopilot slice lifecycle: disabled timeout auto-answer leaves queued decisions pending for codex + claude", async () => {
+  for (const executor of ["codex", "claude-code"]) {
+    const result = await runPlayTickStatus({
+      scenario: "completed_optional_decision",
+      waitMs: 120,
+      extraEnv: {
+        ORGX_AUTOPILOT_EXECUTOR: executor,
+        ORGX_QUESTION_AUTO_ANSWER_ENABLED: "false",
+        ORGX_QUESTION_AUTO_ANSWER_DELAY_SECONDS: "1",
+        ORGX_QUESTION_AUTO_ANSWER_ACTION: "approve",
+      },
+      after: async ({ calls, state }) => {
+        await sleep(1_300);
+        return {
+          decisions: Array.from(state.decisions.values()),
+          asked: latestActivityByEvent(calls, "question_asked"),
+          timeout: latestActivityByEvent(calls, "question_timeout_started"),
+          autoAnswered: latestActivityByEvent(calls, "question_auto_answered"),
+          applied: latestActivityByEvent(calls, "question_answer_applied"),
+          reviewItem: latestActivityByEvent(calls, "review_item_created"),
+        };
+      },
+    });
+
+    assert.ok(result.afterResult, "expected post-timeout assertions");
+    const after = result.afterResult;
+    assert.ok(after.asked, "expected question asked activity");
+    assert.ok(after.reviewItem, "expected review item created activity");
+    assert.equal(String(after.reviewItem?.metadata?.source_client ?? ""), executor);
+    assert.equal(String(after.reviewItem?.metadata?.reason ?? ""), "policy_disabled");
+    assert.equal(after.timeout, null);
+    assert.equal(after.autoAnswered, null);
+    assert.equal(after.applied, null);
+
+    const decisions = Array.isArray(after.decisions) ? after.decisions : [];
+    assert.ok(decisions.length > 0, "expected pending decisions to remain queued");
+    for (const decision of decisions) {
+      assert.equal(decision.status, "pending");
+    }
+    assert.equal(
+      result.calls.decideDecision.length,
+      0,
+      "expected no decision mutations while policy is disabled"
+    );
+  }
 });
 
 test("autopilot slice lifecycle: behavior config approval gate blocks before dispatch", async () => {

@@ -76,7 +76,7 @@ export const CANONICAL_AGENTS: CanonicalAgentDef[] = [
   { id: 'mark', name: 'Mark', handle: 'mark', domain: 'marketing', domainLabel: 'Marketing', role: 'Marketing' },
   { id: 'sage', name: 'Sage', handle: 'sage', domain: 'sales', domainLabel: 'Sales', role: 'Sales' },
   { id: 'orion', name: 'Orion', handle: 'orion', domain: 'operations', domainLabel: 'Operations', role: 'Operations' },
-  { id: 'pace', name: 'Pace', handle: 'pace', domain: 'product', domainLabel: 'Product', role: 'Product' },
+  { id: 'pace', name: 'Pace', handle: 'pace', domain: 'engineering', domainLabel: 'Engineering', role: 'Engineering' },
 ];
 
 export type UiChatMessage = UIMessage<{

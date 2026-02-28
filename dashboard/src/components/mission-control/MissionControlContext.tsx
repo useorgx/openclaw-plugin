@@ -23,8 +23,6 @@ export type MissionControlDatePreset =
 
 export type GroupByOption = 'none' | 'status' | 'date' | 'category';
 export type SortByOption = 'default' | 'date_asc' | 'date_desc' | 'priority_high' | 'priority_low';
-export type ZoomLevel = 'initiative' | 'workstream' | 'milestone';
-export type NoiseThreshold = 'low' | 'medium' | 'high';
 
 export type EntityModalTarget =
   | { type: 'initiative'; entity: Initiative }
@@ -48,10 +46,6 @@ interface MissionControlState {
   hasActiveFilters: boolean;
   groupBy: GroupByOption;
   sortBy: SortByOption;
-  zoomLevel: ZoomLevel;
-  setZoomLevel: (level: ZoomLevel) => void;
-  noiseThreshold: NoiseThreshold;
-  setNoiseThreshold: (threshold: NoiseThreshold) => void;
   authToken: string | null;
   embedMode: boolean;
   mutations: EntityMutations;
@@ -104,8 +98,6 @@ export function MissionControlProvider({
   const [dateEnd, setDateEnd] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByOption>('status');
   const [sortBy, setSortBy] = useState<SortByOption>('default');
-  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('workstream');
-  const [noiseThreshold, setNoiseThreshold] = useState<NoiseThreshold>('medium');
   const mutations = useEntityMutations({ authToken, embedMode });
 
   const toggleExpanded = useCallback((id: string) => {
@@ -198,10 +190,6 @@ export function MissionControlProvider({
       hasActiveFilters,
       groupBy,
       sortBy,
-      zoomLevel,
-      setZoomLevel,
-      noiseThreshold,
-      setNoiseThreshold,
       authToken,
       embedMode,
       mutations,
@@ -236,8 +224,6 @@ export function MissionControlProvider({
       hasActiveFilters,
       groupBy,
       sortBy,
-      zoomLevel,
-      noiseThreshold,
       authToken,
       embedMode,
       mutations,

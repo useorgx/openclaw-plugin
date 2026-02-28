@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { MissionControlGraphResponse, MissionControlNode } from '@/types';
+import type { MissionControlGraphResponse } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { canQueryInitiativeEntities, isDemoModeEnabled } from '@/lib/initiativeIds';
 
@@ -9,25 +9,6 @@ interface UseMissionControlGraphOptions {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
-  /** Cursor for cursor-based pagination (opaque string from a previous response). */
-  cursor?: string;
-  /** Maximum number of nodes to return per page. */
-  limit?: number;
-}
-
-function normalizeSequenceIndex(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
-  const integer = Math.max(0, Math.trunc(value));
-  // OrgX persists sequence as 1-based; dashboard sequenceIndex is 0-based.
-  if (integer > 0) return integer - 1;
-  return integer;
-}
-
-function hierarchyPrefix(type: string): 'W' | 'M' | 'T' | 'I' {
-  if (type === 'workstream') return 'W';
-  if (type === 'milestone') return 'M';
-  if (type === 'task') return 'T';
-  return 'I';
 }
 
 function fallbackGraph(initiativeId: string): MissionControlGraphResponse {
@@ -154,17 +135,12 @@ export function useMissionControlGraph({
   authToken = null,
   embedMode = false,
   enabled = true,
-  cursor,
-  limit,
 }: UseMissionControlGraphOptions) {
   const demoMode = isDemoModeEnabled();
   const canQuery = canQueryInitiativeEntities(initiativeId);
   const queryKey = useMemo(
-    () => [
-      ...queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
-      { cursor: cursor ?? null, limit: limit ?? null },
-    ],
-    [initiativeId, authToken, embedMode, cursor, limit]
+    () => queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
+    [initiativeId, authToken, embedMode]
   );
 
   const queryResult = useQuery<MissionControlGraphResponse, Error>({
@@ -182,8 +158,6 @@ export function useMissionControlGraph({
       }
 
       const params = new URLSearchParams({ initiative_id: initiativeId });
-      if (cursor) params.set('cursor', cursor);
-      if (limit != null && Number.isFinite(limit)) params.set('limit', String(limit));
       const headers: Record<string, string> = {};
       if (embedMode) headers['X-Orgx-Embed'] = 'true';
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -205,37 +179,7 @@ export function useMissionControlGraph({
         const fb = fallbackGraph(initiativeId);
         return { ...fb, degraded: [message] } as MissionControlGraphResponse;
       }
-      const data = (await response.json()) as MissionControlGraphResponse;
-
-      const normalizedNodes = Array.isArray(data.nodes)
-        ? data.nodes.map((node) => {
-            const nodeWithSequence = node as MissionControlNode & {
-              sequence?: unknown;
-            };
-            const sequenceIndex = normalizeSequenceIndex(
-              nodeWithSequence.sequenceIndex ?? nodeWithSequence.sequence
-            );
-            if (typeof sequenceIndex !== 'number') return node;
-            const hasHierarchyLabel =
-              typeof nodeWithSequence.hierarchyLabel === 'string' &&
-              nodeWithSequence.hierarchyLabel.trim().length > 0;
-            return {
-              ...nodeWithSequence,
-              sequenceIndex,
-              hierarchyLabel: hasHierarchyLabel
-                ? nodeWithSequence.hierarchyLabel
-                : `${hierarchyPrefix(String(nodeWithSequence.type ?? 'initiative'))}${sequenceIndex + 1}`,
-            };
-          })
-        : [];
-
-      return {
-        ...data,
-        nodes:
-          normalizedNodes.length > 0
-            ? normalizedNodes
-            : data.nodes,
-      };
+      return (await response.json()) as MissionControlGraphResponse;
     },
   });
 
@@ -243,17 +187,11 @@ export function useMissionControlGraph({
     queryResult.data ??
     (initiativeId ? fallbackGraph(initiativeId) : null);
 
-  // Extract nextCursor from the response if the server includes pagination metadata.
-  const responseData = queryResult.data as (MissionControlGraphResponse & { nextCursor?: string | null }) | undefined;
-  const nextCursor = responseData?.nextCursor ?? null;
-
   return {
     graph,
     isLoading: canQuery ? queryResult.isLoading : false,
     error: canQuery ? queryResult.error?.message ?? null : null,
     degraded: canQuery ? queryResult.data?.degraded ?? [] : [],
     refetch: queryResult.refetch,
-    /** Opaque cursor for the next page, or null if there are no more results. */
-    nextCursor,
   };
 }

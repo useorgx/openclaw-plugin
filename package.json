@@ -84,6 +84,9 @@
   ],
   "author": "OrgX Team <team@useorgx.com>",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/useorgx/openclaw-plugin.git"

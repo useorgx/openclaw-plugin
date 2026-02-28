@@ -2638,6 +2638,9 @@ export function createHttpHandler(
     };
 
     const sortQueueItems = (a: NextUpQueueItem, b: NextUpQueueItem): number => {
+      const queueDelta = queueRank(a.queueState) - queueRank(b.queueState);
+      if (queueDelta !== 0) return queueDelta;
+
       const aPinnedRank = pinnedRankByKey.get(`${a.initiativeId}:${a.workstreamId}`);
       const bPinnedRank = pinnedRankByKey.get(`${b.initiativeId}:${b.workstreamId}`);
       if (aPinnedRank !== undefined || bPinnedRank !== undefined) {
@@ -2645,9 +2648,6 @@ export function createHttpHandler(
         const bRank = bPinnedRank ?? Number.POSITIVE_INFINITY;
         if (aRank !== bRank) return aRank - bRank;
       }
-
-      const queueDelta = queueRank(a.queueState) - queueRank(b.queueState);
-      if (queueDelta !== 0) return queueDelta;
 
       const priorityRank = (value: string | null | undefined): number => {
         const normalized = (value ?? "").trim().toLowerCase();

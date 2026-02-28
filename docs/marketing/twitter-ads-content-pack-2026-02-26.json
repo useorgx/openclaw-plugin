@@ -1,0 +1,59 @@
+{
+  "campaign_id": "twitter-ads-discovery-2026-02-25",
+  "campaign_name": "OrgX Twitter Ads Discovery Sprint (Q1 2026) - Implementation Pack",
+  "content_items": [
+    {
+      "id": "tw_exec_visibility_thread",
+      "channel": "twitter",
+      "content": "1/ Shipping with multiple agents means one blocker can silently freeze delivery. OrgX gives one live control plane for runs, decisions, and next actions so teams move without losing context.\n2/ See where work is stuck before standup.\n3/ Route decisions fast.\n4/ Keep momentum when APIs wobble.",
+      "cta": "Start a trial and run your next workflow in one control plane."
+    },
+    {
+      "id": "tw_blocker_resolution_short",
+      "channel": "twitter",
+      "content": "Blocked by approvals again? OrgX surfaces urgency-ranked decisions and links each one to the active run so your team can unblock in minutes, not at end-of-day recap.",
+      "cta": "Connect your workspace and cut blocker lag this week."
+    },
+    {
+      "id": "tw_reliability_thread",
+      "channel": "twitter",
+      "content": "1/ API downtime should not erase execution history. OrgX buffers progress events locally and replays them on reconnect so activity timelines stay trustworthy.\n2/ No silent gaps.\n3/ No context reset.\n4/ No blind handoff.",
+      "cta": "See how resilient run telemetry works in a live demo."
+    },
+    {
+      "id": "retargeting_activation_card",
+      "channel": "retargeting_display",
+      "content": "You already explored OrgX. Finish setup in under 10 minutes to track initiatives, workstreams, and decisions in one dashboard. Teams using a single execution surface reduce rework from fragmented handoffs.",
+      "cta": "Resume onboarding and launch your first monitored run."
+    }
+  ],
+  "targeting_map": [
+    {
+      "segment": "Engineering managers running agent-assisted delivery",
+      "matched_items": [
+        "tw_exec_visibility_thread",
+        "tw_blocker_resolution_short"
+      ]
+    },
+    {
+      "segment": "Operators concerned about reliability and auditability",
+      "matched_items": [
+        "tw_reliability_thread",
+        "retargeting_activation_card"
+      ]
+    }
+  ],
+  "launch_plan": {
+    "go_live_date": "2026-03-02",
+    "rotation_rule": "Run all three Twitter creatives for 72 hours before first budget reallocation.",
+    "budget_split_pct": {
+      "twitter_prospecting": 80,
+      "retargeting_display": 20
+    },
+    "utm_template": "utm_source=twitter&utm_medium=paid&utm_campaign=orgx_q1_discovery&utm_content={{creative_id}}"
+  },
+  "assumptions": [
+    "Claims about event buffering and replay are aligned with current product behavior.",
+    "Retargeting audience can be built from recent site visitors and onboarding starters."
+  ]
+}

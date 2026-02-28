@@ -152,6 +152,17 @@ export type ActivityEventName =
   // Decisions & dispatch
   | 'decision_buffered'
   | 'decision_resolved'
+  | 'question_asked'
+  | 'question_timeout_started'
+  | 'question_auto_answered'
+  | 'question_answer_applied'
+  | 'question_answer_failed'
+  | 'review_item_created'
+  | 'review_item_resolved'
+  | 'decision_auto_answer_scheduled'
+  | 'decision_auto_answer_timeout'
+  | 'decision_auto_answer_applied'
+  | 'decision_auto_answer_skipped'
   | 'spawn_guard_degraded'
   // Dashboard actions
   | 'dashboard_run_mark_completed'
@@ -197,8 +208,15 @@ export const KNOWN_ACTIVITY_ACTION_TYPES = [
   "run_completed",
   "run_failed",
   "slice_handoff",
+  "question_asked",
+  "question_timeout_started",
+  "question_auto_answered",
+  "question_answer_applied",
+  "question_answer_failed",
   "decision_requested",
   "decision_resolved",
+  "review_item_created",
+  "review_item_resolved",
   "status_updates_applied",
   "status_updates_buffered",
   "artifact_registered",
@@ -208,6 +226,9 @@ export const KNOWN_ACTIVITY_ACTION_TYPES = [
   "auto_fix",
   "auto_continue_started",
   "auto_continue_stopped",
+  "autopilot_resumed",
+  "autopilot_paused",
+  "autopilot_blocked",
   "milestone_completed",
   "workflow_error",
 ] as const;
@@ -232,10 +253,22 @@ const ACTIVITY_ACTION_TYPE_ALIASES: Record<string, KnownActivityActionType> = {
   orchestrator: "orchestrator_dispatch",
   dispatch: "dispatch_slice",
   dispatched: "dispatch_slice",
+  question: "question_asked",
+  question_timeout: "question_timeout_started",
+  question_auto_answer: "question_auto_answered",
+  decision_auto_answer: "question_auto_answered",
+  decision_auto_answer_applied: "question_answer_applied",
+  decision_auto_answer_failed: "question_answer_failed",
+  decision_auto_answer_skipped: "review_item_created",
   start: "run_started",
   started: "run_started",
   stop: "auto_continue_stopped",
   stopped: "auto_continue_stopped",
+  pause: "autopilot_paused",
+  paused: "autopilot_paused",
+  resume: "autopilot_resumed",
+  resumed: "autopilot_resumed",
+  blocked: "autopilot_blocked",
   complete: "run_completed",
   completed: "run_completed",
   fail: "run_failed",

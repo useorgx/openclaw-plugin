@@ -81,8 +81,6 @@ const RENDER_STEP = 50;
 const CLUSTER_EXPANDED_BATCH_SIZE = 20;
 const MAX_RENDER_COUNT = 3_600;
 const MAX_FILTER_POOL = 12_000;
-const CLI_TAIL_LINES = 140;
-const CLI_TAIL_POLL_MS = 3_000;
 
 type ActivityBucket = 'message' | 'artifact' | 'decision';
 type ActivityFilterId = 'all' | 'completed' | 'needs_attention' | 'in_progress';
@@ -1232,26 +1230,11 @@ type FileEvidencePath = {
   path: string;
 };
 
-type CliTailStatus = 'idle' | 'loading' | 'ready' | 'error';
-type CliTailSnapshot = {
-  status: CliTailStatus;
-  path: string | null;
-  text: string;
-  lineCount: number;
-  truncated: boolean;
-  updatedAt: string | null;
-  error: string | null;
-};
-
 function resolveFileEvidenceHref(path: string): string {
   const trimmed = path.trim();
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(trimmed)}`;
-}
-
-function isHttpUrlPath(path: string): boolean {
-  return /^https?:\/\//i.test(path.trim());
 }
 
 type ProvenanceDetail = {
@@ -1421,55 +1404,40 @@ function extractFileEvidencePaths(item: LiveActivityItem | null): FileEvidencePa
 
   const entries: FileEvidencePath[] = [];
   const seen = new Set<string>();
-  const maxDepth = 4;
 
   const pushPath = (key: string, value: unknown) => {
     if (typeof value !== 'string') return;
     const candidate = value.trim();
     if (!candidate || !looksLikeFilesystemPath(candidate)) return;
-    const dedupeKey = candidate.toLowerCase();
+    const dedupeKey = `${key}:${candidate}`;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     entries.push({ key, path: candidate });
   };
 
   const visit = (record: Record<string, unknown>, prefix = '', depth = 0) => {
-    if (depth > maxDepth) return;
+    if (depth > 2) return;
     for (const [rawKey, rawValue] of Object.entries(record)) {
       const key = prefix ? `${prefix}.${rawKey}` : rawKey;
       const keyLower = rawKey.toLowerCase();
       const keyLooksPathLike =
         keyLower.includes('path') ||
-        keyLower.includes('pointer') ||
-        keyLower.includes('log') ||
-        keyLower.includes('stdout') ||
-        keyLower.includes('stderr') ||
         keyLower === 'url' ||
         keyLower === 'uri' ||
-        keyLower === 'file' ||
-        keyLower === 'files' ||
-        keyLower === 'logs' ||
         keyLower.endsWith('url') ||
         keyLower.endsWith('_file') ||
         keyLower.endsWith('file') ||
         keyLower.includes('artifact');
 
-      if (Array.isArray(rawValue)) {
-        for (let index = 0; index < rawValue.length; index += 1) {
-          const value = rawValue[index];
-          if (keyLooksPathLike) pushPath(key, value);
-          if (value && typeof value === 'object' && !Array.isArray(value)) {
-            visit(value as Record<string, unknown>, `${key}[${index}]`, depth + 1);
-          }
-        }
-        continue;
-      }
-
       if (keyLooksPathLike) {
-        pushPath(key, rawValue);
+        if (Array.isArray(rawValue)) {
+          for (const value of rawValue) pushPath(key, value);
+        } else {
+          pushPath(key, rawValue);
+        }
       }
 
-      if (rawValue && typeof rawValue === 'object') {
+      if (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
         visit(rawValue as Record<string, unknown>, key, depth + 1);
       }
     }
@@ -1477,38 +1445,6 @@ function extractFileEvidencePaths(item: LiveActivityItem | null): FileEvidencePa
 
   visit(metadata);
   return entries;
-}
-
-function resolvePreferredCliTailPath(
-  context: AutopilotSliceDetail | null,
-  evidence: FileEvidencePath[]
-): string | null {
-  const ranked: string[] = [];
-  const push = (value: string | null) => {
-    if (!value) return;
-    const trimmed = value.trim();
-    if (!trimmed || isHttpUrlPath(trimmed)) return;
-    if (!ranked.includes(trimmed)) ranked.push(trimmed);
-  };
-
-  push(context?.logPath ?? null);
-  for (const entry of evidence) {
-    const key = entry.key.toLowerCase();
-    if (
-      key.includes('log') ||
-      key.includes('stdout') ||
-      key.includes('stderr') ||
-      entry.path.toLowerCase().endsWith('.log')
-    ) {
-      push(entry.path);
-    }
-  }
-  push(context?.outputPath ?? null);
-  for (const entry of evidence) {
-    push(entry.path);
-  }
-
-  return ranked.length > 0 ? ranked[0] : null;
 }
 
 function metadataString(
@@ -2689,16 +2625,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
   const [autoFixPending, setAutoFixPending] = useState(false);
   const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
-  const [cliTailRefreshNonce, setCliTailRefreshNonce] = useState(0);
-  const [activeCliTail, setActiveCliTail] = useState<CliTailSnapshot>({
-    status: 'idle',
-    path: null,
-    text: '',
-    lineCount: 0,
-    truncated: false,
-    updatedAt: null,
-    error: null,
-  });
   const [awayVisible, setAwayVisible] = useState(false);
   const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
@@ -3673,19 +3599,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       new Set()
     );
   }, [activeDecorated, activity]);
-  const activeCliTailPath = useMemo(
-    () => resolvePreferredCliTailPath(activeAutopilotContext, activeFileEvidence),
-    [activeAutopilotContext, activeFileEvidence]
-  );
-  const activeCliTailHref = useMemo(
-    () => (activeCliTailPath ? resolveFileEvidenceHref(activeCliTailPath) : null),
-    [activeCliTailPath]
-  );
-  const activeCliTailPolling = useMemo(() => {
-    if (!activeDecorated) return false;
-    if (activeDecorated.userState === 'in_progress') return true;
-    return activeAutopilotProgress ? activeAutopilotProgress.terminalStop !== true : false;
-  }, [activeAutopilotProgress, activeDecorated]);
   const primaryEvidenceHref = useMemo(() => {
     if (activeFileEvidence.length === 0) return null;
     const first = activeFileEvidence[0];
@@ -3835,119 +3748,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [activeAutoFixTarget, autoFixPending]);
 
   useEffect(() => {
-    if (!activeItemId || !activeCliTailPath) {
-      setActiveCliTail((prev) =>
-        prev.status === 'idle' && prev.path === null
-          ? prev
-          : {
-              status: 'idle',
-              path: null,
-              text: '',
-              lineCount: 0,
-              truncated: false,
-              updatedAt: null,
-              error: null,
-            }
-      );
-      return;
-    }
-
-    let disposed = false;
-    const loadTail = async () => {
-      setActiveCliTail((prev) => ({
-        status: prev.status === 'ready' && prev.path === activeCliTailPath ? 'ready' : 'loading',
-        path: activeCliTailPath,
-        text: prev.path === activeCliTailPath ? prev.text : '',
-        lineCount: prev.path === activeCliTailPath ? prev.lineCount : 0,
-        truncated: prev.path === activeCliTailPath ? prev.truncated : false,
-        updatedAt: prev.path === activeCliTailPath ? prev.updatedAt : null,
-        error: null,
-      }));
-
-      try {
-        const query = new URLSearchParams({
-          path: activeCliTailPath,
-          lines: String(CLI_TAIL_LINES),
-        });
-        const response = await fetch(`/orgx/api/live/terminal/tail?${query.toString()}`, {
-          method: 'GET',
-        });
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              ok?: boolean;
-              path?: string;
-              text?: string;
-              line_count?: number;
-              truncated?: boolean;
-              updated_at?: string;
-              error?: string;
-            }
-          | null;
-        if (!response.ok || payload?.ok !== true) {
-          const fallback = `Failed to load CLI output (${response.status}).`;
-          throw new Error(
-            typeof payload?.error === 'string' && payload.error.trim().length > 0
-              ? payload.error
-              : fallback
-          );
-        }
-        if (disposed) return;
-
-        const text = typeof payload.text === 'string' ? payload.text : '';
-        const lineCount =
-          typeof payload.line_count === 'number' && Number.isFinite(payload.line_count)
-            ? Math.max(0, Math.floor(payload.line_count))
-            : text.length > 0
-              ? text.split('\n').length
-              : 0;
-        setActiveCliTail({
-          status: 'ready',
-          path:
-            typeof payload.path === 'string' && payload.path.trim().length > 0
-              ? payload.path.trim()
-              : activeCliTailPath,
-          text,
-          lineCount,
-          truncated: payload.truncated === true,
-          updatedAt:
-            typeof payload.updated_at === 'string' && payload.updated_at.trim().length > 0
-              ? payload.updated_at
-              : null,
-          error: null,
-        });
-      } catch (error) {
-        if (disposed) return;
-        const message = error instanceof Error ? error.message : 'Failed to load CLI output.';
-        setActiveCliTail((prev) => ({
-          status: 'error',
-          path: activeCliTailPath,
-          text: prev.path === activeCliTailPath ? prev.text : '',
-          lineCount: prev.path === activeCliTailPath ? prev.lineCount : 0,
-          truncated: prev.path === activeCliTailPath ? prev.truncated : false,
-          updatedAt: prev.path === activeCliTailPath ? prev.updatedAt : null,
-          error: humanizeWarning(message) || message,
-        }));
-      }
-    };
-
-    void loadTail();
-
-    if (!activeCliTailPolling) {
-      return () => {
-        disposed = true;
-      };
-    }
-
-    const timer = window.setInterval(() => {
-      void loadTail();
-    }, CLI_TAIL_POLL_MS);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [activeCliTailPath, activeCliTailPolling, activeItemId, cliTailRefreshNonce]);
-
-  useEffect(() => {
     if (!copyNotice) return undefined;
     const timer = window.setTimeout(() => setCopyNotice(null), 2000);
     return () => window.clearTimeout(timer);
@@ -3988,9 +3788,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     } catch {
       setCopyNotice('Copy failed');
     }
-  }, []);
-  const refreshActiveCliTail = useCallback(() => {
-    setCliTailRefreshNonce((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -5847,83 +5644,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 </div>
                               );
                             })}
-                        </div>
-                      </div>
-                    )}
-
-                    {activeCliTailPath && (
-                      <div>
-                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
-                          <p className="text-micro font-semibold uppercase tracking-wider text-muted">
-                            CLI output
-                          </p>
-                          <div className="flex items-center gap-1.5">
-                            {activeCliTailPolling && <Pill tone="lime">Live</Pill>}
-                            <button
-                              type="button"
-                              onClick={refreshActiveCliTail}
-                              className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                            >
-                              Refresh
-                            </button>
-                            {activeCliTailHref && (
-                              <a
-                                href={activeCliTailHref}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                              >
-                                Open file
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-white/[0.08] bg-black/25">
-                          {activeCliTail.status === 'loading' && (
-                            <p className="px-3 py-2 text-caption text-secondary">Loading CLI output…</p>
-                          )}
-                          {activeCliTail.status === 'error' && (
-                            <p className="px-3 py-2 text-caption text-amber-200/80">
-                              {activeCliTail.error ?? 'Unable to load CLI output.'}
-                            </p>
-                          )}
-                          {(activeCliTail.status === 'ready' || activeCliTail.status === 'error') && (
-                            <pre className="max-h-[260px] overflow-auto px-3 py-2 whitespace-pre-wrap break-words font-mono text-caption leading-relaxed text-primary">
-                              {activeCliTail.text.trim().length > 0
-                                ? activeCliTail.text
-                                : 'No output lines captured yet.'}
-                            </pre>
-                          )}
-                          {(activeCliTail.status === 'ready' || activeCliTail.status === 'error') && (
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] px-3 py-1.5 text-micro text-muted">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span>Path: {humanizePath(activeCliTail.path ?? activeCliTailPath)}</span>
-                                {activeCliTail.lineCount > 0 && (
-                                  <span>{activeCliTail.lineCount} line{activeCliTail.lineCount === 1 ? '' : 's'}</span>
-                                )}
-                                {activeCliTail.truncated && <span>Showing latest tail window</span>}
-                                {activeCliTail.updatedAt && (
-                                  <span>
-                                    Updated {formatRelativeTime(activeCliTail.updatedAt) ?? activeCliTail.updatedAt}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void copyText(
-                                      'CLI output',
-                                      activeCliTail.text || activeCliTail.path || activeCliTailPath
-                                    )
-                                  }
-                                  className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                >
-                                  Copy
-                                </button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}

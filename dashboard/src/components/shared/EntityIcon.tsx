@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import type { MissionControlNodeType } from '@/types';
 import { colors } from '@/lib/tokens';
 import { WorkstreamGlyph } from '@/components/shared/WorkstreamGlyph';
@@ -19,13 +18,11 @@ interface EntityIconProps {
   className?: string;
   size?: number;
   accent?: string;
-  /** Optional hierarchy label (e.g. "W1", "M2") shown as a subtle monospaced suffix */
-  hierarchyLabel?: string;
 }
 
-export function EntityIcon({ type, className = '', size = 14, accent, hierarchyLabel }: EntityIconProps) {
+export function EntityIcon({ type, className = '', size = 14, accent }: EntityIconProps) {
   const commonProps = {
-    className: hierarchyLabel ? '' : className,
+    className,
     width: size,
     height: size,
     viewBox: '0 0 24 24',
@@ -35,55 +32,63 @@ export function EntityIcon({ type, className = '', size = 14, accent, hierarchyL
     strokeWidth: 1.8,
   };
 
-  let icon: ReactNode;
-
   if (type === 'initiative') {
     const tone = accent ?? colors.iris;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <circle cx="12" cy="12" r="9" fill={`${tone}1A`} />
         <circle cx="12" cy="12" r="5" />
         <circle cx="12" cy="12" r="1.5" fill={tone} stroke="none" />
       </svg>
     );
-  } else if (type === 'workstream') {
+  }
+
+  if (type === 'workstream') {
     const tone = accent ?? colors.lime;
-    icon = (
+    return (
       <WorkstreamGlyph
         size={size}
-        className={hierarchyLabel ? '' : className}
+        className={className}
         stroke={tone}
         strokeWidth={commonProps.strokeWidth}
         withBackground
         backgroundColor={`${tone}1A`}
       />
     );
-  } else if (type === 'milestone') {
+  }
+
+  if (type === 'milestone') {
     const tone = accent ?? colors.teal;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <path d="M5 3v18" />
         <path d="m5 4 12 1-2 4 2 4-12-1z" fill={`${tone}1A`} />
       </svg>
     );
-  } else if (type === 'task') {
-    icon = (
+  }
+
+  if (type === 'task') {
+    return (
       <svg {...commonProps} stroke="rgba(255,255,255,0.76)">
         <rect x="4" y="4" width="16" height="16" rx="4" fill="rgba(255,255,255,0.12)" />
         <path d="M9 12.2 11 14.2 15.2 10" />
       </svg>
     );
-  } else if (type === 'decision') {
+  }
+
+  if (type === 'decision') {
     const tone = accent ?? colors.amber;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <path d="M12 3 5.2 6.1v5.7c0 4.8 3.2 7.5 6.8 9 3.6-1.5 6.8-4.2 6.8-9V6.1z" fill={`${tone}1A`} />
         <path d="m9.3 12.1 1.8 1.9 3.6-3.6" />
       </svg>
     );
-  } else if (type === 'session') {
+  }
+
+  if (type === 'session') {
     const tone = accent ?? colors.teal;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <rect x="4" y="5" width="16" height="14" rx="4" fill={`${tone}14`} />
         <path d="M8 9h8" />
@@ -91,71 +96,67 @@ export function EntityIcon({ type, className = '', size = 14, accent, hierarchyL
         <path d="M8 17h3" />
       </svg>
     );
-  } else if (type === 'active') {
+  }
+
+  if (type === 'active') {
     const tone = accent ?? colors.lime;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <rect x="4" y="4" width="16" height="16" rx="6" fill={`${tone}12`} />
         <path d="M7 13h2l1.6-6 3.1 12 1.6-6H17" />
       </svg>
     );
-  } else if (type === 'blocked') {
+  }
+
+  if (type === 'blocked') {
     const tone = accent ?? colors.red;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <rect x="4" y="4" width="16" height="16" rx="6" fill={`${tone}12`} />
         <rect x="7.5" y="11" width="9" height="7" rx="2" fill="rgba(255,255,255,0.03)" />
         <path d="M9 11V9.2a3 3 0 0 1 6 0V11" />
       </svg>
     );
-  } else if (type === 'failed') {
+  }
+
+  if (type === 'failed') {
     const tone = accent ?? colors.red;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <circle cx="12" cy="12" r="9" fill={`${tone}12`} />
         <path d="M9 9l6 6" />
         <path d="M15 9l-6 6" />
       </svg>
     );
-  } else if (type === 'handoff') {
+  }
+
+  if (type === 'handoff') {
     const tone = accent ?? colors.iris;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <path d="M7 12h10" />
         <path d="m13 8 4 4-4 4" />
         <path d="M7 8v8" opacity="0.55" />
       </svg>
     );
-  } else if (type === 'outbox') {
+  }
+
+  if (type === 'outbox') {
     const tone = accent ?? colors.amber;
-    icon = (
+    return (
       <svg {...commonProps} stroke={tone}>
         <path d="M4 12h16" />
         <path d="M6 7h12l2 5v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7z" fill={`${tone}12`} />
         <path d="M9 14h6" />
       </svg>
     );
-  } else {
-    const tone = accent ?? colors.cyan;
-    icon = (
-      <svg {...commonProps} stroke={tone}>
-        <path d="M12 3a6 6 0 0 0-6 6v2.9c0 .7-.3 1.4-.8 1.9L4 15.2h16l-1.2-1.4a2.8 2.8 0 0 1-.8-1.9V9a6 6 0 0 0-6-6z" fill={`${tone}1A`} />
-        <path d="M9.2 18a2.8 2.8 0 0 0 5.6 0" />
-      </svg>
-    );
   }
 
-  if (!hierarchyLabel) return <>{icon}</>;
-
+  const tone = accent ?? colors.cyan;
   return (
-    <span className={`inline-flex items-center gap-1 ${className}`}>
-      {icon}
-      <span
-        className="text-[10px] tracking-wider uppercase font-mono tabular-nums opacity-60 hover:opacity-100 transition-opacity leading-none select-none"
-        title={hierarchyLabel}
-      >
-        {hierarchyLabel}
-      </span>
-    </span>
+    <svg {...commonProps} stroke={tone}>
+      <path d="M12 3a6 6 0 0 0-6 6v2.9c0 .7-.3 1.4-.8 1.9L4 15.2h16l-1.2-1.4a2.8 2.8 0 0 1-.8-1.9V9a6 6 0 0 0-6-6z" fill={`${tone}1A`} />
+      <path d="M9.2 18a2.8 2.8 0 0 0 5.6 0" />
+    </svg>
   );
 }
