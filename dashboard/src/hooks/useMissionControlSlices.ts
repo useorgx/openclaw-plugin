@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
@@ -22,8 +22,6 @@ interface UseMissionControlSlicesOptions {
   search?: string;
   offset?: number;
   limit?: number;
-  /** Opaque cursor for cursor-based pagination. When provided, takes precedence over `offset`. */
-  cursor?: string;
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
@@ -328,7 +326,6 @@ export function useMissionControlSlices({
   search = '',
   offset = 0,
   limit = 24,
-  cursor: externalCursor,
   authToken = null,
   embedMode = false,
   enabled = true,
@@ -337,36 +334,9 @@ export function useMissionControlSlices({
   const normalizedOffset = Math.max(0, offset);
   const normalizedLimit = Math.max(1, Math.min(300, limit));
   const normalizedSearch = search.trim();
-
-  // Internal cursor state for fetchNextPage(). When set, overrides the external cursor.
-  const [internalCursor, setInternalCursor] = useState<string | null>(null);
-  // Accumulated items from all pages loaded via fetchNextPage()
-  const [accumulatedItems, setAccumulatedItems] = useState<MissionControlSliceItem[]>([]);
-
-  // Reset internal pagination state when base query params change
-  const baseParamsRef = useRef({ level, orderMode, normalizedSearch, includeCompleted, workspaceId, initiativeId, externalCursor });
-  useEffect(() => {
-    const prev = baseParamsRef.current;
-    if (
-      prev.level !== level ||
-      prev.orderMode !== orderMode ||
-      prev.normalizedSearch !== normalizedSearch ||
-      prev.includeCompleted !== includeCompleted ||
-      prev.workspaceId !== workspaceId ||
-      prev.initiativeId !== initiativeId ||
-      prev.externalCursor !== externalCursor
-    ) {
-      baseParamsRef.current = { level, orderMode, normalizedSearch, includeCompleted, workspaceId, initiativeId, externalCursor };
-      setInternalCursor(null);
-      setAccumulatedItems([]);
-    }
-  }, [level, orderMode, normalizedSearch, includeCompleted, workspaceId, initiativeId, externalCursor]);
-
-  // The effective cursor: internal (from fetchNextPage) takes precedence, then external
-  const cursor = internalCursor ?? externalCursor;
   const queryKey = useMemo(
-    () => [
-      ...queryKeys.missionControlSlices({
+    () =>
+      queryKeys.missionControlSlices({
         workspaceId,
         initiativeId,
         level,
@@ -378,11 +348,8 @@ export function useMissionControlSlices({
         authToken,
         embedMode,
       }),
-      { cursor: cursor ?? null },
-    ],
     [
       authToken,
-      cursor,
       embedMode,
       includeCompleted,
       initiativeId,
@@ -415,12 +382,7 @@ export function useMissionControlSlices({
       if (initiativeId) params.set('initiative_id', initiativeId);
       params.set('level', level);
       params.set('include_completed', includeCompleted ? '1' : '0');
-      // When a cursor is provided, use cursor-based pagination instead of offset-based
-      if (cursor) {
-        params.set('cursor', cursor);
-      } else {
-        params.set('offset', String(normalizedOffset));
-      }
+      params.set('offset', String(normalizedOffset));
       params.set('limit', String(normalizedLimit));
       params.set('mix_policy', 'iwmt_v1');
       if (orderMode) params.set('order_mode', orderMode);
@@ -540,60 +502,12 @@ export function useMissionControlSlices({
     embedMode,
   ]);
 
-  const nextCursor = query.data?.pagination?.nextCursor ?? null;
-  const hasMore = query.data?.pagination?.hasMore ?? false;
-
-  // When new query data arrives from a fetchNextPage cursor, accumulate the new items
-  const prevDataRef = useRef(query.data);
-  useEffect(() => {
-    if (query.data && query.data !== prevDataRef.current && internalCursor) {
-      setAccumulatedItems((prev) => {
-        const existingIds = new Set(prev.map((item) => item.sliceId));
-        const newItems = (query.data?.items ?? []).filter((item) => !existingIds.has(item.sliceId));
-        return [...prev, ...newItems];
-      });
-    }
-    prevDataRef.current = query.data;
-  }, [query.data, internalCursor]);
-
-  /**
-   * Load the next page of results using cursor-based pagination.
-   * Items from all pages are accumulated and returned in `slices`.
-   */
-  const fetchNextPage = useCallback(() => {
-    if (!nextCursor || !hasMore) return;
-    // Snapshot current items into accumulated before advancing cursor
-    const currentItems = query.data?.items ?? [];
-    setAccumulatedItems((prev) => {
-      if (prev.length === 0) return currentItems;
-      const existingIds = new Set(prev.map((item) => item.sliceId));
-      const newItems = currentItems.filter((item) => !existingIds.has(item.sliceId));
-      return [...prev, ...newItems];
-    });
-    setInternalCursor(nextCursor);
-  }, [nextCursor, hasMore, query.data?.items]);
-
-  // Merge accumulated items with current page items for the final list
-  const allSlices = accumulatedItems.length > 0
-    ? (() => {
-        const ids = new Set(accumulatedItems.map((item) => item.sliceId));
-        const currentNew = (query.data?.items ?? []).filter((item) => !ids.has(item.sliceId));
-        return [...accumulatedItems, ...currentNew];
-      })()
-    : query.data?.items ?? [];
-
   return {
     ...query,
-    slices: allSlices,
+    slices: query.data?.items ?? [],
     orderMode: query.data?.orderMode ?? (orderMode ?? 'manual'),
     degraded: query.data?.degraded ?? [],
     source: query.data?.source ?? null,
     pagination: query.data?.pagination ?? null,
-    /** Opaque cursor for the next page of results, or null. */
-    nextCursor,
-    /** Whether there are more items to load. */
-    hasMore,
-    /** Call to load the next page of results (cursor-based). Accumulated items persist. */
-    fetchNextPage,
   };
 }

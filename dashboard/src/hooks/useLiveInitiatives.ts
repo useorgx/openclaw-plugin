@@ -10,7 +10,6 @@ interface RawLiveInitiative {
   title: string;
   status?: string | null;
   priority?: string | null;
-  sequence?: number | null;
   progress?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -45,16 +44,7 @@ function isVisibleStatus(raw: string | null | undefined): boolean {
   return !['deleted', 'archived', 'cancelled'].includes(status);
 }
 
-function normalizeSequenceIndex(value: number | null | undefined): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
-  const integer = Math.max(0, Math.trunc(value));
-  // OrgX persists sequence as 1-based; dashboard sequenceIndex is 0-based.
-  if (integer > 0) return integer - 1;
-  return integer;
-}
-
 function toInitiative(item: RawLiveInitiative): Initiative {
-  const sequenceIndex = normalizeSequenceIndex(item.sequence);
   return {
     id: item.id,
     name: item.title,
@@ -67,9 +57,6 @@ function toInitiative(item: RawLiveInitiative): Initiative {
     targetDate: item.targetDate ?? item.dueDate ?? item.etaEndAt ?? null,
     createdAt: item.createdAt ?? null,
     updatedAt: item.updatedAt ?? null,
-    sequenceIndex,
-    hierarchyLabel:
-      typeof sequenceIndex === 'number' ? `I${sequenceIndex + 1}` : undefined,
     activeAgents: 0,
     totalAgents: 0,
     description: undefined,

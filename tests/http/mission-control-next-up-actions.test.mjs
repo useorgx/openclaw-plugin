@@ -498,49 +498,6 @@ test("mission-control next-up move reorders queue to top/bottom", async () => {
   );
 });
 
-test("mission-control next-up move-to-top outranks queue state ordering", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-nextup-move-priority-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const { handler } = await createHandler();
-
-      let queue = await readNextUp(handler);
-      const beforeOrder = queue.items.map((item) => item.workstreamId);
-      assert.ok(beforeOrder.includes("ws-1"));
-      assert.ok(beforeOrder.includes("ws-2"));
-      assert.ok(
-        beforeOrder.indexOf("ws-1") < beforeOrder.indexOf("ws-2"),
-        "precondition: ws-1 (running state) should sort before ws-2 before pin/move"
-      );
-
-      const moveTop = await call(handler, {
-        method: "POST",
-        url: "/orgx/api/mission-control/next-up/move",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          initiativeId: "init-1",
-          workstreamId: "ws-2",
-          placement: "top",
-        }),
-      });
-      assert.equal(moveTop.status, 200);
-
-      queue = await readNextUp(handler);
-      const afterOrder = queue.items.map((item) => item.workstreamId);
-      assert.equal(afterOrder[0], "ws-2");
-      assert.ok(
-        afterOrder.indexOf("ws-2") < afterOrder.indexOf("ws-1"),
-        "move-to-top should outrank queue state ordering"
-      );
-    }
-  );
-});
-
 test("mission-control next-up honors workspace scope aliases and never falls back to global queue", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-project-scope-"));
   await withEnv(
@@ -1767,41 +1724,6 @@ test("mission-control slices reorder proxies to canonical client API", async () 
       assert.equal(body.ok, true);
       assert.equal(body.source, "canonical");
       assert.equal(calls.rawRequest.length, 1);
-    }
-  );
-});
-
-test("mission-control slices reorder validates non-empty order payload", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-slices-reorder-validation-"));
-  await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
-    },
-    async () => {
-      const { handler, calls } = await createHandler({
-        rawRequestImpl: async () => {
-          throw new Error("rawRequest should not be called for invalid reorder payload");
-        },
-      });
-
-      const res = await call(handler, {
-        method: "POST",
-        url: "/orgx/api/mission-control/slices/reorder?workspace_id=workspace-crane",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          level: "workstream",
-          order: [],
-        }),
-      });
-
-      assert.equal(res.status, 400);
-      const body = JSON.parse(res.body);
-      assert.equal(body.ok, false);
-      assert.equal(body.error_location, "mission-control.slices.reorder.validation");
-      assert.match(String(body.error ?? ""), /at least one slice id/i);
-      assert.equal(calls.rawRequest.length, 0);
     }
   );
 });

@@ -3,13 +3,6 @@ import type { SliceScope } from '@/types';
 
 type QueuePlacement = 'top' | 'bottom';
 
-type QueueMenuAction =
-  | { kind: 'launch'; scope?: SliceScope }
-  | { kind: 'autopilot'; scope?: SliceScope }
-  | { kind: 'move'; placement: QueuePlacement }
-  | { kind: 'pause' }
-  | { kind: 'archive' };
-
 interface QueuePlacementControlProps {
   label?: string;
   defaultPlacement?: QueuePlacement;
@@ -18,16 +11,11 @@ interface QueuePlacementControlProps {
   menuDirection?: 'up' | 'down';
   disabled?: boolean;
   busy?: boolean;
-  isQueued?: boolean;
   className?: string;
   menuClassName?: string;
   title?: string;
   stopPropagation?: boolean;
   onSelectPlacement: (placement: QueuePlacement, scope?: SliceScope) => void | Promise<void>;
-  onLaunch?: (scope?: SliceScope) => void | Promise<void>;
-  onAutopilot?: (scope?: SliceScope) => void | Promise<void>;
-  onPause?: () => void | Promise<void>;
-  onArchive?: () => void | Promise<void>;
 }
 
 const placementCopy: Record<QueuePlacement, string> = {
@@ -85,16 +73,11 @@ export function QueuePlacementControl({
   menuDirection = 'up',
   disabled = false,
   busy = false,
-  isQueued = false,
   className = '',
   menuClassName = '',
   title,
   stopPropagation = false,
   onSelectPlacement,
-  onLaunch,
-  onAutopilot,
-  onPause,
-  onArchive,
 }: QueuePlacementControlProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -140,47 +123,26 @@ export function QueuePlacementControl({
         title={title ?? `Queue ${defaultPlacement === 'top' ? 'to top' : 'to end'}`}
         onClick={(event) => runAction(event, defaultPlacement)}
         disabled={isDisabled}
-        className={`control-pill ${sizeClass} ${mainPaddingClass} rounded-r-none border-r-0 font-semibold disabled:opacity-45 ${
-          isQueued
-            ? 'border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] text-[#D8FFA1]'
-            : 'text-primary'
-        }`}
+        className={`control-pill ${sizeClass} ${mainPaddingClass} rounded-r-none border-r-0 font-semibold text-primary disabled:opacity-45`}
       >
-        {isQueued ? (
-          <svg
-            width={size === 'md' ? 13 : 12}
-            height={size === 'md' ? 13 : 12}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="opacity-90"
-            aria-hidden
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        ) : (
-          <svg
-            width={size === 'md' ? 13 : 12}
-            height={size === 'md' ? 13 : 12}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="opacity-90"
-            aria-hidden
-          >
-            <path d="M4 6h16" />
-            <path d="M4 12h11" />
-            <path d="M4 18h9" />
-            <path d="m17 15 3 3 3-3" />
-            <path d="M20 8v10" />
-          </svg>
-        )}
+        <svg
+          width={size === 'md' ? 13 : 12}
+          height={size === 'md' ? 13 : 12}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="opacity-90"
+          aria-hidden
+        >
+          <path d="M4 6h16" />
+          <path d="M4 12h11" />
+          <path d="M4 18h9" />
+          <path d="m17 15 3 3 3-3" />
+          <path d="M20 8v10" />
+        </svg>
         <span>{busy ? 'Queueing...' : label}</span>
       </button>
       <button
@@ -195,11 +157,7 @@ export function QueuePlacementControl({
           setMenuOpen((previous) => !previous);
         }}
         disabled={isDisabled}
-        className={`control-pill ${menuButtonSizeClass} rounded-l-none px-0 disabled:opacity-45 ${
-          isQueued
-            ? 'border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] text-[#D8FFA1]'
-            : 'text-secondary'
-        }`}
+        className={`control-pill ${menuButtonSizeClass} rounded-l-none px-0 text-secondary disabled:opacity-45`}
       >
         <svg
           width="12"

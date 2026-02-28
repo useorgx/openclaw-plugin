@@ -20,13 +20,6 @@ type AutoContinueStartInput = {
   parallelMode?: 'iwmt';
 };
 
-type LaunchSingleInput = {
-  initiativeId: string;
-  workstreamIds?: string[];
-  agentId?: string;
-  scope?: 'task' | 'milestone' | 'workstream';
-};
-
 export function useAutoContinue({
   initiativeId = null,
   authToken = null,
@@ -236,54 +229,6 @@ export function useAutoContinue({
     },
   });
 
-  const launchSingleMutation = useMutation<{ ok: boolean; dispatched: number }, Error, LaunchSingleInput>({
-    mutationFn: async (input) => {
-      if (demoMode) {
-        return { ok: true, dispatched: input.workstreamIds?.length ?? 1 };
-      }
-
-      const payload: Record<string, unknown> = {
-        initiativeId: input.initiativeId,
-      };
-      if (input.workstreamIds && input.workstreamIds.length > 0) {
-        payload.workstreamIds = input.workstreamIds;
-      }
-      if (input.agentId) {
-        payload.agentId = input.agentId;
-      }
-      if (input.scope) {
-        payload.scope = input.scope;
-      }
-      // Explicit user launch should bypass soft spawn-guard rate limits.
-      payload.ignoreSpawnGuardRateLimit = true;
-
-      const response = await fetch('/orgx/api/mission-control/next-up/launch', {
-        method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify(payload),
-      });
-
-      const body = (await response.json().catch(() => null)) as
-        | { ok: boolean; dispatched: number; error?: string; message?: string }
-        | null;
-
-      if (!response.ok) {
-        const upgradeError = parseUpgradeRequiredError(body);
-        if (upgradeError) throw upgradeError;
-        const message =
-          (typeof (body as any)?.error === 'string' && (body as any).error) ||
-          (typeof (body as any)?.message === 'string' && (body as any).message) ||
-          `Failed to launch (${response.status})`;
-        throw new Error(message);
-      }
-
-      return body ?? { ok: true, dispatched: 0 };
-    },
-    onSuccess: () => {
-      void invalidateRelated();
-    },
-  });
-
   const run = statusQuery.data?.run ?? null;
   const isRunning = run?.status === 'running' || run?.status === 'stopping';
 
@@ -295,10 +240,8 @@ export function useAutoContinue({
     error: statusQuery.data?.error ?? statusQuery.error?.message ?? null,
     start: startMutation.mutateAsync,
     stop: stopMutation.mutateAsync,
-    launchSingle: launchSingleMutation.mutateAsync,
     isStarting: startMutation.isPending,
     isStopping: stopMutation.isPending,
-    isLaunching: launchSingleMutation.isPending,
     refetch: statusQuery.refetch,
   };
 }

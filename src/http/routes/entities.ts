@@ -4,10 +4,6 @@ import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
-import {
-  cascadeProgressFromChildren,
-  deriveLifecycleState,
-} from "../../reporting/rollups.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -324,85 +320,7 @@ export function registerEntitiesRoutes<TReq, TRes>(
         if (normalizedType === "initiative") {
           deps.clearLocalInitiativeStatusOverride(id);
         }
-
-        // Post-status-transition hook: when a task status changes to
-        // completed/done, recompute cascaded progress for parent entities.
-        let cascadedProgress: {
-          parentProgress?: number;
-          parentLifecycleState?: string;
-          taskStatuses?: string[];
-        } | null = null;
-
-        if (normalizedType === "task" && requestedStatus) {
-          const normalizedRequestedStatus = requestedStatus.trim().toLowerCase();
-          const isTerminal =
-            normalizedRequestedStatus === "done" ||
-            normalizedRequestedStatus === "completed" ||
-            normalizedRequestedStatus === "cancelled" ||
-            normalizedRequestedStatus === "archived";
-
-          if (isTerminal) {
-            // Look up sibling tasks for the parent workstream/milestone/initiative
-            const entityRecord =
-              entity && typeof entity === "object"
-                ? (entity as Record<string, unknown>)
-                : ({} as Record<string, unknown>);
-            const parentWorkstreamId =
-              deps.pickString(entityRecord, ["workstream_id", "workstreamId"]) ??
-              deps.pickString(normalizedUpdates, ["workstream_id", "workstreamId"]);
-            const parentInitiativeId =
-              deps.pickString(entityRecord, ["initiative_id", "initiativeId"]) ??
-              deps.pickString(normalizedUpdates, ["initiative_id", "initiativeId"]);
-            // Fetch sibling tasks to compute cascaded progress
-            const parentScope = parentWorkstreamId
-              ? { initiative_id: parentInitiativeId ?? undefined }
-              : parentInitiativeId
-                ? { initiative_id: parentInitiativeId }
-                : null;
-
-            if (parentScope) {
-              try {
-                const siblingResult = await deps.client.listEntities("task", {
-                  ...parentScope,
-                  limit: 500,
-                });
-                const siblingRows = toObjectArray(
-                  siblingResult && typeof siblingResult === "object"
-                    ? (siblingResult as Record<string, unknown>).data
-                    : []
-                );
-                const siblingStatuses = siblingRows
-                  .filter((row) => {
-                    if (!parentWorkstreamId) return true;
-                    const rowWsId = deps.pickString(row, ["workstream_id", "workstreamId"]);
-                    return rowWsId === parentWorkstreamId;
-                  })
-                  .map((row) => deps.pickString(row, ["status"]) ?? "unknown");
-
-                const parentProgress = cascadeProgressFromChildren(siblingStatuses);
-                const parentLifecycleState = deriveLifecycleState(
-                  parentWorkstreamId ? "active" : (parentInitiativeId ? "active" : "active"),
-                  siblingStatuses,
-                );
-                cascadedProgress = {
-                  parentProgress,
-                  parentLifecycleState,
-                  taskStatuses: siblingStatuses,
-                };
-              } catch {
-                // Non-critical: cascade progress is best-effort
-              }
-            }
-          }
-        }
-
-        deps.sendJson(res, 200, {
-          ok: true,
-          entity,
-          reassignment,
-          initiative_reassignment: initiativeReassignment,
-          ...(cascadedProgress ? { cascaded_progress: cascadedProgress } : {}),
-        });
+        deps.sendJson(res, 200, { ok: true, entity, reassignment, initiative_reassignment: initiativeReassignment });
       } catch (err: unknown) {
         if (
           type?.trim().toLowerCase() === "initiative" &&
