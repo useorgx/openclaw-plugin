@@ -328,7 +328,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (isLikelySliceResult(finalOutput)) return normalizeSliceResult(finalOutput as T);
       const parsedFinalOutput = parseEmbeddedText(finalOutput);
       if (parsedFinalOutput) return parsedFinalOutput;
-      return null;
     }
     if (typeof finalOutput === "string") {
       const parsedFinalOutput = parseSliceJsonText(finalOutput);
@@ -339,7 +338,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (isLikelySliceResult(structured)) return normalizeSliceResult(structured as T);
       const parsedStructured = parseEmbeddedText(structured);
       if (parsedStructured) return parsedStructured;
-      return null;
     }
     if (typeof structured === "string") {
       const parsedStructured = parseSliceJsonText(structured);

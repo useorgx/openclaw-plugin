@@ -94,17 +94,6 @@ export function registerLiveTriageRoutes<TReq, TRes>(
       const limitStr = query.get("limit");
       const limit = limitStr ? Math.min(Math.max(1, parseInt(limitStr, 10) || 50), 200) : 50;
 
-      // Noise reduction query params
-      const noiseThreshold = (query.get("noise_threshold") ?? "medium") as
-        | "low"
-        | "medium"
-        | "high";
-      const dedupWindowStr = query.get("dedup_window");
-      const dedupWindowMs =
-        dedupWindowStr != null
-          ? Math.max(0, parseInt(dedupWindowStr, 10) || 60000)
-          : 60000;
-
       const degraded: string[] = [];
 
       // 1. Map existing decisions to triage items
@@ -137,67 +126,7 @@ export function registerLiveTriageRoutes<TReq, TRes>(
         allItems = allItems.filter((item) => item.status === statusFilter);
       }
 
-      // 5. Apply noise threshold — suppress low-severity items based on threshold
-      if (noiseThreshold === "high") {
-        // Only show critical and high severity
-        allItems = allItems.filter(
-          (item) => item.severity === "critical" || item.severity === "high"
-        );
-      } else if (noiseThreshold === "medium") {
-        // Suppress low-severity routine items (review_required with low severity)
-        allItems = allItems.filter((item) => {
-          if (
-            item.severity === "low" &&
-            item.kind === "review_required"
-          ) {
-            return false;
-          }
-          return true;
-        });
-      }
-      // noiseThreshold === 'low' — show everything (no filtering)
-
-      // 6. Dedup by title within window — group items with the same title
-      //    that occurred within dedupWindowMs of each other, keeping the most recent.
-      if (dedupWindowMs > 0) {
-        const seen = new Map<
-          string,
-          { item: LiveTriageItem; ts: number; count: number }
-        >();
-        for (const item of allItems) {
-          const key = item.title.trim().toLowerCase();
-          const ts = new Date(item.lastSeenAt).getTime();
-          const existing = seen.get(key);
-          if (!existing) {
-            seen.set(key, { item, ts, count: 1 });
-            continue;
-          }
-          if (Math.abs(existing.ts - ts) <= dedupWindowMs) {
-            existing.count += 1;
-            // Keep the more recent item
-            if (ts > existing.ts) {
-              existing.item = item;
-              existing.ts = ts;
-            }
-          } else {
-            // Outside window — keep as separate under a unique key
-            seen.set(`${key}::${item.id}`, { item, ts, count: 1 });
-          }
-        }
-        allItems = Array.from(seen.values()).map((entry) => {
-          // Encode occurrence count so clients can show "N similar" badge
-          const merged = { ...entry.item };
-          if (entry.count > 1) {
-            merged.occurrenceCount = Math.max(
-              merged.occurrenceCount,
-              entry.count
-            );
-          }
-          return merged;
-        });
-      }
-
-      // 7. Sort: critical first, then by impact, then recency
+      // 5. Sort: critical first, then by impact, then recency
       allItems.sort((a, b) => {
         const severityOrder: Record<string, number> = {
           critical: 0,

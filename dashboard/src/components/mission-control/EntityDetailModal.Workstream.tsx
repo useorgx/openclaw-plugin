@@ -10,11 +10,8 @@ import {
   getMilestoneStatusClass,
   formatEntityStatus,
   statusRank,
-  lifecycleStateClass,
-  lifecycleStateColor,
 } from '@/lib/entityStatusColors';
-import { deriveLifecycleState } from '@/lib/status-taxonomy';
-import { clampPercent, completionPercent, completionFromItems, isDoneStatus } from '@/lib/progress';
+import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { InferredAgentAvatars } from './AgentInference';
@@ -73,8 +70,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   }, [details.tasks, milestoneIdSet, workstream.id]);
 
   const doneTaskCount = tasks.filter((t) => isDoneStatus(t.status)).length;
-  const activeTaskCount = tasks.filter((t) => ['active', 'in_progress'].includes(t.status.toLowerCase())).length;
-  const blockedTaskCount = tasks.filter((t) => t.status.toLowerCase() === 'blocked').length;
   const progressValue =
     tasks.length > 0
       ? completionPercent(doneTaskCount, tasks.length)
@@ -85,16 +80,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         : isDoneStatus(workstream.status)
           ? 100
           : null;
-
-  // Derive lifecycle state for workstream header
-  const wsDetailLifecycle = deriveLifecycleState(workstream.status, {
-    hasActiveStreams: activeTaskCount > 0,
-    totalTasks: tasks.length,
-    completedTasks: doneTaskCount,
-    blockedTasks: blockedTaskCount,
-  });
-  const wsDetailPillClass = lifecycleStateClass[wsDetailLifecycle] ?? lifecycleStateClass['Queued'];
-  const wsDetailProgressColor = lifecycleStateColor[wsDetailLifecycle] ?? '#14B8A6';
 
   const normalizedStatus = workstream.status.toLowerCase();
   const isMutating =
@@ -186,15 +171,10 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             {workstream.name}
           </h2>
           <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${wsDetailPillClass}`}
+            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(workstream.status)}`}
           >
-            {wsDetailLifecycle}
+            {formatEntityStatus(workstream.status)}
           </span>
-          {tasks.length > 0 && (
-            <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
-              {doneTaskCount}/{tasks.length} tasks
-            </span>
-          )}
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -252,12 +232,12 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-micro text-muted uppercase tracking-wider">Progress</span>
-            <span className="text-body text-secondary font-mono tabular-nums">{progressValue}%</span>
+            <span className="text-body text-secondary">{progressValue}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
-              style={{ width: `${progressValue}%`, backgroundColor: wsDetailProgressColor }}
+              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
             />
           </div>
         </div>
@@ -275,14 +255,9 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         </div>
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
           <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
-          <div className="text-heading font-medium text-primary mt-0.5 font-mono tabular-nums">
+          <div className="text-heading font-medium text-primary mt-0.5">
             {progressValue !== null ? `${progressValue}%` : '-'}
           </div>
-          {tasks.length > 0 && (
-            <div className="text-micro text-muted mt-0.5 font-mono tabular-nums">
-              {doneTaskCount}/{tasks.length} done
-            </div>
-          )}
         </div>
       </div>
 

@@ -10,9 +10,8 @@ import { InlineToast } from '@/components/shared/InlineToast';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
-import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
+import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
-import { useAutoContinue } from '@/hooks/useAutoContinue';
 import type { NextUpQueueBulkAction } from '@/types';
 
 type UseNextUpQueueActionsResult = ReturnType<typeof useNextUpQueueActions>;
@@ -149,40 +148,6 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
         strokeLinejoin="round"
       />
     </svg>
-  );
-}
-
-const ZOOM_LEVELS: Array<{ value: ZoomLevel; label: string }> = [
-  { value: 'initiative', label: 'Initiative' },
-  { value: 'workstream', label: 'Workstream' },
-  { value: 'milestone', label: 'Milestone' },
-];
-
-function ZoomLevelToggle({
-  value,
-  onChange,
-}: {
-  value: ZoomLevel;
-  onChange: (level: ZoomLevel) => void;
-}) {
-  return (
-    <div className="flex gap-1 p-1 rounded-lg bg-white/5 border border-white/[0.08]">
-      {ZOOM_LEVELS.map((level) => (
-        <button
-          key={level.value}
-          type="button"
-          onClick={() => onChange(level.value)}
-          className={cn(
-            'px-3 py-1 text-[11px] font-medium rounded-md transition-all duration-150',
-            value === level.value
-              ? 'bg-white/10 text-white shadow-[inset_0_0_8px_rgba(191,255,0,0.08)]'
-              : 'text-white/50 hover:text-white/70'
-          )}
-        >
-          {level.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -546,8 +511,6 @@ export function NextUpPanel({
     else setLocalCompact(next);
   };
   const [notice, setNotice] = useState<string | null>(null);
-  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('workstream');
-  const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
   const triagePlacement: QueuePlacement = 'bottom';
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
@@ -566,7 +529,6 @@ export function NextUpPanel({
     embedMode,
     enabled: queueModel ? false : true,
     snapshotVersion,
-    zoomLevel,
   });
   const queue = queueModel ?? internalQueue;
   const {
@@ -578,21 +540,11 @@ export function NextUpPanel({
     refetch,
     playWorkstream,
     startWorkstreamAutoContinue,
-    initiativeGroups,
-    milestoneGroups,
   } = queue;
-
-  const autoContinue = useAutoContinue({
-    initiativeId,
-    authToken,
-    embedMode,
-    enabled: Boolean(initiativeId),
-  });
 
   const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
-  const isWorkstreamView = zoomLevel === 'workstream';
   const activeElsewhereCount = useMemo(
     () => items.filter((item) => item.queueState === 'running').length,
     [items]
@@ -618,49 +570,9 @@ export function NextUpPanel({
     return 'queued';
   }, [queueItems]);
 
-  const sortedInitiativeGroups = useMemo(
-    () =>
-      [...initiativeGroups].sort((left, right) => {
-        const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
-        if (queueDelta !== 0) return queueDelta;
-        return left.initiativeTitle.localeCompare(right.initiativeTitle);
-      }),
-    [initiativeGroups]
-  );
-
-  const sortedMilestoneGroups = useMemo(
-    () =>
-      [...milestoneGroups].sort((left, right) => {
-        const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
-        if (queueDelta !== 0) return queueDelta;
-        const initiativeDelta = left.initiativeTitle.localeCompare(right.initiativeTitle);
-        if (initiativeDelta !== 0) return initiativeDelta;
-        const workstreamDelta = left.workstreamTitle.localeCompare(right.workstreamTitle);
-        if (workstreamDelta !== 0) return workstreamDelta;
-        return left.milestoneTitle.localeCompare(right.milestoneTitle);
-      }),
-    [milestoneGroups]
-  );
-
-  const visibleInitiativeGroups = useMemo(
-    () => (isCompact ? sortedInitiativeGroups.slice(0, 5) : sortedInitiativeGroups),
-    [isCompact, sortedInitiativeGroups]
-  );
-
-  const visibleMilestoneGroups = useMemo(
-    () => (isCompact ? sortedMilestoneGroups.slice(0, 5) : sortedMilestoneGroups),
-    [isCompact, sortedMilestoneGroups]
-  );
-
-  const displayCount = useMemo(() => {
-    if (zoomLevel === 'initiative') return sortedInitiativeGroups.length;
-    if (zoomLevel === 'milestone') return sortedMilestoneGroups.length;
-    return queueItems.length;
-  }, [queueItems.length, sortedInitiativeGroups.length, sortedMilestoneGroups.length, zoomLevel]);
-
   const visibleItems = useMemo(
-    () => (isWorkstreamView ? (isCompact ? queueItems.slice(0, 5) : queueItems) : []),
-    [isCompact, isWorkstreamView, queueItems]
+    () => (isCompact ? queueItems.slice(0, 5) : queueItems),
+    [isCompact, queueItems]
   );
   const visibleSelection = useMemo(
     () => visibleItems.filter((item) => selectedKeys.has(itemKey(item))),
@@ -722,12 +634,6 @@ export function NextUpPanel({
   }, [menuKey, visibleItems]);
 
   useEffect(() => {
-    if (!launchFeedback) return;
-    const timeout = window.setTimeout(() => setLaunchFeedback(null), 4000);
-    return () => window.clearTimeout(timeout);
-  }, [launchFeedback]);
-
-  useEffect(() => {
     if (degraded.length === 0) {
       setSignalToastHidden(false);
       return;
@@ -765,8 +671,6 @@ export function NextUpPanel({
   const removeQueueItem = async (item: NextUpQueueItem) => {
     const key = itemKey(item);
     const label = sanitizeDisplayText(item.workstreamTitle);
-    const previousOrder = orderedKeysRef.current.slice();
-    applyLocalRemoval(new Set([key]));
     try {
       await nextUpActions.remove({
         initiativeId: item.initiativeId,
@@ -781,9 +685,6 @@ export function NextUpPanel({
       setSelectionAnchorKey((previous) => (previous === key ? null : previous));
       setNotice(`Removed ${label} from queue.`);
     } catch (err) {
-      if (!isCompact) {
-        setOrderedKeys(previousOrder);
-      }
       const raw = err instanceof Error ? err.message : '';
       setNotice(formatQueueActionError(raw, 'Failed to remove from queue'));
     }
@@ -832,26 +733,6 @@ export function NextUpPanel({
     setSelectionAnchorKey(null);
   };
 
-  const applyLocalPlacement = (keys: Set<string>, placement: QueuePlacement) => {
-    if (keys.size === 0) return;
-    setOrderedKeys((previous) => {
-      const base = previous.length > 0 ? previous : visibleKeys;
-      const selected: string[] = [];
-      const remaining: string[] = [];
-      for (const entry of base) {
-        if (keys.has(entry)) selected.push(entry);
-        else remaining.push(entry);
-      }
-      if (selected.length === 0) return previous;
-      return placement === 'top' ? [...selected, ...remaining] : [...remaining, ...selected];
-    });
-  };
-
-  const applyLocalRemoval = (keys: Set<string>) => {
-    if (keys.size === 0) return;
-    setOrderedKeys((previous) => previous.filter((entry) => !keys.has(entry)));
-  };
-
   const runBulkQueueAction = async (action: NextUpQueueBulkAction) => {
     if (selectedKeys.size === 0) {
       setNotice('Select one or more queue items first.');
@@ -864,16 +745,6 @@ export function NextUpPanel({
     if (selectedItems.length === 0) {
       setNotice('Selected queue items are no longer visible.');
       return;
-    }
-
-    const selectedKeySet = new Set(selectedItems.map(({ key }) => key));
-    const previousOrder = orderedKeysRef.current.slice();
-    if (action === 'move_top') {
-      applyLocalPlacement(selectedKeySet, 'top');
-    } else if (action === 'move_bottom') {
-      applyLocalPlacement(selectedKeySet, 'bottom');
-    } else if (action === 'remove') {
-      applyLocalRemoval(selectedKeySet);
     }
 
     setActionKey(`bulk:${action}`);
@@ -926,9 +797,6 @@ export function NextUpPanel({
       setSelectedKeys(new Set());
       setSelectionAnchorKey(null);
     } catch (err) {
-      if (!isCompact) {
-        setOrderedKeys(previousOrder);
-      }
       const raw = err instanceof Error ? err.message : '';
       setNotice(formatQueueActionError(raw, 'Bulk queue action failed'));
     } finally {
@@ -949,22 +817,16 @@ export function NextUpPanel({
   const runAction = async (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string | ((result: unknown) => string),
-    options?: {
-      optimistic?: () => void;
-      rollback?: () => void;
-    }
+    successMessage: string | ((result: unknown) => string)
   ) => {
     setNotice(null);
     setUpgradeGate(null);
     onUpgradeGate?.(null);
-    options?.optimistic?.();
     setActionKey(key);
     try {
       const result = await action();
       setNotice(typeof successMessage === 'function' ? successMessage(result) : successMessage);
     } catch (err) {
-      options?.rollback?.();
       if (err instanceof UpgradeRequiredError) {
         setUpgradeGate(err);
         onUpgradeGate?.(err);
@@ -974,49 +836,6 @@ export function NextUpPanel({
       }
     } finally {
       setActionKey(null);
-    }
-  };
-
-  const handleLaunch = async () => {
-    if (!initiativeId) return;
-    setLaunchFeedback('Dispatching...');
-    try {
-      const workstreamIds = items
-        .filter((item) => item.queueState !== 'running' && item.queueState !== 'completed')
-        .map((item) => item.workstreamId);
-      const result = await autoContinue.launchSingle({
-        initiativeId,
-        workstreamIds: workstreamIds.length > 0 ? workstreamIds : undefined,
-      });
-      const count = result?.dispatched ?? workstreamIds.length;
-      setLaunchFeedback(`${count} workstream${count === 1 ? '' : 's'} dispatched`);
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : '';
-      setLaunchFeedback(formatQueueActionError(raw, 'Launch failed'));
-    }
-  };
-
-  const launchWorkstream = async (item: NextUpQueueItem) => {
-    return await playWorkstream({
-      initiativeId: item.initiativeId,
-      workstreamId: item.workstreamId,
-      agentId: item.runnerAgentId,
-    });
-  };
-
-  const handleAutopilot = async () => {
-    if (!initiativeId) return;
-    const confirmed = window.confirm(
-      'Enable Autopilot for this initiative? OrgX will continue dispatching queued work and only pause for blockers or required decisions.'
-    );
-    if (!confirmed) return;
-    setLaunchFeedback('Enabling autopilot...');
-    try {
-      await autoContinue.start({});
-      setLaunchFeedback('Autopilot enabled');
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : '';
-      setLaunchFeedback(formatQueueActionError(raw, 'Autopilot failed'));
     }
   };
 
@@ -1034,23 +853,13 @@ export function NextUpPanel({
   const showSignalToast =
     degraded.length > 0 && !signalToastHidden && menuKey === null && !queueSettingsOpen;
   const selectedCount = visibleSelection.length;
-  const hasVisibleCards = useMemo(() => {
-    if (zoomLevel === 'initiative') return visibleInitiativeGroups.length > 0;
-    if (zoomLevel === 'milestone') return visibleMilestoneGroups.length > 0;
-    return visibleItems.length > 0;
-  }, [visibleInitiativeGroups.length, visibleItems.length, visibleMilestoneGroups.length, zoomLevel]);
-  const showInlineBulkActions =
-    selectionEnabled && isWorkstreamView && !isCompact && selectedCount > 0;
+  const showInlineBulkActions = selectionEnabled && !isCompact && selectedCount > 0;
   const emptyStateMessage =
-    zoomLevel === 'initiative'
-      ? 'No initiatives in the queue right now.'
-      : zoomLevel === 'milestone'
-        ? 'No milestone slices in the queue right now.'
-        : activeElsewhereCount > 0
-          ? `No queued workstreams yet. ${activeElsewhereCount} running item${activeElsewhereCount === 1 ? '' : 's'} still in-flight.`
-          : degraded.length > 0
-            ? 'Queue signal is delayed right now.'
-            : 'No queued workstreams right now.';
+    activeElsewhereCount > 0
+      ? `No queued workstreams yet. ${activeElsewhereCount} running item${activeElsewhereCount === 1 ? '' : 's'} still in-flight.`
+      : degraded.length > 0
+        ? 'Queue signal is delayed right now.'
+        : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
@@ -1113,13 +922,13 @@ export function NextUpPanel({
               {isLoading ? (
                 <span aria-hidden className="h-2.5 w-5 rounded bg-white/15 animate-pulse" />
               ) : (
-                displayCount
+                queueItems.length
               )}
             </span>
             <span
               className={cn(
                 'chip inline-flex min-w-[148px] justify-center text-micro tabular-nums transition-opacity',
-                !isLoading && activeElsewhereCount > 0 && isWorkstreamView
+                !isLoading && activeElsewhereCount > 0
                   ? 'text-secondary opacity-100'
                   : 'pointer-events-none opacity-0'
               )}
@@ -1151,48 +960,6 @@ export function NextUpPanel({
           </div>
         </div>
       ) : null}
-
-      {/* Zoom-level toggle + Launch / Autopilot controls */}
-      <div className="flex items-center justify-between gap-2 border-b border-subtle px-3 py-2">
-        <ZoomLevelToggle value={zoomLevel} onChange={setZoomLevel} />
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            disabled={autoContinue.isLaunching || !initiativeId}
-            onClick={() => void handleLaunch()}
-            className="border border-[#BFFF00]/30 text-[#BFFF00] hover:bg-[#BFFF00]/10 px-3 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-40 transition-colors"
-            title="Launch queued workstreams"
-          >
-            <PlayGlyph className="h-3 w-3" />
-            <span>Launch</span>
-          </button>
-          <button
-            type="button"
-            disabled={autoContinue.isStarting || !initiativeId}
-            onClick={() => void handleAutopilot()}
-            className="border border-[#14B8A6]/30 text-[#14B8A6] hover:bg-[#14B8A6]/10 px-3 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 disabled:opacity-40 transition-colors"
-            title="Enable autopilot for this initiative"
-          >
-            <AutoGlyph className="h-3 w-3" />
-            <span>Autopilot</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Launch feedback toast */}
-      {launchFeedback && (
-        <div className="px-3 pt-1.5">
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-            className="rounded-lg border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-2.5 py-1.5 text-[11px] text-[#E1FFB2]"
-          >
-            {launchFeedback}
-          </motion.div>
-        </div>
-      )}
 
       {showStatusBanner && (
         <div className="px-3 pt-2">
@@ -1317,19 +1084,15 @@ export function NextUpPanel({
       )}
 
       <div className={`flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 ${showHeader ? 'pt-1' : 'pt-2.5'}`}>
-        {!isLoading && displayCount > 0 ? (
+        {!isLoading && queueItems.length > 0 ? (
           <div className="flex flex-col gap-2.5 px-0.5 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
                   <p className="truncate text-micro uppercase tracking-[0.08em] text-muted">
-                    {zoomLevel === 'initiative'
-                      ? 'Initiatives'
-                      : zoomLevel === 'milestone'
-                        ? 'Milestone slices'
-                        : queueDisplayMode === 'blocked'
-                          ? 'Needs attention'
-                          : queueDisplayMode === 'running'
-                            ? 'Running now'
-                            : 'Queue'}
+                    {queueDisplayMode === 'blocked'
+                      ? 'Needs attention'
+                      : queueDisplayMode === 'running'
+                        ? 'Running now'
+                        : 'Queue'}
                   </p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {selectedCount > 0 ? (
@@ -1344,7 +1107,7 @@ export function NextUpPanel({
                 >
                   refreshing…
                 </span>
-                {selectionEnabled && isWorkstreamView && !isCompact && selectedCount === 0 ? (
+                {selectionEnabled && !isCompact && selectedCount === 0 ? (
                   <span className="text-micro text-muted">Shift+select to pick ranges.</span>
                 ) : null}
               </div>
@@ -1364,7 +1127,7 @@ export function NextUpPanel({
               {showInlineBulkActions ? (
                 <div className="flex flex-wrap justify-end gap-1.5">{bulkActionControls}</div>
               ) : null}
-              {!showInlineBulkActions && showQueueSettings && isWorkstreamView ? (
+              {!showInlineBulkActions && showQueueSettings ? (
                 <div ref={queueSettingsRef} className="relative">
                   <button
                     type="button"
@@ -1428,7 +1191,7 @@ export function NextUpPanel({
           <NextUpLoadingSkeleton compact={isCompact} />
         ) : null}
 
-        {!isLoading && !hasVisibleCards && !error && (
+        {!isLoading && visibleItems.length === 0 && !error && (
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center">
             <p className="text-body text-secondary">{emptyStateMessage}</p>
             {primaryDegradedMessage ? (
@@ -1451,169 +1214,7 @@ export function NextUpPanel({
           </div>
         )}
 
-        {!isLoading && zoomLevel === 'initiative' ? (
-          <AnimatePresence initial={false}>
-            {visibleInitiativeGroups.map((group, index) => {
-              const firstRunnable =
-                group.items.find(
-                  (item) =>
-                    item.queueState !== 'running' &&
-                    item.queueState !== 'completed'
-                ) ?? group.items[0] ?? null;
-              const label = resolveEntityLabel(
-                group.initiativeTitle,
-                group.initiativeId,
-                'Initiative'
-              );
-              const queueBadge = queueLabel(group.queueState);
-              const queueToneClass = queueTone(group.queueState);
-              const taskCount = group.items.reduce(
-                (count, item) => count + (item.sliceTaskCount ?? 0),
-                0
-              );
-
-              return (
-                <motion.article
-                  layout
-                  key={`initiative-group:${group.initiativeId}`}
-                  initial={{ opacity: 0, y: 8, scale: 0.99 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                  transition={{
-                    duration: 0.2,
-                    delay: Math.min(index, 7) * 0.02,
-                    ease: [0.22, 1, 0.36, 1],
-                  }}
-                  className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-micro uppercase tracking-[0.08em] text-muted">Initiative</p>
-                      <p className="mt-0.5 truncate text-body font-semibold text-white" title={label}>
-                        {label}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                        queueToneClass
-                      )}
-                    >
-                      {queueBadge}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-micro text-secondary">
-                    {group.workstreamCount} workstreams · {taskCount} tasks
-                  </p>
-                  <div className="mt-2 space-y-1">
-                    {group.items.slice(0, 3).map((item, subIndex) => (
-                      <div
-                        key={`${item.workstreamId}:${subIndex}`}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-black/[0.18] px-2.5 py-1.5 text-caption"
-                      >
-                        <span className="truncate text-white/84">{sanitizeDisplayText(item.workstreamTitle)}</span>
-                        <span className="text-micro text-secondary">
-                          {item.sliceTaskCount ?? 0} tasks
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2.5 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenInitiative?.(group.initiativeId, group.initiativeTitle)
-                      }
-                      className="control-pill h-7 px-2.5 text-micro font-semibold"
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!firstRunnable || actionKey === `initiative:${group.initiativeId}`}
-                      onClick={() => {
-                        if (!firstRunnable) return;
-                        void runAction(
-                          `initiative:${group.initiativeId}`,
-                          () => launchWorkstream(firstRunnable),
-                          `Dispatched ${sanitizeDisplayText(firstRunnable.workstreamTitle)}.`
-                        );
-                      }}
-                      className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                    >
-                      Dispatch
-                    </button>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </AnimatePresence>
-        ) : null}
-
-        {!isLoading && zoomLevel === 'milestone' ? (
-          <AnimatePresence initial={false}>
-            {visibleMilestoneGroups.map((group, index) => {
-              const item = group.item;
-              const busyKey = `milestone:${group.workstreamId}:${group.milestoneId ?? 'none'}`;
-              return (
-                <motion.article
-                  layout
-                  key={`${group.initiativeId}:${group.workstreamId}:${group.milestoneId ?? 'none'}`}
-                  initial={{ opacity: 0, y: 8, scale: 0.99 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                  transition={{
-                    duration: 0.2,
-                    delay: Math.min(index, 7) * 0.02,
-                    ease: [0.22, 1, 0.36, 1],
-                  }}
-                  className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-micro uppercase tracking-[0.08em] text-muted">
-                        {sanitizeDisplayText(group.initiativeTitle)} · {sanitizeDisplayText(group.workstreamTitle)}
-                      </p>
-                      <p className="mt-0.5 truncate text-body font-semibold text-white" title={group.milestoneTitle}>
-                        {sanitizeDisplayText(group.milestoneTitle)}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                        queueTone(group.queueState)
-                      )}
-                    >
-                      {queueLabel(group.queueState)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-micro text-secondary">
-                    {group.taskCount} tasks in slice
-                  </p>
-                  <div className="mt-2.5 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onOpenInitiative?.(group.initiativeId, group.initiativeTitle)}
-                      className="control-pill h-7 px-2.5 text-micro font-semibold"
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionKey === busyKey || group.queueState === 'running'}
-                      onClick={() => void runAction(busyKey, () => launchWorkstream(item), (result) => playDispatchNotice(item, result))}
-                      className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
-                    >
-                      {group.queueState === 'running' ? 'Running' : 'Start'}
-                    </button>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </AnimatePresence>
-        ) : null}
-
-        {!isLoading && isWorkstreamView && isCompact ? (
+        {!isLoading && isCompact ? (
           <AnimatePresence initial={false}>
             {visibleItems.map((item, index) => {
               const key = itemKey(item);
@@ -1765,7 +1366,6 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
-                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:top`,
                                 () =>
@@ -1774,11 +1374,7 @@ export function NextUpPanel({
                                     workstreamId: item.workstreamId,
                                     placement: 'top',
                                   }),
-                                `Moved ${workstreamTitle} to top of queue.`,
-                                {
-                                  optimistic: () => applyLocalPlacement(new Set([key]), 'top'),
-                                  rollback: () => setOrderedKeys(previousOrder),
-                                }
+                                `Moved ${workstreamTitle} to top of queue.`
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1789,7 +1385,6 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
-                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:bottom`,
                                 () =>
@@ -1798,11 +1393,7 @@ export function NextUpPanel({
                                     workstreamId: item.workstreamId,
                                     placement: 'bottom',
                                   }),
-                                `Moved ${workstreamTitle} to bottom of queue.`,
-                                {
-                                  optimistic: () => applyLocalPlacement(new Set([key]), 'bottom'),
-                                  rollback: () => setOrderedKeys(previousOrder),
-                                }
+                                `Moved ${workstreamTitle} to bottom of queue.`
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1813,7 +1404,6 @@ export function NextUpPanel({
                             type="button"
                             onClick={() => {
                               setMenuKey(null);
-                              const previousOrder = orderedKeysRef.current.slice();
                               void runAction(
                                 `${key}:auto`,
                                 async () => {
@@ -1829,11 +1419,7 @@ export function NextUpPanel({
                                     scope: 'initiative',
                                   });
                                 },
-                                `Start+Auto enabled for ${initiativeTitle}.`,
-                                {
-                                  optimistic: () => applyLocalPlacement(new Set([key]), 'top'),
-                                  rollback: () => setOrderedKeys(previousOrder),
-                                }
+                                `Start+Auto enabled for ${initiativeTitle}.`
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -1859,7 +1445,7 @@ export function NextUpPanel({
               );
             })}
           </AnimatePresence>
-        ) : !isLoading && isWorkstreamView ? (
+        ) : !isLoading ? (
           <Reorder.Group
             axis="y"
             values={orderedKeys}
@@ -1906,9 +1492,6 @@ export function NextUpPanel({
                       placement,
                     })
                   }
-                  onApplyLocalPlacement={applyLocalPlacement}
-                  onRestoreOrder={(keys) => setOrderedKeys(keys)}
-                  captureOrder={() => orderedKeysRef.current.slice()}
                   onCommitReorder={() => void persistOrder().catch(() => null)}
                   onDismiss={removeQueueItem}
                   runAction={runAction}
@@ -1951,9 +1534,6 @@ function NextUpReorderRow({
   triagePlacement,
   onPauseWorkstream,
   onMoveWorkstream,
-  onApplyLocalPlacement,
-  onRestoreOrder,
-  captureOrder,
   onCommitReorder,
   onDismiss,
   runAction,
@@ -1981,19 +1561,12 @@ function NextUpReorderRow({
   triagePlacement: QueuePlacement;
   onPauseWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
   onMoveWorkstream: (item: NextUpQueueItem, placement: QueuePlacement) => Promise<unknown>;
-  onApplyLocalPlacement: (keys: Set<string>, placement: QueuePlacement) => void;
-  onRestoreOrder: (keys: string[]) => void;
-  captureOrder: () => string[];
   onCommitReorder: () => void;
   onDismiss: (item: NextUpQueueItem) => void;
   runAction: (
     key: string,
     action: () => Promise<unknown>,
-    successMessage: string | ((result: unknown) => string),
-    options?: {
-      optimistic?: () => void;
-      rollback?: () => void;
-    }
+    successMessage: string | ((result: unknown) => string)
   ) => Promise<void>;
 }) {
   const controls = useDragControls();
@@ -2245,15 +1818,10 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
-                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:top`,
                       () => onMoveWorkstream(item, 'top'),
-                      `Moved ${workstreamTitle} to top of queue.`,
-                      {
-                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'top'),
-                        rollback: () => onRestoreOrder(previousOrder),
-                      }
+                      `Moved ${workstreamTitle} to top of queue.`
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -2264,15 +1832,10 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
-                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:bottom`,
                       () => onMoveWorkstream(item, 'bottom'),
-                      `Moved ${workstreamTitle} to bottom of queue.`,
-                      {
-                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'bottom'),
-                        rollback: () => onRestoreOrder(previousOrder),
-                      }
+                      `Moved ${workstreamTitle} to bottom of queue.`
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -2283,7 +1846,6 @@ function NextUpReorderRow({
                   type="button"
                   onClick={() => {
                     setMenuKey(null);
-                    const previousOrder = captureOrder();
                     void runAction(
                       `${key}:auto`,
                       async () => {
@@ -2295,11 +1857,7 @@ function NextUpReorderRow({
                           scope: 'initiative',
                         });
                       },
-                      `Start+Auto enabled for ${initiativeTitle}.`,
-                      {
-                        optimistic: () => onApplyLocalPlacement(new Set([key]), 'top'),
-                        rollback: () => onRestoreOrder(previousOrder),
-                      }
+                      `Start+Auto enabled for ${initiativeTitle}.`
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"

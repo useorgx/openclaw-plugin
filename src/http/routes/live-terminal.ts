@@ -1,5 +1,5 @@
 import { exec } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { platform } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { getOrgxPluginConfigDir } from "../../paths.js";
@@ -14,10 +14,6 @@ type RegisterLiveTerminalRoutesDeps<TReq, TRes> = {
 export function escapeShellSingleQuotedArg(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
-
-const DEFAULT_TAIL_LINES = 120;
-const MAX_TAIL_LINES = 400;
-const MAX_TAIL_BYTES = 256 * 1024;
 
 function pickString(input: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
@@ -135,136 +131,10 @@ function resolveTargetPath(payload: Record<string, unknown>): string | null {
   return null;
 }
 
-function parseTailLines(raw: string | null): number {
-  if (!raw) return DEFAULT_TAIL_LINES;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return DEFAULT_TAIL_LINES;
-  const normalized = Math.floor(parsed);
-  if (normalized <= 0) return DEFAULT_TAIL_LINES;
-  return Math.min(MAX_TAIL_LINES, normalized);
-}
-
-type TailPreview = {
-  text: string;
-  lineCount: number;
-  truncated: boolean;
-  totalBytes: number;
-  offsetBytes: number;
-  updatedAt: string;
-};
-
-function readLogTailPreview(path: string, lineLimit: number): TailPreview {
-  const stats = statSync(path);
-  if (!stats.isFile()) {
-    throw new Error("Tail target is not a file.");
-  }
-
-  const totalBytes = Number.isFinite(stats.size) ? Math.max(0, stats.size) : 0;
-  const offsetBytes = Math.max(0, totalBytes - MAX_TAIL_BYTES);
-  const readLength = Math.max(0, totalBytes - offsetBytes);
-  if (readLength === 0) {
-    return {
-      text: "",
-      lineCount: 0,
-      truncated: false,
-      totalBytes,
-      offsetBytes,
-      updatedAt: stats.mtime.toISOString(),
-    };
-  }
-
-  const fd = openSync(path, "r");
-  try {
-    const buffer = Buffer.allocUnsafe(readLength);
-    let bytesRead = 0;
-    while (bytesRead < readLength) {
-      const chunk = readSync(fd, buffer, bytesRead, readLength - bytesRead, offsetBytes + bytesRead);
-      if (chunk <= 0) break;
-      bytesRead += chunk;
-    }
-
-    const normalizedText = buffer
-      .subarray(0, Math.max(0, bytesRead))
-      .toString("utf8")
-      .replaceAll("\r\n", "\n")
-      .replaceAll("\r", "\n");
-    const allLines = normalizedText.split("\n");
-    if (allLines.length > 0 && allLines[allLines.length - 1] === "") {
-      allLines.pop();
-    }
-    const tailLines = allLines.slice(-lineLimit);
-    const truncated = offsetBytes > 0 || allLines.length > tailLines.length;
-
-    return {
-      text: tailLines.join("\n"),
-      lineCount: tailLines.length,
-      truncated,
-      totalBytes,
-      offsetBytes,
-      updatedAt: stats.mtime.toISOString(),
-    };
-  } finally {
-    closeSync(fd);
-  }
-}
-
 export function registerLiveTerminalRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterLiveTerminalRoutesDeps<TReq, TRes>
 ): void {
-  router.add(
-    "GET",
-    "live/terminal/tail",
-    ({ query, res }) => {
-      try {
-        const payload: Record<string, unknown> = {
-          path: query.get("path"),
-          logPath: query.get("logPath"),
-          log_path: query.get("log_path"),
-          sliceRunId: query.get("sliceRunId"),
-          slice_run_id: query.get("slice_run_id"),
-          runId: query.get("runId"),
-          run_id: query.get("run_id"),
-          sessionId: query.get("sessionId"),
-          session_id: query.get("session_id"),
-        };
-        const targetPath = resolveTargetPath(payload);
-        if (!targetPath) {
-          deps.sendJson(res, 404, {
-            error: "Tail target not found. Provide runId, sliceRunId, sessionId, or logPath/path.",
-          });
-          return;
-        }
-
-        const lineLimit = parseTailLines(query.get("lines") ?? query.get("line_count"));
-        const preview = readLogTailPreview(targetPath, lineLimit);
-        deps.sendJson(res, 200, {
-          ok: true,
-          path: targetPath,
-          lines_requested: lineLimit,
-          line_count: preview.lineCount,
-          truncated: preview.truncated,
-          bytes: preview.totalBytes,
-          offset_bytes: preview.offsetBytes,
-          updated_at: preview.updatedAt,
-          text: preview.text,
-        });
-      } catch (err) {
-        deps.sendJson(res, 500, { error: deps.safeErrorMessage(err) });
-      }
-    },
-    "Read a safe tail preview for run/session logs"
-  );
-
-  router.add(
-    "*",
-    "live/terminal/tail",
-    ({ res }) => {
-      deps.sendJson(res, 405, { error: "Use GET /orgx/api/live/terminal/tail" });
-    },
-    "Reject unsupported methods for live/terminal/tail"
-  );
-
   router.add(
     "POST",
     "live/terminal/open",

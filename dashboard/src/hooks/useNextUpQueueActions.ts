@@ -376,41 +376,6 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     },
   });
 
-  const launch = useMutation({
-    mutationFn: async (payload: {
-      initiativeId: string;
-      workstreamIds?: string[];
-      scope?: 'task' | 'milestone' | 'workstream';
-    }) => {
-      if (demoMode) {
-        return {
-          ok: true,
-          demo: true,
-          dispatched: payload.workstreamIds?.length ?? 1,
-        } as const;
-      }
-
-      const response = await fetch('/orgx/api/mission-control/next-up/launch', {
-        method: 'POST',
-        headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
-        body: JSON.stringify({
-          initiativeId: payload.initiativeId,
-          workstreamIds: payload.workstreamIds,
-          scope: payload.scope,
-          ignoreSpawnGuardRateLimit: true,
-        }),
-      });
-      const body = await readResponseJson<{ ok?: boolean; dispatched?: number; error?: string; message?: string }>(response);
-      if (!response.ok) {
-        throw new Error(normalizeErrorMessage(response, body, 'Failed to launch workstreams'));
-      }
-      return body ?? { ok: true, dispatched: 0 };
-    },
-    onSuccess: () => {
-      void invalidate();
-    },
-  });
-
   const bulk = useMutation({
     mutationFn: async (payload: {
       action: 'move_top' | 'move_bottom' | 'remove';
@@ -487,7 +452,6 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     stopTriage: stopTriage.mutateAsync,
     clear: clear.mutateAsync,
     bulk: bulk.mutateAsync,
-    launch: launch.mutateAsync,
     isPinning: pin.isPending,
     isUnpinning: unpin.isPending,
     isReordering: reorder.isPending,
@@ -496,6 +460,5 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     isStoppingTriage: stopTriage.isPending,
     isClearing: clear.isPending,
     isBulking: bulk.isPending,
-    isLaunching: launch.isPending,
   };
 }

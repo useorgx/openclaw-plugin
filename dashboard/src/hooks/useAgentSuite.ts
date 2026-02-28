@@ -29,6 +29,13 @@ type AgentSuiteRuntimeSettingsApiRecord = {
   decision_dedupe_enabled?: boolean;
   decision_evidence_required_for_blocking?: boolean;
   decision_auto_resolve_guarded_enabled?: boolean;
+  question_auto_answer_enabled?: boolean;
+  question_auto_answer_timeout_sec?: number;
+  question_auto_answer_policy?: 'contextual' | 'approve_non_blocking' | 'defer_non_blocking';
+  question_blocking_behavior?: 'require_human' | 'guarded_auto_resolve_then_human';
+  question_policy_version?: number;
+  question_auto_answer_delay_seconds?: number;
+  question_auto_answer_action?: 'approve' | 'reject';
   custom_run_instructions?: string | null;
 };
 
@@ -85,6 +92,13 @@ const DEFAULT_RUNTIME_SETTINGS: AgentRuntimeSettings = {
   decisionDedupeEnabled: true,
   decisionEvidenceRequiredForBlocking: false,
   decisionAutoResolveGuardedEnabled: true,
+  questionAutoAnswerEnabled: true,
+  questionAutoAnswerTimeoutSec: 60,
+  questionAutoAnswerPolicy: 'contextual',
+  questionBlockingBehavior: 'require_human',
+  questionPolicyVersion: 1,
+  questionAutoAnswerDelaySeconds: 60,
+  questionAutoAnswerAction: 'approve',
   customRunInstructions: '',
 };
 
@@ -108,6 +122,46 @@ function normalizeRuntimeSettings(
       typeof value?.decision_auto_resolve_guarded_enabled === 'boolean'
         ? value.decision_auto_resolve_guarded_enabled
         : DEFAULT_RUNTIME_SETTINGS.decisionAutoResolveGuardedEnabled,
+    questionAutoAnswerEnabled:
+      typeof value?.question_auto_answer_enabled === 'boolean'
+        ? value.question_auto_answer_enabled
+        : DEFAULT_RUNTIME_SETTINGS.questionAutoAnswerEnabled,
+    questionAutoAnswerTimeoutSec:
+      typeof value?.question_auto_answer_timeout_sec === 'number' &&
+      Number.isFinite(value.question_auto_answer_timeout_sec)
+        ? Math.max(10, Math.min(3600, Math.floor(value.question_auto_answer_timeout_sec)))
+        : typeof value?.question_auto_answer_delay_seconds === 'number' &&
+            Number.isFinite(value.question_auto_answer_delay_seconds)
+          ? Math.max(10, Math.min(3600, Math.floor(value.question_auto_answer_delay_seconds)))
+          : DEFAULT_RUNTIME_SETTINGS.questionAutoAnswerTimeoutSec,
+    questionAutoAnswerPolicy:
+      value?.question_auto_answer_policy === 'approve_non_blocking' ||
+      value?.question_auto_answer_policy === 'defer_non_blocking' ||
+      value?.question_auto_answer_policy === 'contextual'
+        ? value.question_auto_answer_policy
+        : DEFAULT_RUNTIME_SETTINGS.questionAutoAnswerPolicy,
+    questionBlockingBehavior:
+      value?.question_blocking_behavior === 'guarded_auto_resolve_then_human' ||
+      value?.question_blocking_behavior === 'require_human'
+        ? value.question_blocking_behavior
+        : DEFAULT_RUNTIME_SETTINGS.questionBlockingBehavior,
+    questionPolicyVersion:
+      typeof value?.question_policy_version === 'number' &&
+      Number.isFinite(value.question_policy_version)
+        ? Math.max(1, Math.min(10, Math.floor(value.question_policy_version)))
+        : DEFAULT_RUNTIME_SETTINGS.questionPolicyVersion,
+    questionAutoAnswerDelaySeconds:
+      typeof value?.question_auto_answer_timeout_sec === 'number' &&
+      Number.isFinite(value.question_auto_answer_timeout_sec)
+        ? Math.max(1, Math.min(900, Math.floor(value.question_auto_answer_timeout_sec)))
+        : typeof value?.question_auto_answer_delay_seconds === 'number' &&
+            Number.isFinite(value.question_auto_answer_delay_seconds)
+          ? Math.max(1, Math.min(900, Math.floor(value.question_auto_answer_delay_seconds)))
+          : DEFAULT_RUNTIME_SETTINGS.questionAutoAnswerDelaySeconds,
+    questionAutoAnswerAction:
+      value?.question_auto_answer_action === 'reject'
+        ? 'reject'
+        : DEFAULT_RUNTIME_SETTINGS.questionAutoAnswerAction,
     customRunInstructions:
       typeof value?.custom_run_instructions === 'string'
         ? value.custom_run_instructions
@@ -281,6 +335,20 @@ export function useAgentSuite({
               input.runtimeSettings.decisionEvidenceRequiredForBlocking,
             decision_auto_resolve_guarded_enabled:
               input.runtimeSettings.decisionAutoResolveGuardedEnabled,
+            question_auto_answer_enabled:
+              input.runtimeSettings.questionAutoAnswerEnabled,
+            question_auto_answer_timeout_sec:
+              input.runtimeSettings.questionAutoAnswerTimeoutSec,
+            question_auto_answer_policy:
+              input.runtimeSettings.questionAutoAnswerPolicy,
+            question_blocking_behavior:
+              input.runtimeSettings.questionBlockingBehavior,
+            question_policy_version:
+              input.runtimeSettings.questionPolicyVersion,
+            question_auto_answer_delay_seconds:
+              input.runtimeSettings.questionAutoAnswerDelaySeconds,
+            question_auto_answer_action:
+              input.runtimeSettings.questionAutoAnswerAction,
             custom_run_instructions: input.runtimeSettings.customRunInstructions,
           },
         }),

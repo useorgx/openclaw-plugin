@@ -12,10 +12,7 @@ import {
   initiativeStatusClass,
   formatEntityStatus,
   statusColor,
-  lifecycleStateClass,
-  lifecycleStateColor,
 } from '@/lib/entityStatusColors';
-import { deriveLifecycleState } from '@/lib/status-taxonomy';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
@@ -36,7 +33,6 @@ interface InitiativeSectionProps {
   selected?: boolean;
   onSelectionChange?: (initiativeId: string, selected: boolean, shiftKey: boolean) => void;
   isSquished?: boolean;
-  isQueued?: boolean;
   runtimeActivity?: {
     activeCount: number;
     totalCount: number;
@@ -136,14 +132,6 @@ function buildLegacyGraphNodes(
     expectedBudgetUsd: 300,
     assignedAgents: [],
     updatedAt: workstream.createdAt,
-    sequenceIndex:
-      typeof (workstream as { sequenceIndex?: unknown }).sequenceIndex === 'number'
-        ? ((workstream as { sequenceIndex: number }).sequenceIndex ?? undefined)
-        : undefined,
-    hierarchyLabel:
-      typeof (workstream as { hierarchyLabel?: unknown }).hierarchyLabel === 'string'
-        ? ((workstream as { hierarchyLabel: string }).hierarchyLabel ?? undefined)
-        : undefined,
   }));
 
   const workstreamIdSet = new Set(workstreamNodes.map((node) => node.id));
@@ -171,8 +159,6 @@ function buildLegacyGraphNodes(
     expectedBudgetUsd: 120,
     assignedAgents: [],
     updatedAt: milestone.createdAt,
-    sequenceIndex: milestone.sequenceIndex,
-    hierarchyLabel: milestone.hierarchyLabel,
   }));
 
   const milestoneIdSet = new Set(milestoneNodes.map((node) => node.id));
@@ -198,8 +184,6 @@ function buildLegacyGraphNodes(
       expectedBudgetUsd: 40,
       assignedAgents: [],
       updatedAt: task.createdAt,
-      sequenceIndex: task.sequenceIndex,
-      hierarchyLabel: task.hierarchyLabel,
     };
   });
 
@@ -272,8 +256,6 @@ function toWorkstreamEntity(node: MissionControlNode, initiative: Initiative): I
     progress: null,
     initiativeId: initiative.id,
     createdAt: node.updatedAt,
-    sequenceIndex: node.sequenceIndex,
-    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
@@ -287,8 +269,6 @@ function toMilestoneEntity(node: MissionControlNode, initiative: Initiative): In
     initiativeId: initiative.id,
     workstreamId: node.workstreamId,
     createdAt: node.updatedAt,
-    sequenceIndex: node.sequenceIndex,
-    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
@@ -304,8 +284,6 @@ function toTaskEntity(node: MissionControlNode, initiative: Initiative): Initiat
     milestoneId: node.milestoneId,
     workstreamId: node.workstreamId,
     createdAt: node.updatedAt,
-    sequenceIndex: node.sequenceIndex,
-    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
@@ -333,7 +311,6 @@ export function InitiativeSection({
   selected = false,
   onSelectionChange,
   isSquished = false,
-  isQueued = false,
   runtimeActivity = null,
 }: InitiativeSectionProps) {
   const {
@@ -568,20 +545,6 @@ export function InitiativeSection({
     effectiveInitiativeStatus === 'in_progress'
       ? 'In Progress'
       : formatEntityStatus(effectiveInitiativeStatus);
-
-  // Derive lifecycle state from raw status + child context
-  const lifecycleState = deriveLifecycleState(
-    initiative.rawStatus ?? initiative.status,
-    {
-      hasActiveStreams: activeTaskCount > 0 || runtimeActiveCount > 0,
-      hasDispatchingStreams: false,
-      totalTasks: taskNodes.length,
-      completedTasks: doneTaskCount,
-      blockedTasks: taskNodes.filter((n) => n.status.toLowerCase() === 'blocked').length,
-    },
-  );
-  const lifecyclePillClass = lifecycleStateClass[lifecycleState] ?? lifecycleStateClass['Queued'];
-  const lifecyclePillColor = lifecycleStateColor[lifecycleState] ?? lifecycleStateColor['Queued'];
   const budgetSourceNodes =
     taskNodes.length > 0
       ? taskNodes
@@ -839,25 +802,6 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
-        {/* Priority badge */}
-        {priorityFromLabel(initiative.priority).priorityLabel != null && (() => {
-          const label = priorityFromLabel(initiative.priority).priorityLabel!;
-          const tag = label === 'urgent' ? 'P0' : label === 'high' ? 'P1' : label === 'medium' ? 'P2' : 'P3';
-          const tone =
-            label === 'urgent'
-              ? 'text-red-300 border-red-400/20 bg-red-400/[0.08]'
-              : label === 'high'
-                ? 'text-amber-300 border-amber-400/20 bg-amber-400/[0.08]'
-                : label === 'medium'
-                  ? 'text-secondary border-white/[0.08] bg-white/[0.03]'
-                  : 'text-muted border-white/[0.06] bg-transparent';
-          return (
-            <span className={`hidden sm:block flex-shrink-0 rounded-md border px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wider leading-none ${tone}`}>
-              {tag}
-            </span>
-          );
-        })()}
-
         <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-1.5 sm:pr-2">
           <button
             type="button"
@@ -873,24 +817,19 @@ export function InitiativeSection({
         </div>
 
         <div
-          className={`ml-1 flex flex-shrink-0 items-center gap-1.5 justify-start ${
+          className={`ml-1 flex flex-shrink-0 justify-start ${
             isSquished
-              ? 'w-[120px] min-w-[120px]'
-              : 'w-[160px] min-w-[160px] sm:w-[180px] sm:min-w-[180px]'
+              ? 'w-[80px] min-w-[80px]'
+              : 'w-[90px] min-w-[90px] sm:w-[102px] sm:min-w-[102px]'
           }`}
         >
           <span
-            className={`truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
+            className={`w-full truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
               isSquished ? 'px-1.5' : 'px-2'
-            } ${lifecyclePillClass}`}
+            } ${initiativeStatusToneClass}`}
           >
-            {lifecycleState}
+            {initiativeStatusLabel}
           </span>
-          {taskNodes.length > 0 && (
-            <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
-              {doneTaskCount}/{taskNodes.length}
-            </span>
-          )}
         </div>
 
         {/* Radial progress — compact, shown below lg */}
@@ -944,12 +883,13 @@ export function InitiativeSection({
                   opacity: progress === 0 ? 0.45 : 1,
                 }}
                 transition={{ type: 'spring', stiffness: 260, damping: 34, mass: 0.75 }}
-                style={{ backgroundColor: lifecyclePillColor }}
+                style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
               />
             </div>
           </div>
           <span
-            className="w-[42px] text-right text-micro text-muted xl:w-[48px] xl:text-caption font-mono tabular-nums"
+            className="w-[42px] text-right text-micro text-muted xl:w-[48px] xl:text-caption"
+            style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             {progress}%
           </span>
@@ -964,11 +904,10 @@ export function InitiativeSection({
           >
             {showQueueControl && (
               <QueuePlacementControl
-                label={isQueued ? 'Queued' : 'Queue'}
+                label="Queue"
                 size="sm"
                 busy={queueActionBusy}
                 disabled={queueTargets.length === 0}
-                isQueued={isQueued}
                 stopPropagation
                 title={`Queue initiative: ${initiative.name}`}
                 onSelectPlacement={queueInitiative}
@@ -1001,20 +940,12 @@ export function InitiativeSection({
           }`}
         >
           {runtimeActiveCount > 0 ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
-                {runtimeActiveCount} live
-              </span>
-              {agents.length > 0 && <InferredAgentAvatars agents={agents} max={2} />}
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
+              {runtimeActiveCount} live
             </span>
           ) : agents.length > 0 ? (
-            <span className="inline-flex items-center gap-1.5">
-              <InferredAgentAvatars agents={agents} max={3} />
-              {runtimeTotalCount > 0 && (
-                <span className="text-micro text-muted">idle</span>
-              )}
-            </span>
+            <InferredAgentAvatars agents={agents} max={3} />
           ) : runtimeTotalCount > 0 ? (
             <span className="w-full text-right text-micro text-muted">
               {runtimeTotalCount} idle

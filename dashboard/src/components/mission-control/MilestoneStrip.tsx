@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { colors } from '@/lib/tokens';
 import type { InitiativeMilestone, Initiative } from '@/types';
 import { useMissionControl } from './MissionControlContext';
@@ -11,18 +10,7 @@ interface MilestoneStripProps {
 export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) {
   const { openModal } = useMissionControl();
 
-  /** Sort milestones by sequenceIndex (ascending), pushing those without to the end */
-  const sortedMilestones = useMemo(
-    () =>
-      [...milestones].sort((a, b) => {
-        const aSeq = a.sequenceIndex ?? Infinity;
-        const bSeq = b.sequenceIndex ?? Infinity;
-        return aSeq - bSeq;
-      }),
-    [milestones]
-  );
-
-  if (!sortedMilestones.length) return null;
+  if (!milestones.length) return null;
 
   return (
     <div className="flex items-center gap-1 px-1">
@@ -30,15 +18,10 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
         Milestones
       </span>
       <div className="flex items-center gap-0.5">
-        {sortedMilestones.map((milestone, index) => {
+        {milestones.map((milestone, index) => {
           const lower = milestone.status.toLowerCase();
           const isDone = lower === 'done' || lower === 'completed';
           const isActive = lower === 'active' || lower === 'in_progress';
-
-          const milestoneLabel =
-            milestone.sequenceIndex != null
-              ? `M${milestone.sequenceIndex + 1}`
-              : milestone.hierarchyLabel ?? null;
 
           return (
             <button
@@ -46,13 +29,8 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
               type="button"
               onClick={() => openModal({ type: 'milestone', entity: milestone, initiative })}
               className="group flex items-center rounded px-1 py-1"
-              title={`${milestoneLabel ? `${milestoneLabel} ` : ''}${milestone.title} — ${milestone.status}`}
+              title={`${milestone.title} — ${milestone.status}`}
             >
-              {milestoneLabel && (
-                <span className="text-[10px] tracking-wider uppercase font-mono tabular-nums opacity-60 group-hover:opacity-100 transition-opacity leading-none select-none mr-0.5">
-                  {milestoneLabel}
-                </span>
-              )}
               <div
                 className="h-3.5 w-3.5 rounded-full border transition-transform group-hover:scale-110"
                 style={{
@@ -68,7 +46,7 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
                       : 'rgba(255,255,255,0.2)',
                 }}
               />
-              {index < sortedMilestones.length - 1 && (
+              {index < milestones.length - 1 && (
                 <div
                   className="w-3 h-px"
                   style={{
@@ -80,14 +58,14 @@ export function MilestoneStrip({ milestones, initiative }: MilestoneStripProps) 
           );
         })}
       </div>
-      {sortedMilestones.length > 0 && (
+      {milestones.length > 0 && (
         <span className="text-micro text-faint ml-1">
-          {sortedMilestones.filter(
+          {milestones.filter(
             (m) =>
               m.status.toLowerCase() === 'done' ||
               m.status.toLowerCase() === 'completed'
           ).length}
-          /{sortedMilestones.length}
+          /{milestones.length}
         </span>
       )}
     </div>

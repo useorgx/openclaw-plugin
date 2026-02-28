@@ -10,11 +10,6 @@ interface TaskChipProps {
 export function TaskChip({ task, initiative }: TaskChipProps) {
   const { openModal } = useMissionControl();
 
-  const taskLabel =
-    task.sequenceIndex != null
-      ? `T${task.sequenceIndex + 1}`
-      : task.hierarchyLabel ?? null;
-
   return (
     <button
       onClick={() => openModal({ type: 'task', entity: task, initiative })}
@@ -24,11 +19,6 @@ export function TaskChip({ task, initiative }: TaskChipProps) {
         className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
         style={{ backgroundColor: statusColor(task.status) }}
       />
-      {taskLabel && (
-        <span className="text-[10px] tracking-wider uppercase font-mono tabular-nums opacity-60 hover:opacity-100 transition-opacity leading-none select-none flex-shrink-0">
-          {taskLabel}
-        </span>
-      )}
       <span className="text-caption text-primary truncate">{task.title}</span>
       {task.priority && (
         <span className="text-micro text-muted uppercase flex-shrink-0">

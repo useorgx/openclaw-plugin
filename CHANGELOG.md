@@ -25,6 +25,7 @@ All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 ### Test Coverage
 - Added/expanded Mission Control next-up tests for noise-threshold behavior, pagination metadata forwarding, runner normalization, dependency-blocked queue states, and blocked-reason surfacing.
 
+
 ## 0.5.0 - 2026-02-20
 
 ### Mission Control + Activity UX

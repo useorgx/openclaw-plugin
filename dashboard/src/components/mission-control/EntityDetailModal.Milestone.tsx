@@ -7,10 +7,7 @@ import {
   getMilestoneStatusClass,
   getTaskStatusClass,
   formatEntityStatus,
-  lifecycleStateClass,
-  lifecycleStateColor,
 } from '@/lib/entityStatusColors';
-import { deriveLifecycleState } from '@/lib/status-taxonomy';
 import { completionPercent, isDoneStatus } from '@/lib/progress';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { useMissionControl } from './MissionControlContext';
@@ -49,24 +46,12 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
     milestone.status.toLowerCase() === 'done' ||
     milestone.status.toLowerCase() === 'completed';
   const doneTaskCount = associatedTasks.filter((t) => isDoneStatus(t.status)).length;
-  const activeTaskCount = associatedTasks.filter((t) => ['active', 'in_progress'].includes(t.status.toLowerCase())).length;
-  const blockedTaskCount = associatedTasks.filter((t) => t.status.toLowerCase() === 'blocked').length;
   const progressValue =
     associatedTasks.length > 0
       ? completionPercent(doneTaskCount, associatedTasks.length)
       : isDone
         ? 100
         : 0;
-
-  // Derive lifecycle state for milestone header
-  const msLifecycleState = deriveLifecycleState(milestone.status, {
-    hasActiveStreams: activeTaskCount > 0,
-    totalTasks: associatedTasks.length,
-    completedTasks: doneTaskCount,
-    blockedTasks: blockedTaskCount,
-  });
-  const msLifecyclePillClass = lifecycleStateClass[msLifecycleState] ?? lifecycleStateClass['Queued'];
-  const msProgressColor = lifecycleStateColor[msLifecycleState] ?? '#14B8A6';
 
   const isMutating =
     mutations.entityAction.isPending ||
@@ -137,15 +122,10 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
             {milestone.title}
           </h2>
           <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${msLifecyclePillClass}`}
+            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(milestone.status)}`}
           >
-            {msLifecycleState}
+            {formatEntityStatus(milestone.status)}
           </span>
-          {associatedTasks.length > 0 && (
-            <span className="font-mono tabular-nums text-[11px] text-muted whitespace-nowrap">
-              {doneTaskCount}/{associatedTasks.length} tasks
-            </span>
-          )}
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -225,14 +205,14 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
             <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
               <div
                 className="h-full rounded-full transition-all"
-                style={{ width: `${progressValue}%`, backgroundColor: msProgressColor }}
+                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
               />
             </div>
-            <div className="text-body text-primary font-mono tabular-nums">
+            <div className="text-body text-primary" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {progressValue}%
             </div>
           </div>
-          <div className="mt-1 text-micro text-muted font-mono tabular-nums">
+          <div className="mt-1 text-micro text-muted">
             {doneTaskCount}/{associatedTasks.length} done
           </div>
         </div>

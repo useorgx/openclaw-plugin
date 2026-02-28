@@ -39,7 +39,6 @@ type FlatRow = {
   node: MissionControlNode;
   depth: number;
   canCollapse: boolean;
-  hierarchyLabel?: string;
 };
 
 type SortField = 'title' | 'status' | 'priority' | 'eta' | null;
@@ -269,12 +268,7 @@ export function HierarchyTreeTable({
     () =>
       nodes
         .filter((node) => node.type === 'workstream')
-        .sort((a, b) => {
-          const aSeq = a.sequenceIndex ?? Infinity;
-          const bSeq = b.sequenceIndex ?? Infinity;
-          if (aSeq !== bSeq) return aSeq - bSeq;
-          return a.priorityNum - b.priorityNum || a.title.localeCompare(b.title);
-        }),
+        .sort((a, b) => a.priorityNum - b.priorityNum || a.title.localeCompare(b.title)),
     [nodes]
   );
 
@@ -287,12 +281,7 @@ export function HierarchyTreeTable({
       map.set(key, list);
     }
     for (const value of map.values()) {
-      value.sort((a, b) => {
-        const aSeq = a.sequenceIndex ?? Infinity;
-        const bSeq = b.sequenceIndex ?? Infinity;
-        if (aSeq !== bSeq) return aSeq - bSeq;
-        return a.priorityNum - b.priorityNum || a.title.localeCompare(b.title);
-      });
+      value.sort((a, b) => a.priorityNum - b.priorityNum || a.title.localeCompare(b.title));
     }
     return map;
   }, [nodes]);
@@ -306,12 +295,7 @@ export function HierarchyTreeTable({
       map.set(key, list);
     }
     for (const value of map.values()) {
-      value.sort((a, b) => {
-        const aSeq = a.sequenceIndex ?? Infinity;
-        const bSeq = b.sequenceIndex ?? Infinity;
-        if (aSeq !== bSeq) return aSeq - bSeq;
-        return a.priorityNum - b.priorityNum || a.title.localeCompare(b.title);
-      });
+      value.sort((a, b) => a.priorityNum - b.priorityNum || a.title.localeCompare(b.title));
     }
     return map;
   }, [nodes]);
@@ -325,12 +309,7 @@ export function HierarchyTreeTable({
       map.set(key, list);
     }
     for (const value of map.values()) {
-      value.sort((a, b) => {
-        const aSeq = a.sequenceIndex ?? Infinity;
-        const bSeq = b.sequenceIndex ?? Infinity;
-        if (aSeq !== bSeq) return aSeq - bSeq;
-        return a.priorityNum - b.priorityNum || a.title.localeCompare(b.title);
-      });
+      value.sort((a, b) => a.priorityNum - b.priorityNum || a.title.localeCompare(b.title));
     }
     return map;
   }, [nodes]);
@@ -348,15 +327,7 @@ export function HierarchyTreeTable({
   }, [defaultExpanded]);
 
   const sortSiblings = (items: MissionControlNode[]): MissionControlNode[] => {
-    if (!sortField) {
-      // Default: sort by sequenceIndex when available, push items without sequence to end
-      return [...items].sort((a, b) => {
-        const aSeq = a.sequenceIndex ?? Infinity;
-        const bSeq = b.sequenceIndex ?? Infinity;
-        if (aSeq !== bSeq) return aSeq - bSeq;
-        return a.priorityNum - b.priorityNum || a.title.localeCompare(b.title);
-      });
-    }
+    if (!sortField) return items;
     return [...items].sort((a, b) => compareByField(a, b, sortField, sortDirection));
   };
 
@@ -364,19 +335,8 @@ export function HierarchyTreeTable({
     const flat: FlatRow[] = [];
     const isVisible = (id: string) => matchingNodeIds === null || matchingNodeIds.has(id);
 
-    /** Derive hierarchy label prefix from type */
-    const labelPrefix = (type: MissionControlNode['type']): string => {
-      if (type === 'workstream') return 'W';
-      if (type === 'milestone') return 'M';
-      if (type === 'task') return 'T';
-      return '';
-    };
-
-    const sortedWorkstreams = sortSiblings(workstreams);
-    let wsIndex = 0;
-    for (const ws of sortedWorkstreams) {
+    for (const ws of sortSiblings(workstreams)) {
       if (!isVisible(ws.id)) continue;
-      wsIndex += 1;
       const wsMilestones = sortSiblings(milestonesByWorkstream.get(ws.id) ?? []);
       const wsDirectTasks = sortSiblings(directTasksByWorkstream.get(ws.id) ?? []);
       const wsHasChildren = wsMilestones.length > 0 || wsDirectTasks.length > 0;
@@ -384,85 +344,54 @@ export function HierarchyTreeTable({
         node: ws,
         depth: 0,
         canCollapse: wsHasChildren,
-        hierarchyLabel: `${labelPrefix(ws.type)}${wsIndex}`,
       });
       if (!expandedRows.has(ws.id)) continue;
 
-      let msIndex = 0;
       for (const milestone of wsMilestones) {
         if (!isVisible(milestone.id)) continue;
-        msIndex += 1;
         const milestoneTasks = sortSiblings(tasksByMilestone.get(milestone.id) ?? []);
         flat.push({
           node: milestone,
           depth: 1,
           canCollapse: milestoneTasks.length > 0,
-          hierarchyLabel: `${labelPrefix(milestone.type)}${msIndex}`,
         });
         if (expandedRows.has(milestone.id)) {
-          let taskIndex = 0;
           for (const task of milestoneTasks) {
             if (!isVisible(task.id)) continue;
-            taskIndex += 1;
-            flat.push({
-              node: task,
-              depth: 2,
-              canCollapse: false,
-              hierarchyLabel: `${labelPrefix(task.type)}${taskIndex}`,
-            });
+            flat.push({ node: task, depth: 2, canCollapse: false });
           }
         }
       }
 
-      let directTaskIndex = 0;
       for (const task of wsDirectTasks) {
         if (!isVisible(task.id)) continue;
-        directTaskIndex += 1;
         flat.push({
           node: task,
           depth: 1,
           canCollapse: false,
-          hierarchyLabel: `${labelPrefix(task.type)}${directTaskIndex}`,
         });
       }
     }
 
     const unscopedMilestones = sortSiblings(milestonesByWorkstream.get('unscoped') ?? []);
     const unscopedTasks = sortSiblings(directTasksByWorkstream.get('unscoped') ?? []);
-    let unscopedMsIndex = 0;
     for (const milestone of unscopedMilestones) {
       if (!isVisible(milestone.id)) continue;
-      unscopedMsIndex += 1;
       flat.push({
         node: milestone,
         depth: 0,
         canCollapse: (tasksByMilestone.get(milestone.id) ?? []).length > 0,
-        hierarchyLabel: `${labelPrefix(milestone.type)}${unscopedMsIndex}`,
       });
       if (expandedRows.has(milestone.id)) {
-        let taskIndex = 0;
         for (const task of sortSiblings(tasksByMilestone.get(milestone.id) ?? [])) {
           if (!isVisible(task.id)) continue;
-          taskIndex += 1;
-          flat.push({
-            node: task,
-            depth: 1,
-            canCollapse: false,
-            hierarchyLabel: `${labelPrefix(task.type)}${taskIndex}`,
-          });
+          flat.push({ node: task, depth: 1, canCollapse: false });
         }
       }
     }
-    let unscopedTaskIndex = 0;
     for (const task of unscopedTasks) {
       if (!isVisible(task.id)) continue;
-      unscopedTaskIndex += 1;
-      flat.push({
-        node: task,
-        depth: 0,
-        canCollapse: false,
-        hierarchyLabel: `${labelPrefix(task.type)}${unscopedTaskIndex}`,
-      });
+      flat.push({ node: task, depth: 0, canCollapse: false });
     }
 
     return flat;
@@ -1330,7 +1259,7 @@ export function HierarchyTreeTable({
             <table className="w-full min-w-[1464px] table-fixed border-separate border-spacing-y-1.5">
               {renderColumnGroup()}
               <tbody>
-            {rows.map(({ node, depth, canCollapse, hierarchyLabel }) => {
+            {rows.map(({ node, depth, canCollapse }) => {
               const selected = selectedNodeId === node.id;
               const highlighted = highlightedNodeIds.has(node.id);
               const isSelectedForBulk = selectedRowIds.has(node.id);
@@ -1406,7 +1335,7 @@ export function HierarchyTreeTable({
                         ) : (
                           <span className="w-2.5" />
                         )}
-                        <LevelIcon type={node.type} hierarchyLabel={hierarchyLabel} />
+                        <LevelIcon type={node.type} />
                         <button
                           type="button"
                           onClick={(event) => {
