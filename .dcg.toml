@@ -1,0 +1,12 @@
+# DCG overrides for orgx-openclaw-plugin development
+# Allows plugin install/uninstall workflows that touch ~/.openclaw/plugins/
+
+[overrides]
+allow = [
+    "rm -rf ~/.openclaw/plugins/orgx",
+    "rm -rf ~/.openclaw/plugins/orgx/",
+    "rm -rf ~/.openclaw/extensions/openclaw-plugin",
+    "rm -rf ~/.openclaw/extensions/openclaw-plugin/",
+    "rm -rf ~/.openclaw/extensions/orgx",
+    "rm -rf ~/.openclaw/extensions/orgx/",
+]
