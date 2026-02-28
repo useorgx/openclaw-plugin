@@ -74,9 +74,18 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
         break;
       }
       if (!inTargetSection) continue;
-      const urlMatch = line.match(/^url\s*=\s*"([^"]+)"\s*$/i);
+      const urlMatch = line.match(
+        /^url\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*(?:#.*)?$/i
+      );
       if (!urlMatch) continue;
-      const rawUrl = (urlMatch[1] ?? "").trim();
+      const token = (urlMatch[1] ?? "").trim();
+      if (token.length < 2) continue;
+      const quote = token[0];
+      const unescaped = token
+        .slice(1, -1)
+        .replace(quote === '"' ? /\\"/g : /\\'/g, quote)
+        .trim();
+      const rawUrl = unescaped;
       if (rawUrl.length > 0) return rawUrl;
     }
     return null;

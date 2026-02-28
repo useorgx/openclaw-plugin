@@ -301,6 +301,97 @@ test("autopilot isolation falls back to temp CODEX_HOME when configured path is 
   assert.ok(existsSync(outputPath), "worker should always leave a structured output file");
 });
 
+test("autopilot isolation extracts orgx-openclaw MCP URL from single-quoted source config", async () => {
+  const root = mkdtempSync(join(tmpdir(), "orgx-autopilot-runtime-source-url-"));
+  const sourceHome = join(root, "source-codex-home");
+  const pluginConfigDir = join(root, "plugin-config");
+  mkdirSync(sourceHome, { recursive: true });
+  mkdirSync(pluginConfigDir, { recursive: true });
+
+  writeFileSync(
+    join(sourceHome, "config.toml"),
+    [
+      '[mcp_servers."orgx-openclaw"]',
+      "url = 'https://mcp.example.com/orgx/mcp' # inherited from user config",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const nodeStubPath = join(root, "node-stub.mjs");
+  writeFileSync(nodeStubPath, "process.exit(0);\n", "utf8");
+
+  const runtime = createAutopilotRuntime({
+    filename: new URL("../../dist/http/helpers/autopilot-runtime.js", import.meta.url).pathname,
+    autoContinueSliceChildren: new Map(),
+    resolveByokEnvOverrides: () => ({}),
+    safeErrorMessage: (err) => (err instanceof Error ? err.message : String(err)),
+    resolveCodexBinInfo: () => ({
+      bin: process.execPath,
+      version: process.version,
+      versionString: process.version,
+    }),
+    upsertRuntimeInstanceFromHook: (payload) => ({
+      id: "runtime-test",
+      sourceClient: "openclaw",
+      displayName: "runtime-test",
+      providerLogo: "openclaw",
+      state: "active",
+      runId: payload.run_id ?? null,
+      correlationId: payload.correlation_id ?? null,
+      initiativeId: payload.initiative_id ?? null,
+      workstreamId: payload.workstream_id ?? null,
+      taskId: payload.task_id ?? null,
+      agentId: payload.agent_id ?? null,
+      agentName: payload.agent_name ?? null,
+      phase: payload.phase ?? null,
+      progressPct: payload.progress_pct ?? null,
+      currentTask: null,
+      lastHeartbeatAt: null,
+      lastEventAt: payload.timestamp ?? new Date().toISOString(),
+      lastMessage: payload.message ?? null,
+      metadata: payload.metadata ?? null,
+    }),
+    broadcastRuntimeSse: () => {},
+    clearSnapshotResponseCache: () => {},
+  });
+
+  const logPath = join(root, "slice.log");
+  const outputPath = join(root, "slice.output.json");
+  await withEnv(
+    {
+      CODEX_HOME: sourceHome,
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: pluginConfigDir,
+      ORGX_AUTOPILOT_ISOLATE_CODEX_HOME: "true",
+      ORGX_CODEX_ARGS: nodeStubPath,
+    },
+    async () => {
+      runtime.spawnCodexSliceWorker({
+        runId: "slice-test-source-url",
+        prompt: "Return exactly OK",
+        cwd: process.cwd(),
+        logPath,
+        outputPath,
+        env: {
+          ORGX_WORKSTREAM_ID: "ws-test",
+          ORGX_WORKSTREAM_TITLE: "WS Test",
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  );
+
+  const generatedConfigPath = join(pluginConfigDir, "codex-autopilot-home", "config.toml");
+  assert.ok(existsSync(generatedConfigPath), "expected isolated config.toml to be generated");
+  const generatedConfig = readFileSync(generatedConfigPath, "utf8");
+  assert.match(
+    generatedConfig,
+    /url = "https:\/\/mcp\.example\.com\/orgx\/mcp"/,
+    "expected source orgx-openclaw URL to be preserved in isolated config"
+  );
+});
+
 test("autopilot claude worker injects print/json/schema defaults for structured output parity", async () => {
   const root = mkdtempSync(join(tmpdir(), "orgx-autopilot-runtime-claude-"));
   const pluginConfigDir = join(root, "plugin-config");
