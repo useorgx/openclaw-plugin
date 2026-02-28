@@ -2,6 +2,12 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.2 - 2026-02-28
+
+### Release Management
+- Patch release to align npm package versioning and git tags after recent `origin/main` merges.
+- No additional runtime or API behavior changes in this release beyond version/changelog metadata.
+
 ## 0.7.1 - 2026-02-27
 
 ### Mission Control Hierarchy + Queue Clarity
