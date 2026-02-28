@@ -26,8 +26,15 @@ test("known activity action types include lifecycle actions used by auto-continu
     "slice_handoff",
     "run_completed",
     "run_failed",
+    "question_asked",
+    "question_timeout_started",
+    "question_auto_answered",
+    "question_answer_applied",
+    "question_answer_failed",
     "decision_requested",
     "decision_resolved",
+    "review_item_created",
+    "review_item_resolved",
     "status_updates_applied",
     "status_updates_buffered",
     "artifact_registered",
@@ -35,6 +42,9 @@ test("known activity action types include lifecycle actions used by auto-continu
     "run_state_transition",
     "auto_continue_started",
     "auto_continue_stopped",
+    "autopilot_resumed",
+    "autopilot_paused",
+    "autopilot_blocked",
   ];
   for (const actionType of required) {
     assert.ok(

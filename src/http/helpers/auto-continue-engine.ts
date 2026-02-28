@@ -207,14 +207,639 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     String(process.env.DECISION_AUTO_RESOLVE_GUARDED_ENABLED ?? "true")
       .trim()
       .toLowerCase() !== "false";
+  type QuestionAutoAnswerAction = "approve" | "reject";
+  type QuestionAutoAnswerPolicyMode =
+    | "contextual"
+    | "approve_non_blocking"
+    | "defer_non_blocking";
+  type QuestionBlockingBehavior =
+    | "require_human"
+    | "guarded_auto_resolve_then_human";
+  type QuestionAutoAnswerPolicy = {
+    enabled: boolean;
+    timeoutSeconds: number;
+    mode: QuestionAutoAnswerPolicyMode;
+    action: QuestionAutoAnswerAction;
+    blockingBehavior: QuestionBlockingBehavior;
+    policyVersion: number;
+  };
+  type PendingQuestionAutoAnswer = {
+    key: string;
+    initiativeId: string;
+    workstreamId: string | null;
+    sourceRunId: string | null;
+    sourceClient: RuntimeSourceClient;
+    action: QuestionAutoAnswerAction;
+    mode: QuestionAutoAnswerPolicyMode;
+    policyVersion: number;
+    timeoutSeconds: number;
+    dueAt: string;
+    timer: NodeJS.Timeout | null;
+    decisionIds: string[];
+  };
+  const questionAutoAnswerPolicyByScope = new Map<string, QuestionAutoAnswerPolicy>();
+  const pendingQuestionAutoAnswerByScope = new Map<string, PendingQuestionAutoAnswer>();
+
+  const QUESTION_AUTO_ANSWER_DEFAULT_TIMEOUT_SECONDS = readBudgetEnvNumber(
+    "ORGX_QUESTION_AUTO_ANSWER_TIMEOUT_SEC",
+    readBudgetEnvNumber("ORGX_QUESTION_AUTO_ANSWER_DELAY_SECONDS", 60, {
+      min: 1,
+      max: 900,
+    }),
+    { min: 1, max: 3600 }
+  );
+  const QUESTION_AUTO_ANSWER_DEFAULT_ENABLED =
+    String(process.env.ORGX_QUESTION_AUTO_ANSWER_ENABLED ?? "true")
+      .trim()
+      .toLowerCase() !== "false";
+  const QUESTION_AUTO_ANSWER_DEFAULT_MODE: QuestionAutoAnswerPolicyMode =
+    String(process.env.ORGX_QUESTION_AUTO_ANSWER_POLICY ?? "contextual")
+      .trim()
+      .toLowerCase() === "approve_non_blocking"
+      ? "approve_non_blocking"
+      : String(process.env.ORGX_QUESTION_AUTO_ANSWER_POLICY ?? "contextual")
+            .trim()
+            .toLowerCase() === "defer_non_blocking"
+        ? "defer_non_blocking"
+        : "contextual";
+  const QUESTION_BLOCKING_BEHAVIOR_DEFAULT: QuestionBlockingBehavior =
+    String(process.env.ORGX_QUESTION_BLOCKING_BEHAVIOR ?? "require_human")
+      .trim()
+      .toLowerCase() === "guarded_auto_resolve_then_human"
+      ? "guarded_auto_resolve_then_human"
+      : "require_human";
+  const QUESTION_AUTO_ANSWER_DEFAULT_ACTION: QuestionAutoAnswerAction =
+    String(process.env.ORGX_QUESTION_AUTO_ANSWER_ACTION ?? "approve")
+      .trim()
+      .toLowerCase() === "reject"
+      ? "reject"
+      : "approve";
+  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
   /** Spread into any metadata object to flag mock-worker activity. */
   function mockMeta(slice: { isMockWorker: boolean }): Record<string, unknown> {
     return slice.isMockWorker ? { mock: true } : {};
   }
+  function normalizeRuntimeSourceClient(value: unknown): RuntimeSourceClient {
+    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!normalized) return "unknown";
+    if (normalized === "codex") return "codex";
+    if (normalized === "claude-code" || normalized === "claude_code") return "claude-code";
+    if (normalized === "openclaw") return "openclaw";
+    if (normalized === "api") return "api";
+    return "unknown";
+  }
+
+  const normalizeQuestionAutoAnswerPolicy = (
+    runtimeSettings: KickoffContext["runtime_settings"] | null | undefined
+  ): QuestionAutoAnswerPolicy => {
+    const workspaceDefaults =
+      runtimeSettings?.workspace_question_defaults &&
+      typeof runtimeSettings.workspace_question_defaults === "object"
+        ? runtimeSettings.workspace_question_defaults
+        : null;
+    const enabledRaw = runtimeSettings?.question_auto_answer_enabled;
+    const timeoutRaw =
+      runtimeSettings?.question_auto_answer_timeout_sec ??
+      runtimeSettings?.question_auto_answer_delay_seconds;
+    const workspaceTimeoutRaw =
+      workspaceDefaults?.question_auto_answer_timeout_sec ??
+      (workspaceDefaults as { question_auto_answer_delay_seconds?: unknown } | null)
+        ?.question_auto_answer_delay_seconds;
+    const actionRaw = runtimeSettings?.question_auto_answer_action;
+    const modeRaw = runtimeSettings?.question_auto_answer_policy;
+    const workspaceModeRaw = workspaceDefaults?.question_auto_answer_policy;
+    const blockingBehaviorRaw = runtimeSettings?.question_blocking_behavior;
+    const workspaceBlockingBehaviorRaw = workspaceDefaults?.question_blocking_behavior;
+    const policyVersionRaw = runtimeSettings?.question_policy_version;
+    const timeoutSeconds =
+      typeof timeoutRaw === "number" && Number.isFinite(timeoutRaw)
+        ? Math.max(1, Math.min(3600, Math.floor(timeoutRaw)))
+        : typeof workspaceTimeoutRaw === "number" && Number.isFinite(workspaceTimeoutRaw)
+          ? Math.max(1, Math.min(3600, Math.floor(workspaceTimeoutRaw)))
+          : QUESTION_AUTO_ANSWER_DEFAULT_TIMEOUT_SECONDS;
+    const mode: QuestionAutoAnswerPolicyMode =
+      modeRaw === "approve_non_blocking" ||
+      modeRaw === "defer_non_blocking" ||
+      modeRaw === "contextual"
+        ? modeRaw
+        : workspaceModeRaw === "approve_non_blocking" ||
+            workspaceModeRaw === "defer_non_blocking" ||
+            workspaceModeRaw === "contextual"
+          ? workspaceModeRaw
+          : QUESTION_AUTO_ANSWER_DEFAULT_MODE;
+    const action: QuestionAutoAnswerAction =
+      actionRaw === "reject" || actionRaw === "approve"
+        ? actionRaw
+        : mode === "defer_non_blocking"
+          ? "reject"
+          : QUESTION_AUTO_ANSWER_DEFAULT_ACTION;
+    const blockingBehavior: QuestionBlockingBehavior =
+      blockingBehaviorRaw === "guarded_auto_resolve_then_human" ||
+      blockingBehaviorRaw === "require_human"
+        ? blockingBehaviorRaw
+        : workspaceBlockingBehaviorRaw === "guarded_auto_resolve_then_human" ||
+            workspaceBlockingBehaviorRaw === "require_human"
+          ? workspaceBlockingBehaviorRaw
+          : QUESTION_BLOCKING_BEHAVIOR_DEFAULT;
+    const enabled =
+      typeof enabledRaw === "boolean"
+        ? enabledRaw
+        : typeof workspaceDefaults?.question_auto_answer_enabled === "boolean"
+          ? workspaceDefaults.question_auto_answer_enabled
+        : QUESTION_AUTO_ANSWER_DEFAULT_ENABLED;
+    const policyVersion =
+      typeof policyVersionRaw === "number" && Number.isFinite(policyVersionRaw)
+        ? Math.max(1, Math.min(10, Math.floor(policyVersionRaw)))
+        : 1;
+    return {
+      enabled,
+      timeoutSeconds,
+      mode,
+      action,
+      blockingBehavior,
+      policyVersion,
+    };
+  };
+
+  const questionScopeKey = (
+    initiativeId: string | null | undefined,
+    workstreamId: string | null | undefined
+  ): string => {
+    const normalizedInitiativeId = (initiativeId ?? "").trim() || "unknown_initiative";
+    const normalizedWorkstreamId = (workstreamId ?? "").trim() || "all_workstreams";
+    return `${normalizedInitiativeId}::${normalizedWorkstreamId}`;
+  };
+
+  const resolveQuestionPolicy = (
+    initiativeId: string | null | undefined,
+    workstreamId: string | null | undefined
+  ): QuestionAutoAnswerPolicy => {
+    const scoped = questionAutoAnswerPolicyByScope.get(
+      questionScopeKey(initiativeId, workstreamId)
+    );
+    if (scoped) return scoped;
+    const initiativeWide = questionAutoAnswerPolicyByScope.get(
+      questionScopeKey(initiativeId, null)
+    );
+    if (initiativeWide) return initiativeWide;
+    return {
+      enabled: QUESTION_AUTO_ANSWER_DEFAULT_ENABLED,
+      timeoutSeconds: QUESTION_AUTO_ANSWER_DEFAULT_TIMEOUT_SECONDS,
+      mode: QUESTION_AUTO_ANSWER_DEFAULT_MODE,
+      action: QUESTION_AUTO_ANSWER_DEFAULT_ACTION,
+      blockingBehavior: QUESTION_BLOCKING_BEHAVIOR_DEFAULT,
+      policyVersion: 1,
+    };
+  };
+
+  const clearQuestionAutoAnswerStateForInitiative = (
+    initiativeId: string | null | undefined
+  ): void => {
+    const normalizedInitiativeId = (initiativeId ?? "").trim();
+    if (!normalizedInitiativeId) return;
+    for (const [key, pending] of pendingQuestionAutoAnswerByScope.entries()) {
+      if ((pending.initiativeId ?? "").trim() !== normalizedInitiativeId) continue;
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+      pendingQuestionAutoAnswerByScope.delete(key);
+    }
+  };
+
+  const processQuestionAutoAnswer = async (
+    key: string,
+    pending: PendingQuestionAutoAnswer
+  ): Promise<void> => {
+    pendingQuestionAutoAnswerByScope.delete(key);
+    const note =
+      pending.action === "approve"
+        ? "Auto-approved after timeout: no human answer received within configured delay."
+        : "Auto-rejected after timeout: no human answer received within configured delay.";
+    const decisionIds = pending.decisionIds;
+    if (decisionIds.length === 0) {
+      return;
+    }
+    await emitActivitySafe({
+      initiativeId: pending.initiativeId,
+      runId: pending.sourceRunId,
+      correlationId: pending.sourceRunId,
+      phase: "review",
+      level: "info",
+      progressPct: 0,
+      nextStep: "Applying question answer policy to unresolved items.",
+      message: "Question auto-answered after timeout; applying decision updates.",
+      metadata: {
+        event: "question_auto_answered",
+        action_type: normalizeActivityActionType("question_auto_answered"),
+        action_phase: normalizeActivityActionPhase("review"),
+        initiative_id: pending.initiativeId,
+        workstream_id: pending.workstreamId,
+        source_run_id: pending.sourceRunId,
+        source_client: pending.sourceClient,
+        decision_ids: decisionIds,
+        decision_count: decisionIds.length,
+        decision_action: pending.action,
+        timeout_seconds_applied: pending.timeoutSeconds,
+      },
+    });
+    let applied = 0;
+    let failed = 0;
+    const failures: Array<{ id: string; error: string }> = [];
+    for (const decisionId of decisionIds) {
+      try {
+        await client.decideDecision(decisionId, pending.action, { note });
+        applied += 1;
+      } catch (err: unknown) {
+        failed += 1;
+        failures.push({
+          id: decisionId,
+          error: safeErrorMessage(err),
+        });
+      }
+    }
+    await emitActivitySafe({
+      initiativeId: pending.initiativeId,
+      runId: pending.sourceRunId,
+      correlationId: pending.sourceRunId,
+      phase: failed > 0 ? "blocked" : "review",
+      level: failed > 0 ? "warn" : "info",
+      progressPct: 100,
+      nextStep:
+        failed > 0
+          ? "Review failed auto-answer decisions and resolve manually."
+          : "Decision queue was auto-resolved; run can continue.",
+      message:
+        failed > 0
+          ? `Question answers processed (${applied} applied, ${failed} failed).`
+          : `Question answer ${pending.action} applied to ${applied} queued items.`,
+      metadata: {
+        event: failed > 0 ? "question_answer_failed" : "question_answer_applied",
+        action_type: normalizeActivityActionType(
+          failed > 0 ? "question_answer_failed" : "question_answer_applied"
+        ),
+        action_phase: normalizeActivityActionPhase(
+          failed > 0 ? "blocked" : "review"
+        ),
+        initiative_id: pending.initiativeId,
+        workstream_id: pending.workstreamId,
+        source_run_id: pending.sourceRunId,
+        source_client: pending.sourceClient,
+        question_policy_mode: pending.mode,
+        question_policy_version: pending.policyVersion,
+        decision_action: pending.action,
+        decision_ids: decisionIds,
+        decision_count: decisionIds.length,
+        applied_count: applied,
+        failed_count: failed,
+        resolution_source: "policy_timeout",
+        timeout_seconds_applied: pending.timeoutSeconds,
+        failures,
+      },
+    });
+  };
+
+  const armQuestionAutoAnswerTimer = (
+    key: string,
+    pending: PendingQuestionAutoAnswer,
+    delaySeconds: number
+  ): void => {
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+    }
+    pending.timer = setTimeout(() => {
+      void (async () => {
+        try {
+          await emitActivitySafe({
+            initiativeId: pending.initiativeId,
+            runId: pending.sourceRunId,
+            correlationId: pending.sourceRunId,
+            phase: "review",
+            level: "info",
+            progressPct: 100,
+            nextStep: "Applying configured decision action sequentially.",
+            message: "Question timeout reached; applying auto-answer policy.",
+            metadata: {
+              event: "question_timeout_started",
+              action_type: normalizeActivityActionType("question_timeout_started"),
+              action_phase: normalizeActivityActionPhase("review"),
+              initiative_id: pending.initiativeId,
+              workstream_id: pending.workstreamId,
+              source_run_id: pending.sourceRunId,
+              source_client: pending.sourceClient,
+              decision_ids: pending.decisionIds,
+              decision_count: pending.decisionIds.length,
+              decision_action: pending.action,
+              question_policy_mode: pending.mode,
+              question_policy_version: pending.policyVersion,
+              timeout_seconds_applied: pending.timeoutSeconds,
+            },
+          });
+          await processQuestionAutoAnswer(key, pending);
+        } catch (err: unknown) {
+          await emitActivitySafe({
+            initiativeId: pending.initiativeId,
+            runId: pending.sourceRunId,
+            correlationId: pending.sourceRunId,
+            phase: "blocked",
+            level: "warn",
+            progressPct: 100,
+            nextStep: "Review and resolve the queued question manually.",
+            message: "Question auto-answer failed before apply.",
+            metadata: {
+              event: "question_answer_failed",
+              action_type: normalizeActivityActionType("question_answer_failed"),
+              action_phase: normalizeActivityActionPhase("blocked"),
+              initiative_id: pending.initiativeId,
+              workstream_id: pending.workstreamId,
+              source_run_id: pending.sourceRunId,
+              source_client: pending.sourceClient,
+              decision_ids: pending.decisionIds,
+              decision_count: pending.decisionIds.length,
+              decision_action: pending.action,
+              failed_count: pending.decisionIds.length,
+              resolution_source: "policy_timeout",
+              timeout_seconds_applied: pending.timeoutSeconds,
+              question_policy_mode: pending.mode,
+              question_policy_version: pending.policyVersion,
+              error: safeErrorMessage(err),
+            },
+          });
+        }
+      })();
+    }, delaySeconds * 1_000);
+    pending.timer.unref?.();
+  };
+
+  const scheduleQuestionAutoAnswer = async (input: {
+    initiativeId: string | null;
+    workstreamId: string | null;
+    sourceRunId: string | null;
+    sourceClient: RuntimeSourceClient;
+    decisionIds: string[];
+    blocking: boolean;
+    reason: string | null;
+  }): Promise<void> => {
+    const decisionIds = dedupeStrings(
+      input.decisionIds
+        .map((entry) => (entry ?? "").trim())
+        .filter(Boolean)
+    );
+    if (decisionIds.length === 0) return;
+    const policy = resolveQuestionPolicy(input.initiativeId, input.workstreamId);
+    await emitActivitySafe({
+      initiativeId: input.initiativeId,
+      runId: input.sourceRunId,
+      correlationId: input.sourceRunId,
+      phase: "review",
+      level: "info",
+      progressPct: 0,
+      nextStep: input.blocking
+        ? "Blocking question requires human review."
+        : `Auto-answer in ${policy.timeoutSeconds}s unless human responds.`,
+      message: input.blocking
+        ? "Blocking question surfaced for human decision."
+        : "Question surfaced and queued for timeout policy.",
+      metadata: {
+        event: "question_asked",
+        action_type: normalizeActivityActionType("question_asked"),
+        action_phase: normalizeActivityActionPhase("review"),
+        initiative_id: input.initiativeId,
+        workstream_id: input.workstreamId,
+        source_run_id: input.sourceRunId,
+        source_client: input.sourceClient,
+        decision_ids: decisionIds,
+        decision_count: decisionIds.length,
+        blocking: input.blocking,
+        question_policy_mode: policy.mode,
+        question_policy_version: policy.policyVersion,
+        timeout_seconds_applied: policy.timeoutSeconds,
+      },
+    });
+    if (input.blocking) {
+      await emitActivitySafe({
+        initiativeId: input.initiativeId,
+        runId: input.sourceRunId,
+        correlationId: input.sourceRunId,
+        phase: "blocked",
+        level: "info",
+        progressPct: 0,
+        nextStep:
+          policy.blockingBehavior === "guarded_auto_resolve_then_human" &&
+          decisionAutoResolveGuardedEnabled
+            ? "Awaiting guarded remediation and/or human decision."
+            : "Awaiting human decision response.",
+        message:
+          policy.blockingBehavior === "guarded_auto_resolve_then_human" &&
+          decisionAutoResolveGuardedEnabled
+            ? "Blocking question requires human decision after guarded remediation."
+            : "Blocking question requires human decision.",
+        metadata: {
+          event: "review_item_created",
+          action_type: normalizeActivityActionType("review_item_created"),
+          action_phase: normalizeActivityActionPhase("blocked"),
+          initiative_id: input.initiativeId,
+          workstream_id: input.workstreamId,
+          source_run_id: input.sourceRunId,
+          source_client: input.sourceClient,
+          decision_ids: decisionIds,
+          decision_count: decisionIds.length,
+          blocking: true,
+          reason: "blocking_question_requires_human",
+          question_policy_mode: policy.mode,
+          question_policy_version: policy.policyVersion,
+          question_blocking_behavior: policy.blockingBehavior,
+        },
+      });
+      return;
+    }
+    if (!policy.enabled) {
+      await emitActivitySafe({
+        initiativeId: input.initiativeId,
+        runId: input.sourceRunId,
+        correlationId: input.sourceRunId,
+        phase: "review",
+        level: "info",
+        progressPct: 0,
+        nextStep: "Awaiting human decision response.",
+        message: "Question auto-answer is disabled for this agent policy.",
+        metadata: {
+          event: "review_item_created",
+          action_type: normalizeActivityActionType("review_item_created"),
+          action_phase: normalizeActivityActionPhase("review"),
+          initiative_id: input.initiativeId,
+          workstream_id: input.workstreamId,
+          source_run_id: input.sourceRunId,
+          source_client: input.sourceClient,
+          decision_ids: decisionIds,
+          reason: "policy_disabled",
+          question_policy_mode: policy.mode,
+          question_policy_version: policy.policyVersion,
+        },
+      });
+      return;
+    }
+    const key = questionScopeKey(input.initiativeId, input.workstreamId);
+    const dueAtEpoch = Date.now() + policy.timeoutSeconds * 1_000;
+    const existing = pendingQuestionAutoAnswerByScope.get(key);
+    if (existing) {
+      existing.decisionIds = dedupeStrings([...existing.decisionIds, ...decisionIds]);
+      existing.sourceRunId = input.sourceRunId ?? existing.sourceRunId;
+      existing.sourceClient = input.sourceClient || existing.sourceClient;
+      existing.action = policy.action;
+      existing.mode = policy.mode;
+      existing.policyVersion = policy.policyVersion;
+      existing.timeoutSeconds = policy.timeoutSeconds;
+      existing.dueAt = new Date(dueAtEpoch).toISOString();
+      armQuestionAutoAnswerTimer(key, existing, policy.timeoutSeconds);
+      await emitActivitySafe({
+        initiativeId: input.initiativeId,
+        runId: input.sourceRunId,
+        correlationId: input.sourceRunId,
+        phase: "review",
+        level: "info",
+        progressPct: 0,
+        nextStep: `Auto-answer in ${policy.timeoutSeconds}s unless human responds.`,
+        message: "Extended timeout for queued unanswered decision(s).",
+        metadata: {
+          event: "question_timeout_started",
+          action_type: normalizeActivityActionType("question_timeout_started"),
+          action_phase: normalizeActivityActionPhase("review"),
+          initiative_id: input.initiativeId,
+          workstream_id: input.workstreamId,
+          source_run_id: input.sourceRunId,
+          source_client: input.sourceClient,
+          decision_ids: existing.decisionIds,
+          decision_count: existing.decisionIds.length,
+          decision_action: existing.action,
+          timeout_seconds_applied: policy.timeoutSeconds,
+          question_policy_mode: policy.mode,
+          question_policy_version: policy.policyVersion,
+          due_at: existing.dueAt,
+          reason: input.reason,
+        },
+      });
+      return;
+    }
+    const pending: PendingQuestionAutoAnswer = {
+      key,
+      initiativeId: input.initiativeId ?? "",
+      workstreamId: input.workstreamId ?? null,
+      sourceRunId: input.sourceRunId ?? null,
+      sourceClient: input.sourceClient,
+      action: policy.action,
+      mode: policy.mode,
+      policyVersion: policy.policyVersion,
+      timeoutSeconds: policy.timeoutSeconds,
+      dueAt: new Date(dueAtEpoch).toISOString(),
+      timer: null,
+      decisionIds,
+    };
+    armQuestionAutoAnswerTimer(key, pending, policy.timeoutSeconds);
+    pendingQuestionAutoAnswerByScope.set(key, pending);
+    await emitActivitySafe({
+      initiativeId: input.initiativeId,
+      runId: input.sourceRunId,
+      correlationId: input.sourceRunId,
+      phase: "review",
+      level: "info",
+      progressPct: 0,
+      nextStep: `Auto-answer in ${policy.timeoutSeconds}s unless human responds.`,
+      message: "Queued unanswered decision(s) for timeout auto-answer.",
+      metadata: {
+        event: "question_timeout_started",
+        action_type: normalizeActivityActionType("question_timeout_started"),
+        action_phase: normalizeActivityActionPhase("review"),
+        initiative_id: input.initiativeId,
+        workstream_id: input.workstreamId,
+        source_run_id: input.sourceRunId,
+        source_client: input.sourceClient,
+        decision_ids: decisionIds,
+        decision_count: decisionIds.length,
+        decision_action: policy.action,
+        timeout_seconds_applied: policy.timeoutSeconds,
+        question_policy_mode: policy.mode,
+        question_policy_version: policy.policyVersion,
+        due_at: pending.dueAt,
+        reason: input.reason,
+      },
+    });
+  };
+
   type DecisionRequestOutcome = { queued: boolean; decisionIds: string[] };
   const requestDecisionQueued = async (
     input: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0]
   ): Promise<DecisionRequestOutcome> => {
+    const asRecord = (value: unknown): Record<string, unknown> | null => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      return value as Record<string, unknown>;
+    };
+    const normalizeId = (value: unknown): string | null => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+    const normalizeLower = (value: unknown): string => {
+      if (typeof value !== "string") return "";
+      return value.trim().toLowerCase();
+    };
+    const recoverQueuedDecisionIds = async (recoverInput: {
+      title: string;
+      sourceRunId: string | null;
+      workstreamId: string | null;
+    }): Promise<string[]> => {
+      try {
+        const pending = await client.getLiveDecisions({ status: "pending", limit: 100 });
+        const rows = Array.isArray(pending?.decisions) ? pending.decisions : [];
+        const wantedTitle = normalizeLower(recoverInput.title);
+        const wantedRunId = normalizeLower(recoverInput.sourceRunId ?? "");
+        const wantedWorkstreamId = normalizeLower(recoverInput.workstreamId ?? "");
+        const recentThreshold = Date.now() - 10 * 60 * 1_000;
+        const ids: string[] = [];
+        const seen = new Set<string>();
+        for (const row of rows) {
+          const record = asRecord(row);
+          if (!record) continue;
+          const id =
+            normalizeId(record.id) ??
+            normalizeId(record.entity_id) ??
+            normalizeId(record.decision_id);
+          if (!id || seen.has(id)) continue;
+          const metadata = asRecord(record.metadata);
+          const sourceRef =
+            asRecord(record.source_ref) ?? asRecord(metadata?.source_ref);
+          const rowWorkstreamId =
+            normalizeLower(record.workstream_id) ||
+            normalizeLower(record.workstreamId) ||
+            normalizeLower(metadata?.source_stream_id) ||
+            normalizeLower(sourceRef?.workstream_id) ||
+            normalizeLower(sourceRef?.stream_id);
+          const rowRunId =
+            normalizeLower(record.source_run_id) ||
+            normalizeLower(record.sourceRunId) ||
+            normalizeLower(metadata?.run_id) ||
+            normalizeLower(metadata?.correlation_id) ||
+            normalizeLower(sourceRef?.run_id);
+          const rowTitle =
+            normalizeLower(record.title) || normalizeLower(metadata?.title);
+          const updatedAtRaw =
+            normalizeId(record.updated_at) ?? normalizeId(record.created_at);
+          const updatedAtEpoch = updatedAtRaw ? Date.parse(updatedAtRaw) : NaN;
+          const recentEnough =
+            !Number.isFinite(updatedAtEpoch) || updatedAtEpoch >= recentThreshold;
+          const workstreamMatches =
+            !wantedWorkstreamId || rowWorkstreamId === wantedWorkstreamId;
+          const runMatches = Boolean(wantedRunId) && rowRunId === wantedRunId;
+          const titleMatches = Boolean(wantedTitle) && rowTitle === wantedTitle;
+          if (!workstreamMatches) continue;
+          if (!(runMatches || (titleMatches && recentEnough))) continue;
+          seen.add(id);
+          ids.push(id);
+        }
+        return ids;
+      } catch {
+        return [];
+      }
+    };
     const inferredRunId =
       (typeof input.sourceRunId === "string" && input.sourceRunId.trim().length > 0
         ? input.sourceRunId.trim()
@@ -237,6 +862,22 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       input.sourceRef && typeof input.sourceRef === "object" && !Array.isArray(input.sourceRef)
         ? (input.sourceRef as Record<string, unknown>)
         : {};
+    const metadataBase =
+      input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
+        ? (input.metadata as Record<string, unknown>)
+        : {};
+    const metadataSourceClient =
+      (typeof metadataBase.source_client === "string" && metadataBase.source_client.trim().length > 0
+        ? metadataBase.source_client.trim()
+        : null) ??
+      (typeof metadataBase.sourceClient === "string" && metadataBase.sourceClient.trim().length > 0
+        ? metadataBase.sourceClient.trim()
+        : null);
+    const inferredSourceClient = normalizeRuntimeSourceClient(
+      metadataSourceClient ??
+        process.env.ORGX_AUTOPILOT_EXECUTOR ??
+        process.env.ORGX_AUTOPILOT_WORKER_KIND
+    );
     const normalizedInput: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0] = {
       ...input,
       sourceRunId: inferredRunId,
@@ -248,25 +889,71 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         session_id: sourceRefBase.session_id ?? inferredSessionId,
         stream_id: sourceRefBase.stream_id ?? inferredStreamId,
         workstream_id: sourceRefBase.workstream_id ?? input.workstreamId ?? null,
+        source_client:
+          sourceRefBase.source_client ??
+          sourceRefBase.sourceClient ??
+          inferredSourceClient,
       },
       metadata: {
-        ...(input.metadata ?? {}),
+        ...metadataBase,
         source_system: input.sourceSystem ?? null,
         conflict_source: input.conflictSource ?? null,
+        source_client:
+          metadataBase.source_client ??
+          metadataBase.sourceClient ??
+          inferredSourceClient,
       },
     };
+    const linkedSlice = inferredRunId ? autoContinueSliceRuns.get(inferredRunId) ?? null : null;
+    const sourceClientFromInput =
+      typeof normalizedInput.metadata?.source_client === "string"
+        ? (normalizedInput.metadata.source_client as RuntimeSourceClient)
+        : null;
+    const sourceClient =
+      sourceClientFromInput ??
+      linkedSlice?.sourceClient ??
+      "unknown";
+    const scopedWorkstreamId =
+      ((typeof normalizedInput.workstreamId === "string" &&
+        normalizedInput.workstreamId.trim().length > 0
+        ? normalizedInput.workstreamId.trim()
+        : null) ??
+        inferredStreamId ??
+        linkedSlice?.workstreamId ??
+        null);
     const result = await requestDecisionSafe(normalizedInput);
     if (typeof result === "boolean") {
       return { queued: result, decisionIds: [] };
     }
     if (result && typeof result === "object" && "queued" in result) {
       const record = result as { queued?: unknown; decisionIds?: unknown };
-      const decisionIds = Array.isArray(record.decisionIds)
+      let decisionIds = Array.isArray(record.decisionIds)
         ? record.decisionIds
             .filter((entry): entry is string => typeof entry === "string")
             .map((entry) => entry.trim())
             .filter(Boolean)
         : [];
+      if (Boolean(record.queued) && decisionIds.length === 0) {
+        decisionIds = await recoverQueuedDecisionIds({
+          title: normalizedInput.title,
+          sourceRunId: inferredRunId,
+          workstreamId: scopedWorkstreamId,
+        });
+      }
+      if (Boolean(record.queued) && decisionIds.length > 0) {
+        await scheduleQuestionAutoAnswer({
+          initiativeId: normalizedInput.initiativeId,
+          workstreamId: scopedWorkstreamId,
+          sourceRunId: inferredRunId,
+          sourceClient,
+          decisionIds,
+          blocking: Boolean(normalizedInput.blocking),
+          reason:
+            typeof normalizedInput.conflictSource === "string"
+              ? normalizedInput.conflictSource
+              : null,
+        });
+      }
       return {
         queued: Boolean(record.queued),
         decisionIds,
@@ -533,6 +1220,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       if (eventName.includes("status_updates_buffered")) return "status_updates_buffered";
       if (eventName.includes("status_updates")) return "status_updates_applied";
       if (eventName.includes("artifact_registered")) return "artifact_registered";
+      if (eventName.includes("question_asked")) return "question_asked";
+      if (eventName.includes("question_timeout_started")) return "question_timeout_started";
+      if (eventName.includes("question_auto_answered")) return "question_auto_answered";
+      if (eventName.includes("question_answer_applied")) return "question_answer_applied";
+      if (eventName.includes("question_answer_failed")) return "question_answer_failed";
+      if (eventName.includes("review_item_created")) return "review_item_created";
+      if (eventName.includes("review_item_resolved")) return "review_item_resolved";
       if (eventName.includes("decision_requested")) return "decision_requested";
       if (eventName.includes("decision_resolved")) return "decision_resolved";
       if (eventName === "auto_continue_started") return "auto_continue_started";
@@ -600,6 +1294,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       run_id: input.slice?.runId ?? null,
       slice_run_id: input.slice?.runId ?? null,
       correlation_id: input.slice?.runId ?? null,
+      source_client: input.slice?.sourceClient ?? "unknown",
+      runtime_client: input.slice?.sourceClient ?? "unknown",
       workstream_id: workstreamId,
       workstream_title: input.workstreamTitle ?? input.slice?.workstreamTitle ?? null,
       task_id: taskId,
@@ -638,7 +1334,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     };
   };
 
-	  const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
 	  // Keep child handles alive so stdout/stderr capture remains reliable even when the process is detached.
 	  const autoContinueSliceChildren = new Map<string, ChildProcess>();
 	  const autoContinueSliceLastHeartbeatMs = new Map<string, number>();
@@ -1238,6 +1933,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     decisionRequired?: boolean;
     decisionIds?: string[];
   }): Promise<void> {
+    const decisionRequired = input.reason === "blocked" && input.decisionRequired === true;
+    const decisionIds = Array.isArray(input.decisionIds)
+      ? input.decisionIds
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [];
+    const preserveQuestionAutoAnswerState =
+      input.reason === "blocked" && decisionRequired && decisionIds.length > 0;
     const now = new Date().toISOString();
     ensureRunInternals(input.run);
     const activeRunIds = listActiveSliceRunIds(input.run);
@@ -1263,6 +1967,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
     if (input.error) input.run.lastError = input.error;
     clearSpawnGuardRetryStateForInitiative(input.run.initiativeId);
+    if (!preserveQuestionAutoAnswerState) {
+      clearQuestionAutoAnswerStateForInitiative(input.run.initiativeId);
+    }
     for (const runId of activeRunIds) {
       clearAutoContinueSliceTransientState(runId);
     }
@@ -1294,13 +2001,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         ? input.run.allowedWorkstreamIds[0]
         : null;
     const scopeSuffix = scopedWorkstreamId ? ` [workstream ${scopedWorkstreamId}]` : "";
-    const decisionRequired = input.reason === "blocked" && input.decisionRequired === true;
-    const decisionIds = Array.isArray(input.decisionIds)
-      ? input.decisionIds
-          .filter((entry): entry is string => typeof entry === "string")
-          .map((entry) => entry.trim())
-          .filter(Boolean)
-      : [];
     const budgetValue =
       typeof input.run.tokenBudget === "number" ? input.run.tokenBudget : "unbounded";
     const message =
@@ -1811,16 +2511,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           );
         };
         const decisions = allDecisions.filter((item) => !isParserSyntheticFallbackDecision(item));
-        const blockingDecisionCount = decisions.filter(
+        const normalizedBlockingDecisionCount = allDecisions.filter(
           (item) => typeof item.blocking === "boolean" ? item.blocking : defaultDecisionBlocking
         ).length;
-        const nonBlockingDecisionCount = Math.max(0, decisions.length - blockingDecisionCount);
+        const normalizedNonBlockingDecisionCount = Math.max(
+          0,
+          allDecisions.length - normalizedBlockingDecisionCount
+        );
         const effectiveParsedStatus =
-          parsedStatus === "completed" && blockingDecisionCount > 0
+          parsedStatus === "completed" && normalizedBlockingDecisionCount > 0
             ? "needs_decision"
-            : parsedStatus === "needs_decision" && blockingDecisionCount === 0
-              ? "completed"
-              : parsedStatus;
+            : parsedStatus;
 
         slice.status =
           effectiveParsedStatus === "completed"
@@ -2131,9 +2832,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               requested_by_agent_name: run.agentName,
               status: effectiveParsedStatus,
               artifacts: artifacts.length,
-              decisions: decisions.length,
-              blocking_decisions: blockingDecisionCount,
-              non_blocking_decisions: nonBlockingDecisionCount,
+              decisions: allDecisions.length,
+              blocking_decisions: normalizedBlockingDecisionCount,
+              non_blocking_decisions: normalizedNonBlockingDecisionCount,
               status_updates: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
             reported_skill_evidence_count: skillEvidence.length,
@@ -2227,13 +2928,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             parsed_status: effectiveParsedStatus,
             has_output: Boolean(parsed),
             artifacts: artifacts.length,
-            decisions: decisions.length,
-            blocking_decisions: blockingDecisionCount,
-            non_blocking_decisions: nonBlockingDecisionCount,
+            decisions: allDecisions.length,
+            blocking_decisions: normalizedBlockingDecisionCount,
+            non_blocking_decisions: normalizedNonBlockingDecisionCount,
             decision_ids: decisionIds,
             blocking_decision_ids: Array.from(new Set(blockingDecisionIds)),
             non_blocking_decision_ids: Array.from(new Set(nonBlockingDecisionIds)),
-            decision_required: blockingDecisionQueued,
+            decision_required:
+              blockingDecisionQueued || effectiveParsedStatus === "needs_decision",
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
             reported_skill_evidence_count: skillEvidence.length,
@@ -3383,6 +4085,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     // Try server KickoffContext (includes team context, acceptance criteria, etc.)
     let prompt: string;
     let kickoffContextHash: string | null = null;
+    let kickoffRuntimeSettings: KickoffContext["runtime_settings"] | null = null;
     if (fetchKickoffContextSafeFn && renderKickoffMessageFn) {
       let kickoff: KickoffContext | null = null;
       try {
@@ -3399,6 +4102,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       }
 
       if (kickoff) {
+        kickoffRuntimeSettings = kickoff.runtime_settings ?? null;
         const rendered = renderKickoffMessageFn({
           baseMessage: `Execute workstream slice for ${workstreamTitle ?? selectedWorkstreamId}`,
           kickoff,
@@ -3442,6 +4146,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         schemaPath,
       });
     }
+
+    questionAutoAnswerPolicyByScope.set(
+      questionScopeKey(run.initiativeId, selectedWorkstreamId),
+      normalizeQuestionAutoAnswerPolicy(kickoffRuntimeSettings)
+    );
 
     // Append per-scope directive for milestone/workstream scopes.
     if (run.scope !== "task") {
@@ -3906,14 +4615,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             if (decisionIsBlocking(record)) continue;
             const autoApprovalNote =
               "Auto-approved by OrgX auto-fix (non-blocking follow-up decision).";
+            const autoApprovalSourceClient = normalizeRuntimeSourceClient(
+              process.env.ORGX_AUTOPILOT_EXECUTOR ?? process.env.ORGX_AUTOPILOT_WORKER_KIND
+            );
             if (typeof (client as { decideDecision?: unknown }).decideDecision === "function") {
               await (client as {
                 decideDecision: (
                   id: string,
                   action: "approve" | "reject",
-                  input?: { note?: string }
+                  input?: { note?: string; source_client?: string; sourceClient?: string }
                 ) => Promise<unknown>;
-              }).decideDecision(decisionId, "approve", { note: autoApprovalNote });
+              }).decideDecision(decisionId, "approve", {
+                note: autoApprovalNote,
+                source_client: autoApprovalSourceClient,
+                sourceClient: autoApprovalSourceClient,
+              });
             } else {
               await client.updateEntity("decision", decisionId, {
                 status: "approved",

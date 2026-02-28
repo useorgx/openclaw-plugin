@@ -573,6 +573,16 @@ export interface AgentRuntimeSettings {
   decisionDedupeEnabled: boolean;
   decisionEvidenceRequiredForBlocking: boolean;
   decisionAutoResolveGuardedEnabled: boolean;
+  questionAutoAnswerEnabled: boolean;
+  questionAutoAnswerTimeoutSec: number;
+  questionAutoAnswerPolicy:
+    | 'contextual'
+    | 'approve_non_blocking'
+    | 'defer_non_blocking';
+  questionBlockingBehavior: 'require_human' | 'guarded_auto_resolve_then_human';
+  questionPolicyVersion: number;
+  questionAutoAnswerDelaySeconds: number;
+  questionAutoAnswerAction: 'approve' | 'reject';
   customRunInstructions: string;
 }
 

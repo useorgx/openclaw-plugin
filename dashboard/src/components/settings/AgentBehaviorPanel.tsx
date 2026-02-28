@@ -18,6 +18,13 @@ const DEFAULT_RUNTIME_SETTINGS: AgentRuntimeSettings = {
   decisionDedupeEnabled: true,
   decisionEvidenceRequiredForBlocking: false,
   decisionAutoResolveGuardedEnabled: true,
+  questionAutoAnswerEnabled: true,
+  questionAutoAnswerTimeoutSec: 60,
+  questionAutoAnswerPolicy: 'contextual',
+  questionBlockingBehavior: 'require_human',
+  questionPolicyVersion: 1,
+  questionAutoAnswerDelaySeconds: 60,
+  questionAutoAnswerAction: 'approve',
   customRunInstructions: '',
 };
 
@@ -50,6 +57,13 @@ function settingsEqual(a: AgentRuntimeSettings, b: AgentRuntimeSettings): boolea
     a.decisionDedupeEnabled === b.decisionDedupeEnabled &&
     a.decisionEvidenceRequiredForBlocking === b.decisionEvidenceRequiredForBlocking &&
     a.decisionAutoResolveGuardedEnabled === b.decisionAutoResolveGuardedEnabled &&
+    a.questionAutoAnswerEnabled === b.questionAutoAnswerEnabled &&
+    a.questionAutoAnswerTimeoutSec === b.questionAutoAnswerTimeoutSec &&
+    a.questionAutoAnswerPolicy === b.questionAutoAnswerPolicy &&
+    a.questionBlockingBehavior === b.questionBlockingBehavior &&
+    a.questionPolicyVersion === b.questionPolicyVersion &&
+    a.questionAutoAnswerDelaySeconds === b.questionAutoAnswerDelaySeconds &&
+    a.questionAutoAnswerAction === b.questionAutoAnswerAction &&
     a.customRunInstructions.trim() === b.customRunInstructions.trim()
   );
 }
@@ -543,6 +557,88 @@ export function AgentBehaviorPanel({
                     updateActiveDraft({ decisionAutoResolveGuardedEnabled: next })
                   }
                 />
+                <RuntimeToggleRow
+                  label="Auto-answer unanswered questions"
+                  description="If no human response arrives in time, auto-resolve questions sequentially."
+                  enabled={activeDraft.questionAutoAnswerEnabled}
+                  onToggle={(next) =>
+                    updateActiveDraft({ questionAutoAnswerEnabled: next })
+                  }
+                />
+                <div className="grid gap-2 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-3 md:grid-cols-2">
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-caption font-semibold text-primary">
+                      Auto-answer timeout (seconds)
+                    </span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={3600}
+                      step={1}
+                      value={activeDraft.questionAutoAnswerTimeoutSec}
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10);
+                        const normalized = Number.isFinite(parsed)
+                          ? Math.max(10, Math.min(3600, parsed))
+                          : 60;
+                        updateActiveDraft({
+                          questionAutoAnswerTimeoutSec: normalized,
+                          questionAutoAnswerDelaySeconds: normalized,
+                        });
+                      }}
+                      className="min-h-[40px] rounded-lg border border-white/[0.12] bg-black/25 px-3 text-body text-primary outline-none transition-colors focus:border-lime/35"
+                    />
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-caption font-semibold text-primary">
+                      Auto-answer policy
+                    </span>
+                    <select
+                      value={activeDraft.questionAutoAnswerPolicy}
+                      onChange={(event) =>
+                        updateActiveDraft({
+                          questionAutoAnswerPolicy:
+                            event.target.value === 'approve_non_blocking' ||
+                            event.target.value === 'defer_non_blocking'
+                              ? event.target.value
+                              : 'contextual',
+                          // Keep legacy action field coherent for older servers.
+                          questionAutoAnswerAction:
+                            event.target.value === 'defer_non_blocking'
+                              ? 'reject'
+                              : 'approve',
+                        })
+                      }
+                      className="min-h-[40px] rounded-lg border border-white/[0.12] bg-black/25 px-3 text-body text-primary outline-none transition-colors focus:border-lime/35"
+                    >
+                      <option value="contextual">Contextual (recommended)</option>
+                      <option value="approve_non_blocking">Approve non-blocking</option>
+                      <option value="defer_non_blocking">Defer non-blocking</option>
+                    </select>
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1 md:col-span-2">
+                    <span className="text-caption font-semibold text-primary">
+                      Blocking question behavior
+                    </span>
+                    <select
+                      value={activeDraft.questionBlockingBehavior}
+                      onChange={(event) =>
+                        updateActiveDraft({
+                          questionBlockingBehavior:
+                            event.target.value === 'guarded_auto_resolve_then_human'
+                              ? 'guarded_auto_resolve_then_human'
+                              : 'require_human',
+                        })
+                      }
+                      className="min-h-[40px] rounded-lg border border-white/[0.12] bg-black/25 px-3 text-body text-primary outline-none transition-colors focus:border-lime/35"
+                    >
+                      <option value="require_human">Require human decision</option>
+                      <option value="guarded_auto_resolve_then_human">
+                        Guarded auto-resolve, then human
+                      </option>
+                    </select>
+                  </label>
+                </div>
               </div>
             </article>
 

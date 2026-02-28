@@ -132,6 +132,19 @@ export interface KickoffContext {
     decision_dedupe_enabled?: boolean;
     decision_evidence_required_for_blocking?: boolean;
     decision_auto_resolve_guarded_enabled?: boolean;
+    question_auto_answer_enabled?: boolean;
+    question_auto_answer_timeout_sec?: number;
+    question_auto_answer_policy?: "contextual" | "approve_non_blocking" | "defer_non_blocking";
+    question_blocking_behavior?: "require_human" | "guarded_auto_resolve_then_human";
+    question_policy_version?: number;
+    question_auto_answer_delay_seconds?: number;
+    question_auto_answer_action?: "approve" | "reject";
+    workspace_question_defaults?: {
+      question_auto_answer_enabled?: boolean;
+      question_auto_answer_timeout_sec?: number;
+      question_auto_answer_policy?: "contextual" | "approve_non_blocking" | "defer_non_blocking";
+      question_blocking_behavior?: "require_human" | "guarded_auto_resolve_then_human";
+    } | null;
     custom_run_instructions?: string | null;
   } | null;
 
@@ -206,6 +219,13 @@ export interface AgentRuntimeSettingsPayload {
   decision_dedupe_enabled?: boolean;
   decision_evidence_required_for_blocking?: boolean;
   decision_auto_resolve_guarded_enabled?: boolean;
+  question_auto_answer_enabled?: boolean;
+  question_auto_answer_timeout_sec?: number;
+  question_auto_answer_policy?: "contextual" | "approve_non_blocking" | "defer_non_blocking";
+  question_blocking_behavior?: "require_human" | "guarded_auto_resolve_then_human";
+  question_policy_version?: number;
+  question_auto_answer_delay_seconds?: number;
+  question_auto_answer_action?: "approve" | "reject";
   custom_run_instructions?: string | null;
 }
 

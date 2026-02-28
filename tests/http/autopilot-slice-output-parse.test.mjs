@@ -398,6 +398,20 @@ test("parseSliceResult adds blocking decision for blocked payloads without one",
   assert.equal(parsed?.decisions_needed?.[1]?.blocking, true);
 });
 
+test("parseSliceResult adds blocking decision for blocked payloads with null decisions", () => {
+  const raw = JSON.stringify(
+    sampleSliceResult({
+      status: "blocked",
+      artifacts: [{ name: "partial", artifact_type: "document" }],
+      decisions_needed: null,
+    })
+  );
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.status, "blocked");
+  assert.equal(parsed?.decisions_needed?.length, 1);
+  assert.equal(parsed?.decisions_needed?.[0]?.blocking, true);
+});
+
 test("parseSliceResult rejects invalid structured_output envelopes", () => {
   const raw = JSON.stringify({
     type: "result",
@@ -408,6 +422,18 @@ test("parseSliceResult rejects invalid structured_output envelopes", () => {
   });
   const parsed = parseSliceResult(raw);
   assert.equal(parsed, null);
+});
+
+test("parseSliceResult falls back to result when structured_output object is invalid", () => {
+  const expected = sampleSliceResult({ summary: "fallback from invalid structured_output" });
+  const raw = JSON.stringify({
+    type: "result",
+    structured_output: { status: "completed", workstream_id: "ws_test" },
+    result: JSON.stringify(expected),
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "fallback from invalid structured_output");
+  assert.equal(parsed?.status, "completed");
 });
 
 test("parseSliceResult adds blocking decision for needs_decision payloads without one in result envelopes", () => {

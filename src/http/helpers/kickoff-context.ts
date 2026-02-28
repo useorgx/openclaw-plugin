@@ -111,6 +111,38 @@ export function renderKickoffMessage(input: {
     typeof runtimeSettings.decision_auto_resolve_guarded_enabled === "boolean"
       ? `- Guarded auto-resolve: ${runtimeSettings.decision_auto_resolve_guarded_enabled ? "enabled" : "disabled"}`
       : null,
+    runtimeSettings &&
+    typeof runtimeSettings.question_auto_answer_enabled === "boolean"
+      ? `- Question auto-answer: ${runtimeSettings.question_auto_answer_enabled ? "enabled" : "disabled"}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.question_auto_answer_timeout_sec === "number"
+      ? `- Question auto-answer timeout: ${Math.max(10, Math.min(3600, Math.floor(runtimeSettings.question_auto_answer_timeout_sec)))}s`
+      : runtimeSettings &&
+        typeof runtimeSettings.question_auto_answer_delay_seconds === "number"
+      ? `- Question auto-answer delay: ${Math.max(1, Math.min(900, Math.floor(runtimeSettings.question_auto_answer_delay_seconds)))}s`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.question_auto_answer_policy === "string"
+      ? `- Question auto-answer policy: ${runtimeSettings.question_auto_answer_policy}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.question_blocking_behavior === "string"
+      ? `- Blocking question behavior: ${runtimeSettings.question_blocking_behavior}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.question_auto_answer_action === "string"
+      ? `- Question auto-answer action: ${
+          runtimeSettings.question_auto_answer_action.trim().toLowerCase() === "reject"
+            ? "reject"
+            : "approve"
+        }`
+      : null,
+    runtimeSettings &&
+    runtimeSettings.workspace_question_defaults &&
+    typeof runtimeSettings.workspace_question_defaults === "object"
+      ? "- Workspace question defaults available"
+      : null,
   ].filter((line): line is string => Boolean(line));
 
   const contextHash = kickoff.context_hash?.trim() || null;

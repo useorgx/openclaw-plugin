@@ -11,6 +11,7 @@
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=blocked_no_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision_optional
+ * - ORGX_AUTOPILOT_MOCK_SCENARIO=needs_decision_multi_optional
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_optional_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_unspecified_decision
  * - ORGX_AUTOPILOT_MOCK_SCENARIO=completed_invalid_artifact_type
@@ -200,6 +201,108 @@ async function main() {
           description: "A simulated artifact emitted by the worker.",
           url: "file://mock/artifact-optional.txt",
           verification_steps: ["Open the artifact file", "Verify contents match expected output"],
+          task_ids: taskId ? [taskId] : null,
+        },
+      ],
+      task_updates: taskId
+        ? [
+            {
+              task_id: taskId,
+              status: "done",
+              reason: "Mock worker completed the task.",
+            },
+          ]
+        : null,
+    });
+    return;
+  }
+
+  if (scenario === "needs_decision_multi_optional") {
+    emitResult({
+      status: "needs_decision",
+      summary: "Mock slice returned multiple optional questions to validate sequential auto-answer handling.",
+      workstream_id: workstreamId,
+      workstream_title: workstreamTitle,
+      slice_id: runId,
+      decisions_needed: [
+        {
+          question: "Optional: validate launch copy variant A?",
+          summary: "Follow-up review only.",
+          options: ["Review now", "Review later", "Skip"],
+          urgency: "medium",
+          blocking: false,
+        },
+        {
+          question: "Optional: validate launch copy variant B?",
+          summary: "Follow-up review only.",
+          options: ["Review now", "Review later", "Skip"],
+          urgency: "medium",
+          blocking: false,
+        },
+      ],
+      artifacts: [
+        {
+          name: "Mock multi-question deliverable",
+          artifact_type: "document",
+          confidence_score: 0.81,
+          description: "A simulated artifact emitted by the worker for multi-question validation.",
+          url: "file://mock/artifact-multi-question.txt",
+          verification_steps: [
+            "Open the artifact file",
+            "Verify contents match expected output",
+          ],
+          task_ids: taskId ? [taskId] : null,
+        },
+      ],
+      task_updates: taskId
+        ? [
+            {
+              task_id: taskId,
+              status: "done",
+              reason: "Mock worker completed the task.",
+            },
+          ]
+        : null,
+    });
+    return;
+  }
+
+  if (scenario === "completed_multi_optional_decision") {
+    emitResult({
+      status: "completed",
+      summary:
+        "Mock slice completed with multiple optional questions to validate sequential auto-answer handling.",
+      workstream_id: workstreamId,
+      workstream_title: workstreamTitle,
+      slice_id: runId,
+      decisions_needed: [
+        {
+          question: "Optional: validate launch copy variant A?",
+          summary: "Follow-up review only.",
+          options: ["Review now", "Review later", "Skip"],
+          urgency: "medium",
+          blocking: false,
+        },
+        {
+          question: "Optional: validate launch copy variant B?",
+          summary: "Follow-up review only.",
+          options: ["Review now", "Review later", "Skip"],
+          urgency: "medium",
+          blocking: false,
+        },
+      ],
+      artifacts: [
+        {
+          name: "Mock completed multi-question deliverable",
+          artifact_type: "document",
+          confidence_score: 0.81,
+          description:
+            "A simulated artifact emitted by the worker for completed multi-question validation.",
+          url: "file://mock/artifact-completed-multi-question.txt",
+          verification_steps: [
+            "Open the artifact file",
+            "Verify contents match expected output",
+          ],
           task_ids: taskId ? [taskId] : null,
         },
       ],
