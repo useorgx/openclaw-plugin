@@ -108,6 +108,35 @@ function compactOpaqueLabel(value: string | null | undefined, prefix: string): s
   return isOpaqueId(trimmed) ? `${prefix} ${humanizeId(trimmed)}` : trimmed;
 }
 
+const GENERIC_SESSION_TITLES = new Set([
+  'telegram session',
+  'codex session',
+  'claude session',
+  'claude code session',
+  'openclaw session',
+  'reporting session',
+]);
+
+const GENERIC_SUBTITLE_PATTERNS = [
+  /^session sent an update\.?$/i,
+  /^session updated\.?$/i,
+  /^status update\.?$/i,
+];
+
+function isGenericSessionTitle(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  return GENERIC_SESSION_TITLES.has(normalized) || normalized.startsWith('telegram:');
+}
+
+function isGenericSubtitle(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim();
+  if (!normalized) return false;
+  return GENERIC_SUBTITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export type InProgressRow = {
   key: string;
   source: 'slice' | 'session';
@@ -618,6 +647,11 @@ export const InProgressPanel = memo(function InProgressPanel({
                       : firstRow?.progress != null
                         ? coerceProgress(firstRow.progress)
                         : null;
+                  const workstreamHeading = sanitizeDisplayText(
+                    firstRow?.workstreamTitle && !isOpaqueId(firstRow.workstreamTitle)
+                      ? firstRow.workstreamTitle
+                      : compactOpaqueLabel(wsGroup.workstreamId, 'Workstream')
+                  );
 
                   return (
                     <div
@@ -625,9 +659,9 @@ export const InProgressPanel = memo(function InProgressPanel({
                       className="pl-4 border-l border-white/[0.08] mb-3"
                     >
                       {/* Workstream header with agent persona */}
-                      <div className="flex items-center gap-2 mb-2">
-                        {agentPersona && (
-                          <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-start gap-2 mb-2">
+                        <div className="min-w-0 flex flex-1 items-center gap-1.5">
+                          {agentPersona && (
                             <div
                               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                               style={{
@@ -637,14 +671,22 @@ export const InProgressPanel = memo(function InProgressPanel({
                             >
                               {agentPersona.name.charAt(0).toUpperCase()}
                             </div>
-                            <span
-                              className="text-[13px] font-medium truncate"
-                              style={{ color: agentPersona.color }}
-                            >
-                              {agentPersona.displayLabel}
-                            </span>
+                          )}
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-semibold text-white/88" title={workstreamHeading}>
+                              {workstreamHeading}
+                            </p>
+                            {agentPersona ? (
+                              <p
+                                className="truncate text-[11px] font-medium"
+                                style={{ color: agentPersona.color }}
+                                title={agentPersona.displayLabel}
+                              >
+                                {agentPersona.displayLabel}
+                              </p>
+                            ) : null}
                           </div>
-                        )}
+                        </div>
 
                         {/* Task position + mini progress bar */}
                         {taskPosition && (
@@ -664,12 +706,8 @@ export const InProgressPanel = memo(function InProgressPanel({
                           </div>
                         )}
 
-                        {/* Heartbeat */}
-                        {wsGroup.lastActivityAt && (
-                          <span className="font-mono tabular-nums text-[11px] text-white/40 ml-auto flex-shrink-0">
-                            {formatDistanceToNow(new Date(wsGroup.lastActivityAt), { addSuffix: true })}
-                          </span>
-                        )}
+                        {/* Workstream headers intentionally omit relative time to avoid duplicate cadence signals.
+                            The active row card carries the canonical "last updated" stamp. */}
                       </div>
 
                       {/* Active rows */}
@@ -822,7 +860,11 @@ function InProgressRowCard({
             : compactOpaqueLabel(row.initiativeId, 'Initiative')
         )
       : null;
-  const rowTitleRaw = row.title?.trim() ? row.title : row.workstreamTitle ?? '';
+  const titleCandidate = row.title?.trim() ? row.title : '';
+  const rowTitleRaw =
+    isGenericSessionTitle(titleCandidate) && row.workstreamTitle?.trim()
+      ? row.workstreamTitle
+      : titleCandidate || row.workstreamTitle || '';
   const rowTitleFallback = compactOpaqueLabel(
     row.workstreamId ?? row.runId,
     row.scope === 'milestone' ? 'Milestone' : row.scope === 'task' ? 'Task' : 'Workstream'
@@ -830,7 +872,10 @@ function InProgressRowCard({
   const rowTitleDisplay = sanitizeDisplayText(
     rowTitleRaw && !isOpaqueId(rowTitleRaw) ? rowTitleRaw : rowTitleFallback
   );
-  const subtitleDisplay = subtitle ? sanitizeDisplayText(subtitle) : null;
+  const subtitleDisplay =
+    subtitle && !isGenericSubtitle(subtitle)
+      ? sanitizeDisplayText(subtitle)
+      : null;
   const progressValue = coerceProgress(row.progress);
   const canPauseAction = ['running', 'active', 'in_progress', 'working', 'planning', 'dispatching'].includes(status);
   const canResumeAction = ['paused', 'blocked', 'queued', 'pending'].includes(status);
@@ -856,10 +901,8 @@ function InProgressRowCard({
   // Resolve agent persona for the row card
   const persona = resolveAgentPersona(row.session?.agentId, row.session?.agentName);
 
-  // Last activity summary (status explainer as italic quote)
-  const statusExplainerText = row.subtitle && row.subtitle !== subtitleDisplay
-    ? row.subtitle
-    : null;
+  // Keep row copy concise in the in-progress surface; details remain in the modal timeline.
+  const statusExplainerText = null;
 
   return (
     <motion.article
@@ -936,7 +979,7 @@ function InProgressRowCard({
               <div className="mb-1 flex items-center justify-between text-micro">
                 <span className="text-secondary">Progress</span>
                 <span className="font-semibold text-primary tabular-nums">
-                  {progressValue === null ? 'In progress' : `${progressValue}%`}
+                  {progressValue === null ? 'Live' : `${progressValue}%`}
                 </span>
               </div>
               <div className={`h-1.5 overflow-hidden rounded-full bg-white/[0.09]${progressValue === 100 ? ' shimmer-on-complete' : ''}`}>
@@ -986,7 +1029,7 @@ function InProgressRowCard({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setExpandedRowKey((prev) => (prev === row.key ? null : row.key)); }}
-                className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.03] px-2 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.08] hover:text-white"
+                className="inline-flex h-6 items-center gap-1 rounded-md px-1 text-micro font-semibold text-secondary transition-colors hover:text-white"
               >
                 {isExpanded ? 'Hide details' : 'Slice details'}
               </button>
