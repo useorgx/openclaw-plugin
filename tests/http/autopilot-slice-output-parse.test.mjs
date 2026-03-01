@@ -374,6 +374,19 @@ test("parseSliceResult normalizes completed payloads with only decisions to erro
   assert.equal(parsed?.status, "error");
 });
 
+test("parseSliceResult normalizes completed payloads without outcome arrays to error", () => {
+  const payload = sampleSliceResult({
+    artifacts: undefined,
+    task_updates: undefined,
+    milestone_updates: undefined,
+    decisions_needed: undefined,
+    next_actions: undefined,
+  });
+  const raw = JSON.stringify(payload);
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.status, "error");
+});
+
 test("parseSliceResult normalizes completed payloads with blocking decisions", () => {
   const raw = JSON.stringify(
     sampleSliceResult({

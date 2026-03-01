@@ -249,11 +249,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       typeof nextRecord.status === "string" ? nextRecord.status : status;
 
     if (normalizedStatus === "completed") {
-      const hasExplicitOutcomeArrays =
-        Array.isArray(record.artifacts) ||
-        Array.isArray(record.task_updates) ||
-        Array.isArray(record.milestone_updates) ||
-        Array.isArray(record.decisions_needed);
       const artifactsCount = Array.isArray(nextRecord.artifacts) ? nextRecord.artifacts.length : 0;
       const taskUpdatesCount = Array.isArray(nextRecord.task_updates)
         ? nextRecord.task_updates.length
@@ -265,7 +260,7 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         artifactsCount > 0 ||
         taskUpdatesCount > 0 ||
         milestoneUpdatesCount > 0;
-      if (hasExplicitOutcomeArrays && !hasOutcomes) {
+      if (!hasOutcomes) {
         changed = true;
         nextRecord = { ...nextRecord, status: "error" };
       }
