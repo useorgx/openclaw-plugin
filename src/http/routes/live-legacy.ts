@@ -141,6 +141,35 @@ export function registerLiveLegacyRoutes<
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterLiveLegacyRoutesDeps<TRes>
 ): void {
+  function toContextBundle(value: AgentContextBundle): {
+    agents: Record<string, AgentLaunchContext>;
+    runs: Record<string, RunLaunchContext>;
+  } {
+    return {
+      agents: value.agents ?? {},
+      runs: value.runs ?? {},
+    };
+  }
+
+  function parseWorkspaceScope(query: URLSearchParams): string | null {
+    const candidates = [
+      query.get("workspace_id"),
+      query.get("workspaceId"),
+      query.get("command_center_id"),
+      query.get("commandCenterId"),
+      query.get("center"),
+      query.get("project_id"),
+      query.get("projectId"),
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate !== "string") continue;
+      const normalized = candidate.trim();
+      if (!normalized || normalized.toLowerCase() === "all") continue;
+      return normalized;
+    }
+    return null;
+  }
+
   const sendDeprecated = (
     res: TRes,
     endpoint: string,
@@ -173,13 +202,73 @@ export function registerLiveLegacyRoutes<
   );
 
   async function renderLiveActivityPage(query: URLSearchParams, res: TRes): Promise<void> {
-    sendDeprecated(
-      res,
-      "/orgx/api/live/activity/page",
-      "/orgx/api/live/snapshot-v2"
-    );
-    void query;
-    return;
+    const run = query.get("run");
+    const since = query.get("since");
+    const until = query.get("until");
+    const cursor = query.get("cursor");
+    const projectId = parseWorkspaceScope(query);
+    const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
+    const limit = Number.isFinite(limitRaw)
+      ? Math.max(1, Math.floor(Number(limitRaw)))
+      : 200;
+
+    let page = deps.listActivityPage({
+      limit,
+      runId: run,
+      since,
+      until,
+      cursor,
+    });
+    {
+      const ctx = toContextBundle(deps.readAgentContexts());
+      page = {
+        ...page,
+        activities: deps.applyAgentContextsToActivity(page.activities, ctx),
+      };
+    }
+
+    const warmKey = `${projectId ?? ""}::${run ?? ""}::${since ?? ""}::${until ?? ""}`;
+    const lastWarmAt = deps.activityWarmByKey.get(warmKey) ?? 0;
+    const shouldWarm =
+      Date.now() - lastWarmAt > deps.activityWarmThrottleMs &&
+      (cursor === null || cursor === "" || page.activities.length < limit);
+
+    if (shouldWarm) {
+      deps.activityWarmByKey.set(warmKey, Date.now());
+      try {
+        const warmLimit = Math.max(800, Math.min(6_000, limit * 10));
+        const data = await deps.getLiveActivity({
+          run,
+          since,
+          projectId,
+          limit: warmLimit,
+        });
+        const remote = Array.isArray(data.activities) ? data.activities : [];
+        {
+          const ctx = toContextBundle(deps.readAgentContexts());
+          const withContexts = deps.applyAgentContextsToActivity(remote, ctx);
+          deps.appendActivityItems(withContexts);
+        }
+        page = deps.listActivityPage({
+          limit,
+          runId: run,
+          since,
+          until,
+          cursor,
+        });
+        {
+          const ctx = toContextBundle(deps.readAgentContexts());
+          page = {
+            ...page,
+            activities: deps.applyAgentContextsToActivity(page.activities, ctx),
+          };
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    deps.sendJson(res, 200, page);
   }
 
   router.add(
