@@ -117,6 +117,15 @@ const filterLabels: Record<ActivityFilterId, string> = {
   in_progress: 'In progress',
 };
 
+const ACTIVITY_AUTO_EXPAND_ORDER: ActivityTimeFilterId[] = ['live', '24h', '7d', 'all'];
+
+function nextActivityTimeFilter(current: ActivityTimeFilterId): ActivityTimeFilterId | null {
+  if (current === 'custom' || current === 'all') return null;
+  const index = ACTIVITY_AUTO_EXPAND_ORDER.indexOf(current);
+  if (index < 0) return null;
+  return ACTIVITY_AUTO_EXPAND_ORDER[index + 1] ?? null;
+}
+
 function runtimeProviderIdFromLogo(
   provider: SessionTreeNode['runtimeProvider'] | null | undefined
 ): ProviderId {
@@ -3289,6 +3298,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   hasMoreRef.current = hasMore;
   const isLoadingMoreRef = useRef(isLoadingMore);
   isLoadingMoreRef.current = isLoadingMore;
+  const [sentinelInView, setSentinelInView] = useState(false);
+  const pendingAutoExpandRef = useRef<ActivityTimeFilterId | null>(null);
+  const lastKnownFilterRef = useRef<ActivityTimeFilterId>(timeFilterId);
+
+  useEffect(() => {
+    if (lastKnownFilterRef.current === timeFilterId) return;
+    lastKnownFilterRef.current = timeFilterId;
+    pendingAutoExpandRef.current = null;
+  }, [timeFilterId]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -3298,18 +3316,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries.some((entry) => entry.isIntersecting);
-        if (!hit) return;
-
-        if (filtered.length < renderableTotal) {
-          setRenderCount((prev) =>
-            Math.min(renderableTotal, Math.max(prev, INITIAL_RENDER_COUNT) + RENDER_STEP)
-          );
-          return;
-        }
-
-        if (hasMoreRef.current && !isLoadingMoreRef.current) {
-          loadMoreStableRef.current?.();
-        }
+        setSentinelInView(hit);
       },
       // Large rootMargin so we begin fetching ~600px before the user
       // reaches the bottom — by the time they scroll there, items are
@@ -3321,7 +3328,34 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return () => observer.disconnect();
     // Intentionally stable deps — hasMore/isLoadingMore/onLoadMore read
     // from refs so the observer doesn't get recreated on every poll cycle.
-  }, [filtered.length, renderableTotal]);
+  }, []);
+
+  useEffect(() => {
+    if (!sentinelInView) return;
+
+    if (filtered.length < renderableTotal) {
+      setRenderCount((prev) =>
+        Math.min(renderableTotal, Math.max(prev, INITIAL_RENDER_COUNT) + RENDER_STEP)
+      );
+      return;
+    }
+
+    if (hasMoreRef.current && !isLoadingMoreRef.current) {
+      loadMoreStableRef.current?.();
+      return;
+    }
+  }, [filtered.length, renderableTotal, sentinelInView]);
+
+  useEffect(() => {
+    if (!sentinelInView) return;
+    if (hasMore || isLoadingMore) return;
+    if (!onTimeFilterChange) return;
+    const nextFilter = nextActivityTimeFilter(timeFilterId);
+    if (!nextFilter) return;
+    if (pendingAutoExpandRef.current === nextFilter) return;
+    pendingAutoExpandRef.current = nextFilter;
+    onTimeFilterChange(nextFilter);
+  }, [hasMore, isLoadingMore, onTimeFilterChange, sentinelInView, timeFilterId]);
 
   const activeIndex = useMemo(() => {
     if (!activeItemId) return -1;
@@ -4838,7 +4872,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </div>
             </div>
 
-            {!hasMore && !isLoadingMore && filtered.length > 0 && (
+            {!hasMore &&
+              !isLoadingMore &&
+              filtered.length > 0 &&
+              !nextActivityTimeFilter(timeFilterId) && (
               <p className="pb-4 text-center text-micro tracking-wide text-muted/50">
                 {hiddenCount > 0
                   ? `${filtered.length} of ${filteredTotal} events`
