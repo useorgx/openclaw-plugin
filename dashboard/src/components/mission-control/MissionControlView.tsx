@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import type {
   ActivityItem,
   Agent,
@@ -35,6 +35,7 @@ import { CostRollupCard } from './CostRollupCard';
 import { ActionQueueStrip } from './ActionQueueStrip';
 import { useUsageControlPlane } from '@/hooks/useUsageControlPlane';
 import { useInitiativeSummary } from '@/hooks/useInitiativeSummary';
+import { missionControlMotion } from '@/lib/tokens';
 
 interface MissionControlViewProps {
   initiatives: Initiative[];
@@ -1509,10 +1510,27 @@ function MissionControlInner({
   const railAutoEnabled =
     railAutoTarget?.autoIntentEnabled === true &&
     (railAutoTarget.autoRuntimeState === 'running' || railAutoTarget.autoRuntimeState === 'stopping');
+  const prefersReducedMotion = useReducedMotion();
   const nextUpRailLayoutId = 'next-up-surface';
   const nextUpMorphTransition = useMemo(
-    () => ({ type: 'spring' as const, stiffness: 340, damping: 38, mass: 0.72 }),
-    []
+    () => (prefersReducedMotion ? { duration: 0.01 } : missionControlMotion.railMorphSpring),
+    [prefersReducedMotion]
+  );
+  const nextUpSurfaceTransition = useMemo(
+    () => (prefersReducedMotion ? { duration: 0.01 } : missionControlMotion.surfaceSwitch),
+    [prefersReducedMotion]
+  );
+  const railContentTransition = useMemo(
+    () =>
+      prefersReducedMotion
+        ? {
+            initial: { opacity: 1, y: 0 },
+            animate: { opacity: 1, y: 0 },
+            exit: { opacity: 1, y: 0 },
+            transition: { duration: 0.01 },
+          }
+        : missionControlMotion.contentCrossFade,
+    [prefersReducedMotion]
   );
   const nextUpInlineShellTone = useMemo(
     () => ({
@@ -2010,8 +2028,7 @@ function MissionControlInner({
                       exit={{ opacity: 0, y: -4 }}
                       transition={{
                         layout: nextUpMorphTransition,
-                        duration: 0.2,
-                        ease: [0.22, 1, 0.36, 1],
+                        ...nextUpSurfaceTransition,
                       }}
                       className="flex w-full min-w-0 flex-col gap-2 overflow-hidden rounded-xl border border-strong px-2.5 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.22)] backdrop-blur-[10px] sm:flex-row sm:items-center xl:h-full xl:rounded-none xl:border-b-0 xl:border-l xl:border-r-0 xl:border-t-0 xl:border-white/[0.10] xl:bg-transparent xl:px-3 xl:py-2 xl:shadow-none xl:backdrop-blur-none"
                     >
@@ -2361,7 +2378,7 @@ function MissionControlInner({
                                 initial={{ opacity: 0, y: -4 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -4 }}
-                                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                                transition={nextUpSurfaceTransition}
                               >
                                 <div className="pt-0.5">
                                   <InitiativeOrbit
@@ -2471,7 +2488,7 @@ function MissionControlInner({
                     initial={{ opacity: 0, x: 14 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 14 }}
-                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    transition={nextUpSurfaceTransition}
                     className="hidden xl:block"
                   >
                     <div className="sticky" style={{ top: 'calc(var(--mc-toolbar-offset) + 12px)' }}>
@@ -2480,64 +2497,97 @@ function MissionControlInner({
                         layoutId={nextUpRailLayoutId}
                         initial={{ borderRadius: 12 }}
                         animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
-                        transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
+                        transition={{ layout: nextUpMorphTransition }}
                         className="origin-top-right flex h-[calc(100vh-var(--mc-toolbar-offset)-24px)] min-h-0 flex-col overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px] xl:rounded-l-none"
                       >
                         <div className="relative flex h-full min-h-0 flex-col">
                           <div className="flex items-center gap-1 border-b border-strong px-3 py-2">
-                            <button
+                            <motion.button
                               type="button"
                               onClick={() => setRailSurface('next-up')}
-                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                              {...missionControlMotion.segmentedTap}
+                              className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'next-up'
-                                  ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                                  ? 'text-[#E8FFD0]'
                                   : 'text-secondary'
                               }`}
                             >
-                              Next Up
-                            </button>
-                            <button
+                              {railSurface === 'next-up' ? (
+                                <motion.span
+                                  layoutId="next-up-rail-surface-indicator"
+                                  transition={nextUpMorphTransition}
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-[#BFFF00]/34 bg-[#BFFF00]/[0.12]"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span className="relative z-[1]">Next Up</span>
+                            </motion.button>
+                            <motion.button
                               type="button"
                               onClick={() => setRailSurface('slices')}
-                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                              {...missionControlMotion.segmentedTap}
+                              className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'slices'
-                                  ? 'border-teal-300/34 bg-teal-400/[0.12] text-teal-100'
+                                  ? 'text-teal-100'
                                   : 'text-secondary'
                               }`}
                             >
-                              Slices
-                            </button>
+                              {railSurface === 'slices' ? (
+                                <motion.span
+                                  layoutId="next-up-rail-surface-indicator"
+                                  transition={nextUpMorphTransition}
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-teal-300/34 bg-teal-400/[0.12]"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span className="relative z-[1]">Slices</span>
+                            </motion.button>
                           </div>
                           <div className="min-h-0 flex-1">
-                            {railSurface === 'next-up' ? (
-                              <NextUpPanel
-                                title="Next Up"
-                                panelStyle="flat"
-                                className="!bg-transparent !shadow-none !border-transparent"
-                                disableEnterAnimation
-                                projectId={workspaceInitiativeId}
-                                authToken={authToken}
-                                embedMode={embedMode}
-                                queueModel={nextActionQueue}
-                                queueActions={nextUpActions}
-                                snapshotVersion={snapshotVersion}
-                                onOpenInitiative={openInitiativeFromNextUp}
-                                onOpenSettings={onOpenSettings}
-                                onUpgradeGate={setAutopilotUpgradeGate}
-                              />
-                            ) : (
-                              <SliceExplorerPanel
-                                title="Slice Explorer"
-                                className="h-full !rounded-none !border-0 !bg-transparent"
-                                workspaceId={workspaceInitiativeId}
-                                authToken={authToken}
-                                embedMode={embedMode}
-                                compact
-                                onOpenInitiative={(initiativeId, initiativeTitle) => {
-                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
-                                }}
-                              />
-                            )}
+                            <AnimatePresence initial={false} mode="wait">
+                              {railSurface === 'next-up' ? (
+                                <motion.div
+                                  key="next-up-rail"
+                                  {...railContentTransition}
+                                  className="h-full min-h-0"
+                                >
+                                  <NextUpPanel
+                                    title="Next Up"
+                                    panelStyle="flat"
+                                    className="!bg-transparent !shadow-none !border-transparent"
+                                    disableEnterAnimation
+                                    projectId={workspaceInitiativeId}
+                                    authToken={authToken}
+                                    embedMode={embedMode}
+                                    queueModel={nextActionQueue}
+                                    queueActions={nextUpActions}
+                                    snapshotVersion={snapshotVersion}
+                                    onOpenInitiative={openInitiativeFromNextUp}
+                                    onOpenSettings={onOpenSettings}
+                                    onUpgradeGate={setAutopilotUpgradeGate}
+                                    excludeRunning
+                                  />
+                                </motion.div>
+                              ) : (
+                                <motion.div
+                                  key="slices-rail"
+                                  {...railContentTransition}
+                                  className="h-full min-h-0"
+                                >
+                                  <SliceExplorerPanel
+                                    title="Slice Explorer"
+                                    className="h-full !rounded-none !border-0 !bg-transparent"
+                                    workspaceId={workspaceInitiativeId}
+                                    authToken={authToken}
+                                    embedMode={embedMode}
+                                    compact
+                                    onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                      openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                    }}
+                                  />
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
                           </div>
                           <button
                             type="button"
@@ -2574,7 +2624,7 @@ function MissionControlInner({
                     initial={{ x: '100%', opacity: 0.85 }}
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: '100%', opacity: 0.9 }}
-                    transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+                    transition={nextUpMorphTransition}
                     className="fixed inset-x-0 bottom-0 top-[60vh] z-[250] p-2 sm:top-[64px] sm:left-auto sm:right-0 sm:w-[min(84vw,360px)] sm:p-3 lg:w-[360px] lg:max-w-[94vw] xl:hidden"
                   >
                     <div className="relative flex h-full flex-col">
@@ -2591,68 +2641,101 @@ function MissionControlInner({
                         layoutId={nextUpRailLayoutId}
                         initial={{ borderRadius: 12 }}
                         animate={{ borderRadius: 16, ...nextUpExpandedShellTone }}
-                        transition={{ layout: nextUpMorphTransition, type: 'spring', stiffness: 340, damping: 38, mass: 0.72 }}
+                        transition={{ layout: nextUpMorphTransition }}
                         className="h-full overflow-hidden rounded-2xl border shadow-[0_18px_40px_rgba(0,0,0,0.42)] backdrop-blur-[12px]"
                       >
                         <div className="flex h-full min-h-0 flex-col">
                           <div className="flex items-center gap-1 border-b border-strong px-3 py-2">
-                            <button
+                            <motion.button
                               type="button"
                               onClick={() => setRailSurface('next-up')}
-                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                              {...missionControlMotion.segmentedTap}
+                              className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'next-up'
-                                  ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                                  ? 'text-[#E8FFD0]'
                                   : 'text-secondary'
                               }`}
                             >
-                              Next Up
-                            </button>
-                            <button
+                              {railSurface === 'next-up' ? (
+                                <motion.span
+                                  layoutId="next-up-rail-surface-indicator-mobile"
+                                  transition={nextUpMorphTransition}
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-[#BFFF00]/34 bg-[#BFFF00]/[0.12]"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span className="relative z-[1]">Next Up</span>
+                            </motion.button>
+                            <motion.button
                               type="button"
                               onClick={() => setRailSurface('slices')}
-                              className={`control-pill h-7 px-2 text-micro font-semibold ${
+                              {...missionControlMotion.segmentedTap}
+                              className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'slices'
-                                  ? 'border-teal-300/34 bg-teal-400/[0.12] text-teal-100'
+                                  ? 'text-teal-100'
                                   : 'text-secondary'
                               }`}
                             >
-                              Slices
-                            </button>
+                              {railSurface === 'slices' ? (
+                                <motion.span
+                                  layoutId="next-up-rail-surface-indicator-mobile"
+                                  transition={nextUpMorphTransition}
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-teal-300/34 bg-teal-400/[0.12]"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span className="relative z-[1]">Slices</span>
+                            </motion.button>
                           </div>
                           <div className="min-h-0 flex-1">
-                            {railSurface === 'next-up' ? (
-                              <NextUpPanel
-                                title="Next Up"
-                                panelStyle="flat"
-                                className="!bg-transparent !shadow-none !border-transparent"
-                                disableEnterAnimation
-                                projectId={workspaceInitiativeId}
-                                authToken={authToken}
-                                embedMode={embedMode}
-                                queueModel={nextActionQueue}
-                                queueActions={nextUpActions}
-                                snapshotVersion={snapshotVersion}
-                                onOpenInitiative={(initiativeId, initiativeTitle) => {
-                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
-                                  setNextUpDrawerOpen(false);
-                                }}
-                                onOpenSettings={onOpenSettings}
-                                onUpgradeGate={setAutopilotUpgradeGate}
-                              />
-                            ) : (
-                              <SliceExplorerPanel
-                                title="Slice Explorer"
-                                className="h-full !rounded-none !border-0 !bg-transparent"
-                                workspaceId={workspaceInitiativeId}
-                                authToken={authToken}
-                                embedMode={embedMode}
-                                compact
-                                onOpenInitiative={(initiativeId, initiativeTitle) => {
-                                  openInitiativeFromNextUp(initiativeId, initiativeTitle);
-                                  setNextUpDrawerOpen(false);
-                                }}
-                              />
-                            )}
+                            <AnimatePresence initial={false} mode="wait">
+                              {railSurface === 'next-up' ? (
+                                <motion.div
+                                  key="next-up-drawer"
+                                  {...railContentTransition}
+                                  className="h-full min-h-0"
+                                >
+                                  <NextUpPanel
+                                    title="Next Up"
+                                    panelStyle="flat"
+                                    className="!bg-transparent !shadow-none !border-transparent"
+                                    disableEnterAnimation
+                                    projectId={workspaceInitiativeId}
+                                    authToken={authToken}
+                                    embedMode={embedMode}
+                                    queueModel={nextActionQueue}
+                                    queueActions={nextUpActions}
+                                    snapshotVersion={snapshotVersion}
+                                    onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                      openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                      setNextUpDrawerOpen(false);
+                                    }}
+                                    onOpenSettings={onOpenSettings}
+                                    onUpgradeGate={setAutopilotUpgradeGate}
+                                    excludeRunning
+                                  />
+                                </motion.div>
+                              ) : (
+                                <motion.div
+                                  key="slices-drawer"
+                                  {...railContentTransition}
+                                  className="h-full min-h-0"
+                                >
+                                  <SliceExplorerPanel
+                                    title="Slice Explorer"
+                                    className="h-full !rounded-none !border-0 !bg-transparent"
+                                    workspaceId={workspaceInitiativeId}
+                                    authToken={authToken}
+                                    embedMode={embedMode}
+                                    compact
+                                    onOpenInitiative={(initiativeId, initiativeTitle) => {
+                                      openInitiativeFromNextUp(initiativeId, initiativeTitle);
+                                      setNextUpDrawerOpen(false);
+                                    }}
+                                  />
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
                           </div>
                         </div>
                       </motion.div>

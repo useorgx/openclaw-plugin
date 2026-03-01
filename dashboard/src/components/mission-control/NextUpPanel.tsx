@@ -1,8 +1,8 @@
-import { AnimatePresence, motion, Reorder, useDragControls } from 'framer-motion';
+import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { colors } from '@/lib/tokens';
+import { colors, missionControlMotion } from '@/lib/tokens';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -41,6 +41,7 @@ interface NextUpPanelProps {
   queueModel?: UseNextUpQueueResult;
   queueActions?: UseNextUpQueueActionsResult;
   snapshotVersion?: number | null;
+  excludeRunning?: boolean;
 }
 
 interface ActionGlyphProps {
@@ -174,6 +175,14 @@ function queueStateRank(queueState: NextUpQueueItem['queueState']): number {
   if (queueState === 'running') return 2;
   if (queueState === 'completed') return 3;
   return 4;
+}
+
+function deriveQueueState(items: NextUpQueueItem[]): NextUpQueueItem['queueState'] {
+  if (items.some((item) => item.queueState === 'running')) return 'running';
+  if (items.some((item) => item.queueState === 'blocked')) return 'blocked';
+  if (items.some((item) => item.queueState === 'queued')) return 'queued';
+  if (items.some((item) => item.queueState === 'idle')) return 'idle';
+  return 'completed';
 }
 
 function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
@@ -505,6 +514,7 @@ export function NextUpPanel({
   queueModel,
   queueActions,
   snapshotVersion = null,
+  excludeRunning = false,
 }: NextUpPanelProps) {
   const [localCompact, setLocalCompact] = useState(compact);
   useEffect(() => setLocalCompact(compact), [compact]);
@@ -526,6 +536,7 @@ export function NextUpPanel({
   const [selectionAnchorKey, setSelectionAnchorKey] = useState<string | null>(null);
   const [queueSettingsOpen, setQueueSettingsOpen] = useState(false);
   const [signalToastHidden, setSignalToastHidden] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const queueSettingsRef = useRef<HTMLDivElement | null>(null);
   const internalQueue = useNextUpQueue({
     initiativeId,
@@ -560,16 +571,25 @@ export function NextUpPanel({
     () => items.filter((item) => item.queueState === 'running').length,
     [items]
   );
-  // Show all items except those actively running a session. Blocked items
-  // stay visible because they need user attention. If nothing remains,
-  // fall back to showing running items so the panel isn't empty.
+  const cardEnterTransition = useMemo(
+    () =>
+      prefersReducedMotion
+        ? { duration: 0.01 }
+        : missionControlMotion.surfaceSwitch,
+    [prefersReducedMotion]
+  );
+  // Default behavior preserves an existing fallback (show running when queue is otherwise empty).
+  // Mission Control can opt out to keep running work exclusive to the In Progress pane.
   const queueItems = useMemo(
     () => {
+      if (excludeRunning) {
+        return items.filter((item) => item.queueState !== 'running');
+      }
       const actionable = items.filter((item) => item.queueState !== 'running');
       if (actionable.length > 0) return actionable;
       return items;
     },
-    [items]
+    [excludeRunning, items]
   );
   const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
     if (queueItems.length === 0) return 'empty';
@@ -581,19 +601,44 @@ export function NextUpPanel({
     return 'queued';
   }, [queueItems]);
 
+  const filteredInitiativeGroups = useMemo(
+    () => {
+      if (!excludeRunning) return initiativeGroups;
+      return initiativeGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.queueState !== 'running'),
+        }))
+        .filter((group) => group.items.length > 0)
+        .map((group) => ({
+          ...group,
+          queueState: deriveQueueState(group.items),
+        }));
+    },
+    [excludeRunning, initiativeGroups]
+  );
+
   const sortedInitiativeGroups = useMemo(
     () =>
-      [...initiativeGroups].sort((left, right) => {
+      [...filteredInitiativeGroups].sort((left, right) => {
         const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
         if (queueDelta !== 0) return queueDelta;
         return left.initiativeTitle.localeCompare(right.initiativeTitle);
       }),
-    [initiativeGroups]
+    [filteredInitiativeGroups]
+  );
+
+  const filteredMilestoneGroups = useMemo(
+    () => {
+      if (!excludeRunning) return milestoneGroups;
+      return milestoneGroups.filter((group) => group.item.queueState !== 'running');
+    },
+    [excludeRunning, milestoneGroups]
   );
 
   const sortedMilestoneGroups = useMemo(
     () =>
-      [...milestoneGroups].sort((left, right) => {
+      [...filteredMilestoneGroups].sort((left, right) => {
         const queueDelta = queueStateRank(left.queueState) - queueStateRank(right.queueState);
         if (queueDelta !== 0) return queueDelta;
         const initiativeDelta = left.initiativeTitle.localeCompare(right.initiativeTitle);
@@ -602,7 +647,7 @@ export function NextUpPanel({
         if (workstreamDelta !== 0) return workstreamDelta;
         return left.milestoneTitle.localeCompare(right.milestoneTitle);
       }),
-    [milestoneGroups]
+    [filteredMilestoneGroups]
   );
 
   const visibleInitiativeGroups = useMemo(
@@ -1064,22 +1109,35 @@ export function NextUpPanel({
               {zoomOptions.map((option) => {
                 const selected = zoomLevel === option.value;
                 return (
-                  <button
+                  <motion.button
                     key={option.value}
                     type="button"
                     role="tab"
                     aria-selected={selected}
                     onClick={() => setZoomLevel(option.value)}
+                    {...missionControlMotion.segmentedTap}
                     className={cn(
-                      'h-7 rounded-lg px-2.5 text-caption font-semibold transition-colors',
+                      'relative h-7 rounded-lg px-2.5 text-caption font-semibold transition-colors',
                       selected
-                        ? 'border border-[#BFFF00]/35 bg-[#BFFF00]/16 text-[#E8FFD0]'
+                        ? 'text-[#E8FFD0]'
                         : 'text-secondary hover:text-white'
                     )}
                     title={`Show ${option.label.toLowerCase()} queue`}
                   >
-                    {option.label}
-                  </button>
+                    {selected ? (
+                      <motion.span
+                        layoutId="next-up-scope-indicator"
+                        transition={
+                          prefersReducedMotion
+                            ? { duration: 0.01 }
+                            : missionControlMotion.railMorphSpring
+                        }
+                        className="pointer-events-none absolute inset-0 rounded-lg border border-[#BFFF00]/35 bg-[#BFFF00]/16"
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="relative z-[1]">{option.label}</span>
+                  </motion.button>
                 );
               })}
             </div>
@@ -1107,7 +1165,7 @@ export function NextUpPanel({
                 initial={{ opacity: 0, y: -4, scale: 0.99 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                transition={cardEnterTransition}
                 className="rounded-xl border border-amber-200/25 bg-amber-200/10 px-3 py-2 text-caption text-amber-100"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -1199,7 +1257,7 @@ export function NextUpPanel({
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18 }}
+                transition={cardEnterTransition}
                 className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-3 py-2 text-caption text-red-100"
               >
                 {queueErrorMessage}
@@ -1210,7 +1268,7 @@ export function NextUpPanel({
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.18 }}
+                transition={cardEnterTransition}
                 className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-caption text-primary"
               >
                 {notice}
@@ -1376,9 +1434,14 @@ export function NextUpPanel({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.99 }}
                   transition={{
-                    duration: 0.2,
-                    delay: Math.min(index, 7) * 0.02,
-                    ease: [0.22, 1, 0.36, 1],
+                    duration: prefersReducedMotion
+                      ? 0.01
+                      : missionControlMotion.surfaceSwitch.duration,
+                    delay: prefersReducedMotion
+                      ? 0
+                      : Math.min(index, missionControlMotion.listStaggerMaxItems) *
+                        missionControlMotion.listStaggerStep,
+                    ease: missionControlMotion.surfaceSwitch.ease,
                   }}
                   className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
                 >
@@ -1459,9 +1522,14 @@ export function NextUpPanel({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.99 }}
                   transition={{
-                    duration: 0.2,
-                    delay: Math.min(index, 7) * 0.02,
-                    ease: [0.22, 1, 0.36, 1],
+                    duration: prefersReducedMotion
+                      ? 0.01
+                      : missionControlMotion.surfaceSwitch.duration,
+                    delay: prefersReducedMotion
+                      ? 0
+                      : Math.min(index, missionControlMotion.listStaggerMaxItems) *
+                        missionControlMotion.listStaggerStep,
+                    ease: missionControlMotion.surfaceSwitch.ease,
                   }}
                   className="rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3"
                 >
@@ -1542,9 +1610,14 @@ export function NextUpPanel({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.99 }}
                   transition={{
-                    duration: 0.22,
-                    delay: Math.min(index, 7) * 0.018,
-                    ease: [0.22, 1, 0.36, 1],
+                    duration: prefersReducedMotion
+                      ? 0.01
+                      : missionControlMotion.surfaceSwitch.duration,
+                    delay: prefersReducedMotion
+                      ? 0
+                      : Math.min(index, missionControlMotion.listStaggerMaxItems) *
+                        missionControlMotion.listStaggerStep,
+                    ease: missionControlMotion.surfaceSwitch.ease,
                   }}
                   className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2 cursor-pointer transition-colors hover:border-white/[0.14]"
                   onClick={() => onOpenSliceDetail?.(item)}
@@ -1905,6 +1978,7 @@ function NextUpReorderRow({
   ) => Promise<void>;
 }) {
   const controls = useDragControls();
+  const prefersReducedMotion = useReducedMotion();
   const [isDragging, setIsDragging] = useState(false);
   const key = `${item.initiativeId}:${item.workstreamId}`;
   const isRowBusy = actionKey === key;
@@ -1951,10 +2025,20 @@ function NextUpReorderRow({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: -8, scale: 0.98 }}
         transition={{
-          duration: 0.4,
-          ease: [0.25, 0.1, 0.25, 1],
-          delay: Math.min(index, 7) * 0.05,
-          opacity: { duration: 0.32, ease: [0.25, 0.1, 0.25, 1] },
+          duration: prefersReducedMotion
+            ? 0.01
+            : missionControlMotion.surfaceSwitch.duration,
+          ease: missionControlMotion.surfaceSwitch.ease,
+          delay: prefersReducedMotion
+            ? 0
+            : Math.min(index, missionControlMotion.listStaggerMaxItems) *
+              missionControlMotion.listStaggerStep,
+          opacity: {
+            duration: prefersReducedMotion
+              ? 0.01
+              : missionControlMotion.surfaceSwitch.duration,
+            ease: missionControlMotion.surfaceSwitch.ease,
+          },
         }}
         className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 cursor-pointer transition-colors hover:border-white/[0.14]"
         onClick={() => onOpenSliceDetail?.(item)}
