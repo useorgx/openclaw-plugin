@@ -4143,7 +4143,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               </div>
 
               {/* Row 2: Status tabs + time range + density + filters */}
-              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <div className="relative" ref={timeRangeMenuRef}>
                   <button
                     type="button"
