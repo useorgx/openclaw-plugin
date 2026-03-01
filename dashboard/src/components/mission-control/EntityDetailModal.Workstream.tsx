@@ -147,22 +147,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-caption">
-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
-          <button
-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
-            className="break-words text-secondary transition-colors hover:text-white"
-          >
-            {initiative.name}
-          </button>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-          <span className="break-words font-medium text-primary">{workstream.name}</span>
-        </div>
-
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
@@ -244,21 +228,10 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
       )}
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{tasks.length}</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Milestones</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{milestones.length}</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {progressValue !== null ? `${progressValue}%` : '-'}
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+        <span>{tasks.length} tasks</span>
+        <span>{milestones.length} milestones</span>
+        <span>{progressValue !== null ? `${progressValue}% complete` : 'No progress data'}</span>
       </div>
 
       {isLoading ? (
@@ -279,7 +252,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={ms.id}
                   onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                  className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-body text-bright">{ms.title}</span>
@@ -302,7 +275,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={task.id}
                   onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                  className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-body text-bright">{task.title}</span>
@@ -332,8 +305,8 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             milestoneIds={milestones.map((m) => m.id)}
           />
 
-          <div className="mt-2 pt-4 border-t border-subtle">
-            <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+          <div className="mt-2 space-y-2">
+            <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
               Notes
             </p>
             <EntityCommentsPanel
@@ -341,7 +314,6 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
               entityId={workstream.id}
               authToken={authToken}
               embedMode={embedMode}
-              variant="inline"
             />
           </div>
 

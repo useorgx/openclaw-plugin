@@ -184,37 +184,20 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
       </div>
 
       {/* Details */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {milestone.dueDate && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
-            <div className="text-body text-primary mt-0.5">
-              {new Date(milestone.dueDate).toLocaleDateString()}
-            </div>
-          </div>
-        )}
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Associated Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {associatedTasks.length}
-          </div>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+          {milestone.dueDate ? (
+            <span>Due {new Date(milestone.dueDate).toLocaleDateString()}</span>
+          ) : null}
+          <span>{associatedTasks.length} tasks</span>
+          <span>{doneTaskCount}/{associatedTasks.length} done</span>
+          <span>{progressValue}% complete</span>
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Completion</div>
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
-              />
-            </div>
-            <div className="text-body text-primary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {progressValue}%
-            </div>
-          </div>
-          <div className="mt-1 text-micro text-muted">
-            {doneTaskCount}/{associatedTasks.length} done
-          </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
+          />
         </div>
       </div>
 
@@ -228,7 +211,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
             <button
               key={task.id}
               onClick={() => openModal({ type: 'task', entity: task, initiative })}
-              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+              className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-body text-bright">{task.title}</span>
@@ -250,8 +233,8 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         embedMode={embedMode}
       />
 
-      <div className="mt-2 pt-4 border-t border-subtle">
-        <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+      <div className="mt-2 space-y-2">
+        <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
           Notes
         </p>
         <EntityCommentsPanel
@@ -259,7 +242,6 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           entityId={milestone.id}
           authToken={authToken}
           embedMode={embedMode}
-          variant="inline"
         />
       </div>
 

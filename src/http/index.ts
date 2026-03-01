@@ -27,10 +27,12 @@ import {
   readSync,
   closeSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname, extname, normalize, resolve, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 
 import {
   readNextUpQueuePins,
@@ -1550,6 +1552,14 @@ const IMMUTABLE_FILE_CACHE = new Map<string, ImmutableFileCacheEntry>();
 const IMMUTABLE_FILE_CACHE_MAX = 128;
 const FILE_PREVIEW_MAX_BYTES = 1_000_000;
 const FILE_PREVIEW_MAX_DIR_ENTRIES = 300;
+const AUTOPILOT_LOGS_DIR = join(
+  homedir(),
+  ".config",
+  "useorgx",
+  "openclaw-plugin",
+  "autopilot-logs"
+);
+const execFileAsync = promisify(execFile);
 
 function sendJson(
   res: PluginResponse,
@@ -1610,6 +1620,57 @@ function resolveFilesystemOpenPath(rawPath: string): string {
   }
 
   return resolve(process.cwd(), value);
+}
+
+function resolveAutopilotLogCandidates(runId: string): string[] {
+  const sanitizedRunId = runId.trim().replaceAll(/[\\/]/g, "");
+  if (!sanitizedRunId) return [];
+
+  const directCandidates = [
+    join(AUTOPILOT_LOGS_DIR, `${sanitizedRunId}.log`),
+    join(AUTOPILOT_LOGS_DIR, `${sanitizedRunId}.output.json`),
+  ];
+
+  if (!existsSync(AUTOPILOT_LOGS_DIR)) {
+    return directCandidates;
+  }
+
+  const discovered = readdirSync(AUTOPILOT_LOGS_DIR)
+    .filter((entry) => entry.startsWith(`${sanitizedRunId}.`))
+    .map((entry) => join(AUTOPILOT_LOGS_DIR, entry))
+    .filter((entry) => entry.endsWith(".log") || entry.endsWith(".output.json"));
+
+  return dedupeStrings([...directCandidates, ...discovered]);
+}
+
+async function openPathInTerminal(pathname: string): Promise<void> {
+  const resolvedPath = resolve(pathname);
+  if (process.platform === "darwin") {
+    const escapedPath = resolvedPath
+      .replaceAll("\\", "\\\\")
+      .replaceAll('"', '\\"');
+    await execFileAsync("osascript", [
+      "-e",
+      'tell application "Terminal" to activate',
+      "-e",
+      `tell application "Terminal" to do script "tail -f \\"${escapedPath}\\""`,
+    ]);
+    return;
+  }
+
+  if (process.platform === "win32") {
+    await execFileAsync("cmd", ["/c", "start", "", resolvedPath]);
+    return;
+  }
+
+  try {
+    await execFileAsync("gnome-terminal", ["--", "tail", "-f", resolvedPath]);
+    return;
+  } catch {
+    // Fallback to generic opener when no terminal app is available.
+  }
+
+  await execFileAsync("xdg-open", [resolvedPath]);
 }
 
 function readFilePreview(pathname: string, totalBytes: number): {
@@ -4126,6 +4187,8 @@ export function createHttpHandler(
     readFilePreview,
     filePreviewMaxBytes: FILE_PREVIEW_MAX_BYTES,
     filePreviewMaxDirEntries: FILE_PREVIEW_MAX_DIR_ENTRIES,
+    resolveAutopilotLogCandidates,
+    openPathInTerminal,
     securityHeaders: SECURITY_HEADERS,
     corsHeaders: CORS_HEADERS,
     config: {

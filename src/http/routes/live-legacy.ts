@@ -120,6 +120,8 @@ type RegisterLiveLegacyRoutesDeps<TRes extends RouteResLike> = {
   ) => { previewBuffer: Buffer; truncated: boolean };
   filePreviewMaxBytes: number;
   filePreviewMaxDirEntries: number;
+  resolveAutopilotLogCandidates?: (runId: string) => string[];
+  openPathInTerminal?: (path: string) => Promise<void>;
   securityHeaders: Record<string, string>;
   corsHeaders: Record<string, string>;
 
@@ -345,6 +347,81 @@ export function registerLiveLegacyRoutes<
       deps.sendJson(res, 405, { error: "Use GET /orgx/api/live/filesystem/open?path=..." });
     },
     "Reject unsupported methods for live/filesystem/open"
+  );
+
+  router.add(
+    "POST",
+    "live/terminal/open",
+    async ({ body, res }) => {
+      const payload =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>)
+          : {};
+      const runId =
+        typeof payload.runId === "string" ? payload.runId.trim() : "";
+      const rawPath =
+        typeof payload.path === "string" ? payload.path.trim() : "";
+
+      if (!runId && !rawPath) {
+        deps.sendJson(res, 400, {
+          ok: false,
+          error: "runId or path is required",
+        });
+        return;
+      }
+
+      let resolvedPath = "";
+      if (rawPath) {
+        resolvedPath = deps.resolveFilesystemOpenPath(rawPath);
+      } else if (runId) {
+        const candidates = deps.resolveAutopilotLogCandidates
+          ? deps.resolveAutopilotLogCandidates(runId)
+          : [];
+        resolvedPath =
+          candidates.find((candidate) => deps.existsSync(candidate)) ?? "";
+      }
+
+      if (!resolvedPath || !deps.existsSync(resolvedPath)) {
+        deps.sendJson(res, 404, {
+          ok: false,
+          error: "Terminal target not found",
+        });
+        return;
+      }
+
+      if (!deps.openPathInTerminal) {
+        deps.sendJson(res, 501, {
+          ok: false,
+          error: "Terminal open is unavailable in this runtime.",
+        });
+        return;
+      }
+
+      try {
+        await deps.openPathInTerminal(resolvedPath);
+        deps.sendJson(res, 200, {
+          ok: true,
+          path: resolvedPath,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          ok: false,
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "Open run logs in local terminal"
+  );
+  router.add(
+    "*",
+    "live/terminal/open",
+    ({ res }) => {
+      deps.sendJson(res, 405, {
+        ok: false,
+        error: "Use POST /orgx/api/live/terminal/open",
+      });
+    },
+    "Reject unsupported methods for live/terminal/open"
   );
 
   async function renderLiveStream(query: URLSearchParams, req: TReq, res: TRes): Promise<void> {

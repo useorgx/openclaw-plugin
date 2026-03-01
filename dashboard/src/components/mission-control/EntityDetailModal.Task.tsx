@@ -207,25 +207,10 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         </div>
 
         {/* Details */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Status</div>
-            <div className="text-body text-primary mt-0.5">
-              {formatEntityStatus(task.status)}
-            </div>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Priority</div>
-            <div className="text-body text-primary mt-0.5">
-              {task.priority ?? '-'}
-            </div>
-          </div>
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
-            <div className="text-body text-primary mt-0.5">
-              {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+          <span>Status: {formatEntityStatus(task.status)}</span>
+          <span>Priority: {task.priority ?? '-'}</span>
+          <span>Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}</span>
         </div>
 
         {notice && (
@@ -234,17 +219,17 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           </div>
         )}
 
-        {/* Artifacts */}
-        <EntityArtifactsPanel
-          entityType="task"
-          entityId={task.id}
-          authToken={authToken}
-          embedMode={embedMode}
-        />
+        {/* Notes */}
+        <div className="mt-2 space-y-2">
+          {/* Artifacts */}
+          <EntityArtifactsPanel
+            entityType="task"
+            entityId={task.id}
+            authToken={authToken}
+            embedMode={embedMode}
+          />
 
-        {/* Notes (inline) */}
-        <div className="mt-4 pt-4 border-t border-subtle">
-          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+          <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
             Notes
           </p>
           <EntityCommentsPanel
@@ -252,7 +237,6 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             entityId={task.id}
             authToken={authToken}
             embedMode={embedMode}
-            variant="inline"
           />
         </div>
       </div>

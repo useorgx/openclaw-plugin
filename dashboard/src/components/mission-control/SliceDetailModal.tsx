@@ -375,12 +375,13 @@ export function SliceDetailModal({
   }, [open, handleKeyDown]);
 
   useEffect(() => {
-    if (open) return;
-    setTerminalError(null);
-    setIsOpeningTerminal(false);
-    setActionMode(null);
-    setActionNote('');
-    setActionFeedback(null);
+    if (!open) {
+      setTerminalError(null);
+      setIsOpeningTerminal(false);
+      setActionMode(null);
+      setActionNote('');
+      setActionFeedback(null);
+    }
   }, [open]);
 
   // Auto-focus note textarea when action mode is set — use rAF to beat Modal's focus trap
@@ -391,6 +392,7 @@ export function SliceDetailModal({
       });
     }
   }, [actionMode]);
+
 
   if (!target) return null;
 
@@ -452,6 +454,7 @@ export function SliceDetailModal({
           ? 'Open result'
           : 'Review activity'
       : null);
+  const agentExcerpt = sanitizeDisplayText(sr?.lastEventSummary ?? '');
 
   const handleOpenTerminal = useCallback(
     async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
@@ -825,6 +828,11 @@ export function SliceDetailModal({
                     {canonicalProjection.label}
                   </span>
                 </div>
+                {agentExcerpt ? (
+                  <p className="mt-2 line-clamp-2 rounded-md bg-white/[0.03] px-2.5 py-1.5 font-mono text-caption text-secondary">
+                    {agentExcerpt}
+                  </p>
+                ) : null}
               </div>
             </motion.div>
 
@@ -839,7 +847,7 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
+                  className={`px-1 ${canonicalNarrativeClass}`}
                 >
                   <p className="section-kicker">What to do now</p>
                   <p className="mt-1 text-body text-primary">
@@ -905,11 +913,11 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="space-y-2"
+                className="px-1 space-y-2"
               >
                 {d.blockReason && (
-                  <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
-                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Why blocked</p>
+                  <div className="border-l-2 border-red-400/45 pl-2.5 text-caption text-red-100/85">
+                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Blocked</p>
                     {d.blockReason}
                   </div>
                 )}
@@ -958,7 +966,7 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="space-y-2"
+                  className="px-1 space-y-2"
                 >
                   <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
                   <ScopeProgressCard
@@ -1053,29 +1061,26 @@ export function SliceDetailModal({
                   </div>
 
                   {/* Timestamp grid — deduplicate Updated/Completed if identical */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {sr.startedAt && (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
-                      </div>
-                    )}
-                    {sr.completedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
-                      </div>
-                    ) : sr.failedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
-                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
-                      </div>
-                    ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
-                      <div>
-                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
-                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
-                      </div>
-                    ) : null}
+                  <div className="space-y-2">
+                    <div className="relative h-1 rounded-full bg-white/[0.08]">
+                      <div
+                        className="absolute left-0 top-0 h-full rounded-full"
+                        style={{
+                          width: sr.completedAt || sr.failedAt ? '100%' : d.queueState === 'running' ? '62%' : '28%',
+                          background: `linear-gradient(90deg, ${colors.teal}99, ${colors.lime}99)`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+                      {sr.startedAt ? <span>Started {formatRelativeTime(sr.startedAt)}</span> : null}
+                      {sr.completedAt ? (
+                        <span>Completed {formatRelativeTime(sr.completedAt)}</span>
+                      ) : sr.failedAt ? (
+                        <span className="text-red-100">Failed {formatRelativeTime(sr.failedAt)}</span>
+                      ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
+                        <span>Updated {formatRelativeTime(sr.updatedAt)}</span>
+                      ) : null}
+                    </div>
                   </div>
                 </motion.div>
               </>
@@ -1168,7 +1173,7 @@ export function SliceDetailModal({
                       {sr.decisionOptions.slice(0, 4).map((opt) => (
                         <div
                           key={opt.id}
-                          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+                          className="rounded-lg px-3 py-2"
                         >
                           <p className="text-caption font-semibold text-primary">{opt.label}</p>
                           {opt.description && (
@@ -1273,10 +1278,7 @@ export function SliceDetailModal({
               </>
             )}
             {terminalError ? (
-              <>
-                <SectionDivider />
-                <p className="text-caption text-red-200/80">{terminalError}</p>
-              </>
+              <p className="text-caption text-red-100/80">{terminalError}</p>
             ) : null}
 
           </div>

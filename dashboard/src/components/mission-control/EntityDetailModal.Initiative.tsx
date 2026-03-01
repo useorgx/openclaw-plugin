@@ -312,11 +312,11 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricBox label="Workstreams" value={`${details.workstreams.length}`} />
-        <MetricBox label="Milestones" value={`${details.milestones.length}`} />
-        <MetricBox label="Active Tasks" value={`${activeTasks}`} accent={activeTasks > 0 ? colors.lime : undefined} />
-        <MetricBox label="Blocked" value={`${blockedTasks}`} accent={blockedTasks > 0 ? colors.red : undefined} />
+      <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
+        <span>{details.workstreams.length} workstreams</span>
+        <span>{details.milestones.length} milestones</span>
+        <span className={activeTasks > 0 ? 'text-lime-200' : ''}>{activeTasks} active tasks</span>
+        <span className={blockedTasks > 0 ? 'text-red-200' : ''}>{blockedTasks} blocked</span>
       </div>
 
       {isLoading ? (
@@ -352,7 +352,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                         initiative,
                       })
                     }
-                    className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 transition-colors hover:bg-white/[0.06]"
+                    className="w-full text-left rounded-xl px-3.5 py-3 transition-colors hover:bg-white/[0.04]"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-body text-bright break-words">
@@ -384,7 +384,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                   onClick={() =>
                     openModal({ type: 'milestone', entity: ms, initiative })
                   }
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                  className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
                 >
                   <div className="flex items-center gap-2">
                       <span className="text-body text-bright break-words">
@@ -417,9 +417,9 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             embedMode={embedMode}
           />
 
-          {/* Notes (inline variant: no heavy container, no Show/Hide) */}
-          <div className="mt-4 pt-4 border-t border-subtle">
-            <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
+          {/* Notes */}
+          <div className="mt-4 space-y-2">
+            <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
               Notes
             </p>
             <EntityCommentsPanel
@@ -427,7 +427,6 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               entityId={initiative.id}
               authToken={authToken}
               embedMode={embedMode}
-              variant="inline"
             />
           </div>
         </>
@@ -619,33 +618,6 @@ function formatPriorityLabel(value: string | null | undefined): string {
   if (priority === 'high') return 'Priority: High';
   if (priority === 'low') return 'Priority: Low';
   return 'Priority: Medium';
-}
-
-function MetricBox({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: string;
-}) {
-  return (
-    <div
-      className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
-      style={accent ? { borderTopColor: `${accent}50`, borderTopWidth: 2 } : undefined}
-    >
-      <div className="text-micro uppercase tracking-[0.08em] text-muted">
-        {label}
-      </div>
-      <div
-        className="text-heading font-medium mt-0.5"
-        style={{ color: accent ?? 'rgba(255,255,255,0.8)' }}
-      >
-        {value}
-      </div>
-    </div>
-  );
 }
 
 function SectionLabel({ title, count }: { title: string; count: number }) {
