@@ -120,6 +120,8 @@ type RegisterLiveLegacyRoutesDeps<TRes extends RouteResLike> = {
   ) => { previewBuffer: Buffer; truncated: boolean };
   filePreviewMaxBytes: number;
   filePreviewMaxDirEntries: number;
+  resolveAutopilotLogCandidates?: (runId: string) => string[];
+  openPathInTerminal?: (path: string) => Promise<void>;
   securityHeaders: Record<string, string>;
   corsHeaders: Record<string, string>;
 
@@ -347,6 +349,81 @@ export function registerLiveLegacyRoutes<
     "Reject unsupported methods for live/filesystem/open"
   );
 
+  router.add(
+    "POST",
+    "live/terminal/open",
+    async ({ body, res }) => {
+      const payload =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>)
+          : {};
+      const runId =
+        typeof payload.runId === "string" ? payload.runId.trim() : "";
+      const rawPath =
+        typeof payload.path === "string" ? payload.path.trim() : "";
+
+      if (!runId && !rawPath) {
+        deps.sendJson(res, 400, {
+          ok: false,
+          error: "runId or path is required",
+        });
+        return;
+      }
+
+      let resolvedPath = "";
+      if (rawPath) {
+        resolvedPath = deps.resolveFilesystemOpenPath(rawPath);
+      } else if (runId) {
+        const candidates = deps.resolveAutopilotLogCandidates
+          ? deps.resolveAutopilotLogCandidates(runId)
+          : [];
+        resolvedPath =
+          candidates.find((candidate) => deps.existsSync(candidate)) ?? "";
+      }
+
+      if (!resolvedPath || !deps.existsSync(resolvedPath)) {
+        deps.sendJson(res, 404, {
+          ok: false,
+          error: "Terminal target not found",
+        });
+        return;
+      }
+
+      if (!deps.openPathInTerminal) {
+        deps.sendJson(res, 501, {
+          ok: false,
+          error: "Terminal open is unavailable in this runtime.",
+        });
+        return;
+      }
+
+      try {
+        await deps.openPathInTerminal(resolvedPath);
+        deps.sendJson(res, 200, {
+          ok: true,
+          path: resolvedPath,
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          ok: false,
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "Open run logs in local terminal"
+  );
+  router.add(
+    "*",
+    "live/terminal/open",
+    ({ res }) => {
+      deps.sendJson(res, 405, {
+        ok: false,
+        error: "Use POST /orgx/api/live/terminal/open",
+      });
+    },
+    "Reject unsupported methods for live/terminal/open"
+  );
+
   async function renderLiveStream(query: URLSearchParams, req: TReq, res: TRes): Promise<void> {
     sendDeprecated(res, "/orgx/api/live/stream", "/orgx/api/live/snapshot-v2");
     void query;
@@ -365,5 +442,52 @@ export function registerLiveLegacyRoutes<
     "live/stream",
     async ({ query, req, res }) => renderLiveStream(query, req, res),
     "Proxy live SSE stream (HEAD)"
+  );
+
+  router.add(
+    "POST",
+    "live/terminal/open",
+    async ({ body, res }) => {
+      try {
+        const payload = (typeof body === "string" ? JSON.parse(body) : body) as { runId?: string };
+        const runId = payload?.runId;
+        if (!runId) {
+          deps.sendJson(res, 400, { error: "runId is required" });
+          return;
+        }
+
+        const os = await import("os");
+        const cp = await import("child_process");
+        const path = await import("path");
+        const homedir = os.homedir();
+        const logPath = path.join(homedir, ".config", "useorgx", "openclaw-plugin", "autopilot-logs", `${runId}.log`);
+        
+        if (!deps.existsSync(logPath)) {
+          deps.sendJson(res, 404, { error: `Log file not found: ${logPath}` });
+          return;
+        }
+
+        const shellPath = logPath.replaceAll("'", "'\\''");
+        let command = "";
+        if (os.platform() === "darwin") {
+          command = `osascript -e 'tell app "Terminal" to do script "tail -f \\"${shellPath}\\""'`;
+        } else if (os.platform() === "win32") {
+          command = `start cmd.exe /k "tail -f \\"${shellPath}\\""`;
+        } else {
+          command = `gnome-terminal -- bash -c "tail -f \\"${shellPath}\\"; exec bash"`;
+        }
+
+        cp.exec(command, (error) => {
+          if (error) {
+            console.error("Failed to open terminal:", error);
+          }
+        });
+
+        deps.sendJson(res, 200, { success: true });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Open run session in native terminal"
   );
 }

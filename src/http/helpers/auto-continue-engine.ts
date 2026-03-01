@@ -406,6 +406,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
   };
 
+  const hasPendingQuestionAutoAnswerStateForInitiative = (
+    initiativeId: string | null | undefined
+  ): boolean => {
+    const normalizedInitiativeId = (initiativeId ?? "").trim();
+    if (!normalizedInitiativeId) return false;
+    for (const pending of pendingQuestionAutoAnswerByScope.values()) {
+      if ((pending.initiativeId ?? "").trim() === normalizedInitiativeId) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const processQuestionAutoAnswer = async (
     key: string,
     pending: PendingQuestionAutoAnswer
@@ -878,6 +891,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         process.env.ORGX_AUTOPILOT_EXECUTOR ??
         process.env.ORGX_AUTOPILOT_WORKER_KIND
     );
+    const sourceRefSourceClient =
+      (typeof sourceRefBase.source_client === "string" &&
+      sourceRefBase.source_client.trim().length > 0
+        ? sourceRefBase.source_client.trim()
+        : null) ??
+      (typeof sourceRefBase.sourceClient === "string" &&
+      sourceRefBase.sourceClient.trim().length > 0
+        ? sourceRefBase.sourceClient.trim()
+        : null);
     const normalizedInput: Parameters<CreateAutoContinueEngineDeps["requestDecisionSafe"]>[0] = {
       ...input,
       sourceRunId: inferredRunId,
@@ -889,30 +911,27 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         session_id: sourceRefBase.session_id ?? inferredSessionId,
         stream_id: sourceRefBase.stream_id ?? inferredStreamId,
         workstream_id: sourceRefBase.workstream_id ?? input.workstreamId ?? null,
-        source_client:
-          sourceRefBase.source_client ??
-          sourceRefBase.sourceClient ??
-          inferredSourceClient,
+        source_client: sourceRefSourceClient ?? inferredSourceClient,
       },
       metadata: {
         ...metadataBase,
         source_system: input.sourceSystem ?? null,
         conflict_source: input.conflictSource ?? null,
-        source_client:
-          metadataBase.source_client ??
-          metadataBase.sourceClient ??
-          inferredSourceClient,
+        source_client: metadataSourceClient ?? inferredSourceClient,
       },
     };
     const linkedSlice = inferredRunId ? autoContinueSliceRuns.get(inferredRunId) ?? null : null;
     const sourceClientFromInput =
-      typeof normalizedInput.metadata?.source_client === "string"
-        ? (normalizedInput.metadata.source_client as RuntimeSourceClient)
+      typeof normalizedInput.metadata?.source_client === "string" &&
+      normalizedInput.metadata.source_client.trim().length > 0
+        ? (normalizedInput.metadata.source_client.trim() as RuntimeSourceClient)
         : null;
-    const sourceClient =
+    const sourceClient = normalizeRuntimeSourceClient(
       sourceClientFromInput ??
-      linkedSlice?.sourceClient ??
-      "unknown";
+        linkedSlice?.sourceClient ??
+        process.env.ORGX_AUTOPILOT_EXECUTOR ??
+        process.env.ORGX_AUTOPILOT_WORKER_KIND
+    );
     const scopedWorkstreamId =
       ((typeof normalizedInput.workstreamId === "string" &&
         normalizedInput.workstreamId.trim().length > 0
@@ -1941,7 +1960,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           .filter(Boolean)
       : [];
     const preserveQuestionAutoAnswerState =
-      input.reason === "blocked" && decisionRequired && decisionIds.length > 0;
+      (input.reason === "blocked" && decisionRequired && decisionIds.length > 0) ||
+      hasPendingQuestionAutoAnswerStateForInitiative(input.run.initiativeId);
     const now = new Date().toISOString();
     ensureRunInternals(input.run);
     const activeRunIds = listActiveSliceRunIds(input.run);

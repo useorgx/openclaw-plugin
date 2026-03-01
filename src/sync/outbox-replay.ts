@@ -726,9 +726,14 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
       }
 
       const remaining: OutboxEvent[] = [];
+      let replayedCount = 0;
+      let droppedCount = 0;
+      let deadLetteredCount = 0;
+      let failedCount = 0;
       for (const event of pending) {
         const skipReason = classifyOutboxReplaySkip(event);
         if (skipReason) {
+          droppedCount += 1;
           await appendOutboxDeadLetter(
             queue,
             event,
@@ -745,6 +750,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
 
         try {
           await replayOutboxEvent(event);
+          replayedCount += 1;
         } catch (err: unknown) {
           hadReplayFailure = true;
           lastReplayError = toErrorMessage(err);
@@ -753,6 +759,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
               ? Math.max(0, Math.floor(event.replayFailures)) + 1
               : 1;
           if (nextFailures >= OUTBOX_MAX_REPLAY_FAILURES) {
+            deadLetteredCount += 1;
             await appendOutboxDeadLetter(
               queue,
               {
@@ -774,6 +781,7 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
             continue;
           }
 
+          failedCount += 1;
           remaining.push({
             ...event,
             replayFailures: nextFailures,
@@ -790,15 +798,15 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
       }
 
       await replaceOutbox(queue, remaining);
-
-      const replayedCount = pending.length - remaining.length;
-      if (replayedCount > 0) {
-        logger.info?.("[orgx] Replayed buffered outbox events", {
-          queue,
-          replayed: replayedCount,
-          remaining: remaining.length,
-        });
-      }
+      logger.info?.("[orgx] Processed buffered outbox events", {
+        queue,
+        pending: pending.length,
+        replayed: replayedCount,
+        dropped: droppedCount,
+        deadLettered: deadLetteredCount,
+        failed: failedCount,
+        remaining: remaining.length,
+      });
     }
 
     if (hadReplayFailure) {

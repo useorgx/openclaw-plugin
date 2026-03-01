@@ -1,5 +1,5 @@
-import { memo, useMemo, useState, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { memo, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import type { Initiative, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -17,7 +17,6 @@ interface NeedsInputPanelProps {
   onFocusRunId?: (runId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
   onOpenSliceDetail?: (sliceRun: SliceRunProjection) => void;
-  onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void;
 }
 
 const NEEDS_INPUT_STATES = new Set(['awaiting_input', 'needs_review', 'failed']);
@@ -59,30 +58,44 @@ export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInpu
   return Array.from(grouped.values());
 }
 
-function statusAccentColor(status: SliceRunProjection['status']): string {
-  if (status === 'failed') return '#FF6B88';
-  if (status === 'needs_review') return '#F5B700';
-  return '#BFFF00';
+function statusTone(status: SliceRunProjection['status']): string {
+  if (status === 'failed') return 'border-red-400/30 bg-red-500/[0.10] text-red-100';
+  if (status === 'needs_review') return 'border-amber-300/30 bg-amber-300/[0.10] text-amber-100';
+  return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
 }
 
 function statusLabel(status: SliceRunProjection['status']): string {
-  if (status === 'awaiting_input') return 'Input';
-  if (status === 'needs_review') return 'Review';
+  if (status === 'awaiting_input') return 'Needs input';
+  if (status === 'needs_review') return 'Needs review';
   if (status === 'failed') return 'Failed';
   return status.replace(/_/g, ' ');
 }
 
+function statusHighlight(status: SliceRunProjection['status']): string {
+  if (status === 'failed') return 'from-red-300/0 via-red-300/65 to-red-300/0';
+  if (status === 'needs_review') return 'from-amber-300/0 via-amber-300/65 to-amber-300/0';
+  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+}
+
+function actionLabel(item: SliceRunProjection): string {
+  if (item.primaryAction === 'resolve_decision') return 'Review choices';
+  if (item.primaryAction === 'open_artifact') return 'Open result';
+  if (item.primaryAction === 'retry_slice') return 'Review and retry';
+  if (item.primaryAction === 'review_output') return 'Review activity';
+  return 'Open details';
+}
+
 function valueSummary(item: SliceRunProjection): string {
   if (item.artifactCount > 0) {
-    return `${item.artifactCount} artifact${item.artifactCount === 1 ? '' : 's'} ready`;
+    return `${item.artifactCount} artifact${item.artifactCount === 1 ? '' : 's'} ready to review.`;
   }
   if (item.blockingDecisionCount > 0 || item.decisionCount > 0) {
     const count = Math.max(item.blockingDecisionCount, item.decisionCount);
-    return `${count} decision${count === 1 ? '' : 's'} pending`;
+    return `${count} decision${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} your input.`;
   }
-  if (item.status === 'failed') return 'Execution stopped';
-  if (item.status === 'needs_review') return 'Output ready for review';
-  return 'Needs your attention';
+  if (item.status === 'failed') return 'Execution stopped before finishing.';
+  if (item.status === 'needs_review') return 'Output is available and needs a quick review.';
+  return 'This work needs your attention to continue.';
 }
 
 function compactEntityLabel(value: string | null | undefined, prefix: string): string {
@@ -131,19 +144,8 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
   onFocusRunId,
   onReviewActivity,
   onOpenSliceDetail,
-  onAcceptSlice,
 }: NeedsInputPanelProps) {
-  const allRows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
-  const [optimisticallyAccepted, setOptimisticallyAccepted] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [pending, setPending] = useState<Set<string>>(new Set());
-  const [lastAction, setLastAction] = useState<string | null>(null);
-
-  const rows = useMemo(
-    () => allRows.filter((r) => !optimisticallyAccepted.has(r.item.sliceRunId)),
-    [allRows, optimisticallyAccepted],
-  );
-
+  const rows = useMemo(() => selectNeedsInputRows(sliceRuns), [sliceRuns]);
   const initiativeTitleById = useMemo(() => {
     const map = new Map<string, string>();
     for (const initiative of initiatives) {
@@ -165,63 +167,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     return map;
   }, [initiatives]);
 
-  const toggleSelect = useCallback((sliceRunId: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(sliceRunId)) next.delete(sliceRunId);
-      else next.add(sliceRunId);
-      return next;
-    });
-  }, []);
-
-  const allSelected = useMemo(
-    () => rows.length > 0 && rows.every((r) => selected.has(r.item.sliceRunId)),
-    [rows, selected]
-  );
-
-  const toggleSelectAll = useCallback(() => {
-    setSelected((prev) => {
-      if (allSelected) return new Set();
-      return new Set(rows.map((r) => r.item.sliceRunId));
-    });
-  }, [allSelected, rows]);
-
-  const selectedCount = selected.size;
-
-  const acceptOne = useCallback(async (item: SliceRunProjection, note?: string) => {
-    const id = item.sliceRunId ?? item.id ?? '';
-    try {
-      setLastAction(`Accepting ${id.slice(0, 8)}…`);
-      setPending((prev) => new Set(prev).add(id));
-
-      // Delegate to parent callback which calls the API and triggers refetch
-      try { await onAcceptSlice?.(item, note); } catch { /* ignore */ }
-      setOptimisticallyAccepted((prev) => new Set(prev).add(id));
-      setLastAction(`Accepted ${id.slice(0, 8)}`);
-    } catch (err) {
-      setLastAction(`Failed: ${err instanceof Error ? err.message : 'network error'}`);
-    } finally {
-      setPending((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  }, [onAcceptSlice]);
-
-  const handleBulkAccept = useCallback(() => {
-    const reviewable = rows.filter(
-      (r) => selected.has(r.item.sliceRunId) && r.item.status === 'needs_review'
-    );
-    if (reviewable.length === 0) return;
-    setLastAction(`Accepting ${reviewable.length} items…`);
-    for (const row of reviewable) {
-      acceptOne(row.item);
-    }
-    setSelected(new Set());
-  }, [rows, selected, acceptOne]);
-
-  const runPrimaryAction = useCallback((item: SliceRunProjection) => {
+  const runPrimaryAction = (item: SliceRunProjection) => {
     if (item.primaryAction === 'resolve_decision') {
       onOpenDecisions?.();
       return;
@@ -246,203 +192,158 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
     if (item.sliceRunId) {
       onFocusRunId?.(item.sliceRunId);
     }
-  }, [onOpenDecisions, onReviewActivity, onFocusRunId]);
-
-  const reviewRows = useMemo(() => rows.filter((r) => r.item.status === 'needs_review'), [rows]);
-  const selectedReviewCount = useMemo(
-    () => reviewRows.filter((r) => selected.has(r.item.sliceRunId)).length,
-    [reviewRows, selected]
-  );
-
-  const Wrapper = panelStyle === 'card' ? PremiumCard : 'div';
+  };
 
   return (
-    <Wrapper
-      className={`flex h-full min-h-0 flex-col overflow-hidden ${className ?? ''}`}
+    <PremiumCard
+      surface={panelStyle === 'card'}
+      className={`flex h-full min-h-0 flex-col overflow-hidden ${
+        panelStyle === 'flat' ? '!rounded-none !border-none !bg-transparent !shadow-none' : ''
+      } ${className ?? ''}`}
     >
       {showHeader ? (
-        <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-2.5">
+        <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-body font-semibold text-white/90">{title}</h2>
-            <span className="rounded-full bg-white/[0.06] px-1.5 py-px text-[10px] font-medium tabular-nums text-white/40">
-              {rows.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {rows.length > 1 && (
-              <button
-                type="button"
-                onClick={toggleSelectAll}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-white/40 transition-colors hover:bg-white/[0.04] hover:text-white/60"
-              >
-                {allSelected ? 'Clear' : 'Select all'}
-              </button>
-            )}
-            {selectedCount > 0 && selectedReviewCount > 0 && onAcceptSlice && (
-              <button
-                type="button"
-                disabled={pending.size > 0}
-                onClick={handleBulkAccept}
-                className="rounded-md bg-[#BFFF00]/10 px-2.5 py-1 text-[11px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/18 disabled:opacity-40 disabled:pointer-events-none"
-              >
-                {pending.size > 0 ? 'Accepting...' : `Accept ${selectedReviewCount}`}
-              </button>
-            )}
+            <h2 className="truncate text-heading font-semibold text-white">{title}</h2>
+            <span className="chip text-micro">{rows.length}</span>
           </div>
         </div>
       ) : null}
 
-      {/* Inline action indicator — visible proof that handlers fire */}
-      {lastAction && (
-        <div className="flex items-center gap-1.5 border-b border-white/[0.04] px-4 py-1 text-[10px] text-[#0AD4C4]/70 animate-pulse">
-          <span className="h-1 w-1 rounded-full bg-[#0AD4C4]" />
-          {lastAction}
-        </div>
-      )}
-
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-center text-caption text-white/30">
-          Nothing needs attention right now.
+        <div className="px-4 py-4 text-body text-secondary">
+          No slices need intervention right now.
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <AnimatePresence mode="popLayout">
-            {rows.map(({ item, duplicateCount }, index) => {
-              const primaryInitiativeId =
-                (Array.isArray(item.initiativeIds) && item.initiativeIds.length > 0
-                  ? item.initiativeIds[0]
-                  : item.initiativeId) ?? null;
-              const primaryWorkstreamId =
-                (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
-                  ? item.workstreamIds[0]
-                  : item.workstreamId) ?? null;
-              const initiativeLabel =
-                (primaryInitiativeId
-                  ? initiativeTitleById.get(primaryInitiativeId)
-                  : null) ?? compactEntityLabel(primaryInitiativeId, 'Initiative');
-              const workstreamLabel =
-                item.workstreamTitle ??
-                (primaryWorkstreamId
-                  ? workstreamTitleById.get(primaryWorkstreamId) ?? null
-                  : null);
-              const label = derivePrimaryLabel(item, workstreamLabel, primaryWorkstreamId);
-              const summaryText = sanitizeDisplayText(valueSummary(item));
-              const initiativeText = sanitizeDisplayText(initiativeLabel);
-              const when = item.updatedAt ?? item.lastEventAt ?? null;
-              const accent = statusAccentColor(item.status);
-              const isSelected = selected.has(item.sliceRunId);
-              const isPending = pending.has(item.sliceRunId);
-              const isReview = item.status === 'needs_review';
-
-              return (
-                <motion.article
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 120, scale: 0.97 }}
-                  transition={{
-                    duration: 0.2,
-                    delay: Math.min(index, 5) * 0.015,
-                    ease: [0.22, 1, 0.36, 1],
-                  }}
-                  key={item.sliceRunId}
-                  className="group relative cursor-pointer border-b border-subtle transition-colors hover:bg-white/[0.02]"
-                  style={{
-                    backgroundColor: isSelected ? 'rgba(191,255,0,0.03)' : undefined,
-                    opacity: isPending ? 0.5 : undefined,
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    // Only open detail if clicked on the row content (not buttons/checkbox)
-                    const target = e.target as HTMLElement;
-                    if (target.closest('button, input, [data-stop-row]')) return;
-                    setLastAction(`Opening detail…`);
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
+          {rows.map(({ item, duplicateCount }, index) => {
+            const primaryInitiativeId =
+              (Array.isArray(item.initiativeIds) && item.initiativeIds.length > 0
+                ? item.initiativeIds[0]
+                : item.initiativeId) ?? null;
+            const primaryWorkstreamId =
+              (Array.isArray(item.workstreamIds) && item.workstreamIds.length > 0
+                ? item.workstreamIds[0]
+                : item.workstreamId) ?? null;
+            const initiativeLabel =
+              (primaryInitiativeId
+                ? initiativeTitleById.get(primaryInitiativeId)
+                : null) ?? compactEntityLabel(primaryInitiativeId, 'Initiative');
+            const workstreamLabel =
+              item.workstreamTitle ??
+              (primaryWorkstreamId
+                ? workstreamTitleById.get(primaryWorkstreamId) ?? null
+                : null);
+            const label = derivePrimaryLabel(item, workstreamLabel, primaryWorkstreamId);
+            const subtitle =
+              item.statusExplainer?.trim().length
+                ? item.statusExplainer
+                : 'Review this slice to continue execution.';
+            const summaryText = sanitizeDisplayText(valueSummary(item));
+            const subtitleText = sanitizeDisplayText(subtitle);
+            const initiativeText = sanitizeDisplayText(initiativeLabel);
+            const scopeText = item.scope ? item.scope.replace(/_/g, ' ') : null;
+            const when = item.updatedAt ?? item.lastEventAt ?? null;
+            return (
+              <motion.article
+                initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{
+                  duration: 0.24,
+                  delay: Math.min(index, 7) * 0.022,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+                key={item.sliceRunId}
+                className={`group hover-lift relative overflow-visible rounded-2xl border bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14] ${
+                  item.status === 'failed'
+                    ? 'border-red-400/20'
+                    : item.blockingDecisionCount > 0
+                      ? 'border-amber-400/20'
+                      : 'border-white/[0.08]'
+                }`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpenSliceDetail?.(item)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
                     onOpenSliceDetail?.(item);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onOpenSliceDetail?.(item);
-                    }
-                  }}
+                  }
+                }}
                 >
-                  <div className="flex items-start gap-2 py-2.5 pl-2.5 pr-2.5 sm:gap-2.5 sm:pl-3 sm:pr-3">
-                    {/* Checkbox — compact */}
-                    <div className="flex-shrink-0 pt-0.5">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelect(item.sliceRunId)}
-                        className="h-4 w-4 rounded-sm border-white/15 bg-transparent text-[#BFFF00] focus:ring-0 focus:ring-offset-0 cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Content */}
-                    <div className="min-w-0 flex-1">
-                      {/* Line 1: status dot + label + time */}
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                          style={{ backgroundColor: accent }}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight text-white/90">
-                          {label}
-                        </span>
-                        <span className="hidden sm:inline flex-shrink-0 text-[10px] tabular-nums text-white/25">
-                          {when ? formatRelativeTime(when) : statusLabel(item.status)}
-                        </span>
-                      </div>
-
-                      {/* Line 2: summary + meta */}
-                      <div className="mt-0.5 flex items-baseline gap-1 sm:gap-1.5 pl-3 sm:pl-[14px] overflow-hidden">
-                        <span className="min-w-0 truncate text-[11px] leading-relaxed text-white/35">
-                          {summaryText}
-                        </span>
-                        {duplicateCount > 1 && (
-                          <span className="flex-shrink-0 text-[10px] text-white/20">
-                            +{duplicateCount - 1}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Line 3: initiative */}
-                      <div className="mt-px flex items-center gap-1 pl-3 sm:pl-[14px] text-[10px] text-white/20 overflow-hidden">
-                        <EntityIcon type="initiative" size={8} className="opacity-50" />
+                  <div
+                    className={`pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r ${statusHighlight(item.status)}`}
+                    aria-hidden
+                  />
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                      <p className="inline-flex min-w-0 items-center gap-1 text-micro uppercase tracking-[0.08em] text-muted">
+                        <EntityIcon type="initiative" size={10} className="flex-shrink-0 opacity-80" />
                         <span className="truncate">{initiativeText}</span>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex flex-shrink-0 items-center gap-1 self-center">
-                      {isReview && onAcceptSlice ? (
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          onClick={() => acceptOne(item)}
-                          className="flex h-6 items-center gap-0.5 sm:gap-1 rounded-md bg-[#BFFF00]/8 px-1.5 sm:px-2 text-[11px] font-medium text-[#BFFF00]/70 transition-all hover:bg-[#BFFF00]/15 hover:text-[#BFFF00] disabled:opacity-40"
-                        >
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          {isPending ? 'Accepting...' : 'Accept'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => runPrimaryAction(item)}
-                          className="flex h-6 items-center rounded-md px-2 text-[11px] font-medium text-white/45 opacity-100 transition-all md:opacity-0 md:group-hover:opacity-100 hover:bg-white/[0.04] hover:text-white/70"
-                        >
-                          {item.status === 'failed' ? 'Retry' : 'View'}
-                        </button>
+                      </p>
+                      <p className="mt-0.5 inline-flex min-w-0 items-start gap-1.5 text-body font-semibold leading-snug text-white" title={label}>
+                        <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
+                        <span className="line-clamp-2">{label}</span>
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary" title={summaryText}>
+                        {summaryText}
+                      </p>
+                      {subtitleText && subtitleText !== summaryText && (
+                        <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted" title={subtitleText}>
+                          {subtitleText}
+                        </p>
                       )}
                     </div>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </AnimatePresence>
+                    <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                      <span
+                        className={`inline-flex h-6 items-center rounded-full border px-2 text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(item.status)}`}
+                      >
+                        {statusLabel(item.status)}
+                      </span>
+                      {scopeText ? (
+                        <span className="chip text-micro capitalize">{scopeText}</span>
+                      ) : null}
+                    </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
+                  {duplicateCount > 1 && (
+                    <span className="chip text-micro">
+                      {duplicateCount} similar updates
+                    </span>
+                  )}
+                  {typeof item.decisionCount === 'number' && item.decisionCount > 0 && (
+                    <span className="chip text-micro">{item.decisionCount} decision{item.decisionCount === 1 ? '' : 's'}</span>
+                  )}
+                  {typeof item.artifactCount === 'number' && item.artifactCount > 0 && (
+                    <span className="chip text-micro">{item.artifactCount} artifact{item.artifactCount === 1 ? '' : 's'}</span>
+                  )}
+                  {when && <span>Updated {formatRelativeTime(when)}</span>}
+                </div>
+                <div
+                  className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.07] pt-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenSliceDetail?.(item)}
+                    className="control-pill h-7 px-2.5 text-micro font-semibold"
+                  >
+                    Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runPrimaryAction(item)}
+                    className="control-pill h-7 px-2.5 text-micro font-semibold"
+                    data-tone={item.status === 'failed' ? 'teal' : undefined}
+                  >
+                    {actionLabel(item)}
+                  </button>
+                </div>
+              </motion.article>
+            );
+          })}
         </div>
       )}
-    </Wrapper>
+    </PremiumCard>
   );
 });

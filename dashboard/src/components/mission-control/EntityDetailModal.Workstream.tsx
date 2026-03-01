@@ -227,38 +227,23 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         {notice && <div className="text-caption text-secondary">{notice}</div>}
       </div>
 
-      {/* Progress */}
-      {progressValue !== null && (
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-micro text-muted uppercase tracking-wider">Progress</span>
-            <span className="text-body text-secondary">{progressValue}%</span>
+      {/* Inline stats + progress */}
+      <div className="space-y-2">
+        <p className="text-caption text-secondary">
+          {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'} · {doneTaskCount}/{tasks.length} done
+          {milestones.length > 0 && ` · ${milestones.length} milestone${milestones.length === 1 ? '' : 's'}`}
+        </p>
+        {progressValue !== null && (
+          <div className="flex items-center gap-2">
+            <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(progressValue, 2)}%`, backgroundColor: colors.lime }}
+              />
+            </div>
+            <span className="text-micro text-secondary tabular-nums">{progressValue}%</span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Metrics */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{tasks.length}</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Milestones</div>
-          <div className="text-heading font-medium text-primary mt-0.5">{milestones.length}</div>
-        </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {progressValue !== null ? `${progressValue}%` : '-'}
-          </div>
-        </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -269,59 +254,58 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         </div>
       ) : (
         <>
-          {/* Milestones */}
+          {/* Milestones — flat rows */}
           {milestones.length > 0 && (
-            <div className="space-y-2">
-              <span className="text-caption uppercase tracking-[0.08em] text-muted">
-                Milestones
-              </span>
+            <div className="space-y-1">
               {milestones.map((ms) => (
                 <button
                   key={ms.id}
                   onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                  className="flex w-full items-center justify-between gap-2 rounded-lg py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-body text-bright">{ms.title}</span>
-                    <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(ms.status)}`}>
-                      {formatEntityStatus(ms.status)}
-                    </span>
-                  </div>
+                  <span className="text-body text-bright break-words">{ms.title}</span>
+                  <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getMilestoneStatusClass(ms.status)}`}>
+                    {formatEntityStatus(ms.status)}
+                  </span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* Tasks */}
+          {/* Tasks — flat rows with status-tinted left border */}
           {tasks.length > 0 && (
-            <div className="space-y-2">
-              <span className="text-caption uppercase tracking-[0.08em] text-muted">
-                Tasks ({tasks.length})
-              </span>
-              {tasks.map((task) => (
-                <button
-                  key={task.id}
-                  onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-body text-bright">{task.title}</span>
+            <div className="space-y-1">
+              {tasks.map((task) => {
+                const ts = task.status.toLowerCase();
+                const borderColor = ['active', 'in_progress'].includes(ts) ? colors.lime
+                  : ts === 'blocked' ? colors.red
+                  : ['done', 'completed'].includes(ts) ? colors.teal
+                  : 'rgba(255,255,255,0.08)';
+                return (
+                  <button
+                    key={task.id}
+                    onClick={() => openModal({ type: 'task', entity: task, initiative })}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
+                    style={{ borderLeftColor: borderColor }}
+                  >
+                    <div className="min-w-0">
+                      <span className="text-body text-bright break-words">{task.title}</span>
+                      {task.priority && (
+                        <span className="text-micro text-muted mt-0.5 block uppercase tracking-wider">{task.priority}</span>
+                      )}
+                    </div>
                     <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getTaskStatusClass(task.status)}`}>
                       {formatEntityStatus(task.status)}
                     </span>
-                  </div>
-                  {task.priority && (
-                    <span className="text-micro text-muted mt-0.5 block uppercase tracking-wider">
-                      Priority: {task.priority}
-                    </span>
-                  )}
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Notes */}
-          {/* Milestone Artifacts (aggregated for workstream) */}
+          <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
+          {/* Artifacts */}
           <EntityArtifactsPanel
             entityType="workstream"
             entityId={workstream.id}
@@ -332,19 +316,15 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             milestoneIds={milestones.map((m) => m.id)}
           />
 
-          <div className="mt-2 pt-4 border-t border-subtle">
-            <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
-              Notes
-            </p>
+          {/* Notes — inline, always visible */}
+          <div className="space-y-2">
             <EntityCommentsPanel
               entityType="workstream"
               entityId={workstream.id}
               authToken={authToken}
               embedMode={embedMode}
-              variant="inline"
             />
           </div>
-
         </>
       )}
       </div>

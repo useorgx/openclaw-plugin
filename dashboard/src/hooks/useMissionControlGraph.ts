@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { MissionControlGraphResponse } from '@/types';
+import type { MissionControlGraphResponse, MissionControlNode } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { canQueryInitiativeEntities, isDemoModeEnabled } from '@/lib/initiativeIds';
 
@@ -9,6 +9,21 @@ interface UseMissionControlGraphOptions {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
+}
+
+function normalizeSequenceIndex(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const integer = Math.max(0, Math.trunc(value));
+  // OrgX persists sequence as 1-based; dashboard sequenceIndex is 0-based.
+  if (integer > 0) return integer - 1;
+  return integer;
+}
+
+function hierarchyPrefix(type: string): 'W' | 'M' | 'T' | 'I' {
+  if (type === 'workstream') return 'W';
+  if (type === 'milestone') return 'M';
+  if (type === 'task') return 'T';
+  return 'I';
 }
 
 function fallbackGraph(initiativeId: string): MissionControlGraphResponse {
@@ -179,7 +194,37 @@ export function useMissionControlGraph({
         const fb = fallbackGraph(initiativeId);
         return { ...fb, degraded: [message] } as MissionControlGraphResponse;
       }
-      return (await response.json()) as MissionControlGraphResponse;
+      const data = (await response.json()) as MissionControlGraphResponse;
+
+      const normalizedNodes = Array.isArray(data.nodes)
+        ? data.nodes.map((node) => {
+            const nodeWithSequence = node as MissionControlNode & {
+              sequence?: unknown;
+            };
+            const sequenceIndex = normalizeSequenceIndex(
+              nodeWithSequence.sequenceIndex ?? nodeWithSequence.sequence
+            );
+            if (typeof sequenceIndex !== 'number') return node;
+            const hasHierarchyLabel =
+              typeof nodeWithSequence.hierarchyLabel === 'string' &&
+              nodeWithSequence.hierarchyLabel.trim().length > 0;
+            return {
+              ...nodeWithSequence,
+              sequenceIndex,
+              hierarchyLabel: hasHierarchyLabel
+                ? nodeWithSequence.hierarchyLabel
+                : `${hierarchyPrefix(String(nodeWithSequence.type ?? 'initiative'))}${sequenceIndex + 1}`,
+            };
+          })
+        : [];
+
+      return {
+        ...data,
+        nodes:
+          normalizedNodes.length > 0
+            ? normalizedNodes
+            : data.nodes,
+      };
     },
   });
 

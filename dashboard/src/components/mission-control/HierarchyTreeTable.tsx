@@ -199,6 +199,13 @@ export function HierarchyTreeTable({
     return () => window.clearTimeout(timeout);
   }, [bulkNotice?.message, bulkNotice?.tone]);
 
+  useEffect(() => {
+    if (!bulkNotice) return;
+    const durationMs = bulkNotice.tone === 'success' ? 6500 : 9000;
+    const timeout = window.setTimeout(() => setBulkNotice(null), durationMs);
+    return () => window.clearTimeout(timeout);
+  }, [bulkNotice?.message, bulkNotice?.tone]);
+
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const allNodeHints = useMemo(
     () => nodes.map((node) => ({ id: node.id, title: node.title })),

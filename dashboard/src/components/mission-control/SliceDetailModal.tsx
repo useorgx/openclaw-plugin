@@ -375,12 +375,13 @@ export function SliceDetailModal({
   }, [open, handleKeyDown]);
 
   useEffect(() => {
-    if (open) return;
-    setTerminalError(null);
-    setIsOpeningTerminal(false);
-    setActionMode(null);
-    setActionNote('');
-    setActionFeedback(null);
+    if (!open) {
+      setTerminalError(null);
+      setIsOpeningTerminal(false);
+      setActionMode(null);
+      setActionNote('');
+      setActionFeedback(null);
+    }
   }, [open]);
 
   // Auto-focus note textarea when action mode is set — use rAF to beat Modal's focus trap
@@ -391,6 +392,7 @@ export function SliceDetailModal({
       });
     }
   }, [actionMode]);
+
 
   if (!target) return null;
 
@@ -687,6 +689,64 @@ export function SliceDetailModal({
             </button>
           )}
 
+        </div>
+
+        <div className="flex-1" />
+
+        {/* ── Right: primary CTAs ── */}
+        <div className="flex items-center gap-1.5">
+          {isNeedsReview && onRejectSlice && (
+            <button
+              type="button"
+              onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
+              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                actionMode === 'reject'
+                  ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
+                  : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
+              }`}
+            >
+              Request changes
+            </button>
+          )}
+          {isNeedsReview && onAcceptSlice && (
+            <button
+              type="button"
+              onClick={() => {
+                if (actionMode === 'accept') {
+                  handleConfirmAction();
+                } else {
+                  setActionMode('accept');
+                }
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Accept
+            </button>
+          )}
+          {canStart && (
+            <button
+              type="button"
+              data-modal-autofocus="true"
+              onClick={() => {
+                onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
+                onClose();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+              title="Start (⌘ Enter)"
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
+                <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
+              </svg>
+              {canonicalProjection.status === 'completed'
+                ? 'Restart'
+                : canonicalProjection.status === 'needs_attention'
+                  ? 'Retry'
+                  : 'Start'}
+            </button>
+          )}
           {hasTerminal && (
             <button
               type="button"
@@ -702,62 +762,6 @@ export function SliceDetailModal({
             </button>
           )}
         </div>
-
-        <div className="flex-1" />
-
-        {/* ── Right: primary CTAs ── */}
-        {isNeedsReview && onRejectSlice && (
-          <button
-            type="button"
-            onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
-            className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
-              actionMode === 'reject'
-                ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
-                : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
-            }`}
-          >
-            Request changes
-          </button>
-        )}
-        {isNeedsReview && onAcceptSlice && (
-          <button
-            type="button"
-            onClick={() => {
-              if (actionMode === 'accept') {
-                handleConfirmAction();
-              } else {
-                setActionMode('accept');
-              }
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            Accept
-          </button>
-        )}
-        {canStart && (
-          <button
-            type="button"
-            data-modal-autofocus="true"
-            onClick={() => {
-              onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
-              onClose();
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
-            title="Start (\u2318 Enter)"
-          >
-            <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
-              <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
-            </svg>
-            {canonicalProjection.status === 'completed'
-              ? 'Restart'
-              : canonicalProjection.status === 'needs_attention'
-                ? 'Retry'
-                : 'Start'}
-          </button>
-        )}
       </div>
     </div>
   );
@@ -965,33 +969,30 @@ export function SliceDetailModal({
                     nodes={scopeNodes}
                     activeId={d.workstreamId}
                   />
-                  {/* Priority / due — only shown for non-review items */}
-                  {!isNeedsReview && (d.nextTaskPriority !== null || d.nextTaskDueAt) && (
-                    <div className="flex items-center gap-2 mt-1">
-                      {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
-                        <span
-                          className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
-                          style={{
-                            color: priorityColor(d.nextTaskPriority),
-                            borderColor: `${priorityColor(d.nextTaskPriority)}33`,
-                            backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
-                          }}
-                        >
-                          {priorityLabel(d.nextTaskPriority)}
-                        </span>
-                      )}
-                      {d.nextTaskDueAt && (
-                        <span className="text-micro text-secondary">
-                          Due {formatRelativeTime(d.nextTaskDueAt)}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                      <span
+                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        style={{
+                          color: priorityColor(d.nextTaskPriority),
+                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                        }}
+                      >
+                        {priorityLabel(d.nextTaskPriority)}
+                      </span>
+                    )}
+                    {d.nextTaskDueAt && (
+                      <span className="text-micro text-secondary">
+                        Due {formatRelativeTime(d.nextTaskDueAt)}
+                      </span>
+                    )}
+                  </div>
                 </motion.div>
               </>
             )}
-            {/* Fallback when no scope tree is available */}
-            {scopeNodes.length === 0 && (d.sliceTaskCount !== null || d.sliceScope) && (
+            {/* Fallback: inline metadata when no scope tree */}
+            {scopeNodes.length === 0 && (d.nextTaskTitle || d.sliceTaskCount !== null || d.sliceScope) && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -1003,14 +1004,41 @@ export function SliceDetailModal({
                   className="space-y-2"
                 >
                   <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
-                  <p className="text-body text-secondary">
-                    {workSnapshotFallback({
-                      queueState: d.queueState,
-                      blockReason: d.blockReason,
-                      sliceScope: d.sliceScope,
-                      sliceTaskCount: d.sliceTaskCount,
-                    })}
-                  </p>
+                  {d.nextTaskTitle && (
+                    <div className="flex items-start gap-2">
+                      <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
+                      <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    {d.sliceScope ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro uppercase tracking-[0.08em] text-secondary">
+                        {d.sliceScope} slice
+                      </span>
+                    ) : null}
+                    {typeof d.sliceTaskCount === 'number' ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro text-secondary">
+                        {d.sliceTaskCount} {d.sliceTaskCount === 1 ? 'task' : 'tasks'} in scope
+                      </span>
+                    ) : null}
+                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                      <span
+                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        style={{
+                          color: priorityColor(d.nextTaskPriority),
+                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                        }}
+                      >
+                        {priorityLabel(d.nextTaskPriority)}
+                      </span>
+                    )}
+                    {d.nextTaskDueAt && (
+                      <span className="text-micro text-secondary">
+                        Due {formatRelativeTime(d.nextTaskDueAt)}
+                      </span>
+                    )}
+                  </div>
                 </motion.div>
               </>
             )}
@@ -1272,12 +1300,6 @@ export function SliceDetailModal({
                 </details>
               </>
             )}
-            {terminalError ? (
-              <>
-                <SectionDivider />
-                <p className="text-caption text-red-200/80">{terminalError}</p>
-              </>
-            ) : null}
 
           </div>
         </ModalShell>

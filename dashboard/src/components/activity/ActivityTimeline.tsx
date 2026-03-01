@@ -17,6 +17,8 @@ import type {
   SliceRunProjection,
   SliceTimelineNarrativeProjectionV2,
 } from '@/types';
+import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
+import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
@@ -74,6 +76,7 @@ interface ActivityTimelineProps {
   chatSnapshot?: LiveChatSnapshot;
   onRefreshData?: () => Promise<void> | void;
   isLoading?: boolean;
+  onOpenNextUp?: () => void;
 }
 
 const INITIAL_RENDER_COUNT = 50;
@@ -2598,6 +2601,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   chatSnapshot,
   onRefreshData,
   isLoading = false,
+  onOpenNextUp,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const { open: openArtifactViewer } = useArtifactViewer();
@@ -2629,6 +2633,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const timeRangeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [dispatchingKey, setDispatchingKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const handledRequestedItemIdRef = useRef<string | null>(null);
@@ -2838,6 +2843,60 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
     return copy;
   }, [sessions]);
+
+  const nextUpQueue = useNextUpQueue({});
+
+  const runningSessions = useMemo(
+    () => sessions.filter((s) => s.status === 'running'),
+    [sessions]
+  );
+
+  const queueItemKey = useCallback(
+    (item: Pick<NextUpQueueItem, 'initiativeId' | 'workstreamId'>) =>
+      `${item.initiativeId}:${item.workstreamId}`,
+    []
+  );
+
+  const nowQueueItem = useMemo(() => {
+    const running = nextUpQueue.items.find((item) => item.queueState === 'running') ?? null;
+    return running;
+  }, [nextUpQueue.items]);
+
+  const upNextQueueItem = useMemo(() => {
+    const queued = nextUpQueue.items.find((item) => item.queueState === 'queued') ?? null;
+    return queued;
+  }, [nextUpQueue.items]);
+
+  const nowFallbackSession = useMemo(
+    () => (nowQueueItem ? null : runningSessions[0] ?? null),
+    [nowQueueItem, runningSessions]
+  );
+
+  const playQueuedWorkstream = useCallback(
+    async (item: NextUpQueueItem) => {
+      const key = queueItemKey(item);
+      setDispatchingKey(key);
+      try {
+        const result = await nextUpQueue.playWorkstream({
+          initiativeId: item.initiativeId,
+          workstreamId: item.workstreamId,
+          agentId: item.runnerAgentId,
+        });
+        const sessionId =
+          result && typeof result === 'object' && 'sessionId' in result
+            ? ((result as { sessionId?: string | null }).sessionId ?? null)
+            : null;
+        if (sessionId) onFocusRunId?.(sessionId);
+        onOpenNextUp?.();
+      } catch (err) {
+        setCopyNotice(err instanceof Error ? err.message : 'Dispatch failed');
+      } finally {
+        setDispatchingKey(null);
+      }
+    },
+    [nextUpQueue, onFocusRunId, onOpenNextUp, queueItemKey]
+  );
+
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
       const runId = resolveRunId(item);
@@ -3599,11 +3658,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       new Set()
     );
   }, [activeDecorated, activity]);
+  const activeFileEvidenceUnique = useMemo(
+    () =>
+      activeFileEvidence.filter(
+        (entry, index, all) => all.findIndex((candidate) => candidate.path === entry.path) === index
+      ),
+    [activeFileEvidence]
+  );
+  const activeFileEvidencePreview = useMemo(
+    () => activeFileEvidenceUnique.slice(0, 4),
+    [activeFileEvidenceUnique]
+  );
+  const activeFileEvidenceOverflow = useMemo(
+    () => activeFileEvidenceUnique.slice(4),
+    [activeFileEvidenceUnique]
+  );
   const primaryEvidenceHref = useMemo(() => {
-    if (activeFileEvidence.length === 0) return null;
-    const first = activeFileEvidence[0];
+    if (activeFileEvidenceUnique.length === 0) return null;
+    const first = activeFileEvidenceUnique[0];
     return first ? resolveFileEvidenceHref(first.path) : null;
-  }, [activeFileEvidence]);
+  }, [activeFileEvidenceUnique]);
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
@@ -4059,6 +4133,171 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         />
       ) : (
         <>
+          {(nowQueueItem || upNextQueueItem || nowFallbackSession) && (
+            <div className="border-b border-subtle px-4 py-3">
+              <div className="grid gap-2.5 lg:grid-cols-2">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(191,255,0,0.10), transparent 70%)',
+                    }}
+                  />
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <AgentAvatar
+                        name={
+                          nowQueueItem?.runnerAgentName ??
+                          nowFallbackSession?.agentName ??
+                          'OrgX'
+                        }
+                        hint={
+                          nowQueueItem
+                            ? `${nowQueueItem.runnerAgentId} ${nowQueueItem.runnerSource}`
+                            : nowFallbackSession?.agentId ?? null
+                        }
+                        size="xs"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
+                          Now
+                        </span>
+                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
+                          Running
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
+                        {nowQueueItem?.workstreamTitle ??
+                          nowFallbackSession?.title ??
+                          'Nothing running'}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
+                        {nowQueueItem
+                          ? `${nowQueueItem.initiativeTitle}${
+                              nowQueueItem.nextTaskTitle
+                                ? ` · ${nowQueueItem.nextTaskTitle}`
+                                : ''
+                            }`
+                          : nowFallbackSession
+                            ? 'Session is running. Focus it to watch progress.'
+                            : 'Queue a workstream to start execution.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const runId =
+                          nowQueueItem?.autoContinue?.activeRunId ??
+                          nowFallbackSession?.runId ??
+                          null;
+                        if (runId) onFocusRunId?.(runId);
+                      }}
+                      disabled={
+                        !(nowQueueItem?.autoContinue?.activeRunId ?? nowFallbackSession?.runId)
+                      }
+                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+                    >
+                      Focus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenNextUp}
+                      className="control-pill h-8 px-3 text-caption font-semibold"
+                      title="Open Next Up queue"
+                    >
+                      Queue
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(10,212,196,0.12), transparent 70%)',
+                    }}
+                  />
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <AgentAvatar
+                        name={upNextQueueItem?.runnerAgentName ?? 'OrgX'}
+                        hint={
+                          upNextQueueItem
+                            ? `${upNextQueueItem.runnerAgentId} ${upNextQueueItem.runnerSource}`
+                            : null
+                        }
+                        size="xs"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
+                          Up Next
+                        </span>
+                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
+                          Queued
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
+                        {upNextQueueItem?.workstreamTitle ?? 'Queue the next workstream'}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
+                        {upNextQueueItem
+                          ? `${upNextQueueItem.initiativeTitle}${
+                              upNextQueueItem.nextTaskTitle
+                                ? ` · ${upNextQueueItem.nextTaskTitle}`
+                                : ''
+                            }`
+                          : 'Open the queue to choose what should run next.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!upNextQueueItem) return;
+                        void playQueuedWorkstream(upNextQueueItem);
+                      }}
+                      disabled={
+                        !upNextQueueItem ||
+                        nextUpQueue.isPlaying ||
+                        dispatchingKey ===
+                          (upNextQueueItem ? queueItemKey(upNextQueueItem) : null)
+                      }
+                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+                      data-state="active"
+                      title={
+                        upNextQueueItem ? 'Dispatch queued workstream' : 'No queued workstream'
+                      }
+                    >
+                      {dispatchingKey &&
+                      upNextQueueItem &&
+                      dispatchingKey === queueItemKey(upNextQueueItem)
+                        ? 'Dispatching...'
+                        : 'Play'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenNextUp}
+                      className="control-pill h-8 px-3 text-caption font-semibold"
+                      title="Open Next Up queue"
+                    >
+                      Queue
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="border-b border-subtle px-4 py-3.5">
             <div className="flex flex-col gap-2.5">
               <div className="flex flex-wrap items-start justify-between gap-2.5">
@@ -5599,17 +5838,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {/* Evidence files — flat rows, deduplicated */}
-                    {activeFileEvidence.length > 0 && (
+                    {activeFileEvidenceUnique.length > 0 && (
                       <div>
                         <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
                           Evidence
                         </p>
+                        <p className="mb-2 px-1 text-caption text-secondary">
+                          {activeFileEvidenceUnique.length}{' '}
+                          {activeFileEvidenceUnique.length === 1 ? 'file' : 'files'} captured for this run.
+                        </p>
                         <div className="space-y-2">
-                          {activeFileEvidence
-                            .filter((entry, i, arr) =>
-                              arr.findIndex((e) => e.path === entry.path) === i
-                            )
-                            .map((entry, index) => {
+                          {activeFileEvidencePreview.map((entry, index) => {
                               const evidenceHref = resolveFileEvidenceHref(entry.path);
                               return (
                                 <div
@@ -5644,6 +5883,53 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 </div>
                               );
                             })}
+                          {activeFileEvidenceOverflow.length > 0 && (
+                            <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
+                              <summary className="cursor-pointer list-none text-caption font-semibold text-secondary">
+                                View {activeFileEvidenceOverflow.length} additional evidence file
+                                {activeFileEvidenceOverflow.length === 1 ? '' : 's'}
+                              </summary>
+                              <div className="mt-2 space-y-2">
+                                {activeFileEvidenceOverflow.map((entry, index) => {
+                                  const evidenceHref = resolveFileEvidenceHref(entry.path);
+                                  return (
+                                    <div
+                                      key={`${entry.key}:${entry.path}:overflow:${index}`}
+                                      className="flex items-center justify-between gap-3 py-1"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
+                                        <p className="mt-0.5 truncate font-mono text-caption text-primary">
+                                          {humanizePath(entry.path)}
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-shrink-0 items-center gap-1.5">
+                                        {evidenceHref && (
+                                          <a
+                                            href={evidenceHref}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                          >
+                                            Open
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void copyText(`${humanizeText(entry.key)} path`, entry.path)
+                                          }
+                                          className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </details>
+                          )}
                         </div>
                       </div>
                     )}

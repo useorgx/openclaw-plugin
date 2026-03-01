@@ -27,6 +27,24 @@ function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function canonicalizeSkillId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^\$/, "")
+    .toLowerCase();
+}
+
+const SKILL_PARSE_STOPWORDS = new Set([
+  "and",
+  "guidance",
+  "or",
+  "optional",
+  "optionally",
+  "required",
+  "skill",
+  "skills",
+]);
+
 function parseRequiredSkills(value) {
   const addSkill = (target, entry) => {
     const skill = String(entry || "")
@@ -38,13 +56,22 @@ function parseRequiredSkills(value) {
       .replace(/^\$/, "")
       .trim();
     if (!skill) return;
-    if (/^required$/i.test(skill) || /^skills?$/i.test(skill)) return;
-    if (skill) target.add(skill);
+    if (SKILL_PARSE_STOPWORDS.has(skill.toLowerCase())) return;
+    const canonical = canonicalizeSkillId(skill);
+    if (canonical) target.add(canonical);
   };
 
   const unique = new Set();
   const raw = String(value || "").trim();
   if (!raw) return [];
+
+  const explicitSkillTokens = raw.match(/\$[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  if (explicitSkillTokens.length > 0) {
+    for (const token of explicitSkillTokens) {
+      addSkill(unique, token);
+    }
+    return [...unique];
+  }
 
   if (raw.startsWith("[") && raw.endsWith("]")) {
     try {
@@ -60,7 +87,7 @@ function parseRequiredSkills(value) {
     }
   }
 
-  for (const entry of raw.split(/[\s,]+/)) {
+  for (const entry of raw.split(/[\s,;|]+/)) {
     addSkill(unique, entry);
   }
   return [...unique];
@@ -198,10 +225,6 @@ function main() {
       status === "error",
     "status must be one of completed|blocked|needs_decision|error"
   );
-  assert(
-    status !== "error",
-    "error status is not allowed for autonomous slice outputs; use blocked or needs_decision"
-  );
   assert(typeof output.summary === "string" && output.summary.trim().length > 0, "summary is required");
   assert(
     typeof output.workstream_id === "string" && output.workstream_id.trim().length > 0,
@@ -237,7 +260,7 @@ function main() {
       "completed status is invalid when any decisions_needed entry is blocking=true"
     );
   }
-  if (status === "blocked" || status === "needs_decision") {
+  if (status === "blocked" || status === "needs_decision" || status === "error") {
     assert(
       blockingDecisions.length > 0,
       `${status} status requires at least one decisions_needed entry with blocking=true`
@@ -245,8 +268,8 @@ function main() {
   }
   if (blockingDecisions.length > 0) {
     assert(
-      status === "blocked" || status === "needs_decision",
-      "blocking decisions are only valid with blocked or needs_decision status"
+      status === "blocked" || status === "needs_decision" || status === "error",
+      "blocking decisions are only valid with blocked, needs_decision, or error status"
     );
   }
 
@@ -360,7 +383,7 @@ function main() {
       item.skill_heading.trim() === expectedHeading,
       `skill_evidence.skill_heading must match the first heading/non-empty line in ${skillFilePath}`
     );
-    const normalizedSkill = item.skill.replace(/^\$/, "").trim();
+    const normalizedSkill = canonicalizeSkillId(item.skill);
     normalizedSkillCounts.set(normalizedSkill, (normalizedSkillCounts.get(normalizedSkill) || 0) + 1);
   }
 

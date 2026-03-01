@@ -249,11 +249,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       typeof nextRecord.status === "string" ? nextRecord.status : status;
 
     if (normalizedStatus === "completed") {
-      const hasExplicitOutcomeArrays =
-        Array.isArray(record.artifacts) ||
-        Array.isArray(record.task_updates) ||
-        Array.isArray(record.milestone_updates) ||
-        Array.isArray(record.decisions_needed);
       const artifactsCount = Array.isArray(nextRecord.artifacts) ? nextRecord.artifacts.length : 0;
       const taskUpdatesCount = Array.isArray(nextRecord.task_updates)
         ? nextRecord.task_updates.length
@@ -265,7 +260,7 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         artifactsCount > 0 ||
         taskUpdatesCount > 0 ||
         milestoneUpdatesCount > 0;
-      if (hasExplicitOutcomeArrays && !hasOutcomes) {
+      if (!hasOutcomes) {
         changed = true;
         nextRecord = { ...nextRecord, status: "error" };
       }
@@ -319,6 +314,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (fromValue) return fromValue;
       const fromText = parseEmbeddedText(candidateRecord.text);
       if (fromText) return fromText;
+      const fromContent = parseEmbeddedText(candidateRecord.content);
+      if (fromContent) return fromContent;
       const fromOutputText = parseEmbeddedText(candidateRecord.output_text);
       if (fromOutputText) return fromOutputText;
       return null;
@@ -350,10 +347,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       const parsedResult = parseSliceJsonText(record.result);
       if (parsedResult) return parsedResult;
     }
-    if (typeof record.output_text === "string") {
-      const parsedOutputText = parseSliceJsonText(record.output_text);
-      if (parsedOutputText) return parsedOutputText;
-    }
+    const parsedTopLevelOutputText = parseEmbeddedText(record.output_text);
+    if (parsedTopLevelOutputText) return parsedTopLevelOutputText;
     // Responses-style envelopes can return text in output/message/content arrays.
     const output = record.output;
     if (Array.isArray(output)) {

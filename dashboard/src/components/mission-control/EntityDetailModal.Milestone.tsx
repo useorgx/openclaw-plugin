@@ -183,65 +183,67 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         {notice && <div className="text-caption text-secondary">{notice}</div>}
       </div>
 
-      {/* Details */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {milestone.dueDate && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Due Date</div>
-            <div className="text-body text-primary mt-0.5">
-              {new Date(milestone.dueDate).toLocaleDateString()}
-            </div>
-          </div>
-        )}
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Associated Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {associatedTasks.length}
-          </div>
+      {/* Inline metadata + progress */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-caption text-secondary">
+          <span>{associatedTasks.length} {associatedTasks.length === 1 ? 'task' : 'tasks'}</span>
+          <span className="text-faint">·</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{doneTaskCount}/{associatedTasks.length} done</span>
+          {milestone.dueDate && (() => {
+            const due = Date.parse(milestone.dueDate!);
+            if (!Number.isFinite(due)) return null;
+            const daysUntil = Math.ceil((due - Date.now()) / 86_400_000);
+            const tone = daysUntil < 0 ? colors.red : daysUntil <= 3 ? colors.red : daysUntil <= 7 ? colors.amber : 'rgba(255,255,255,0.5)';
+            const label = daysUntil < 0 ? `${Math.abs(daysUntil)}d overdue` : `Due in ${daysUntil}d`;
+            return (
+              <>
+                <span className="text-faint">·</span>
+                <span style={{ color: tone }}>{label}</span>
+              </>
+            );
+          })()}
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Completion</div>
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+        {associatedTasks.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
               <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(progressValue, 2)}%`, backgroundColor: colors.teal }}
               />
             </div>
-            <div className="text-body text-primary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {progressValue}%
-            </div>
+            <span className="text-micro text-secondary tabular-nums">{progressValue}%</span>
           </div>
-          <div className="mt-1 text-micro text-muted">
-            {doneTaskCount}/{associatedTasks.length} done
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Associated tasks */}
+      {/* Associated tasks — flat rows with status-tinted left border */}
       {associatedTasks.length > 0 && (
-        <div className="space-y-2">
-          <span className="text-caption uppercase tracking-[0.08em] text-muted">
-            Tasks
-          </span>
-          {associatedTasks.map((task) => (
-            <button
-              key={task.id}
-              onClick={() => openModal({ type: 'task', entity: task, initiative })}
-              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
-            >
-              <div className="flex items-center justify-between gap-2">
+        <div className="space-y-1">
+          {associatedTasks.map((task) => {
+            const ts = task.status.toLowerCase();
+            const borderColor = ['active', 'in_progress'].includes(ts) ? colors.lime
+              : ts === 'blocked' ? colors.red
+              : ['done', 'completed'].includes(ts) ? colors.teal
+              : 'rgba(255,255,255,0.08)';
+            return (
+              <button
+                key={task.id}
+                onClick={() => openModal({ type: 'task', entity: task, initiative })}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
+                style={{ borderLeftColor: borderColor }}
+              >
                 <span className="text-body text-bright">{task.title}</span>
                 <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getTaskStatusClass(task.status)}`}>
                   {formatEntityStatus(task.status)}
                 </span>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* Notes */}
+      <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
       {/* Artifacts */}
       <EntityArtifactsPanel
         entityType="milestone"
@@ -250,16 +252,13 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         embedMode={embedMode}
       />
 
-      <div className="mt-2 pt-4 border-t border-subtle">
-        <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted mb-2">
-          Notes
-        </p>
+      {/* Notes — inline, always visible */}
+      <div className="space-y-2">
         <EntityCommentsPanel
           entityType="milestone"
           entityId={milestone.id}
           authToken={authToken}
           embedMode={embedMode}
-          variant="inline"
         />
       </div>
 

@@ -19,6 +19,33 @@ import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { humanizeWarning } from '@/lib/humanize';
 
+export type ZoomLevel = 'initiative' | 'workstream' | 'milestone';
+
+export interface InitiativeGroupItem {
+  initiativeId: string;
+  initiativeTitle: string;
+  initiativeStatus: string;
+  initiativePriority: string | null;
+  initiativePriorityNum: number | null;
+  workstreamCount: number;
+  workstreamIds: string[];
+  runnerAgents: RunnerAgentRef[];
+  queueState: NextUpQueueItem['queueState'];
+  items: NextUpQueueItem[];
+}
+
+export interface MilestoneGroupItem {
+  milestoneId: string | null;
+  milestoneTitle: string;
+  workstreamId: string;
+  workstreamTitle: string;
+  initiativeId: string;
+  initiativeTitle: string;
+  taskCount: number;
+  queueState: NextUpQueueItem['queueState'];
+  item: NextUpQueueItem;
+}
+
 interface UseNextUpQueueOptions {
   initiativeId?: string | null;
   projectId?: string | null;
@@ -28,6 +55,7 @@ interface UseNextUpQueueOptions {
   embedMode?: boolean;
   enabled?: boolean;
   snapshotVersion?: number | null;
+  zoomLevel?: ZoomLevel;
 }
 
 interface NextUpActionInput {
@@ -397,7 +425,13 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
 
 function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueState {
   const explicit = (item.queueState ?? '').trim().toLowerCase();
-  if (explicit === 'queued' || explicit === 'running' || explicit === 'blocked' || explicit === 'idle') {
+  if (
+    explicit === 'queued' ||
+    explicit === 'running' ||
+    explicit === 'blocked' ||
+    explicit === 'idle' ||
+    explicit === 'completed'
+  ) {
     return explicit as NextUpQueueState;
   }
 
@@ -423,7 +457,7 @@ function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueSta
     return 'blocked';
   }
   if (status === 'completed' || status === 'done' || status === 'resolved') {
-    return 'idle';
+    return 'completed';
   }
   return 'queued';
 }
@@ -506,15 +540,72 @@ function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | n
   };
 }
 
+function groupByInitiative(items: NextUpQueueItem[]): InitiativeGroupItem[] {
+  const map = new Map<string, InitiativeGroupItem>();
+  for (const item of items) {
+    const existing = map.get(item.initiativeId);
+    if (existing) {
+      existing.workstreamCount += 1;
+      existing.workstreamIds.push(item.workstreamId);
+      existing.items.push(item);
+      // Merge runner agents
+      for (const agent of item.runnerAgents ?? []) {
+        if (!existing.runnerAgents.some((a) => a.id === agent.id)) {
+          existing.runnerAgents.push(agent);
+        }
+      }
+      // Promote queueState: running > blocked > queued > idle
+      const rank = (s: string) =>
+        s === 'running' ? 3 : s === 'blocked' ? 2 : s === 'queued' ? 1 : 0;
+      if (rank(item.queueState) > rank(existing.queueState)) {
+        existing.queueState = item.queueState;
+      }
+    } else {
+      map.set(item.initiativeId, {
+        initiativeId: item.initiativeId,
+        initiativeTitle: item.initiativeTitle ?? item.initiativeId,
+        initiativeStatus: item.initiativeStatus ?? 'active',
+        initiativePriority:
+          typeof item.initiativePriority === 'string' ? item.initiativePriority : null,
+        initiativePriorityNum:
+          typeof item.initiativePriorityNum === 'number' ? item.initiativePriorityNum : null,
+        workstreamCount: 1,
+        workstreamIds: [item.workstreamId],
+        runnerAgents: [...(item.runnerAgents ?? [])],
+        queueState: item.queueState,
+        items: [item],
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
+function groupByMilestone(items: NextUpQueueItem[]): MilestoneGroupItem[] {
+  return items.map((item) => ({
+    milestoneId: item.sliceMilestoneId ?? null,
+    milestoneTitle: item.sliceMilestoneId
+      ? `Milestone ${item.sliceMilestoneId.slice(0, 8)}`
+      : item.workstreamTitle ?? 'Workstream',
+    workstreamId: item.workstreamId,
+    workstreamTitle: item.workstreamTitle ?? item.workstreamId,
+    initiativeId: item.initiativeId,
+    initiativeTitle: item.initiativeTitle ?? item.initiativeId,
+    taskCount: item.sliceTaskCount ?? 0,
+    queueState: item.queueState,
+    item,
+  }));
+}
+
 export function useNextUpQueue({
   initiativeId = null,
   projectId = null,
   offset = 0,
-  limit = 100,
+  limit = 20,
   authToken = null,
   embedMode = false,
   enabled = true,
   snapshotVersion = null,
+  zoomLevel = 'workstream',
 }: UseNextUpQueueOptions) {
   const queryClient = useQueryClient();
   const demoMode = isDemoModeEnabled();
@@ -900,8 +991,20 @@ export function useNextUpQueue({
     },
   });
 
+  const allItems = query.data?.items ?? [];
+
+  const initiativeGroups = useMemo(
+    () => (zoomLevel === 'initiative' ? groupByInitiative(allItems) : []),
+    [allItems, zoomLevel]
+  );
+
+  const milestoneGroups = useMemo(
+    () => (zoomLevel === 'milestone' ? groupByMilestone(allItems) : []),
+    [allItems, zoomLevel]
+  );
+
   return {
-    items: query.data?.items ?? [],
+    items: allItems,
     total: query.data?.total ?? 0,
     pagination: query.data?.pagination ?? null,
     generatedAt: query.data?.generatedAt ?? null,
@@ -916,6 +1019,9 @@ export function useNextUpQueue({
     isPlaying: playMutation.isPending,
     isStartingAutoContinue: startAutoContinueMutation.isPending,
     isStoppingAutoContinue: stopAutoContinueMutation.isPending,
+    zoomLevel,
+    initiativeGroups,
+    milestoneGroups,
   };
 }
 
@@ -937,4 +1043,7 @@ export interface UseNextUpQueueResult {
   isPlaying: boolean;
   isStartingAutoContinue: boolean;
   isStoppingAutoContinue: boolean;
+  zoomLevel: ZoomLevel;
+  initiativeGroups: InitiativeGroupItem[];
+  milestoneGroups: MilestoneGroupItem[];
 }

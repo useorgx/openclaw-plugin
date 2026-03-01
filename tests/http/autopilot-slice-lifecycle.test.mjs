@@ -646,6 +646,10 @@ async function readLiveTriage(handler, input = {}) {
   return JSON.parse(res.body);
 }
 
+async function readLiveReviewQueue(handler, input = {}) {
+  return readLiveTriage(handler, input);
+}
+
 function findSnapshotActivityByEvent(snapshot, eventName) {
   if (!snapshot || !Array.isArray(snapshot.activity)) return null;
   for (const entry of snapshot.activity) {
@@ -1739,23 +1743,23 @@ test("autopilot slice lifecycle: needs_decision translates to decision-first sna
   assert.equal(stopped.metadata?.decision_required, true);
 });
 
-test("autopilot slice lifecycle: needs_decision + non-blocking decisions stays completed", async () => {
+test("autopilot slice lifecycle: needs_decision + non-blocking decisions coerces to blocked", async () => {
   const result = await runPlayTickStatus({ scenario: "needs_decision_optional" });
   assert.equal(result.status.ok, true);
   assert.equal(result.status.run?.status, "stopped");
-  assert.equal(result.status.run?.stopReason, "completed");
+  assert.equal(result.status.run?.stopReason, "blocked");
   const decisionOps = listDecisionCreateOps(result.calls);
   assert.ok(decisionOps.length > 0, "expected decision.create");
   assert.ok(
-    decisionOps.every((op) => op.blocking === false),
-    "expected needs_decision_optional decisions to remain non-blocking"
+    decisionOps.some((op) => op.blocking === true),
+    "expected needs_decision_optional to synthesize a blocking decision"
   );
   const sliceResult = latestSliceResultActivity(result.calls);
   assert.ok(sliceResult, "expected autopilot_slice_result activity");
-  assert.equal(sliceResult.metadata?.parsed_status, "completed");
-  assert.equal(Number(sliceResult.metadata?.blocking_decisions ?? 0), 0);
-  assert.equal(sliceResult.metadata?.decision_required, false);
-  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+  assert.equal(sliceResult.metadata?.parsed_status, "needs_decision");
+  assert.equal(Number(sliceResult.metadata?.blocking_decisions ?? 0), 1);
+  assert.equal(sliceResult.metadata?.decision_required, true);
+  assert.equal(sliceResult.metadata?.activity_bucket, "decision");
 });
 
 test("autopilot slice lifecycle: completed + non-blocking decision stays completed", async () => {
@@ -2717,5 +2721,105 @@ test("autopilot slice lifecycle: status apply failure buffers review payload and
   assert.ok(
     Array.isArray(bufferedMetadata.task_updates) && bufferedMetadata.task_updates.length > 0,
     "expected buffered task_updates payload for manual recovery"
+  );
+});
+
+test("autopilot slice lifecycle: review queue merges buffered status failure as actionable non-decision item", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    configureHarness: async ({ client }) => {
+      const originalApplyChangeset = client.applyChangeset;
+      client.applyChangeset = async (payload) => {
+        const operations = Array.isArray(payload?.operations) ? payload.operations : [];
+        const hasStatusMutation = operations.some(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            (entry.op === "task.update" || entry.op === "milestone.update")
+        );
+        if (hasStatusMutation) {
+          throw new Error("500 status apply conflict");
+        }
+        return originalApplyChangeset(payload);
+      };
+    },
+    after: async ({ handler }) => {
+      await readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      });
+      return readLiveReviewQueue(handler, {
+        status: "open",
+        limit: 50,
+      });
+    },
+  });
+
+  const reviewQueue = result.afterResult;
+  assert.ok(reviewQueue?.ok, "expected review queue response");
+  assert.ok(Array.isArray(reviewQueue.items), "expected review queue items");
+  const bufferedItem = reviewQueue.items.find(
+    (item) =>
+      typeof item?.id === "string" &&
+      !item.id.startsWith("triage-decision-") &&
+      item.conflictSource === "status_updates_buffered"
+  );
+  assert.ok(
+    bufferedItem,
+    "expected non-decision buffered status-updates item in unified review queue"
+  );
+  assert.equal(bufferedItem.kind, "review_required");
+  assert.ok(
+    typeof bufferedItem.recommendedAction === "string" &&
+      bufferedItem.recommendedAction.length > 0,
+    "expected recommended action for buffered status updates"
+  );
+  assert.ok(
+    Array.isArray(bufferedItem.actionContract) &&
+      bufferedItem.actionContract.some((action) => action.action === "retry"),
+    "expected retry action in buffered status-updates contract"
+  );
+});
+
+test("autopilot slice lifecycle: invalid structured output appears in review queue with actionable decision contract", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "invalid_json",
+    after: async ({ handler }) => {
+      await readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      });
+      return readLiveReviewQueue(handler, {
+        status: "open",
+        limit: 50,
+      });
+    },
+  });
+
+  const reviewQueue = result.afterResult;
+  assert.ok(reviewQueue?.ok, "expected review queue response");
+  assert.ok(Array.isArray(reviewQueue.items), "expected review queue items");
+  const decisionItem = reviewQueue.items.find(
+    (item) =>
+      typeof item?.id === "string" &&
+      item.id.startsWith("triage-decision-") &&
+      typeof item?.title === "string" &&
+      item.title.toLowerCase().includes("autopilot slice failed")
+  );
+  assert.ok(decisionItem, "expected invalid-output decision in review queue");
+  assert.equal(decisionItem.blocking, true);
+  assert.ok(
+    typeof decisionItem.summary === "string" && decisionItem.summary.trim().length > 0,
+    "expected human-readable summary for review queue decision"
+  );
+  assert.ok(
+    Array.isArray(decisionItem.actionContract) &&
+      decisionItem.actionContract.some((action) => action.action === "approve") &&
+      decisionItem.actionContract.some((action) => action.action === "reject"),
+    "expected approve/reject actions for invalid-output decision"
   );
 });
