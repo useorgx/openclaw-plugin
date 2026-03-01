@@ -285,12 +285,15 @@ export function useAutoContinue({
   });
 
   const run = statusQuery.data?.run ?? null;
-  const isRunning = run?.status === 'running' || run?.status === 'stopping';
+  const runStatus = run?.status ?? null;
+  const isRunning = runStatus === 'running' || runStatus === 'stopping';
+  const isGracefullyStopping = runStatus === 'stopping' || stopMutation.isPending;
 
   return {
     status: statusQuery.data ?? null,
     run,
     isRunning,
+    isGracefullyStopping,
     isLoading: statusQuery.isLoading,
     error: statusQuery.data?.error ?? statusQuery.error?.message ?? null,
     start: startMutation.mutateAsync,
