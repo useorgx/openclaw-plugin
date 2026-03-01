@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { colors } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId } from '@/lib/humanize';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
   ActivityEventName,
@@ -4618,38 +4619,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             {filtered.length === 0 && (
               <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-5">
                 <div className="mx-auto max-w-2xl">
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-secondary">
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                      </svg>
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-body font-semibold text-primary">
-                        {isLoading
-                          ? 'Syncing activity feed...'
-                          : hasSessionFilter
-                            ? 'No activity yet for this session'
-                            : selectedWorkstreamId
-                              ? 'No activity yet for this workstream'
-                              : 'No matching activity right now.'}
-                      </p>
-                      <p className="mt-1 text-caption leading-relaxed text-secondary">
-                        {isLoading
-                          ? 'Live updates usually appear within a few seconds after dispatch.'
-                          : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`}
-                      </p>
-                    </div>
-                  </div>
+                  <EmptyState
+                    icon="activity"
+                    headline={
+                      isLoading
+                        ? 'Syncing activity feed...'
+                        : hasSessionFilter
+                          ? 'No activity yet for this session'
+                          : selectedWorkstreamId
+                            ? 'No activity yet for this workstream'
+                            : 'No matching activity right now.'
+                    }
+                    description={
+                      isLoading
+                        ? 'Live updates usually appear within a few seconds after dispatch.'
+                        : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`
+                    }
+                    className="py-6"
+                  />
 
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     {emptyTimeFilters.map((option) => {

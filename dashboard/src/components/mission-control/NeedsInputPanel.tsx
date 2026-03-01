@@ -5,6 +5,7 @@ import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeId, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 interface NeedsInputPanelProps {
   sliceRuns: SliceRunProjection[];
@@ -211,9 +212,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
       ) : null}
 
       {rows.length === 0 ? (
-        <div className="px-4 py-4 text-body text-secondary">
-          No slices need intervention right now.
-        </div>
+        <EmptyState
+          icon="inbox"
+          headline="No slices need attention"
+          description="All workstreams are running smoothly. Decisions will appear here when agents need your input."
+        />
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
           {rows.map(({ item, duplicateCount }, index) => {
@@ -311,6 +314,11 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                       {duplicateCount} similar updates
                     </span>
                   )}
+                  {typeof item.blockingDecisionCount === 'number' && item.blockingDecisionCount > 0 && (
+                    <span className="chip text-micro border-red-400/30 bg-red-500/[0.1] text-red-200/90">
+                      Blocks {item.blockingDecisionCount} task{item.blockingDecisionCount === 1 ? '' : 's'}
+                    </span>
+                  )}
                   {typeof item.decisionCount === 'number' && item.decisionCount > 0 && (
                     <span className="chip text-micro">{item.decisionCount} decision{item.decisionCount === 1 ? '' : 's'}</span>
                   )}
@@ -319,6 +327,22 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                   )}
                   {when && <span>Updated {formatRelativeTime(when)}</span>}
                 </div>
+                {/* Quick decision options */}
+                {item.decisionOptions && item.decisionOptions.length > 0 && item.decisionOptions.length <= 3 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5" onClick={(event) => event.stopPropagation()}>
+                    {item.decisionOptions.slice(0, 3).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => onOpenSliceDetail?.(item)}
+                        className="chip text-micro font-medium hover:bg-white/[0.08] transition-colors cursor-pointer"
+                        title={option.description ?? option.label}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div
                   className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.07] pt-2"
                   onClick={(event) => event.stopPropagation()}

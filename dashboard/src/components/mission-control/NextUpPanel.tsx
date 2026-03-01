@@ -2,6 +2,7 @@ import { AnimatePresence, motion, Reorder, useDragControls } from 'framer-motion
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { colors } from '@/lib/tokens';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -13,6 +14,7 @@ import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/
 import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
+import { EmptyState } from '@/components/shared/EmptyState';
 import type { NextUpQueueBulkAction } from '@/types';
 
 type UseNextUpQueueActionsResult = ReturnType<typeof useNextUpQueueActions>;
@@ -1331,26 +1333,18 @@ export function NextUpPanel({
         ) : null}
 
         {!isLoading && !hasVisibleCards && !error && (
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-4 text-center">
-            <p className="text-body text-secondary">{emptyStateMessage}</p>
-            {primaryDegradedMessage ? (
-              <p className="mt-1 text-micro text-muted">{primaryDegradedMessage}</p>
-            ) : null}
-            {degraded.length > 0 ? (
-              <div className="mt-2.5 flex items-center justify-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSignalToastHidden(false);
-                    void refetch();
-                  }}
-                  className="control-pill h-7 px-2.5 text-micro font-semibold"
-                >
-                  Retry now
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <EmptyState
+            icon="queue"
+            headline={emptyStateMessage}
+            description={primaryDegradedMessage ?? 'Create an initiative or add workstreams to populate the queue.'}
+            primaryAction={degraded.length > 0 ? {
+              label: 'Retry now',
+              onClick: () => {
+                setSignalToastHidden(false);
+                void refetch();
+              },
+            } : undefined}
+          />
         )}
 
         {!isLoading && zoomLevel === 'initiative' ? (
@@ -1614,8 +1608,48 @@ export function NextUpPanel({
                       {runnerSourceBadge ? (
                         <p className="mt-0.5 text-micro text-muted">Runner {runnerSourceBadge}</p>
                       ) : null}
+                      {/* Scoring tier + estimate */}
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {(() => {
+                          const score = (item as unknown as Record<string, unknown>).objectiveScore as number | undefined ?? null;
+                          if (score == null) return null;
+                          const tier = score >= 80 ? 'S' : score >= 60 ? 'A' : 'B';
+                          const tierColor = tier === 'S' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
+                            : tier === 'A' ? 'border-[#14B8A6]/30 bg-[#14B8A6]/[0.12] text-[#87FFE9]'
+                            : 'border-white/[0.12] bg-white/[0.05] text-white/60';
+                          return (
+                            <span className={`chip text-[9px] font-semibold ${tierColor}`}>
+                              {tier}-tier
+                            </span>
+                          );
+                        })()}
+                        {(() => {
+                          const expectedUsd = (item as unknown as Record<string, unknown>).expectedValueUsd as number | undefined;
+                          const taskCount = item.sliceTaskCount ?? 0;
+                          const parts: string[] = [];
+                          if (taskCount > 0) parts.push(`${taskCount} tasks`);
+                          if (typeof expectedUsd === 'number' && expectedUsd > 0) parts.push(`$${expectedUsd.toFixed(2)}`);
+                          if (dueText) parts.push(dueText);
+                          if (parts.length === 0) return null;
+                          return <span className="text-micro text-muted">{parts.join(' · ')}</span>;
+                        })()}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Mini progress bar */}
+                  {(item.sliceTaskCount ?? 0) > 0 && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] rounded-b-2xl overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max(item.queueState === 'completed' ? 100 : item.queueState === 'running' ? 50 : 15, 4)}%`,
+                          background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                          opacity: 0.6,
+                        }}
+                      />
+                    </div>
+                  )}
 
                   {blockReason && (
                     <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">

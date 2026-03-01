@@ -30,6 +30,10 @@ import { NextUpPanel } from './NextUpPanel';
 import { SliceExplorerPanel } from './SliceExplorerPanel';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { InlineToast } from '@/components/shared/InlineToast';
+import { HealthScoreCard } from './HealthScoreCard';
+import { CostRollupCard } from './CostRollupCard';
+import { ActionQueueStrip } from './ActionQueueStrip';
+import { useUsageControlPlane } from '@/hooks/useUsageControlPlane';
 
 interface MissionControlViewProps {
   initiatives: Initiative[];
@@ -800,6 +804,18 @@ function MissionControlInner({
     snapshotVersion,
   });
   const nextActionQueue = nextUpQueueModel ?? internalNextActionQueue;
+  const usageControlPlane = useUsageControlPlane({ authToken, embedMode, enabled: initiatives.length > 0 });
+  const healthData = useMemo(() => {
+    const totalTasks = initiatives.reduce((sum, init) => sum + (init.workstreams?.length ?? 0), 0);
+    const doneTasks = initiatives.reduce(
+      (sum, init) => sum + (init.workstreams?.filter((ws) => ws.status === 'completed' || ws.status === 'done').length ?? 0),
+      0
+    );
+    const completionPercent = totalTasks > 0 ? (doneTasks / totalTasks) * 100 : 0;
+    const blockedCount = initiatives.filter((init) => init.status === 'blocked').length;
+    const activeAgents = initiatives.reduce((sum, init) => sum + init.activeAgents, 0);
+    return { completionPercent, totalTasks, doneTasks, blockedCount, activeAgents };
+  }, [initiatives]);
   const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextUpActions = nextUpActionsModel ?? internalNextUpActions;
   const nextActionQueueItem = nextActionQueue.items[0] ?? null;
@@ -1828,6 +1844,13 @@ function MissionControlInner({
               </div>
             </div>
 
+            {nextActionQueue.items.length > 0 && (
+              <ActionQueueStrip
+                items={nextActionQueue.items}
+                className="mt-2"
+              />
+            )}
+
             {sortedInitiatives.length > 0 && (
               <div
                 data-mc-selection-bar="true"
@@ -2196,6 +2219,19 @@ function MissionControlInner({
                       </div>
                     </div>
                   </motion.div>
+                )}
+
+                {!isLoading && initiatives.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <HealthScoreCard
+                      completionPercent={healthData.completionPercent}
+                      totalTasks={healthData.totalTasks}
+                      doneTasks={healthData.doneTasks}
+                      blockedCount={healthData.blockedCount}
+                      activeAgents={healthData.activeAgents}
+                    />
+                    <CostRollupCard usage={usageControlPlane.summary} />
+                  </div>
                 )}
 
                 {isLoading ? (

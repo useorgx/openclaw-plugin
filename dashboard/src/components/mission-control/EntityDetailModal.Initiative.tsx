@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
+import { formatRelativeTime } from '@/lib/time';
 import type { Initiative } from '@/types';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
@@ -12,6 +13,8 @@ import {
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
 import { EntityIcon } from '@/components/shared/EntityIcon';
+import { ProgressRing } from '@/components/shared/ProgressRing';
+import { MetricRow } from '@/components/shared/MetricRow';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
@@ -222,21 +225,32 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-        {/* Header */}
+        {/* Hero */}
         <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          <EntityIcon type="initiative" size={16} />
-          <h2 className="text-title font-semibold text-white">
-            {initiative.name}
-          </h2>
-          <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
-          >
-            {formatEntityStatus(currentStatus)}
-          </span>
-          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
-            {formatPriorityLabel(initiative.priority)}
-          </span>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <EntityIcon type="initiative" size={16} />
+              <h2 className="text-[28px] font-medium leading-none text-white truncate">
+                {initiative.name}
+              </h2>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
+              >
+                {formatEntityStatus(currentStatus)}
+              </span>
+              <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
+                {formatPriorityLabel(initiative.priority)}
+              </span>
+            </div>
+          </div>
+          {(() => {
+            const totalTasks = details.tasks.length || 0;
+            const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+            return totalTasks > 0 ? <ProgressRing percent={progress} size={56} /> : null;
+          })()}
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -311,31 +325,32 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         )}
         </div>
 
-      {/* Inline stats + progress */}
-      {(() => {
-        const totalTasks = details.tasks.length || 0;
-        const overallProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-        const narrativeParts: string[] = [];
-        if (details.workstreams.length > 0) narrativeParts.push(`${details.workstreams.length} workstream${details.workstreams.length === 1 ? '' : 's'}`);
-        if (details.milestones.length > 0) narrativeParts.push(`${details.milestones.length} milestone${details.milestones.length === 1 ? '' : 's'}`);
-        if (activeTasks > 0) narrativeParts.push(`${activeTasks} active`);
-        if (blockedTasks > 0) narrativeParts.push(`${blockedTasks} blocked`);
+      {/* Metrics row */}
+      <MetricRow
+        metrics={[
+          { label: 'Done', value: doneTasks, color: colors.teal },
+          { label: 'Active', value: activeTasks, color: colors.lime },
+          { label: 'Blocked', value: blockedTasks, color: colors.red },
+          ...(initiative.targetDate
+            ? [{ label: 'ETA', value: formatRelativeEta(initiative.targetDate) }]
+            : []),
+        ]}
+        className="pt-2 pb-4 border-b border-white/[0.04]"
+      />
+
+      {/* Progress bar */}
+      {details.tasks.length > 0 && (() => {
+        const totalTasks = details.tasks.length;
+        const overallProgress = Math.round((doneTasks / totalTasks) * 100);
         return (
-          <div className="space-y-2">
-            <p className="text-caption text-secondary">
-              {narrativeParts.join(' · ')}{totalTasks > 0 ? ` · ${overallProgress}% complete` : ''}
-            </p>
-            {totalTasks > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${Math.max(overallProgress, 2)}%`, background: `linear-gradient(90deg, ${colors.teal}, ${colors.lime})` }}
-                  />
-                </div>
-                <span className="text-micro text-secondary tabular-nums">{overallProgress}%</span>
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(overallProgress, 2)}%`, background: `linear-gradient(90deg, ${colors.teal}, ${colors.lime})` }}
+              />
+            </div>
+            <span className="text-micro text-secondary tabular-nums">{overallProgress}%</span>
           </div>
         );
       })()}
@@ -633,5 +648,10 @@ function formatPriorityLabel(value: string | null | undefined): string {
   if (priority === 'high') return 'Priority: High';
   if (priority === 'low') return 'Priority: Low';
   return 'Priority: Medium';
+}
+
+function formatRelativeEta(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  return formatRelativeTime(dateStr);
 }
 

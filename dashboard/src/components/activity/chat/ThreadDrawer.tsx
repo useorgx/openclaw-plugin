@@ -11,6 +11,7 @@ import {
   statusClasses,
   statusLabel,
 } from './chatTypes';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 interface ThreadDrawerProps {
   open: boolean;
@@ -119,9 +120,12 @@ export function ThreadDrawer({ open, onClose }: ThreadDrawerProps) {
               {/* Thread list */}
               <div className="min-h-0 overflow-y-auto px-3 pb-3">
                 {displayedThreads.length === 0 ? (
-                  <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-caption text-secondary">
-                    No threads yet. Send a message to start one.
-                  </div>
+                  <EmptyState
+                    icon="inbox"
+                    headline="No threads yet"
+                    description="Send a message to start a conversation thread."
+                    className="py-6"
+                  />
                 ) : (
                   <div className="space-y-1.5">
                     {displayedThreads.map((thread) => (
