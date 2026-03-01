@@ -689,6 +689,64 @@ export function SliceDetailModal({
             </button>
           )}
 
+        </div>
+
+        <div className="flex-1" />
+
+        {/* ── Right: primary CTAs ── */}
+        <div className="flex items-center gap-1.5">
+          {isNeedsReview && onRejectSlice && (
+            <button
+              type="button"
+              onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
+              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                actionMode === 'reject'
+                  ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
+                  : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
+              }`}
+            >
+              Request changes
+            </button>
+          )}
+          {isNeedsReview && onAcceptSlice && (
+            <button
+              type="button"
+              onClick={() => {
+                if (actionMode === 'accept') {
+                  handleConfirmAction();
+                } else {
+                  setActionMode('accept');
+                }
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Accept
+            </button>
+          )}
+          {canStart && (
+            <button
+              type="button"
+              data-modal-autofocus="true"
+              onClick={() => {
+                onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
+                onClose();
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+              title="Start (⌘ Enter)"
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
+                <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
+              </svg>
+              {canonicalProjection.status === 'completed'
+                ? 'Restart'
+                : canonicalProjection.status === 'needs_attention'
+                  ? 'Retry'
+                  : 'Start'}
+            </button>
+          )}
           {hasTerminal && (
             <button
               type="button"
@@ -704,82 +762,7 @@ export function SliceDetailModal({
             </button>
           )}
         </div>
-
-        <div className="flex-1" />
-
-        {/* ── Right: primary CTAs ── */}
-        {isNeedsReview && onRejectSlice && (
-          <button
-            type="button"
-            onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
-            className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
-              actionMode === 'reject'
-                ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
-                : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
-            }`}
-          >
-            Request changes
-          </button>
-        )}
-        {isNeedsReview && onAcceptSlice && (
-          <button
-            type="button"
-            onClick={() => {
-              if (actionMode === 'accept') {
-                handleConfirmAction();
-              } else {
-                setActionMode('accept');
-              }
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            Accept
-          </button>
-        )}
-
-          {hasTerminal && (
-            <button
-              type="button"
-              onClick={() => void handleOpenTerminal(terminalTarget!)}
-              disabled={isOpeningTerminal}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/30 transition-colors hover:bg-white/[0.04] hover:text-white/50 disabled:opacity-40"
-              title="Open in terminal"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 17 10 11 4 5" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1" />
-
-        {/* ── Right: primary CTAs ── */}
-        {canStart && (
-          <button
-            type="button"
-            data-modal-autofocus="true"
-            onClick={() => {
-              onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
-              onClose();
-            }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
-            title="Start (⌘ Enter)"
-          >
-            <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
-              <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
-            </svg>
-            {canonicalProjection.status === 'completed'
-              ? 'Restart'
-              : canonicalProjection.status === 'needs_attention'
-                ? 'Retry'
-                : 'Start'}
-          </button>
-        )}
+      </div>
     </div>
   );
 

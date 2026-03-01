@@ -817,74 +817,17 @@ function DashboardShell({
     setSliceDetailTarget({ source: 'needs_input', sliceRun });
   }, []);
 
-  const handleAcceptSlice = useCallback(async (sliceRun: SliceRunProjection, note?: string) => {
-    const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
-    console.debug('[NeedsInput] handleAcceptSlice fired', { targetRunId, sliceRunId: sliceRun.sliceRunId, runId: sliceRun.runId });
-    if (!targetRunId) {
-      showOpsNotice('Cannot accept — no run ID found on this slice.');
-      return;
-    }
-    try {
-      const reason = note ? `Accepted: ${note}` : 'Accepted from dashboard';
-      const url = `/orgx/api/runs/${encodeURIComponent(targetRunId)}/actions/complete`;
-      console.debug('[NeedsInput] POST', url);
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-        const msg = body?.error ?? body?.message ?? `Failed to accept slice (${response.status})`;
-        console.warn('[NeedsInput] Accept failed:', msg);
-        showOpsNotice(msg);
-        return;
-      }
-      const result = (await response.json().catch(() => null)) as { data?: { remoteOk?: boolean } } | null;
-      const remoteOk = result?.data?.remoteOk === true;
-      showOpsNotice(
-        remoteOk
-          ? 'Slice accepted and marked complete.'
-          : 'Slice accepted locally. Remote sync pending.',
-      );
-      void refetch();
-    } catch (err) {
-      console.error('[NeedsInput] Accept error:', err);
-      showOpsNotice('Failed to accept slice — network error.');
-    }
+  // Called by SliceDetailModal AFTER it has already completed the accept fetch.
+  // This callback handles side effects only (notice + data refetch).
+  const handleAcceptSlice = useCallback(async (_sliceRun: SliceRunProjection, _note?: string) => {
+    showOpsNotice('Slice accepted and marked complete.');
+    void refetch();
   }, [refetch, showOpsNotice]);
 
-  const handleRejectSlice = useCallback(async (sliceRun: SliceRunProjection, note: string) => {
-    const targetRunId = sliceRun.runId ?? sliceRun.sliceRunId;
-    console.debug('[NeedsInput] handleRejectSlice fired', { targetRunId, note: note.slice(0, 40) });
-    if (!targetRunId || !note.trim()) {
-      showOpsNotice('Cannot post feedback — missing run ID or note.');
-      return;
-    }
-    try {
-      // Post the rejection note as a comment on the run
-      const response = await fetch(
-        `/orgx/api/entities/run/${encodeURIComponent(targetRunId)}/comments`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            body: note.trim(),
-            commentType: 'review_feedback',
-            severity: 'warn',
-            tags: ['changes_requested'],
-          }),
-        }
-      );
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
-        showOpsNotice(body?.error ?? body?.message ?? `Failed to post feedback (${response.status})`);
-        return;
-      }
-      showOpsNotice('Changes requested — feedback posted.');
-    } catch {
-      showOpsNotice('Failed to post feedback — network error.');
-    }
+  // Called by SliceDetailModal AFTER it has already completed the reject fetch.
+  // This callback handles side effects only (notice).
+  const handleRejectSlice = useCallback(async (_sliceRun: SliceRunProjection, _note: string) => {
+    showOpsNotice('Changes requested — feedback posted.');
   }, [showOpsNotice]);
 
   const sharedNextUpQueue = useNextUpQueue({
@@ -2941,6 +2884,7 @@ function DashboardShell({
             onPauseWorkstream={pauseSessionWorkstream}
             onCreateInitiative={startInitiative}
             onOpenMissionControl={() => switchDashboardView('mission-control')}
+            onOpenNextUp={() => switchDashboardView('mission-control')}
             onOpenSettings={() => openSettings('orgx')}
             onRefreshData={refetch}
             isLoading={isLoading}
