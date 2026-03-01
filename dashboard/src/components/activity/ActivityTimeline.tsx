@@ -17,7 +17,6 @@ import type {
   SliceRunProjection,
   SliceTimelineNarrativeProjectionV2,
 } from '@/types';
-import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Pill } from '@/components/shared/Pill';
@@ -2633,7 +2632,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const timeRangeMenuRef = useRef<HTMLDivElement | null>(null);
-  const [dispatchingKey, setDispatchingKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const handledRequestedItemIdRef = useRef<string | null>(null);
@@ -2843,59 +2841,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
     return copy;
   }, [sessions]);
-
-  const nextUpQueue = useNextUpQueue({});
-
-  const runningSessions = useMemo(
-    () => sessions.filter((s) => s.status === 'running'),
-    [sessions]
-  );
-
-  const queueItemKey = useCallback(
-    (item: Pick<NextUpQueueItem, 'initiativeId' | 'workstreamId'>) =>
-      `${item.initiativeId}:${item.workstreamId}`,
-    []
-  );
-
-  const nowQueueItem = useMemo(() => {
-    const running = nextUpQueue.items.find((item) => item.queueState === 'running') ?? null;
-    return running;
-  }, [nextUpQueue.items]);
-
-  const upNextQueueItem = useMemo(() => {
-    const queued = nextUpQueue.items.find((item) => item.queueState === 'queued') ?? null;
-    return queued;
-  }, [nextUpQueue.items]);
-
-  const nowFallbackSession = useMemo(
-    () => (nowQueueItem ? null : runningSessions[0] ?? null),
-    [nowQueueItem, runningSessions]
-  );
-
-  const playQueuedWorkstream = useCallback(
-    async (item: NextUpQueueItem) => {
-      const key = queueItemKey(item);
-      setDispatchingKey(key);
-      try {
-        const result = await nextUpQueue.playWorkstream({
-          initiativeId: item.initiativeId,
-          workstreamId: item.workstreamId,
-          agentId: item.runnerAgentId,
-        });
-        const sessionId =
-          result && typeof result === 'object' && 'sessionId' in result
-            ? ((result as { sessionId?: string | null }).sessionId ?? null)
-            : null;
-        if (sessionId) onFocusRunId?.(sessionId);
-        onOpenNextUp?.();
-      } catch (err) {
-        setCopyNotice(err instanceof Error ? err.message : 'Dispatch failed');
-      } finally {
-        setDispatchingKey(null);
-      }
-    },
-    [nextUpQueue, onFocusRunId, onOpenNextUp, queueItemKey]
-  );
 
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
@@ -4133,233 +4078,101 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         />
       ) : (
         <>
-          {(nowQueueItem || upNextQueueItem || nowFallbackSession) && (
-            <div className="border-b border-subtle px-4 py-3">
-              <div className="grid gap-2.5 lg:grid-cols-2">
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(191,255,0,0.10), transparent 70%)',
-                    }}
-                  />
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5">
-                      <AgentAvatar
-                        name={
-                          nowQueueItem?.runnerAgentName ??
-                          nowFallbackSession?.agentName ??
-                          'OrgX'
-                        }
-                        hint={
-                          nowQueueItem
-                            ? `${nowQueueItem.runnerAgentId} ${nowQueueItem.runnerSource}`
-                            : nowFallbackSession?.agentId ?? null
-                        }
-                        size="xs"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
-                          Now
-                        </span>
-                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
-                          Running
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
-                        {nowQueueItem?.workstreamTitle ??
-                          nowFallbackSession?.title ??
-                          'Nothing running'}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
-                        {nowQueueItem
-                          ? `${nowQueueItem.initiativeTitle}${
-                              nowQueueItem.nextTaskTitle
-                                ? ` · ${nowQueueItem.nextTaskTitle}`
-                                : ''
-                            }`
-                          : nowFallbackSession
-                            ? 'Session is running. Focus it to watch progress.'
-                            : 'Queue a workstream to start execution.'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const runId =
-                          nowQueueItem?.autoContinue?.activeRunId ??
-                          nowFallbackSession?.runId ??
-                          null;
-                        if (runId) onFocusRunId?.(runId);
-                      }}
-                      disabled={
-                        !(nowQueueItem?.autoContinue?.activeRunId ?? nowFallbackSession?.runId)
-                      }
-                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+          <div className="border-b border-subtle px-4 py-3">
+            <div className="flex flex-col gap-2">
+              {/* Row 1: Title + badges + search */}
+              <div className="flex items-center gap-2">
+                <h2 className="flex-shrink-0 text-heading font-semibold text-white">Activity</h2>
+                <span className="flex-shrink-0 rounded-full border border-strong bg-white/[0.05] px-2 py-0.5 text-micro text-primary tabular-nums">
+                  {filteredTotal}
+                </span>
+                {hiddenCount > 0 && (
+                  <span className="hidden flex-shrink-0 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums sm:inline-flex">
+                    +{hiddenCount} hidden
+                  </span>
+                )}
+                {hiddenSyncCount > 0 && !showSyncEvents && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSyncEvents(true)}
+                    className="hidden flex-shrink-0 rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums transition-colors hover:bg-white/[0.08] hover:text-primary sm:inline-flex"
+                    title="Show low-signal sync replay events"
+                  >
+                    {hiddenSyncCount} sync hidden
+                  </button>
+                )}
+                {showSyncEvents && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSyncEvents(false)}
+                    className="hidden flex-shrink-0 rounded-full border border-lime/30 bg-lime/[0.10] px-2 py-0.5 text-micro text-[#E1FFB2] transition-colors hover:bg-lime/[0.16] sm:inline-flex"
+                    title="Hide low-signal sync replay events"
+                  >
+                    Sync visible
+                  </button>
+                )}
+                <span
+                  className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
+                  style={{ backgroundColor: colors.lime }}
+                  aria-label="Live"
+                  title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
+                />
+                <div className="ml-auto w-[180px] flex-shrink-0 sm:w-[220px]">
+                  <div className="relative">
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted"
                     >
-                      Focus
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenNextUp}
-                      className="control-pill h-8 px-3 text-caption font-semibold"
-                      title="Open Next Up queue"
-                    >
-                      Queue
-                    </button>
-                  </div>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
-                    style={{
-                      background:
-                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(10,212,196,0.12), transparent 70%)',
-                    }}
-                  />
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5">
-                      <AgentAvatar
-                        name={upNextQueueItem?.runnerAgentName ?? 'OrgX'}
-                        hint={
-                          upNextQueueItem
-                            ? `${upNextQueueItem.runnerAgentId} ${upNextQueueItem.runnerSource}`
-                            : null
-                        }
-                        size="xs"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
-                          Up Next
-                        </span>
-                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
-                          Queued
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
-                        {upNextQueueItem?.workstreamTitle ?? 'Queue the next workstream'}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
-                        {upNextQueueItem
-                          ? `${upNextQueueItem.initiativeTitle}${
-                              upNextQueueItem.nextTaskTitle
-                                ? ` · ${upNextQueueItem.nextTaskTitle}`
-                                : ''
-                            }`
-                          : 'Open the queue to choose what should run next.'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!upNextQueueItem) return;
-                        void playQueuedWorkstream(upNextQueueItem);
-                      }}
-                      disabled={
-                        !upNextQueueItem ||
-                        nextUpQueue.isPlaying ||
-                        dispatchingKey ===
-                          (upNextQueueItem ? queueItemKey(upNextQueueItem) : null)
-                      }
-                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
-                      data-state="active"
-                      title={
-                        upNextQueueItem ? 'Dispatch queued workstream' : 'No queued workstream'
-                      }
-                    >
-                      {dispatchingKey &&
-                      upNextQueueItem &&
-                      dispatchingKey === queueItemKey(upNextQueueItem)
-                        ? 'Dispatching...'
-                        : 'Play'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenNextUp}
-                      className="control-pill h-8 px-3 text-caption font-semibold"
-                      title="Open Next Up queue"
-                    >
-                      Queue
-                    </button>
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.5-3.5" />
+                    </svg>
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search..."
+                      className="h-7 w-full rounded-full border border-white/[0.08] bg-white/[0.03] pl-7 pr-2 text-micro text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
+                      aria-label="Search activity"
+                    />
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-          <div className="border-b border-subtle px-4 py-3.5">
-            <div className="flex flex-col gap-2.5">
-              <div className="flex flex-wrap items-start justify-between gap-2.5">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h2 className="text-heading font-semibold text-white">Activity</h2>
-                  <span className="rounded-full border border-strong bg-white/[0.05] px-2 py-0.5 text-micro text-primary tabular-nums">
-                    {filteredTotal}
-                  </span>
-                  {hiddenCount > 0 && (
-                    <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums">
-                      +{hiddenCount} hidden
-                    </span>
-                  )}
-                  {hiddenSyncCount > 0 && !showSyncEvents && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSyncEvents(true)}
-                      className="rounded-full border border-white/[0.14] bg-white/[0.03] px-2 py-0.5 text-micro text-secondary tabular-nums transition-colors hover:bg-white/[0.08] hover:text-primary"
-                      title="Show low-signal sync replay events"
+
+              {/* Row 2: Status tabs + time range + density + filters */}
+              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="relative" ref={timeRangeMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeRangeMenuOpen((previous) => !previous);
+                      setViewMenuOpen(false);
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={timeRangeMenuOpen}
+                    className={cn(
+                      'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro font-semibold transition-colors',
+                      timeRangeMenuOpen
+                        ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
+                        : 'border-white/[0.14] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
+                    )}
+                  >
+                    <span className="max-w-[120px] truncate">{selectedTimeLabel}</span>
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className={cn('transition-transform duration-200', timeRangeMenuOpen && 'rotate-180')}
                     >
-                      {hiddenSyncCount} sync hidden
-                    </button>
-                  )}
-                  {showSyncEvents && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSyncEvents(false)}
-                      className="rounded-full border border-lime/30 bg-lime/[0.10] px-2 py-0.5 text-micro text-[#E1FFB2] transition-colors hover:bg-lime/[0.16]"
-                      title="Hide low-signal sync replay events"
-                    >
-                      Sync visible
-                    </button>
-                  )}
-                  <div className="relative" ref={timeRangeMenuRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTimeRangeMenuOpen((previous) => !previous);
-                        setViewMenuOpen(false);
-                      }}
-                      aria-haspopup="menu"
-                      aria-expanded={timeRangeMenuOpen}
-                      className={cn(
-                        'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors',
-                        timeRangeMenuOpen
-                          ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
-                          : 'border-white/[0.14] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
-                      )}
-                    >
-                      <span className="max-w-[240px] truncate">{selectedTimeLabel}</span>
-                      <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        className={cn('transition-transform duration-200', timeRangeMenuOpen && 'rotate-180')}
-                      >
-                        <path d="m6 9 6 6 6-6" />
-                      </svg>
-                    </button>
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
 
                     <AnimatePresence>
                       {timeRangeMenuOpen && (
@@ -4506,44 +4319,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </motion.div>
                       )}
                     </AnimatePresence>
-                  </div>
-                  <span
-                    className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', isLive && 'pulse-soft')}
-                    style={{ backgroundColor: colors.lime }}
-                    aria-label="Live"
-                    title={isLive ? 'New activity within the last minute' : 'Live activity feed'}
-                  />
                 </div>
 
-                <div className="flex w-full items-center gap-2 md:w-[320px]">
-                  <div className="relative min-w-0 flex-1">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="m20 20-3.5-3.5" />
-                    </svg>
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search activity..."
-                      className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-2 text-body text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
-                      aria-label="Search activity"
-                    />
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Now Working card removed — status is in the top header */}
-
-              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="mx-0.5 h-3.5 w-px flex-shrink-0 bg-white/[0.08]" />
                 <div className="flex flex-shrink-0 items-center gap-1.5">
                   {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
                     <>
