@@ -593,7 +593,8 @@ export function InitiativeSection({
   ]).has(startableStatus);
   const startActionLabel = startableStatus === 'paused' ? 'Resume' : 'Start';
   const showQueueControl = !isSquished;
-  const showQueueStartRail = showQueueControl || canStartInitiative;
+  const showStartControl = true;
+  const showQueueStartRail = showQueueControl || showStartControl;
   const showRadialProgress = isSquished;
   const queueTargets = useMemo(
     () =>
@@ -931,13 +932,20 @@ export function InitiativeSection({
                 onSelectPlacement={queueInitiative}
               />
             )}
-            {canStartInitiative && (
+            {showStartControl && (
               <button
                 type="button"
-                onClick={startInitiative}
-                disabled={mutations.updateEntity.isPending}
-                title={`${startActionLabel} initiative`}
-                className={`control-pill inline-flex items-center justify-center gap-1.5 text-micro font-semibold text-[#D8FFA1] disabled:opacity-45 ${
+                onClick={(e) => {
+                  if (!canStartInitiative) return;
+                  startInitiative(e);
+                }}
+                disabled={!canStartInitiative || mutations.updateEntity.isPending}
+                title={
+                  canStartInitiative
+                    ? `${startActionLabel} initiative`
+                    : `Cannot start while status is ${formatEntityStatus(startableStatus)}`
+                }
+                className={`control-pill inline-flex items-center justify-center gap-1.5 text-micro font-semibold text-[#D8FFA1] disabled:cursor-not-allowed disabled:text-white/35 disabled:opacity-55 ${
                   isSquished ? 'h-8 w-8 px-0' : 'h-8 px-2.5'
                 }`}
                 data-state="active"

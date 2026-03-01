@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { LiveDecision, LiveTriageItem, TriageAction } from '@/types';
 import type { TriageQueueActions } from '@/hooks/useTriageQueue';
 
@@ -166,26 +167,26 @@ function ActionButton({
   onPerform: (action: string, note?: string) => void;
   isActing: boolean;
 }) {
-  const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState('');
-  const [isHovering, setIsHovering] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [rippling, setRippling] = useState(false);
 
   const isPrimary =
     triageAction.action === 'approve' || triageAction.action === 'autofix';
   const isDanger = triageAction.action === 'dismiss';
 
   const baseClass = isPrimary
-    ? 'bg-[#0AD4C4]/20 text-[#7AEDE5] hover:bg-[#0AD4C4]/30'
+    ? 'bg-[#0AD4C4]/20 text-[#7AEDE5] hover:bg-[#0AD4C4]/30 border border-[#0AD4C4]/30'
     : isDanger
-      ? 'bg-[#FF6B6B]/14 text-[#FFA8A8] hover:bg-[#FF6B6B]/20'
-      : 'bg-white/[0.08] text-secondary hover:bg-white/[0.12]';
+      ? 'bg-[#FF6B6B]/14 text-[#FFA8A8] hover:bg-[#FF6B6B]/20 border border-[#FF6B6B]/30'
+      : 'bg-white/[0.08] text-secondary hover:bg-white/[0.12] border border-white/[0.1]';
 
   if (!triageAction.available) {
     return (
       <button
         type="button"
         disabled
-        className="rounded-lg px-3 py-1.5 text-caption font-medium opacity-30 bg-white/[0.06] text-muted cursor-not-allowed"
+        className="rounded-lg px-3 py-2 text-caption font-medium opacity-30 bg-white/[0.06] text-muted cursor-not-allowed w-full text-left"
         title="Not available"
       >
         {triageAction.label}
@@ -193,60 +194,66 @@ function ActionButton({
     );
   }
 
-  if (triageAction.requiresNote && showNote) {
-    return (
-      <div className="flex flex-col gap-1.5 w-full">
+  const handlePress = () => {
+    if (isPrimary || isDanger) {
+      setRippling(true);
+      setTimeout(() => onPerform(triageAction.action, note), 300);
+    } else {
+      onPerform(triageAction.action, note);
+    }
+  };
+
+  return (
+    <div 
+      className="flex flex-col gap-1.5 w-full relative"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {triageAction.requiresNote && (
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Add a note..."
-          className="w-full rounded-lg border border-subtle bg-white/[0.04] px-2.5 py-1.5 text-caption text-primary placeholder:text-muted resize-none"
+          className="w-full rounded-lg border border-subtle bg-white/[0.04] px-2.5 py-1.5 text-caption text-primary placeholder:text-muted resize-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/50 transition-all outline-none"
           rows={2}
         />
-        <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={() => onPerform(triageAction.action, note)}
-            disabled={isActing}
-            className={`rounded-lg px-3 py-1 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
-          >
-            Confirm
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowNote(false)}
-            className="text-caption text-muted hover:text-secondary"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
+      )}
       <button
         type="button"
-        onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
-        onFocus={() => setIsHovering(true)}
-        onBlur={() => setIsHovering(false)}
-        onClick={() => {
-          if (triageAction.requiresNote) {
-            setShowNote(true);
-          } else {
-            onPerform(triageAction.action);
-          }
-        }}
-        disabled={isActing}
-        className={`w-full rounded-lg px-3 py-1.5 text-left text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
+        onClick={handlePress}
+        disabled={isActing || rippling}
+        className={`relative overflow-hidden rounded-lg px-3 py-2 text-caption font-medium transition-all disabled:opacity-40 w-full text-left ${baseClass}`}
       >
-        <span>{triageAction.label}</span>
+        <span className="relative z-10">{triageAction.label}</span>
+        
+        {/* Ripple effect */}
+        {rippling && (
+          <motion.div
+            initial={{ scale: 0, opacity: 0.5 }}
+            animate={{ scale: 4, opacity: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className={`absolute top-1/2 left-1/2 w-8 h-8 -mt-4 -ml-4 rounded-full ${isPrimary ? 'bg-[#0AD4C4]' : 'bg-[#FF6B6B]'}`}
+          />
+        )}
       </button>
-      {isHovering && (
-        <p className="px-1 text-micro text-secondary">{triageAction.consequences}</p>
-      )}
+
+      {/* Hover Consequence Preview */}
+      <AnimatePresence>
+        {isHovered && !isActing && !rippling && triageAction.consequences && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-[calc(100%+12px)] top-1/2 -translate-y-1/2 w-48 pointer-events-none z-10"
+          >
+            <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-md px-2.5 py-2 shadow-xl">
+              <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Consequence</p>
+              <p className="text-micro text-secondary leading-snug">{triageAction.consequences}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -337,8 +344,6 @@ export function TriageDetailModal({
   totalCount,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
-  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -387,11 +392,6 @@ export function TriageDetailModal({
     return () => window.removeEventListener('keydown', handler);
   }, [item, onNavigate, onClose]);
 
-  useEffect(() => {
-    setTerminalError(null);
-    setIsOpeningTerminal(false);
-  }, [item?.id]);
-
   const handleAction = useCallback(
     async (action: string, note?: string) => {
       if (!item) return;
@@ -407,11 +407,6 @@ export function TriageDetailModal({
   );
 
   if (!item) return null;
-
-  const agentLabel = item.agentId ? `Agent ${item.agentId.slice(0, 8)}` : 'OrgX';
-  const terminalPath = item.proofBundle.logRefs.find((ref) =>
-    ref.startsWith('/') || ref.startsWith('~/') || ref.startsWith('file://')
-  );
 
   return (
     <AnimatePresence mode="wait">
@@ -469,45 +464,52 @@ export function TriageDetailModal({
           </button>
         </div>
 
-        {/* 1. What you're deciding */}
-        <div className="mb-4">
-          <div className="mb-1 flex items-start justify-between gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-              style={{
-                backgroundColor: `${severityColor(item.severity)}20`,
-                color: severityColor(item.severity),
-              }}
-            >
-              {kindLabel(item.kind)}
-            </span>
-            {item.occurrenceCount > 1 && (
-              <span className="text-micro text-muted">
-                ×{item.occurrenceCount} occurrences
-              </span>
-            )}
-          </div>
-          <div className="mb-2 inline-flex items-center gap-2 text-caption text-secondary">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/[0.06] text-micro text-primary">
-              {agentLabel.slice(0, 1)}
-            </span>
-            <span>{agentLabel}</span>
+        {/* 1. Lineage & Agent */}
+        <div className="flex items-start gap-3 mb-4">
+          <AgentAvatar name={item.agentId ? 'Agent' : 'OrgX'} hint={item.agentId} size="md" />
+          <div className="flex flex-col min-w-0 flex-1">
             {(item.initiativeTitle || item.workstreamTitle) && (
-              <span className="truncate text-muted">
-                {[item.initiativeTitle, item.workstreamTitle, item.taskTitle].filter(Boolean).join(' > ')}
-              </span>
+              <div className="flex items-center gap-1 text-micro text-muted uppercase tracking-wider mb-1">
+                {item.initiativeTitle && <span className="truncate">{item.initiativeTitle}</span>}
+                {item.initiativeTitle && item.workstreamTitle && <span>›</span>}
+                {item.workstreamTitle && <span className="truncate">{item.workstreamTitle}</span>}
+                {item.workstreamTitle && item.taskTitle && <span>›</span>}
+                {item.taskTitle && <span className="truncate">{item.taskTitle}</span>}
+              </div>
             )}
-          </div>
-          <h3 className="text-heading font-semibold text-primary mt-1">
-            {item.title}
-          </h3>
-          <p className="mt-1 text-body text-secondary leading-relaxed">
-            {item.summary}
-          </p>
-          <div className="mt-2 rounded-lg bg-white/[0.03] px-3 py-2 text-caption text-secondary">
-            {item.summary}
+            <h3 className="text-[20px] font-semibold text-white leading-snug">
+              {item.title}
+            </h3>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span
+                className="rounded-full px-2 py-[1px] text-[10px] font-semibold uppercase tracking-wider"
+                style={{
+                  backgroundColor: `${severityColor(item.severity)}20`,
+                  color: severityColor(item.severity),
+                }}
+              >
+                {kindLabel(item.kind)}
+              </span>
+              {item.occurrenceCount > 1 && (
+                <span className="text-micro text-muted">
+                  ×{item.occurrenceCount} occurrences
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Agent Chat Bubble */}
+        <motion.div 
+          initial={{ opacity: 0, x: -10, scale: 0.95 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+          className="relative bg-white/[0.04] border border-white/[0.08] rounded-2xl rounded-tl-sm p-4 mb-6 ml-2"
+        >
+          <p className="text-body text-secondary leading-relaxed">
+            {item.summary}
+          </p>
+        </motion.div>
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
@@ -537,36 +539,6 @@ export function TriageDetailModal({
               Recommended: {item.recommendedAction}
             </p>
           )}
-          {terminalPath && (
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  setTerminalError(null);
-                  setIsOpeningTerminal(true);
-                  const response = await fetch('/orgx/api/live/terminal/open', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: terminalPath }),
-                  });
-                  if (!response.ok) {
-                    const body = await response.json().catch(() => ({}));
-                    throw new Error((body as { error?: string }).error ?? 'Unable to open terminal');
-                  }
-                } catch (error) {
-                  setTerminalError(error instanceof Error ? error.message : 'Unable to open terminal');
-                } finally {
-                  setIsOpeningTerminal(false);
-                }
-              }}
-              disabled={isOpeningTerminal}
-              className="control-pill mt-2 h-8 px-3 text-caption font-semibold"
-            >
-              <span className="mr-1">{`>_`}</span>
-              {isOpeningTerminal ? 'Opening...' : 'Open in terminal'}
-            </button>
-          )}
-          {terminalError ? <p className="mt-2 text-micro text-red-200">{terminalError}</p> : null}
         </div>
 
         {/* 5. Technical details (collapsed) */}
@@ -574,12 +546,12 @@ export function TriageDetailModal({
 
         {/* Keyboard shortcuts hint */}
         <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-micro text-muted opacity-60">
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">j</kbd>/<kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">k</kbd> nav</span>
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">a</kbd> approve</span>
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">d</kbd> dismiss</span>
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">r</kbd> retry</span>
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">s</kbd> snooze</span>
-          <span className="inline-flex items-center gap-1"><kbd className="rounded border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro">esc</kbd> close</span>
+          <span>j/k nav</span>
+          <span>a approve</span>
+          <span>d dismiss</span>
+          <span>r retry</span>
+          <span>s snooze</span>
+          <span>esc close</span>
         </div>
       </motion.div>
     </AnimatePresence>

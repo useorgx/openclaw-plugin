@@ -454,7 +454,6 @@ export function SliceDetailModal({
           ? 'Open result'
           : 'Review activity'
       : null);
-  const agentExcerpt = sanitizeDisplayText(sr?.lastEventSummary ?? '');
 
   const handleOpenTerminal = useCallback(
     async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
@@ -828,11 +827,6 @@ export function SliceDetailModal({
                     {canonicalProjection.label}
                   </span>
                 </div>
-                {agentExcerpt ? (
-                  <p className="mt-2 line-clamp-2 rounded-md bg-white/[0.03] px-2.5 py-1.5 font-mono text-caption text-secondary">
-                    {agentExcerpt}
-                  </p>
-                ) : null}
               </div>
             </motion.div>
 
@@ -847,25 +841,25 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className={`px-1 ${canonicalNarrativeClass}`}
+                  className="space-y-1"
                 >
                   <p className="section-kicker">What to do now</p>
                   <p className="mt-1 text-body text-primary">
                     {canonicalProjection.sentence}
                   </p>
                   {sr.artifactCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
+                    <p className="text-caption text-secondary">
                       {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
                     </p>
                   ) : null}
                   {sr.blockingDecisionCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
+                    <p className="text-caption text-secondary">
                       {sr.blockingDecisionCount} blocking decision
                       {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
                     </p>
                   ) : null}
                   {nextActionLabel ? (
-                    <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
+                    <p className="text-caption font-medium text-[#7AEDE5]">Recommended action: {nextActionLabel}</p>
                   ) : null}
                 </motion.div>
 
@@ -905,7 +899,7 @@ export function SliceDetailModal({
               </>
             ) : null}
 
-            {/* ───── 2. Context & Details card ───── */}
+            {/* ───── 2. Context & Details ───── */}
             {(d.blockReason || d.autoContinue || (d.agentSource && d.agentSource !== 'assigned')) && (
               <motion.div
                 variants={sectionVariants}
@@ -913,11 +907,10 @@ export function SliceDetailModal({
                 animate="visible"
                 exit="exit"
                 custom={sectionIndex++}
-                className="px-1 space-y-2"
+                className="space-y-2"
               >
                 {d.blockReason && (
-                  <div className="border-l-2 border-red-400/45 pl-2.5 text-caption text-red-100/85">
-                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Blocked</p>
+                  <div className="border-l-2 border-red-500/50 pl-3 py-1 text-body text-red-100/90">
                     {d.blockReason}
                   </div>
                 )}
@@ -966,7 +959,7 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="px-1 space-y-2"
+                  className="space-y-2"
                 >
                   <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
                   <ScopeProgressCard
@@ -1023,7 +1016,7 @@ export function SliceDetailModal({
               </>
             )}
 
-            {/* ───── 4. Timeline section ───── */}
+            {/* ───── 4. Execution Rail ───── */}
             {sr && (sr.startedAt || sr.updatedAt || sr.completedAt || sr.failedAt) && (
               <>
                 <SectionDivider />
@@ -1033,17 +1026,12 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="space-y-3"
+                  className="space-y-4 pb-2"
                 >
-                  <div className="flex items-center gap-2">
-                    <p className="section-kicker">Timeline</p>
-                    {sr.scope && sr.scope !== 'task' && (
-                      <Pill tone={sr.scope === 'milestone' ? 'cyan' : 'lime'}>
-                        {sr.scope}
-                      </Pill>
-                    )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-caption font-medium text-primary">Execution</span>
                     {sr.confidence && (
-                      <div className="flex items-center gap-1 ml-auto" title={`Confidence: ${sr.confidence}`}>
+                      <div className="flex items-center gap-1" title={`Confidence: ${sr.confidence}`}>
                         {Array.from({ length: 5 }, (_, i) => {
                           const { filled, color } = confidenceDots(sr.confidence);
                           return (
@@ -1060,26 +1048,47 @@ export function SliceDetailModal({
                     )}
                   </div>
 
-                  {/* Timestamp grid — deduplicate Updated/Completed if identical */}
-                  <div className="space-y-2">
-                    <div className="relative h-1 rounded-full bg-white/[0.08]">
-                      <div
-                        className="absolute left-0 top-0 h-full rounded-full"
-                        style={{
-                          width: sr.completedAt || sr.failedAt ? '100%' : d.queueState === 'running' ? '62%' : '28%',
-                          background: `linear-gradient(90deg, ${colors.teal}99, ${colors.lime}99)`,
-                        }}
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
-                      {sr.startedAt ? <span>Started {formatRelativeTime(sr.startedAt)}</span> : null}
-                      {sr.completedAt ? (
-                        <span>Completed {formatRelativeTime(sr.completedAt)}</span>
-                      ) : sr.failedAt ? (
-                        <span className="text-red-100">Failed {formatRelativeTime(sr.failedAt)}</span>
-                      ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
-                        <span>Updated {formatRelativeTime(sr.updatedAt)}</span>
-                      ) : null}
+                  <div className="relative pt-1 pb-5">
+                    {/* The Rail */}
+                    <div className="absolute top-2 left-0 w-full h-[2px] bg-white/[0.06] rounded-full" />
+                    
+                    {/* The Fill */}
+                    <motion.div 
+                      className="absolute top-2 left-0 h-[2px] bg-gradient-to-r from-teal-500 to-lime-400 rounded-full"
+                      initial={{ width: '0%' }}
+                      animate={{ width: sr.completedAt || sr.failedAt ? '100%' : '50%' }}
+                      transition={{ duration: 0.8, ease: "easeOut" }}
+                    />
+
+                    {/* Nodes */}
+                    <div className="relative flex justify-between px-1">
+                      {/* Started */}
+                      <div className="flex flex-col items-center">
+                        <div className={`w-3.5 h-3.5 rounded-full border-2 ${sr.startedAt ? 'bg-teal-400 border-teal-900' : 'bg-[#1a1a1a] border-white/20'}`} />
+                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted">
+                          {sr.startedAt ? 'Started' : 'Pending'}
+                        </span>
+                      </div>
+
+                      {/* In Progress / Active */}
+                      <div className="flex flex-col items-center">
+                        <motion.div 
+                          className={`w-3.5 h-3.5 rounded-full border-2 ${sr.completedAt || sr.failedAt ? 'bg-lime-400 border-lime-900' : 'bg-lime-400 border-lime-900 shadow-[0_0_8px_rgba(191,255,0,0.6)]'}`}
+                          animate={!(sr.completedAt || sr.failedAt) ? { scale: [1, 1.3, 1] } : { scale: 1 }}
+                          transition={!(sr.completedAt || sr.failedAt) ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : {}}
+                        />
+                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-primary font-medium">
+                          {d.nextTaskTitle ? 'Running task' : 'Running'}
+                        </span>
+                      </div>
+
+                      {/* Completed / Failed */}
+                      <div className="flex flex-col items-center">
+                        <div className={`w-3.5 h-3.5 rounded-full border-2 ${sr.completedAt ? 'bg-teal-400 border-teal-900' : sr.failedAt ? 'bg-red-400 border-red-900' : 'bg-[#1a1a1a] border-white/20'}`} />
+                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted">
+                          {sr.completedAt ? 'Completed' : sr.failedAt ? 'Failed' : 'Finish'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -1100,14 +1109,14 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">
-                    Artifacts <span className="text-muted tabular-nums">{sr.artifactCount}</span>
+                  <p className="text-caption font-medium text-primary">
+                    Artifacts <span className="text-muted tabular-nums ml-1">{sr.artifactCount}</span>
                   </p>
                   <div className="space-y-1">
                     {sr.artifacts.map((artifact, idx) => (
                       <div
                         key={artifact.id ?? idx}
-                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.04]"
+                        className="flex items-center gap-2 rounded-lg py-1.5 transition-colors hover:bg-white/[0.04] -mx-2 px-2"
                       >
                         <EntityIcon
                           type={artifact.type === 'pull_request' ? 'session' : 'workstream'}
@@ -1152,8 +1161,8 @@ export function SliceDetailModal({
                   className="space-y-2"
                 >
                   <div className="flex items-center gap-2">
-                    <p className="section-kicker">
-                      Decisions <span className="text-muted tabular-nums">{sr.decisionCount}</span>
+                    <p className="text-caption font-medium text-primary">
+                      Decisions <span className="text-muted tabular-nums ml-1">{sr.decisionCount}</span>
                     </p>
                     {sr.blockingDecisionCount > 0 && (
                       <span
@@ -1173,11 +1182,11 @@ export function SliceDetailModal({
                       {sr.decisionOptions.slice(0, 4).map((opt) => (
                         <div
                           key={opt.id}
-                          className="rounded-lg px-3 py-2"
+                          className="py-1"
                         >
-                          <p className="text-caption font-semibold text-primary">{opt.label}</p>
+                          <p className="text-caption font-medium text-primary">{opt.label}</p>
                           {opt.description && (
-                            <p className="mt-0.5 text-micro leading-snug text-secondary">
+                            <p className="mt-0.5 text-caption leading-snug text-secondary">
                               {opt.description}
                             </p>
                           )}
@@ -1277,9 +1286,6 @@ export function SliceDetailModal({
                 </details>
               </>
             )}
-            {terminalError ? (
-              <p className="text-caption text-red-100/80">{terminalError}</p>
-            ) : null}
 
           </div>
         </ModalShell>

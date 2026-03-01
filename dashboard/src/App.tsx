@@ -3178,7 +3178,6 @@ function DashboardShell({
                               onFocusRunId={focusActivityRunId}
                               onReviewActivity={openReviewActivityForSlice}
                               onOpenSliceDetail={openSliceDetailFromNeedsInput}
-                              onAcceptSlice={handleAcceptSlice}
                             />
                           </div>
                         </section>

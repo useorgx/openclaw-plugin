@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeTask } from '@/types';
@@ -123,7 +124,19 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
         {/* Header */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
-            <EntityIcon type="task" size={16} />
+            <div className="relative flex items-center justify-center">
+              <EntityIcon type="task" size={16} className={(status === 'done' || status === 'completed') ? 'opacity-0' : ''} />
+              {(status === 'done' || status === 'completed') && (
+                <svg className="absolute inset-0 w-4 h-4 text-lime-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <motion.polyline 
+                    points="20 6 9 17 4 12"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                  />
+                </svg>
+              )}
+            </div>
             <h2 className="break-words text-title font-semibold text-white">{task.title}</h2>
             <span
               className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(task.status)}`}
@@ -202,15 +215,22 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             <div className="flex items-center gap-2">
               <span className="text-micro text-muted uppercase tracking-wider">Agents</span>
               <InferredAgentAvatars agents={agents} max={4} />
+              {(status === 'running' || status === 'in_progress') && (
+                <span className="ml-2 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-lime-400/10 border border-lime-400/20 text-lime-400 text-micro font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-lime-400 animate-[pulse_1s_ease-in-out_infinite]" />
+                  Live Session
+                </span>
+              )}
             </div>
           )}
         </div>
 
-        {/* Details */}
-        <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
-          <span>Status: {formatEntityStatus(task.status)}</span>
-          <span>Priority: {task.priority ?? '-'}</span>
-          <span>Due: {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}</span>
+        {/* Details Sentence */}
+        <div className="text-body text-secondary bg-white/[0.02] border border-white/[0.04] p-3.5 rounded-xl leading-relaxed">
+          This task is currently <span className={`font-semibold ${getTaskStatusClass(task.status)}`}>{formatEntityStatus(task.status).toLowerCase()}</span>, 
+          has a priority of <span className="text-primary font-medium">{task.priority ?? 'none'}</span>, 
+          and is {task.dueDate ? `due on ` : 'not scheduled with a due date.'}
+          {task.dueDate && <span className="text-primary font-medium">{new Date(task.dueDate).toLocaleDateString()}</span>}{task.dueDate && '.'}
         </div>
 
         {notice && (
@@ -219,9 +239,8 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
           </div>
         )}
 
-        {/* Notes */}
-        <div className="mt-2 space-y-2">
-          {/* Artifacts */}
+        {/* Notes & Artifacts */}
+        <div className="mt-4 space-y-4">
           <EntityArtifactsPanel
             entityType="task"
             entityId={task.id}
@@ -229,15 +248,23 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
             embedMode={embedMode}
           />
 
-          <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-            Notes
-          </p>
-          <EntityCommentsPanel
-            entityType="task"
-            entityId={task.id}
-            authToken={authToken}
-            embedMode={embedMode}
-          />
+          <div className="space-y-3">
+            <div>
+              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+                Notes
+              </p>
+              <p className="mt-1 text-caption text-muted">
+                Commentary thread for humans and agents on this task.
+              </p>
+            </div>
+            
+            <EntityCommentsPanel
+              entityType="task"
+              entityId={task.id}
+              authToken={authToken}
+              embedMode={embedMode}
+            />
+          </div>
         </div>
       </div>
 

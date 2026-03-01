@@ -619,6 +619,12 @@ export function NextUpPanel({
     return queueItems.length;
   }, [queueItems.length, sortedInitiativeGroups.length, sortedMilestoneGroups.length, zoomLevel]);
 
+  const zoomOptions: Array<{ value: ZoomLevel; label: string }> = [
+    { value: 'initiative', label: 'Initiative' },
+    { value: 'workstream', label: 'Workstream' },
+    { value: 'milestone', label: 'Milestone' },
+  ];
+
   const visibleItems = useMemo(
     () => (isWorkstreamView ? (isCompact ? queueItems.slice(0, 5) : queueItems) : []),
     [isCompact, isWorkstreamView, queueItems]
@@ -1048,6 +1054,33 @@ export function NextUpPanel({
             </span>
           </div>
           <div className="flex items-center gap-1.5">
+            <div
+              className="inline-flex items-center rounded-xl border border-white/[0.1] bg-white/[0.03] p-1"
+              role="tablist"
+              aria-label="Next Up scope"
+            >
+              {zoomOptions.map((option) => {
+                const selected = zoomLevel === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setZoomLevel(option.value)}
+                    className={cn(
+                      'h-7 rounded-lg px-2.5 text-caption font-semibold transition-colors',
+                      selected
+                        ? 'border border-[#BFFF00]/35 bg-[#BFFF00]/16 text-[#E8FFD0]'
+                        : 'text-secondary hover:text-white'
+                    )}
+                    title={`Show ${option.label.toLowerCase()} queue`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
             {allowCompactToggle ? (
               <button
                 type="button"

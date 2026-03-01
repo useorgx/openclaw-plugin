@@ -147,6 +147,22 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-caption">
+          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
+          <button
+            onClick={() => openModal({ type: 'initiative', entity: initiative })}
+            className="break-words text-secondary transition-colors hover:text-white"
+          >
+            {initiative.name}
+          </button>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
+          <span className="break-words font-medium text-primary">{workstream.name}</span>
+        </div>
+
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
@@ -213,25 +229,46 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
 
       {/* Progress */}
       {progressValue !== null && (
-        <div>
+        <div className="mb-4">
           <div className="flex items-center justify-between mb-1">
             <span className="text-micro text-muted uppercase tracking-wider">Progress</span>
             <span className="text-body text-secondary">{progressValue}%</span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
-            />
+          <div className="flex h-1 gap-[2px] w-full rounded-full overflow-hidden bg-white/[0.04] p-[1px]">
+            {tasks.length > 0 ? (
+              tasks.map((t, idx) => (
+                <div
+                  key={t.id || idx}
+                  className="h-full flex-1 transition-all rounded-full"
+                  style={{ backgroundColor: isDoneStatus(t.status) ? colors.lime : t.status === 'running' || t.status === 'in_progress' ? colors.teal : 'rgba(255,255,255,0.06)' }}
+                />
+              ))
+            ) : (
+              <div
+                className="h-full transition-all rounded-full"
+                style={{ width: `${progressValue}%`, backgroundColor: colors.lime }}
+              />
+            )}
           </div>
         </div>
       )}
 
       {/* Metrics */}
-      <div className="flex flex-wrap items-center gap-3 text-caption text-secondary">
-        <span>{tasks.length} tasks</span>
-        <span>{milestones.length} milestones</span>
-        <span>{progressValue !== null ? `${progressValue}% complete` : 'No progress data'}</span>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-2 border-b border-white/[0.06] mb-4">
+        <div className="text-micro text-secondary tracking-wide">
+          <span className="text-white font-semibold mr-1.5">{tasks.length}</span>
+          TASKS
+        </div>
+        <div className="text-micro text-secondary tracking-wide">
+          <span className="text-white font-semibold mr-1.5">{milestones.length}</span>
+          MILESTONES
+        </div>
+        {progressValue !== null && (
+          <div className="text-micro text-[#BFFF00] tracking-wide">
+            <span className="font-semibold mr-1.5">{progressValue}%</span>
+            DONE
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -252,7 +289,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={ms.id}
                   onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
-                  className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-body text-bright">{ms.title}</span>
@@ -275,7 +312,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                 <button
                   key={task.id}
                   onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                  className="w-full text-left rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.04]"
+                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-body text-bright">{task.title}</span>
@@ -305,10 +342,16 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
             milestoneIds={milestones.map((m) => m.id)}
           />
 
-          <div className="mt-2 space-y-2">
-            <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-              Notes
-            </p>
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
+                Notes
+              </p>
+              <p className="mt-1 text-caption text-muted">
+                Commentary thread for humans and agents on this workstream.
+              </p>
+            </div>
+            
             <EntityCommentsPanel
               entityType="workstream"
               entityId={workstream.id}

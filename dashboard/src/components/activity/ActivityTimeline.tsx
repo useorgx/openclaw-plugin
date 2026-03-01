@@ -3658,11 +3658,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       new Set()
     );
   }, [activeDecorated, activity]);
+  const activeFileEvidenceUnique = useMemo(
+    () =>
+      activeFileEvidence.filter(
+        (entry, index, all) => all.findIndex((candidate) => candidate.path === entry.path) === index
+      ),
+    [activeFileEvidence]
+  );
+  const activeFileEvidencePreview = useMemo(
+    () => activeFileEvidenceUnique.slice(0, 4),
+    [activeFileEvidenceUnique]
+  );
+  const activeFileEvidenceOverflow = useMemo(
+    () => activeFileEvidenceUnique.slice(4),
+    [activeFileEvidenceUnique]
+  );
   const primaryEvidenceHref = useMemo(() => {
-    if (activeFileEvidence.length === 0) return null;
-    const first = activeFileEvidence[0];
+    if (activeFileEvidenceUnique.length === 0) return null;
+    const first = activeFileEvidenceUnique[0];
     return first ? resolveFileEvidenceHref(first.path) : null;
-  }, [activeFileEvidence]);
+  }, [activeFileEvidenceUnique]);
   const activeSummaryText = useMemo(() => {
     const override = humanizeActivityBody(detailSummaryOverride);
     if (override) return override;
@@ -5823,17 +5838,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {/* Evidence files — flat rows, deduplicated */}
-                    {activeFileEvidence.length > 0 && (
+                    {activeFileEvidenceUnique.length > 0 && (
                       <div>
                         <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
                           Evidence
                         </p>
+                        <p className="mb-2 px-1 text-caption text-secondary">
+                          {activeFileEvidenceUnique.length}{' '}
+                          {activeFileEvidenceUnique.length === 1 ? 'file' : 'files'} captured for this run.
+                        </p>
                         <div className="space-y-2">
-                          {activeFileEvidence
-                            .filter((entry, i, arr) =>
-                              arr.findIndex((e) => e.path === entry.path) === i
-                            )
-                            .map((entry, index) => {
+                          {activeFileEvidencePreview.map((entry, index) => {
                               const evidenceHref = resolveFileEvidenceHref(entry.path);
                               return (
                                 <div
@@ -5868,6 +5883,53 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 </div>
                               );
                             })}
+                          {activeFileEvidenceOverflow.length > 0 && (
+                            <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
+                              <summary className="cursor-pointer list-none text-caption font-semibold text-secondary">
+                                View {activeFileEvidenceOverflow.length} additional evidence file
+                                {activeFileEvidenceOverflow.length === 1 ? '' : 's'}
+                              </summary>
+                              <div className="mt-2 space-y-2">
+                                {activeFileEvidenceOverflow.map((entry, index) => {
+                                  const evidenceHref = resolveFileEvidenceHref(entry.path);
+                                  return (
+                                    <div
+                                      key={`${entry.key}:${entry.path}:overflow:${index}`}
+                                      className="flex items-center justify-between gap-3 py-1"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
+                                        <p className="mt-0.5 truncate font-mono text-caption text-primary">
+                                          {humanizePath(entry.path)}
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-shrink-0 items-center gap-1.5">
+                                        {evidenceHref && (
+                                          <a
+                                            href={evidenceHref}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                          >
+                                            Open
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void copyText(`${humanizeText(entry.key)} path`, entry.path)
+                                          }
+                                          className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                        >
+                                          Copy
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </details>
+                          )}
                         </div>
                       </div>
                     )}

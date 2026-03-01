@@ -273,7 +273,21 @@ export function selectInProgressRows({
   }
 
   runningSliceRows.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
-  if (runningSliceRows.length > 0) return runningSliceRows;
+  if (runningSliceRows.length > 0) {
+    const dedupedRunningRows: InProgressRow[] = [];
+    const seenRunningKeys = new Set<string>();
+    for (const row of runningSliceRows) {
+      const scopeInitiativeId = row.initiativeId ?? row.initiativeIds?.[0] ?? 'none';
+      const scopeKey = row.workstreamId
+        ? `scope:${scopeInitiativeId}:${row.workstreamId}`
+        : null;
+      const dedupeKey = scopeKey ?? (row.runId ? `run:${row.runId}` : row.key);
+      if (seenRunningKeys.has(dedupeKey)) continue;
+      seenRunningKeys.add(dedupeKey);
+      dedupedRunningRows.push(row);
+    }
+    return dedupedRunningRows;
+  }
 
   const fallbackSessions = sessions.filter(isInProgressSession);
   fallbackSessions.sort((a, b) => {

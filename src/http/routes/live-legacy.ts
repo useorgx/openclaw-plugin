@@ -443,4 +443,51 @@ export function registerLiveLegacyRoutes<
     async ({ query, req, res }) => renderLiveStream(query, req, res),
     "Proxy live SSE stream (HEAD)"
   );
+
+  router.add(
+    "POST",
+    "live/terminal/open",
+    async ({ body, res }) => {
+      try {
+        const payload = (typeof body === "string" ? JSON.parse(body) : body) as { runId?: string };
+        const runId = payload?.runId;
+        if (!runId) {
+          deps.sendJson(res, 400, { error: "runId is required" });
+          return;
+        }
+
+        const os = await import("os");
+        const cp = await import("child_process");
+        const path = await import("path");
+        const homedir = os.homedir();
+        const logPath = path.join(homedir, ".config", "useorgx", "openclaw-plugin", "autopilot-logs", `${runId}.log`);
+        
+        if (!deps.existsSync(logPath)) {
+          deps.sendJson(res, 404, { error: `Log file not found: ${logPath}` });
+          return;
+        }
+
+        const shellPath = logPath.replaceAll("'", "'\\''");
+        let command = "";
+        if (os.platform() === "darwin") {
+          command = `osascript -e 'tell app "Terminal" to do script "tail -f \\"${shellPath}\\""'`;
+        } else if (os.platform() === "win32") {
+          command = `start cmd.exe /k "tail -f \\"${shellPath}\\""`;
+        } else {
+          command = `gnome-terminal -- bash -c "tail -f \\"${shellPath}\\"; exec bash"`;
+        }
+
+        cp.exec(command, (error) => {
+          if (error) {
+            console.error("Failed to open terminal:", error);
+          }
+        });
+
+        deps.sendJson(res, 200, { success: true });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, { error: deps.safeErrorMessage(err) });
+      }
+    },
+    "Open run session in native terminal"
+  );
 }
