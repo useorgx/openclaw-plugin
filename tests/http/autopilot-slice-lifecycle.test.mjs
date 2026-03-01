@@ -2719,3 +2719,103 @@ test("autopilot slice lifecycle: status apply failure buffers review payload and
     "expected buffered task_updates payload for manual recovery"
   );
 });
+
+test("autopilot slice lifecycle: review queue merges buffered status failure as actionable non-decision item", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    configureHarness: async ({ client }) => {
+      const originalApplyChangeset = client.applyChangeset;
+      client.applyChangeset = async (payload) => {
+        const operations = Array.isArray(payload?.operations) ? payload.operations : [];
+        const hasStatusMutation = operations.some(
+          (entry) =>
+            entry &&
+            typeof entry === "object" &&
+            (entry.op === "task.update" || entry.op === "milestone.update")
+        );
+        if (hasStatusMutation) {
+          throw new Error("500 status apply conflict");
+        }
+        return originalApplyChangeset(payload);
+      };
+    },
+    after: async ({ handler }) => {
+      await readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      });
+      return readLiveReviewQueue(handler, {
+        status: "open",
+        limit: 50,
+      });
+    },
+  });
+
+  const reviewQueue = result.afterResult;
+  assert.ok(reviewQueue?.ok, "expected review queue response");
+  assert.ok(Array.isArray(reviewQueue.items), "expected review queue items");
+  const bufferedItem = reviewQueue.items.find(
+    (item) =>
+      typeof item?.id === "string" &&
+      !item.id.startsWith("triage-decision-") &&
+      item.conflictSource === "status_updates_buffered"
+  );
+  assert.ok(
+    bufferedItem,
+    "expected non-decision buffered status-updates item in unified review queue"
+  );
+  assert.equal(bufferedItem.kind, "review_required");
+  assert.ok(
+    typeof bufferedItem.recommendedAction === "string" &&
+      bufferedItem.recommendedAction.length > 0,
+    "expected recommended action for buffered status updates"
+  );
+  assert.ok(
+    Array.isArray(bufferedItem.actionContract) &&
+      bufferedItem.actionContract.some((action) => action.action === "retry"),
+    "expected retry action in buffered status-updates contract"
+  );
+});
+
+test("autopilot slice lifecycle: invalid structured output appears in review queue with actionable decision contract", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "invalid_json",
+    after: async ({ handler }) => {
+      await readLiveSnapshot(handler, {
+        initiativeId: "init-1",
+        sessionsLimit: 40,
+        activityLimit: 120,
+        decisionsLimit: 20,
+      });
+      return readLiveReviewQueue(handler, {
+        status: "open",
+        limit: 50,
+      });
+    },
+  });
+
+  const reviewQueue = result.afterResult;
+  assert.ok(reviewQueue?.ok, "expected review queue response");
+  assert.ok(Array.isArray(reviewQueue.items), "expected review queue items");
+  const decisionItem = reviewQueue.items.find(
+    (item) =>
+      typeof item?.id === "string" &&
+      item.id.startsWith("triage-decision-") &&
+      typeof item?.title === "string" &&
+      item.title.toLowerCase().includes("autopilot slice failed")
+  );
+  assert.ok(decisionItem, "expected invalid-output decision in review queue");
+  assert.equal(decisionItem.blocking, true);
+  assert.ok(
+    typeof decisionItem.summary === "string" && decisionItem.summary.trim().length > 0,
+    "expected human-readable summary for review queue decision"
+  );
+  assert.ok(
+    Array.isArray(decisionItem.actionContract) &&
+      decisionItem.actionContract.some((action) => action.action === "approve") &&
+      decisionItem.actionContract.some((action) => action.action === "reject"),
+    "expected approve/reject actions for invalid-output decision"
+  );
+});
