@@ -17,6 +17,8 @@ import type {
   SliceRunProjection,
   SliceTimelineNarrativeProjectionV2,
 } from '@/types';
+import { useNextUpQueue, type NextUpQueueItem } from '@/hooks/useNextUpQueue';
+import { PremiumCard } from '@/components/shared/PremiumCard';
 import { MarkdownText } from '@/components/shared/MarkdownText';
 import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
@@ -74,6 +76,7 @@ interface ActivityTimelineProps {
   chatSnapshot?: LiveChatSnapshot;
   onRefreshData?: () => Promise<void> | void;
   isLoading?: boolean;
+  onOpenNextUp?: () => void;
 }
 
 const INITIAL_RENDER_COUNT = 50;
@@ -2598,6 +2601,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   chatSnapshot,
   onRefreshData,
   isLoading = false,
+  onOpenNextUp,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const { open: openArtifactViewer } = useArtifactViewer();
@@ -2629,6 +2633,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const lastInteractionRef = useRef(Date.now());
   const controlsMenuRef = useRef<HTMLDivElement | null>(null);
   const timeRangeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [dispatchingKey, setDispatchingKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const handledRequestedItemIdRef = useRef<string | null>(null);
@@ -2838,6 +2843,60 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
     return copy;
   }, [sessions]);
+
+  const nextUpQueue = useNextUpQueue({});
+
+  const runningSessions = useMemo(
+    () => sessions.filter((s) => s.status === 'running'),
+    [sessions]
+  );
+
+  const queueItemKey = useCallback(
+    (item: Pick<NextUpQueueItem, 'initiativeId' | 'workstreamId'>) =>
+      `${item.initiativeId}:${item.workstreamId}`,
+    []
+  );
+
+  const nowQueueItem = useMemo(() => {
+    const running = nextUpQueue.items.find((item) => item.queueState === 'running') ?? null;
+    return running;
+  }, [nextUpQueue.items]);
+
+  const upNextQueueItem = useMemo(() => {
+    const queued = nextUpQueue.items.find((item) => item.queueState === 'queued') ?? null;
+    return queued;
+  }, [nextUpQueue.items]);
+
+  const nowFallbackSession = useMemo(
+    () => (nowQueueItem ? null : runningSessions[0] ?? null),
+    [nowQueueItem, runningSessions]
+  );
+
+  const playQueuedWorkstream = useCallback(
+    async (item: NextUpQueueItem) => {
+      const key = queueItemKey(item);
+      setDispatchingKey(key);
+      try {
+        const result = await nextUpQueue.playWorkstream({
+          initiativeId: item.initiativeId,
+          workstreamId: item.workstreamId,
+          agentId: item.runnerAgentId,
+        });
+        const sessionId =
+          result && typeof result === 'object' && 'sessionId' in result
+            ? ((result as { sessionId?: string | null }).sessionId ?? null)
+            : null;
+        if (sessionId) onFocusRunId?.(sessionId);
+        onOpenNextUp?.();
+      } catch (err) {
+        setCopyNotice(err instanceof Error ? err.message : 'Dispatch failed');
+      } finally {
+        setDispatchingKey(null);
+      }
+    },
+    [nextUpQueue, onFocusRunId, onOpenNextUp, queueItemKey]
+  );
+
   const decoratedActivity = useMemo(() => {
     return activity.map((item) => {
       const runId = resolveRunId(item);
@@ -4059,6 +4118,171 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         />
       ) : (
         <>
+          {(nowQueueItem || upNextQueueItem || nowFallbackSession) && (
+            <div className="border-b border-subtle px-4 py-3">
+              <div className="grid gap-2.5 lg:grid-cols-2">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(191,255,0,0.10), transparent 70%)',
+                    }}
+                  />
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <AgentAvatar
+                        name={
+                          nowQueueItem?.runnerAgentName ??
+                          nowFallbackSession?.agentName ??
+                          'OrgX'
+                        }
+                        hint={
+                          nowQueueItem
+                            ? `${nowQueueItem.runnerAgentId} ${nowQueueItem.runnerSource}`
+                            : nowFallbackSession?.agentId ?? null
+                        }
+                        size="xs"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
+                          Now
+                        </span>
+                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
+                          Running
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
+                        {nowQueueItem?.workstreamTitle ??
+                          nowFallbackSession?.title ??
+                          'Nothing running'}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
+                        {nowQueueItem
+                          ? `${nowQueueItem.initiativeTitle}${
+                              nowQueueItem.nextTaskTitle
+                                ? ` · ${nowQueueItem.nextTaskTitle}`
+                                : ''
+                            }`
+                          : nowFallbackSession
+                            ? 'Session is running. Focus it to watch progress.'
+                            : 'Queue a workstream to start execution.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const runId =
+                          nowQueueItem?.autoContinue?.activeRunId ??
+                          nowFallbackSession?.runId ??
+                          null;
+                        if (runId) onFocusRunId?.(runId);
+                      }}
+                      disabled={
+                        !(nowQueueItem?.autoContinue?.activeRunId ?? nowFallbackSession?.runId)
+                      }
+                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+                    >
+                      Focus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenNextUp}
+                      className="control-pill h-8 px-3 text-caption font-semibold"
+                      title="Open Next Up queue"
+                    >
+                      Queue
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, rgba(255,255,255,0.10), rgba(10,212,196,0.12), transparent 70%)',
+                    }}
+                  />
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <AgentAvatar
+                        name={upNextQueueItem?.runnerAgentName ?? 'OrgX'}
+                        hint={
+                          upNextQueueItem
+                            ? `${upNextQueueItem.runnerAgentId} ${upNextQueueItem.runnerSource}`
+                            : null
+                        }
+                        size="xs"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/72">
+                          Up Next
+                        </span>
+                        <span className="rounded-full border border-white/[0.10] bg-white/[0.03] px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.07em] text-secondary">
+                          Queued
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-body font-semibold leading-snug text-bright">
+                        {upNextQueueItem?.workstreamTitle ?? 'Queue the next workstream'}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-caption leading-snug text-secondary">
+                        {upNextQueueItem
+                          ? `${upNextQueueItem.initiativeTitle}${
+                              upNextQueueItem.nextTaskTitle
+                                ? ` · ${upNextQueueItem.nextTaskTitle}`
+                                : ''
+                            }`
+                          : 'Open the queue to choose what should run next.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!upNextQueueItem) return;
+                        void playQueuedWorkstream(upNextQueueItem);
+                      }}
+                      disabled={
+                        !upNextQueueItem ||
+                        nextUpQueue.isPlaying ||
+                        dispatchingKey ===
+                          (upNextQueueItem ? queueItemKey(upNextQueueItem) : null)
+                      }
+                      className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+                      data-state="active"
+                      title={
+                        upNextQueueItem ? 'Dispatch queued workstream' : 'No queued workstream'
+                      }
+                    >
+                      {dispatchingKey &&
+                      upNextQueueItem &&
+                      dispatchingKey === queueItemKey(upNextQueueItem)
+                        ? 'Dispatching...'
+                        : 'Play'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onOpenNextUp}
+                      className="control-pill h-8 px-3 text-caption font-semibold"
+                      title="Open Next Up queue"
+                    >
+                      Queue
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="border-b border-subtle px-4 py-3.5">
             <div className="flex flex-col gap-2.5">
               <div className="flex flex-wrap items-start justify-between gap-2.5">
