@@ -19,6 +19,8 @@ interface RawLiveInitiative {
   etaEndAt?: string | null;
   command_center_id?: string | null;
   commandCenterId?: string | null;
+  activeAgents?: number | null;
+  totalAgents?: number | null;
 }
 
 type LiveInitiativesResponse = {
@@ -70,8 +72,8 @@ function toInitiative(item: RawLiveInitiative): Initiative {
     sequenceIndex,
     hierarchyLabel:
       typeof sequenceIndex === 'number' ? `I${sequenceIndex + 1}` : undefined,
-    activeAgents: 0,
-    totalAgents: 0,
+    activeAgents: item.activeAgents ?? 0,
+    totalAgents: item.totalAgents ?? 0,
     description: undefined,
   };
 }

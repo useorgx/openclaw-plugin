@@ -34,6 +34,7 @@ import { HealthScoreCard } from './HealthScoreCard';
 import { CostRollupCard } from './CostRollupCard';
 import { ActionQueueStrip } from './ActionQueueStrip';
 import { useUsageControlPlane } from '@/hooks/useUsageControlPlane';
+import { useInitiativeSummary } from '@/hooks/useInitiativeSummary';
 
 interface MissionControlViewProps {
   initiatives: Initiative[];
@@ -805,7 +806,22 @@ function MissionControlInner({
   });
   const nextActionQueue = nextUpQueueModel ?? internalNextActionQueue;
   const usageControlPlane = useUsageControlPlane({ authToken, embedMode, enabled: initiatives.length > 0 });
+  const initiativeSummary = useInitiativeSummary({
+    enabled: initiatives.length > 0,
+    projectId: workspaceInitiativeId,
+  });
   const healthData = useMemo(() => {
+    if (initiativeSummary.data?.aggregate) {
+      const agg = initiativeSummary.data.aggregate;
+      return {
+        completionPercent: agg.completionPercent,
+        totalTasks: agg.totalTasks,
+        doneTasks: agg.doneTasks,
+        blockedCount: agg.blockedCount,
+        activeAgents: agg.activeAgents,
+      };
+    }
+    // Fallback to client-side computation when summary is loading/unavailable
     const totalTasks = initiatives.reduce((sum, init) => sum + (init.workstreams?.length ?? 0), 0);
     const doneTasks = initiatives.reduce(
       (sum, init) => sum + (init.workstreams?.filter((ws) => ws.status === 'completed' || ws.status === 'done').length ?? 0),
@@ -815,7 +831,7 @@ function MissionControlInner({
     const blockedCount = initiatives.filter((init) => init.status === 'blocked').length;
     const activeAgents = initiatives.reduce((sum, init) => sum + init.activeAgents, 0);
     return { completionPercent, totalTasks, doneTasks, blockedCount, activeAgents };
-  }, [initiatives]);
+  }, [initiatives, initiativeSummary.data]);
   const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextUpActions = nextUpActionsModel ?? internalNextUpActions;
   const nextActionQueueItem = nextActionQueue.items[0] ?? null;

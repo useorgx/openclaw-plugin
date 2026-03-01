@@ -48,6 +48,10 @@ type NextUpQueueItem = {
   pinnedRank?: number | null;
   compositeScore?: number;
   scoringTier?: "urgent" | "ready" | "waiting" | "deferred";
+  objectiveScore?: number;
+  roiPerToken?: number;
+  expectedTokens?: number;
+  expectedValueUsd?: number;
   updatedAt?: string | null;
 };
 
@@ -817,6 +821,10 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
         asString(record.scoringTier ?? record.scoring_tier) === "deferred"
           ? (asString(record.scoringTier ?? record.scoring_tier) as "urgent" | "ready" | "waiting" | "deferred")
           : undefined,
+      objectiveScore: asNumber(record.objectiveScore ?? record.objective_score) ?? undefined,
+      roiPerToken: asNumber(record.roiPerToken ?? record.roi_per_token) ?? undefined,
+      expectedTokens: asNumber(record.expectedTokens ?? record.expected_tokens) ?? undefined,
+      expectedValueUsd: asNumber(record.expectedValueUsd ?? record.expected_value_usd) ?? undefined,
       updatedAt: asString(record.updatedAt) ?? asString(record.updated_at) ?? null,
     });
   }
@@ -1051,6 +1059,10 @@ function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
       compositeScore: asNumber(
         (iwmt?.mixScore as unknown) ?? (objective?.objectiveScore as unknown)
       ),
+      objectiveScore: asNumber(objective?.objectiveScore as unknown) ?? undefined,
+      roiPerToken: asNumber(iwmt?.roiPerToken as unknown) ?? undefined,
+      expectedTokens: asNumber(iwmt?.expectedTokens as unknown) ?? undefined,
+      expectedValueUsd: asNumber(iwmt?.expectedValueUsd as unknown) ?? undefined,
       updatedAt: asString(record.updatedAt) ?? asString(record.updated_at) ?? null,
     });
   }
