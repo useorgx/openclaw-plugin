@@ -1611,7 +1611,7 @@ export function NextUpPanel({
                       {/* Scoring tier + estimate */}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {(() => {
-                          const score = (item as unknown as Record<string, unknown>).objectiveScore as number | undefined ?? null;
+                          const score = item.objectiveScore ?? item.compositeScore ?? null;
                           if (score == null) return null;
                           const tier = score >= 80 ? 'S' : score >= 60 ? 'A' : 'B';
                           const tierColor = tier === 'S' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
@@ -1624,7 +1624,7 @@ export function NextUpPanel({
                           );
                         })()}
                         {(() => {
-                          const expectedUsd = (item as unknown as Record<string, unknown>).expectedValueUsd as number | undefined;
+                          const expectedUsd = item.expectedValueUsd;
                           const taskCount = item.sliceTaskCount ?? 0;
                           const parts: string[] = [];
                           if (taskCount > 0) parts.push(`${taskCount} tasks`);

@@ -937,6 +937,12 @@ export interface NextUpQueueItem {
   autoIntentEnabled?: boolean;
   autoRuntimeState?: NextUpAutoRuntimeState;
   queueOrigin?: NextUpQueueOrigin;
+  compositeScore?: number;
+  scoringTier?: 'urgent' | 'ready' | 'waiting' | 'deferred';
+  objectiveScore?: number;
+  roiPerToken?: number;
+  expectedTokens?: number;
+  expectedValueUsd?: number;
   sliceScope?: 'task' | 'milestone' | 'workstream' | null;
   sliceTaskIds?: string[];
   sliceTaskCount?: number | null;

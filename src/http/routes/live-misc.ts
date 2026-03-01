@@ -4,6 +4,7 @@ import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
+import { summarizeTaskStatuses } from "../../reporting/rollups.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -75,6 +76,7 @@ type RegisterLiveMiscRoutesDeps<TReq, TRes> = {
     }>;
   };
   localInitiativeStatusOverrides: Map<string, { status: string; updatedAt: string }>;
+  buildMissionControlGraph?: (initiativeId: string) => Promise<unknown>;
   mapDecisionEntity: (entry: Entity) => { waitingMinutes: number };
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
@@ -610,5 +612,103 @@ export function registerLiveMiscRoutes<TReq, TRes>(
     "handoffs",
     async ({ res }) => renderHandoffs(res),
     "Get handoffs (HEAD)"
+  );
+
+  type InitiativeSummaryItem = {
+    id: string;
+    taskCounts: { total: number; done: number; blocked: number; active: number; todo: number };
+    progressPct: number;
+  };
+
+  router.add(
+    "GET",
+    "live/initiatives/summary",
+    async ({ query, res, req }) => {
+      try {
+        const scope = resolveWorkspaceScope(
+          query,
+          workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers),
+          { allowProjectScope: false }
+        );
+        if (scope.error) {
+          deps.sendJson(res, 400, { error: scope.error });
+          return;
+        }
+        const workspaceId = scope.workspaceId;
+        const projectInitiatives = await resolveProjectInitiativeSet(workspaceId);
+
+        // Load initiatives
+        const local = deps.toLocalLiveInitiatives(await deps.loadLocalOpenClawSnapshot(240));
+        let initiatives = local.initiatives;
+        if (projectInitiatives) {
+          initiatives = initiatives.filter((item) => projectInitiatives.has(item.id));
+        }
+
+        const perInitiative: InitiativeSummaryItem[] = [];
+        let totalTasks = 0;
+        let doneTasks = 0;
+        let blockedCount = 0;
+        let activeCount = 0;
+        let totalActiveAgents = 0;
+
+        for (const initiative of initiatives) {
+          totalActiveAgents += initiative.activeAgents;
+
+          // Try to get task statuses from graph
+          let taskStatuses: string[] = [];
+          if (deps.buildMissionControlGraph) {
+            try {
+              const graphRaw = await deps.buildMissionControlGraph(initiative.id);
+              const graph = asRecord(graphRaw);
+              const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+              for (const nodeEntry of nodes) {
+                const node = asRecord(nodeEntry);
+                if (!node) continue;
+                const type = pickStringFromRecord(node, ["type"]);
+                if (type !== "task") continue;
+                const status = pickStringFromRecord(node, ["status"]) ?? "todo";
+                taskStatuses.push(status);
+              }
+            } catch {
+              // Graph unavailable — fall back to empty counts
+            }
+          }
+
+          const counts = summarizeTaskStatuses(taskStatuses);
+          const progressPct =
+            counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+
+          perInitiative.push({
+            id: initiative.id,
+            taskCounts: counts,
+            progressPct,
+          });
+
+          totalTasks += counts.total;
+          doneTasks += counts.done;
+          blockedCount += counts.blocked;
+          activeCount += counts.active;
+        }
+
+        const completionPercent =
+          totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+        deps.sendJson(res, 200, {
+          initiatives: perInitiative,
+          aggregate: {
+            totalTasks,
+            doneTasks,
+            blockedCount,
+            activeAgents: totalActiveAgents,
+            completionPercent,
+          },
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "Get live initiatives summary"
   );
 }

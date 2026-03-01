@@ -369,6 +369,13 @@ function collectLocalActivities(
   return merged;
 }
 
+interface UsageSummaryCacheEntry {
+  fetchedAtMs: number;
+  result: LocalUsageResult;
+}
+let usageSummaryCache: UsageSummaryCacheEntry | null = null;
+const USAGE_SUMMARY_CACHE_TTL_MS = 30_000;
+
 async function resolveUsageSummary(
   deps: UsageRoutesDeps<unknown>
 ): Promise<LocalUsageResult> {
@@ -405,6 +412,21 @@ async function resolveUsageSummary(
   }
 }
 
+async function resolveUsageSummaryCached(
+  deps: UsageRoutesDeps<unknown>
+): Promise<LocalUsageResult> {
+  const now = Date.now();
+  if (
+    usageSummaryCache &&
+    now - usageSummaryCache.fetchedAtMs <= USAGE_SUMMARY_CACHE_TTL_MS
+  ) {
+    return usageSummaryCache.result;
+  }
+  const result = await resolveUsageSummary(deps);
+  usageSummaryCache = { fetchedAtMs: now, result };
+  return result;
+}
+
 export function registerUsageRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: UsageRoutesDeps<TRes>
@@ -413,7 +435,7 @@ export function registerUsageRoutes<TReq, TRes>(
     "GET",
     "usage/control-plane/summary",
     async ({ res }) => {
-      const resolved = await resolveUsageSummary(deps as UsageRoutesDeps<unknown>);
+      const resolved = await resolveUsageSummaryCached(deps as UsageRoutesDeps<unknown>);
       deps.sendJson(res, 200, {
         ...resolved.summary,
         source: resolved.source,
@@ -427,7 +449,7 @@ export function registerUsageRoutes<TReq, TRes>(
     "GET",
     "usage/unified",
     async ({ res }) => {
-      const resolved = await resolveUsageSummary(deps as UsageRoutesDeps<unknown>);
+      const resolved = await resolveUsageSummaryCached(deps as UsageRoutesDeps<unknown>);
       deps.sendJson(res, 200, {
         generatedAt: resolved.summary.generatedAt,
         period: resolved.summary.period,
@@ -450,7 +472,7 @@ export function registerUsageRoutes<TReq, TRes>(
     "GET",
     "usage/forecast",
     async ({ res }) => {
-      const resolved = await resolveUsageSummary(deps as UsageRoutesDeps<unknown>);
+      const resolved = await resolveUsageSummaryCached(deps as UsageRoutesDeps<unknown>);
       deps.sendJson(res, 200, {
         generatedAt: resolved.summary.generatedAt,
         period: resolved.summary.period,

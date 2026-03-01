@@ -4143,6 +4143,8 @@ export function createHttpHandler(
     loadLocalOpenClawSnapshot,
     toLocalLiveAgents,
     toLocalLiveInitiatives,
+    buildMissionControlGraph: (initiativeId) =>
+      buildMissionControlGraph(client, initiativeId),
     localInitiativeStatusOverrides,
     mapDecisionEntity,
     sendJson,
