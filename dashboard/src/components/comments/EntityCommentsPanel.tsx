@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildOrgxHeaders } from '@/lib/http';
 import { formatAbsoluteTime } from '@/lib/time';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 type EntityType = 'initiative' | 'workstream' | 'milestone' | 'task' | 'decision' | 'run';
 
@@ -198,9 +199,12 @@ export function EntityCommentsPanel(props: {
       {loading ? (
         <div className="mt-2 text-body text-muted">Loading notes…</div>
       ) : comments.length === 0 ? (
-        <div className="mt-2 text-body text-muted">
-          {demoMode ? 'Notes are unavailable in demo mode.' : 'No notes yet.'}
-        </div>
+        <EmptyState
+          icon="inbox"
+          headline="No notes yet"
+          description={demoMode ? 'Notes are unavailable in demo mode.' : 'Add a note to keep context for your team and agents.'}
+          className="py-6"
+        />
       ) : (
         <div className={`mt-2 space-y-2 ${isInline ? 'divide-y divide-white/[0.06]' : 'space-y-3'}`}>
           {comments.map((comment) => {

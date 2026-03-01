@@ -22,6 +22,7 @@ import { AgentDetailModal } from './AgentDetailModal';
 import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { cutoffEpochForActivityFilter, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
+import { EmptyState } from '@/components/shared/EmptyState';
 
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
@@ -1200,24 +1201,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         )}
 
         {agents.length === 0 && hasNoSessions && !onReconnect && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] px-3 py-6 text-center">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-faint"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <p className="text-body text-secondary">
-              No active chats yet. Start a session to see agents here.
-            </p>
-          </div>
+          <EmptyState
+            icon="agents"
+            headline="No active sessions yet"
+            description="Start a session to see agent conversations here."
+          />
         )}
 
         {agentFilter && onAgentFilter && (

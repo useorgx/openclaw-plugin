@@ -7,6 +7,8 @@ import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { ScopeProgressCard, buildScopeFromSliceRun } from '@/components/shared/ScopeProgressCard';
+import { ArtifactGallery } from './ArtifactGallery';
+import { MetricRow } from '@/components/shared/MetricRow';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
 import { colors, motion as motionTokens } from '@/lib/tokens';
@@ -800,17 +802,17 @@ export function SliceDetailModal({
                 size="md"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-[20px] font-semibold leading-snug text-white">
+                <h3 className="text-[28px] font-medium leading-none text-white truncate">
                   {d.workstreamTitle}
-                </p>
+                </h3>
                 {d.initiativeTitle && (
-                  <p className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-muted">
+                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
                     {d.initiativeTitle}
                   </p>
                 )}
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.06em] ${canonicalStatusClass}`}
+                    className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-widest ${canonicalStatusClass}`}
                   >
                     <span className="relative mr-1.5 inline-block h-1.5 w-1.5">
                       <span
@@ -828,9 +830,47 @@ export function SliceDetailModal({
                     </span>
                     {canonicalProjection.label}
                   </span>
+                  {sr?.confidence && (
+                    <span className={`chip text-[9px] font-semibold ${
+                      sr.confidence === 'high' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
+                      : sr.confidence === 'medium' ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.12] text-[#FFE7A8]'
+                      : 'border-white/[0.12] bg-white/[0.05] text-white/60'
+                    }`}>
+                      {sr.confidence}
+                    </span>
+                  )}
                 </div>
+                {sr?.statusExplainer && (
+                  <p className="mt-2 text-body text-secondary">{sr.statusExplainer}</p>
+                )}
               </div>
             </motion.div>
+
+            {/* Metrics */}
+            {sr && (
+              <MetricRow
+                metrics={[
+                  ...(sr.startedAt ? [{
+                    label: 'Duration',
+                    value: (() => {
+                      const end = sr.completedAt ?? sr.failedAt ?? sr.updatedAt ?? new Date().toISOString();
+                      const ms = Date.parse(end) - Date.parse(sr.startedAt!);
+                      if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+                      if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+                      return `${(ms / 3_600_000).toFixed(1)}h`;
+                    })(),
+                  }] : []),
+                  { label: 'Artifacts', value: sr.artifactCount, color: colors.teal },
+                  { label: 'Decisions', value: sr.decisionCount, color: colors.amber },
+                ]}
+                className="pb-4 border-b border-white/[0.04]"
+              />
+            )}
+
+            {/* Artifact gallery */}
+            {sr && sr.artifacts.length > 0 && (
+              <ArtifactGallery artifacts={sr.artifacts} />
+            )}
 
             <SectionDivider />
 
