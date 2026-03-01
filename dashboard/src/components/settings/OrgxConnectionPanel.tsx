@@ -83,6 +83,108 @@ function StatusHeadline({ phase }: { phase: ConnectionPhase }) {
   );
 }
 
+function ConnectionStepRail({
+  phase,
+  hasApiKey,
+  verified,
+  workspaceName,
+}: {
+  phase: ConnectionPhase;
+  hasApiKey: boolean;
+  verified: boolean;
+  workspaceName?: string | null;
+}) {
+  const steps = [
+    {
+      id: 'connect',
+      label: 'Connect',
+      detail: 'Provide credentials',
+      done: hasApiKey || verified,
+    },
+    {
+      id: 'verify',
+      label: 'Verify',
+      detail: 'Confirm live sync',
+      done: verified,
+    },
+    {
+      id: 'scope',
+      label: 'Scope',
+      detail: workspaceName ? workspaceName : 'Select workspace',
+      done: phase === 'connected',
+    },
+  ];
+
+  const activeStep =
+    phase === 'connecting'
+      ? 'verify'
+      : phase === 'connected'
+        ? 'scope'
+        : hasApiKey
+          ? 'verify'
+          : 'connect';
+
+  return (
+    <ol className="grid gap-2 rounded-xl border border-white/[0.08] bg-black/20 p-3 md:grid-cols-3">
+      {steps.map((step, index) => {
+        const active = step.id === activeStep;
+        return (
+          <li key={step.id} className="relative min-w-0">
+            {index > 0 ? (
+              <span
+                className="pointer-events-none absolute -left-2 top-3 hidden h-px w-2 bg-white/[0.14] md:block"
+                aria-hidden
+              />
+            ) : null}
+            <div
+              className={cn(
+                'rounded-lg border px-2.5 py-2',
+                step.done
+                  ? 'border-lime/26 bg-lime/[0.08]'
+                  : active
+                    ? 'border-teal/28 bg-teal/[0.10]'
+                    : 'border-white/[0.10] bg-white/[0.02]'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold',
+                    step.done
+                      ? 'border-lime/35 bg-lime/[0.18] text-[#D8FFA1]'
+                      : active
+                        ? 'border-teal/35 bg-teal/[0.16] text-teal-100'
+                        : 'border-white/[0.14] bg-white/[0.03] text-secondary'
+                  )}
+                >
+                  {index + 1}
+                </span>
+                <p className="truncate text-caption font-semibold text-primary">{step.label}</p>
+              </div>
+              <p className="mt-1 truncate text-micro text-secondary">{step.detail}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function ConnectionMetaRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-caption">
+      <span className="text-secondary">{label}</span>
+      <span className="text-primary">{value}</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -162,10 +264,13 @@ export function OrgxConnectionPanel({
         />
       ) : (
         <div className={cn('rounded-2xl border bg-white/[0.02] p-5', cardBorder)}>
-          {/* -- Status row ------------------------------------------------ */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <StatusHeadline phase={phase} />
-
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
+            <div>
+              <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">Connection status</p>
+              <div className="mt-1">
+                <StatusHeadline phase={phase} />
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => { void onRefresh(); }}
@@ -175,60 +280,109 @@ export function OrgxConnectionPanel({
             </button>
           </div>
 
-          {/* -- Connection metadata (only when connected) ---------------- */}
-          {phase === 'connected' && (
-            <div className="mt-4 grid gap-3 text-body text-secondary">
-              <div className="max-w-sm">
-                <label
-                  htmlFor="settings-workspace-scope"
-                  className="mb-1.5 block text-caption uppercase tracking-[0.08em] text-muted"
-                >
-                  Workspace scope
-                </label>
-                <div className="relative">
-                  <select
-                    id="settings-workspace-scope"
-                    value={selectedWorkspaceId ?? '__all__'}
-                    onChange={(event) => {
-                      const next = event.target.value;
-                      onSelectWorkspace(next === '__all__' ? null : next);
-                    }}
-                    className="h-9 w-full appearance-none rounded-full border border-strong bg-white/[0.03] pl-3 pr-9 text-body font-semibold text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/40"
-                    title="Select workspace scope"
-                  >
-                    <option value="__all__">All workspaces</option>
-                    {workspaceOptions.map((workspace) => (
-                      <option key={workspace.id} value={workspace.id}>
-                        {workspace.title}
-                      </option>
-                    ))}
-                  </select>
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-secondary"
-                  >
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
+          <div className="mt-4 grid gap-3">
+            <div>
+              <p className="mb-2 text-micro uppercase tracking-[0.12em] text-secondary">Lifecycle</p>
+              <ConnectionStepRail
+                phase={phase}
+                hasApiKey={state.hasApiKey}
+                verified={state.connectionVerified}
+                workspaceName={state.workspaceName}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Credential snapshot</p>
+                <div className="mt-2.5 grid gap-1.5">
+                  <ConnectionMetaRow
+                    label="API key"
+                    value={state.hasApiKey ? 'Detected' : 'Missing'}
+                  />
+                  <ConnectionMetaRow
+                    label="Verification"
+                    value={state.connectionVerified ? 'Verified' : 'Not verified'}
+                  />
+                  <ConnectionMetaRow
+                    label="Source"
+                    value={keyLabel || 'none'}
+                  />
                 </div>
               </div>
-              {state.workspaceName && (
-                <p className="text-caption text-muted">
-                  Connected account: <span className="text-secondary">{state.workspaceName}</span>
-                </p>
-              )}
-              {keyLabel && (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-muted">Authenticated via</span>
-                  <span className="text-primary">{keyLabel}</span>
-                </div>
-              )}
+
+              <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Workspace scope</p>
+                {phase === 'connected' ? (
+                  <div className="mt-2">
+                    <label htmlFor="settings-workspace-scope" className="sr-only">
+                      Workspace scope
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="settings-workspace-scope"
+                        value={selectedWorkspaceId ?? '__all__'}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          onSelectWorkspace(next === '__all__' ? null : next);
+                        }}
+                        className="h-9 w-full appearance-none rounded-full border border-strong bg-white/[0.03] pl-3 pr-9 text-body font-semibold text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/40"
+                        title="Select workspace scope"
+                      >
+                        <option value="__all__">All workspaces</option>
+                        {workspaceOptions.map((workspace) => (
+                          <option key={workspace.id} value={workspace.id}>
+                            {workspace.title}
+                          </option>
+                        ))}
+                      </select>
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-secondary"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </div>
+                    <p className="mt-1.5 text-caption text-muted">
+                      Connected account: <span className="text-secondary">{state.workspaceName ?? 'Unknown'}</span>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-caption leading-relaxed text-secondary">
+                    Selectable after verification completes.
+                  </p>
+                )}
+              </div>
             </div>
-          )}
+
+            {showPairing && state.connectUrl && (
+              <div className="rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-4 py-3">
+                <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">Pairing pending</p>
+                <p className="mt-1 text-body leading-relaxed text-secondary">
+                  A browser tab should have opened. Approve the connection to finish.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <a
+                    href={state.connectUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/25"
+                  >
+                    Open approval page
+                  </a>
+                  {state.expiresAt && (
+                    <span className="text-caption text-muted">
+                      Expires {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* -- Unverified key hint ------------------------------------- */}
           {phase === 'idle' && state.hasApiKey && !state.connectionVerified && (
@@ -238,33 +392,8 @@ export function OrgxConnectionPanel({
             </p>
           )}
 
-          {/* -- Pairing progress ---------------------------------------- */}
-          {showPairing && state.connectUrl && (
-            <div className="mt-4 rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-4 py-3">
-              <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">Pairing pending</p>
-              <p className="mt-1 text-body leading-relaxed text-secondary">
-                A browser tab should have opened. Approve the connection to finish.
-              </p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <a
-                  href={state.connectUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/25"
-                >
-                  Open approval page
-                </a>
-                {state.expiresAt && (
-                  <span className="text-caption text-muted">
-                    Expires {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* -- Actions -------------------------------------------------- */}
-          <div className={cn('flex flex-wrap items-center gap-2', phase === 'connected' ? 'mt-5' : 'mt-4')}>
+          <div className={cn('mt-4 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-4')}>
             {phase === 'connected' ? (
               <>
                 {/* Connected: secondary actions only */}
