@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useByokSettings } from '@/hooks/useByokSettings';
 
@@ -44,6 +46,29 @@ type RunPreviewProvider = {
   source: string;
   pending: 'save' | 'none';
 };
+
+function ByokSubspace({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-3">
+      <div>
+        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
+        <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
+        <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export function ByokSettingsPanel({
   authToken = null,
@@ -119,6 +144,22 @@ export function ByokSettingsPanel({
     return { providers, activeProviders, summary };
   }, [dirty, status, values]);
 
+  const readinessMetrics = useMemo(() => {
+    const readyProviders = PROVIDERS.filter((provider) => {
+      const providerHealth = health?.providers?.[provider.id];
+      return Boolean(providerHealth?.ok);
+    }).length;
+
+    const pendingSaves = PROVIDERS.filter((provider) => {
+      return dirty[provider.id] && values[provider.id].trim().length > 0;
+    }).length;
+
+    return {
+      readyProviders,
+      pendingSaves,
+    };
+  }, [dirty, health?.providers, values]);
+
   const saveProvider = async (provider: ProviderId) => {
     if (!enabled) return;
     setLocalError(null);
@@ -163,7 +204,7 @@ export function ByokSettingsPanel({
   };
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col gap-7">
       <div className="mb-4">
         <h3 className="text-heading font-semibold text-white">Provider keys</h3>
         <p className="mt-1 text-body leading-relaxed text-secondary">
@@ -187,49 +228,94 @@ export function ByokSettingsPanel({
       </div>
 
       {(localError || byok.error) && (
-        <div className="mb-4 rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
+        <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
           {localError ?? byok.error}
         </div>
       )}
 
-      <div className="mb-4 rounded-2xl border border-subtle bg-white/[0.02] p-4">
-        <p className="text-body font-semibold text-primary">Where keys come from</p>
-        <p className="mt-1 text-body leading-relaxed text-secondary">
-          If you set an env var (e.g.{' '}
-          <code className="rounded bg-black/40 px-1">OPENAI_API_KEY</code>), it will be used unless a saved key overrides it.
-        </p>
-      </div>
-
-      <div className="mb-4 rounded-2xl border border-lime/20 bg-lime/[0.05] p-4">
-        <p className="text-body font-semibold text-[#D8FFA1]">Agent run preview</p>
-        <p className="mt-1 text-body leading-relaxed text-secondary">{runPreview.summary}</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {runPreview.providers.map((provider) => (
-            <div key={provider.id} className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-caption font-semibold text-primary">{provider.label}</span>
-                <span
-                  className={cn(
-                    'rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]',
-                    provider.configured
-                      ? 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]'
-                      : 'border-white/[0.14] bg-white/[0.04] text-secondary'
-                  )}
-                >
-                  {provider.configured ? 'Available' : 'Missing'}
-                </span>
-              </div>
-              <p className="mt-1 text-caption text-muted">
-                Source: {provider.source}
-                {provider.pending === 'save' ? ' (not saved yet)' : ''}
-              </p>
-            </div>
-          ))}
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+          <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 1</p>
+          <p className="mt-1 text-caption font-semibold text-primary">Review source policy</p>
+        </div>
+        <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+          <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 2</p>
+          <p className="mt-1 text-caption font-semibold text-primary">Save provider keys</p>
+        </div>
+        <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+          <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 3</p>
+          <p className="mt-1 text-caption font-semibold text-primary">Probe run readiness</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {PROVIDERS.map((provider) => {
+      <ByokSubspace
+        step="Subspace 01"
+        title="Source policy + readiness"
+        description="Environment variables remain fallback defaults. Saved keys override env values per provider."
+      >
+        <div className="rounded-2xl border border-subtle bg-white/[0.02] p-4">
+          <p className="text-body font-semibold text-primary">Where keys come from</p>
+          <p className="mt-1 text-body leading-relaxed text-secondary">
+            If you set an env var (e.g.{' '}
+            <code className="rounded bg-black/40 px-1">OPENAI_API_KEY</code>), it will be used unless a saved key overrides it.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2.5">
+              <p className="text-micro uppercase tracking-[0.12em] text-muted">Configured keys</p>
+              <p className="mt-1 text-heading font-semibold text-white">{configuredCount} / 3</p>
+            </div>
+            <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2.5">
+              <p className="text-micro uppercase tracking-[0.12em] text-muted">Ready providers</p>
+              <p className="mt-1 text-heading font-semibold text-white">{readinessMetrics.readyProviders}</p>
+            </div>
+            <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2.5">
+              <p className="text-micro uppercase tracking-[0.12em] text-muted">Pending saves</p>
+              <p className="mt-1 text-heading font-semibold text-white">{readinessMetrics.pendingSaves}</p>
+            </div>
+          </div>
+        </div>
+      </ByokSubspace>
+
+      <ByokSubspace
+        step="Subspace 02"
+        title="Agent run preview"
+        description="A dry operational read on launch viability based on current + pending credentials."
+      >
+        <div className="rounded-2xl border border-lime/20 bg-lime/[0.05] p-4">
+          <p className="text-body font-semibold text-[#D8FFA1]">{runPreview.summary}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {runPreview.providers.map((provider) => (
+              <div key={provider.id} className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-caption font-semibold text-primary">{provider.label}</span>
+                  <span
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]',
+                      provider.configured
+                        ? 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]'
+                        : 'border-white/[0.14] bg-white/[0.04] text-secondary'
+                    )}
+                  >
+                    {provider.configured ? 'Available' : 'Missing'}
+                  </span>
+                </div>
+                <p className="mt-1 text-caption text-muted">
+                  Source: {provider.source}
+                  {provider.pending === 'save' ? ' (pending save)' : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ByokSubspace>
+
+      <ByokSubspace
+        step="Subspace 03"
+        title="Provider slots"
+        description="Each slot is independent: enter key, save/clear, then probe readiness."
+      >
+        <div className="grid grid-cols-1 gap-4">
+          {PROVIDERS.map((provider, index) => {
           const providerStatus = status?.providers?.[provider.id];
           const providerHealth = health?.providers?.[provider.id];
           const masked = providerStatus?.masked ?? null;
@@ -245,13 +331,19 @@ export function ByokSettingsPanel({
           const saveLabel = hasStoredKey ? 'Update' : 'Save';
 
           return (
-            <div
+            <motion.div
               key={provider.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(index, 5) * 0.03, duration: 0.2 }}
               className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4"
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] pb-3">
                 <div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">
+                    Slot {index + 1}
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
                     <p className="text-body font-semibold text-white">{provider.label}</p>
                     <span
                       className={cn(
@@ -351,7 +443,7 @@ export function ByokSettingsPanel({
                   />
                 </label>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-3">
                   <button
                     type="submit"
                     disabled={!canSave}
@@ -368,14 +460,15 @@ export function ByokSettingsPanel({
                     Clear stored
                   </button>
                   <span className="text-caption text-muted">
-                    {dirty[provider.id] ? 'Unsaved changes' : ' '}
+                    {dirty[provider.id] ? 'Unsaved changes' : 'Saved'}
                   </span>
                 </div>
               </form>
-            </div>
+            </motion.div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ByokSubspace>
     </div>
   );
 }

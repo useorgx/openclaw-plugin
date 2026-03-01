@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useAgentSuite } from '@/hooks/useAgentSuite';
 import type { AgentRuntimeSettings, AgentSuiteDomain } from '@/types';
 import { cn } from '@/lib/utils';
@@ -125,6 +126,29 @@ function RuntimeToggleRow({
         />
       </button>
     </div>
+  );
+}
+
+function BehaviorSubspace({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-3">
+      <div>
+        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
+        <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
+        <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -416,6 +440,20 @@ export function AgentBehaviorPanel({
             )}
           </div>
         </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 1</p>
+            <p className="mt-1 text-caption font-semibold text-primary">Select agent</p>
+          </div>
+          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 2</p>
+            <p className="mt-1 text-caption font-semibold text-primary">Tune decision policy</p>
+          </div>
+          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
+            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 3</p>
+            <p className="mt-1 text-caption font-semibold text-primary">Save all changes</p>
+          </div>
+        </div>
       </header>
 
       {runtimeSettingsUnavailable && (
@@ -443,52 +481,62 @@ export function AgentBehaviorPanel({
       )}
 
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-xl border border-subtle bg-white/[0.02] p-2">
-          <div className="max-h-[520px] space-y-1 overflow-y-auto pr-1">
-            {agents.map((agent) => {
-              const selected = agent.id === activeAgent.id;
-              const isDirty = dirtySet.has(agent.id);
-              const linked = isUuid(agent.id);
-              return (
-                <button
-                  key={agent.id}
-                  type="button"
-                  onClick={() => setActiveAgentId(agent.id)}
-                  className={cn(
-                    'w-full rounded-lg border px-3 py-2 text-left transition-colors',
-                    selected
-                      ? 'border-lime/25 bg-lime/[0.12]'
-                      : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-body font-semibold text-primary">{agent.name}</p>
-                    <div className="flex items-center gap-1.5">
-                      {!linked ? (
-                        <span className="rounded-full border border-amber-300/25 bg-amber-400/[0.16] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-amber-100">
-                          Not linked
+        <BehaviorSubspace
+          step="Subspace 01"
+          title="Agent roster"
+          description="Select the runtime identity to edit. Draft state is scoped per agent."
+        >
+          <aside className="rounded-xl border border-subtle bg-white/[0.02] p-2">
+            <div className="max-h-[520px] space-y-1 overflow-y-auto pr-1">
+              {agents.map((agent) => {
+                const selected = agent.id === activeAgent.id;
+                const isDirty = dirtySet.has(agent.id);
+                const linked = isUuid(agent.id);
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => setActiveAgentId(agent.id)}
+                    className={cn(
+                      'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                      selected
+                        ? 'border-lime/25 bg-lime/[0.12]'
+                        : 'border-white/[0.08] bg-black/20 hover:bg-white/[0.04]'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-body font-semibold text-primary">{agent.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        {!linked ? (
+                          <span className="rounded-full border border-amber-300/25 bg-amber-400/[0.16] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-amber-100">
+                            Not linked
+                          </span>
+                        ) : null}
+                        {agent.configStatus ? <HealthPill status={agent.configStatus} /> : null}
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="truncate text-caption text-secondary">
+                        {agent.domain ? DOMAIN_LABEL[agent.domain] : agent.model ?? 'Agent'}
+                      </p>
+                      {isDirty ? (
+                        <span className="rounded-full border border-lime/25 bg-lime/[0.10] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-lime">
+                          Draft
                         </span>
                       ) : null}
-                      {agent.configStatus ? <HealthPill status={agent.configStatus} /> : null}
                     </div>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="truncate text-caption text-secondary">
-                      {agent.domain ? DOMAIN_LABEL[agent.domain] : agent.model ?? 'Agent'}
-                    </p>
-                    {isDirty ? (
-                      <span className="rounded-full border border-lime/25 bg-lime/[0.10] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-lime">
-                        Draft
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+        </BehaviorSubspace>
 
-        <div className="space-y-3">
+        <BehaviorSubspace
+          step="Subspace 02"
+          title="Policy surfaces"
+          description="Tune decision pipeline and persistent instructions for the selected agent."
+        >
           <article className="rounded-xl border border-subtle bg-white/[0.02] p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -528,43 +576,53 @@ export function AgentBehaviorPanel({
               <p className="mt-1 text-caption leading-relaxed text-secondary">
                 These controls are injected into dispatch and decision flows for this agent.
               </p>
-              <div className="mt-3 space-y-2">
-                <RuntimeToggleRow
-                  label="Decision envelope v2"
-                  description="Emit richer context fields for diagnosis and replay."
-                  enabled={activeDraft.decisionV2Enabled}
-                  onToggle={(next) => updateActiveDraft({ decisionV2Enabled: next })}
-                />
-                <RuntimeToggleRow
-                  label="Decision dedupe"
-                  description="Collapse repeated blockers into the same pending decision."
-                  enabled={activeDraft.decisionDedupeEnabled}
-                  onToggle={(next) => updateActiveDraft({ decisionDedupeEnabled: next })}
-                />
-                <RuntimeToggleRow
-                  label="Require evidence for blocking decisions"
-                  description="Attach evidence before a blocking decision can be emitted."
-                  enabled={activeDraft.decisionEvidenceRequiredForBlocking}
-                  onToggle={(next) =>
-                    updateActiveDraft({ decisionEvidenceRequiredForBlocking: next })
-                  }
-                />
-                <RuntimeToggleRow
-                  label="Guarded auto-resolve"
-                  description="Attempt deterministic remediation before escalating to humans."
-                  enabled={activeDraft.decisionAutoResolveGuardedEnabled}
-                  onToggle={(next) =>
-                    updateActiveDraft({ decisionAutoResolveGuardedEnabled: next })
-                  }
-                />
-                <RuntimeToggleRow
-                  label="Auto-answer unanswered questions"
-                  description="If no human response arrives in time, auto-resolve questions sequentially."
-                  enabled={activeDraft.questionAutoAnswerEnabled}
-                  onToggle={(next) =>
-                    updateActiveDraft({ questionAutoAnswerEnabled: next })
-                  }
-                />
+              <div className="mt-3 space-y-3">
+                <div className="space-y-2 rounded-xl border border-white/[0.08] bg-black/20 p-3">
+                  <p className="text-caption font-semibold uppercase tracking-[0.08em] text-secondary">
+                    Decision envelope
+                  </p>
+                  <RuntimeToggleRow
+                    label="Decision envelope v2"
+                    description="Emit richer context fields for diagnosis and replay."
+                    enabled={activeDraft.decisionV2Enabled}
+                    onToggle={(next) => updateActiveDraft({ decisionV2Enabled: next })}
+                  />
+                  <RuntimeToggleRow
+                    label="Decision dedupe"
+                    description="Collapse repeated blockers into the same pending decision."
+                    enabled={activeDraft.decisionDedupeEnabled}
+                    onToggle={(next) => updateActiveDraft({ decisionDedupeEnabled: next })}
+                  />
+                  <RuntimeToggleRow
+                    label="Require evidence for blocking decisions"
+                    description="Attach evidence before a blocking decision can be emitted."
+                    enabled={activeDraft.decisionEvidenceRequiredForBlocking}
+                    onToggle={(next) =>
+                      updateActiveDraft({ decisionEvidenceRequiredForBlocking: next })
+                    }
+                  />
+                  <RuntimeToggleRow
+                    label="Guarded auto-resolve"
+                    description="Attempt deterministic remediation before escalating to humans."
+                    enabled={activeDraft.decisionAutoResolveGuardedEnabled}
+                    onToggle={(next) =>
+                      updateActiveDraft({ decisionAutoResolveGuardedEnabled: next })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2 rounded-xl border border-white/[0.08] bg-black/20 p-3">
+                  <p className="text-caption font-semibold uppercase tracking-[0.08em] text-secondary">
+                    Question automation
+                  </p>
+                  <RuntimeToggleRow
+                    label="Auto-answer unanswered questions"
+                    description="If no human response arrives in time, auto-resolve questions sequentially."
+                    enabled={activeDraft.questionAutoAnswerEnabled}
+                    onToggle={(next) =>
+                      updateActiveDraft({ questionAutoAnswerEnabled: next })
+                    }
+                  />
                 <div className="grid gap-2 rounded-xl border border-white/[0.08] bg-black/20 px-3 py-3 md:grid-cols-2">
                   <label className="flex min-w-0 flex-col gap-1">
                     <span className="text-caption font-semibold text-primary">
@@ -639,6 +697,7 @@ export function AgentBehaviorPanel({
                     </select>
                   </label>
                 </div>
+                </div>
               </div>
             </article>
 
@@ -668,7 +727,7 @@ export function AgentBehaviorPanel({
               </div>
             </article>
           </div>
-        </div>
+        </BehaviorSubspace>
       </div>
 
       <div className={cn('sticky bottom-0 z-10 rounded-xl border border-subtle bg-[#08090d]/90 p-3 backdrop-blur', runtimeSettingsUnavailable && 'hidden')}>

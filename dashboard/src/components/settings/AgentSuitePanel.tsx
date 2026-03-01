@@ -25,6 +25,29 @@ function Tag({ tone, children }: { tone: TagTone; children: ReactNode }) {
   );
 }
 
+function SuiteSection({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-3">
+      <div>
+        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
+        <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
+        <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 interface DryRunPreview {
   outcome: 'ready' | 'warning';
   executionTrace: string[];
@@ -238,72 +261,97 @@ export function AgentSuitePanel({
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] pb-4">
         <div>
           <h3 className="text-heading font-semibold text-white">OrgX agent suite</h3>
           <p className="mt-1 text-body leading-relaxed text-secondary">
             Installs domain agents into your workspace (workspaces + guardrails + managed/local overlay).
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              suite.resetInstall();
-              void suite.refetchStatus();
-            }}
-            disabled={suite.isRefetching}
-            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {suite.isRefetching ? 'Refreshing...' : 'Refresh'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void runConfigTest();
-            }}
-            disabled={suite.isInstalling || isTesting}
-            className="inline-flex min-h-[44px] items-center rounded-full border border-lime/30 bg-lime/[0.14] px-4 py-2 text-body font-semibold text-lime transition-colors hover:bg-lime/[0.2] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Runs a sample dry-run against the current draft settings"
-          >
-            {isTesting ? 'Testing config...' : 'Test This Config'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { suite.install({ dryRun: false, forceSkillPack: true }); }}
-            disabled={suite.isInstalling}
-            className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Forces a check for the latest OrgX skill pack and applies it (managed/local overlay preserves local edits)"
-          >
-            Refresh skills
-          </button>
-          <button
-            type="button"
-            onClick={() => { suite.install({ dryRun: false }); }}
-            disabled={suite.isInstalling}
-            className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Install missing agents and scaffold managed workspace files"
-          >
-            {suite.isInstalling ? 'Installing...' : 'Install / Update'}
-          </button>
-        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Tag tone={suite.error ? 'warn' : 'neutral'}>{summary}</Tag>
-        {plan && (
-          <>
-            <Tag tone={missingAgents === 0 ? 'good' : 'neutral'}>
-              {missingAgents === 0 ? 'agents configured' : `${missingAgents} agents to install`}
-            </Tag>
-            <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
-            <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>{changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}</Tag>
-            {conflictFiles > 0 && <Tag tone="neutral">{pluralize(conflictFiles, 'file to review')}</Tag>}
-            {plan.skillPackUpdateAvailable && <Tag tone="warn">skill update available</Tag>}
-            {plan.skillPackPolicy?.frozen && <Tag tone="neutral">skills frozen</Tag>}
-          </>
-        )}
+      <div className="mt-4 grid gap-6">
+        <SuiteSection
+          step="Subspace 01"
+          title="Execution controls"
+          description="Refresh status, run a deterministic dry-run, then apply suite updates."
+        >
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  suite.resetInstall();
+                  void suite.refetchStatus();
+                }}
+                disabled={suite.isRefetching}
+                className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {suite.isRefetching ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void runConfigTest();
+                }}
+                disabled={suite.isInstalling || isTesting}
+                className="inline-flex min-h-[44px] items-center rounded-full border border-lime/30 bg-lime/[0.14] px-4 py-2 text-body font-semibold text-lime transition-colors hover:bg-lime/[0.2] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Runs a sample dry-run against the current draft settings"
+              >
+                {isTesting ? 'Testing config...' : 'Test This Config'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { suite.install({ dryRun: false, forceSkillPack: true }); }}
+                disabled={suite.isInstalling}
+                className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Forces a check for the latest OrgX skill pack and applies it (managed/local overlay preserves local edits)"
+              >
+                Refresh skills
+              </button>
+              <button
+                type="button"
+                onClick={() => { suite.install({ dryRun: false }); }}
+                disabled={suite.isInstalling}
+                className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Install missing agents and scaffold managed workspace files"
+              >
+                {suite.isInstalling ? 'Installing...' : 'Install / Update'}
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Tag tone={suite.error ? 'warn' : 'neutral'}>{summary}</Tag>
+              {plan && (
+                <>
+                  <Tag tone={missingAgents === 0 ? 'good' : 'neutral'}>
+                    {missingAgents === 0 ? 'agents configured' : `${missingAgents} agents to install`}
+                  </Tag>
+                  <Tag tone="neutral">{pluralize(totalAgents, 'agent')} total</Tag>
+                  <Tag tone={changedFiles === 0 ? 'good' : 'neutral'}>
+                    {changedFiles === 0 ? 'no file changes' : `${changedFiles} file changes`}
+                  </Tag>
+                  {conflictFiles > 0 && <Tag tone="neutral">{pluralize(conflictFiles, 'file to review')}</Tag>}
+                  {plan.skillPackUpdateAvailable && <Tag tone="warn">skill update available</Tag>}
+                  {plan.skillPackPolicy?.frozen && <Tag tone="neutral">skills frozen</Tag>}
+                </>
+              )}
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 1</p>
+                <p className="mt-1 text-caption font-semibold text-primary">Run Test This Config</p>
+              </div>
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 2</p>
+                <p className="mt-1 text-caption font-semibold text-primary">Apply preset or refresh skills</p>
+              </div>
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 3</p>
+                <p className="mt-1 text-caption font-semibold text-primary">Install / Update with confidence</p>
+              </div>
+            </div>
+          </div>
+        </SuiteSection>
       </div>
 
       {/* Install error banner */}
@@ -331,7 +379,12 @@ export function AgentSuitePanel({
       )}
 
       {plan && (
-        <div className="mt-4">
+        <div className="mt-4 grid gap-6">
+          <SuiteSection
+            step="Subspace 02"
+            title="Draft simulation"
+            description="Inspect expected execution trace, risk flags, and outputs before applying."
+          >
           <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
             <p className="text-body font-semibold text-primary">Dry-run sample</p>
             <p className="mt-1 text-caption leading-relaxed text-secondary">
@@ -420,20 +473,26 @@ export function AgentSuitePanel({
               </div>
             )}
           </div>
+          </SuiteSection>
 
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-body font-semibold text-primary">Suite details</p>
-            <button
-              type="button"
-              onClick={() => setShowDetails((v) => !v)}
-              className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
-            >
-              {showDetails ? 'Hide' : 'Show'}
-            </button>
-          </div>
+          <SuiteSection
+            step="Subspace 03"
+            title="Suite internals"
+            description="Inspect policy state, agent roster, and managed/local file write plan."
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-body font-semibold text-primary">Suite details</p>
+              <button
+                type="button"
+                onClick={() => setShowDetails((v) => !v)}
+                className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
+              >
+                {showDetails ? 'Hide' : 'Show'}
+              </button>
+            </div>
 
-          {showDetails && (
-            <div className="mt-3 grid gap-3">
+            {showDetails && (
+              <div className="mt-3 grid gap-3">
               <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3">
                 <div className="grid gap-1 text-body text-secondary">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -656,8 +715,9 @@ export function AgentSuitePanel({
                   </div>
                 )}
               </div>
-            </div>
-          )}
+              </div>
+            )}
+          </SuiteSection>
         </div>
       )}
     </div>
