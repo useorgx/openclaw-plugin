@@ -13,6 +13,7 @@ test("normalizeOpenClawProvider maps supported aliases", async () => {
   assert.equal(mod.normalizeOpenClawProvider("openai"), "openai");
   assert.equal(mod.normalizeOpenClawProvider("openai-codex"), "openai");
   assert.equal(mod.normalizeOpenClawProvider("open-router"), "openrouter");
+  assert.equal(mod.normalizeOpenClawProvider("open_router"), "openrouter");
   assert.equal(mod.normalizeOpenClawProvider("claude"), "anthropic");
   assert.equal(mod.normalizeOpenClawProvider("auto"), null);
   assert.equal(mod.normalizeOpenClawProvider(""), null);

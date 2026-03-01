@@ -141,7 +141,7 @@ export function normalizeOpenClawProvider(value: string | null): OpenClawProvide
   if (raw === "auto") return null;
   if (raw === "claude") return "anthropic";
   if (raw === "anthropic") return "anthropic";
-  if (raw === "openrouter" || raw === "open-router") return "openrouter";
+  if (raw === "openrouter" || raw === "open-router" || raw === "open_router") return "openrouter";
   if (raw === "openai" || raw === "openai-codex") return "openai";
   return null;
 }
