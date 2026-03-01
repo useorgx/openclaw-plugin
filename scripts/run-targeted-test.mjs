@@ -11,6 +11,25 @@ if (testArgs.length === 0) {
 const env = { ...process.env };
 delete env.NODE_TEST_CONTEXT;
 
+const nodeOptions = env.NODE_OPTIONS;
+if (typeof nodeOptions === "string" && nodeOptions.trim().length > 0) {
+  const tokens = nodeOptions.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+  const filtered = tokens.filter((token) => {
+    const normalized = token.replace(/^"+|"+$/g, "");
+    return (
+      normalized !== "--test" &&
+      normalized !== "--test-only" &&
+      !normalized.startsWith("--test=") &&
+      !normalized.startsWith("--test-concurrency=")
+    );
+  });
+  if (filtered.length === 0) {
+    delete env.NODE_OPTIONS;
+  } else {
+    env.NODE_OPTIONS = filtered.join(" ");
+  }
+}
+
 const child = spawn(process.execPath, ["--test", "--test-concurrency=1", ...testArgs], {
   stdio: "inherit",
   env,

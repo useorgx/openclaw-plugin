@@ -65,6 +65,21 @@ test("parseSliceResult unwraps final_output object text envelopes", () => {
   assert.equal(parsed?.workstream_id, "ws_test");
 });
 
+test("parseSliceResult unwraps final_output content array envelopes", () => {
+  const expected = sampleSliceResult({ summary: "Final output content array" });
+  const raw = JSON.stringify({
+    type: "result",
+    final_output: {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: JSON.stringify(expected) }],
+    },
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "Final output content array");
+  assert.equal(parsed?.workstream_id, "ws_test");
+});
+
 test("parseSliceResult unwraps final_output string envelopes", () => {
   const expected = sampleSliceResult({ summary: "Final output string" });
   const raw = JSON.stringify({
@@ -174,6 +189,20 @@ test("parseSliceResult unwraps output_text envelopes", () => {
   });
   const parsed = parseSliceResult(raw);
   assert.equal(parsed?.summary, "output text envelope");
+  assert.equal(parsed?.status, "completed");
+});
+
+test("parseSliceResult unwraps top-level output_text object envelopes", () => {
+  const expected = sampleSliceResult({ summary: "output text object envelope" });
+  const raw = JSON.stringify({
+    type: "response",
+    output_text: {
+      type: "output_text",
+      text: [{ type: "text", value: JSON.stringify(expected) }],
+    },
+  });
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.summary, "output text object envelope");
   assert.equal(parsed?.status, "completed");
 });
 

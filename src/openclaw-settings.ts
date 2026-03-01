@@ -130,15 +130,18 @@ export function readOpenClawPrimaryModel(raw: Record<string, unknown> | null): s
 }
 
 export function readOpenClawGatewayPort(raw: Record<string, unknown> | null): number {
+  const isValidPort = (value: number): boolean =>
+    Number.isFinite(value) && value >= 1 && value <= 65_535;
+
   if (!raw) return 18789;
   const gateway = readObject(raw.gateway);
   const port = gateway.port;
-  if (typeof port === "number" && Number.isFinite(port) && port > 0) {
+  if (typeof port === "number" && isValidPort(port)) {
     return Math.floor(port);
   }
   if (typeof port === "string") {
     const parsed = Number.parseInt(port, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
+    if (isValidPort(parsed)) {
       return parsed;
     }
   }

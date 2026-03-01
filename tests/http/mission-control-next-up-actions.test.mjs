@@ -955,8 +955,6 @@ test("mission-control next-up normalizes canonical snake_case runner fields", as
 
 test("mission-control next-up normalizes snake_case runner placeholders and falls back to unassigned", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-snake-case-placeholders-"));
-test("mission-control next-up parses JSON string arrays for runner and slice task fields", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-json-strings-"));
   await withEnv(
     {
       ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
@@ -988,6 +986,48 @@ test("mission-control next-up parses JSON string arrays for runner and slice tas
                 runner_agent_name: "default",
                 runner_source: "unknown",
                 runner_agents: [{ id: "N/A", name: "none" }],
+              },
+            ],
+          };
+        },
+      });
+
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-placeholder-snake&offset=0&limit=24",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.source, "canonical");
+      assert.equal(body.items[0]?.runnerAgentId, null);
+      assert.equal(body.items[0]?.runnerAgentName, "Unassigned");
+      assert.equal(body.items[0]?.runnerSource, "fallback");
+      assert.deepEqual(body.items[0]?.runnerAgents, []);
+    }
+  );
+});
+
+test("mission-control next-up parses JSON string arrays for runner and slice task fields", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-runner-json-strings-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const { handler } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          assert.equal(method, "GET");
+          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
+          return {
+            ok: true,
+            generatedAt: new Date().toISOString(),
+            total: 1,
+            items: [
+              {
                 initiativeId: "init-1",
                 initiativeTitle: "Initiative 1",
                 initiativeStatus: "active",
@@ -1007,7 +1047,6 @@ test("mission-control next-up parses JSON string arrays for runner and slice tas
 
       const res = await call(handler, {
         method: "GET",
-        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-placeholder-snake&offset=0&limit=24",
         url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha",
         headers: {},
       });
@@ -1015,12 +1054,9 @@ test("mission-control next-up parses JSON string arrays for runner and slice tas
       const body = JSON.parse(res.body);
       assert.equal(body.ok, true);
       assert.equal(body.source, "canonical");
-      assert.equal(body.items[0]?.runnerAgentId, null);
-      assert.equal(body.items[0]?.runnerAgentName, "Unassigned");
-      assert.equal(body.items[0]?.runnerSource, "fallback");
-      assert.deepEqual(body.items[0]?.runnerAgents, []);
       assert.equal(body.items[0]?.runnerAgentId, "agent-1");
       assert.equal(body.items[0]?.runnerAgentName, "Agent One");
+      assert.equal(body.items[0]?.runnerSource, "inferred");
       assert.deepEqual(body.items[0]?.runnerAgents, [{ id: "agent-1", name: "Agent One" }]);
       assert.deepEqual(body.items[0]?.sliceTaskIds, ["task-1", "task-2"]);
     }
@@ -1072,6 +1108,7 @@ test("mission-control next-up parses JSON string object for runner fields", asyn
       assert.equal(body.ok, true);
       assert.equal(body.items[0]?.runnerAgentId, "agent-1");
       assert.equal(body.items[0]?.runnerAgentName, "Agent One");
+      assert.equal(body.items[0]?.runnerSource, "inferred");
       assert.deepEqual(body.items[0]?.runnerAgents, [{ id: "agent-1", name: "Agent One" }]);
     }
   );

@@ -4333,10 +4333,139 @@ export function createHttpHandler(
       }
       return [];
     },
-    getBlockerEvents: () => {
-      // Extract blocker events from recent activity
-      // In future, this will read from a dedicated blocker store
-      return [];
+    getBlockerEvents: (workspaceId) => {
+      const normalizedWorkspaceId = (workspaceId ?? "").trim();
+      const scopedKeys = normalizedWorkspaceId
+        ? [
+            `live-snapshot:${normalizedWorkspaceId}`,
+            `live-snapshot-v2:${normalizedWorkspaceId}`,
+            `dashboard-bundle:${normalizedWorkspaceId}`,
+          ]
+        : [];
+      const fallbackKeys = ["live-snapshot", "dashboard-bundle", "live-snapshot-v2"];
+      const keys = [...scopedKeys, ...fallbackKeys];
+      const seen = new Set<string>();
+      const mapped: Array<{
+        id: string;
+        failureType: string;
+        reason?: string | null;
+        provider?: string | null;
+        initiativeId?: string | null;
+        initiativeTitle?: string | null;
+        workstreamId?: string | null;
+        workstreamTitle?: string | null;
+        taskId?: string | null;
+        taskTitle?: string | null;
+        agentId?: string | null;
+        domain?: string | null;
+        sourceSystem?: string | null;
+        runId?: string | null;
+        logPath?: string | null;
+        outputPath?: string | null;
+        metadata?: Record<string, unknown>;
+        timestamp?: string;
+      }> = [];
+      const deriveFailureType = (
+        eventNameRaw: string | null,
+        actionTypeRaw: string | null
+      ): string | null => {
+        const eventName = (eventNameRaw ?? "").trim().toLowerCase();
+        const actionType = (actionTypeRaw ?? "").trim().toLowerCase();
+        const signature = `${eventName} ${actionType}`;
+        if (!signature.trim()) return null;
+        if (signature.includes("status_updates_buffered")) return "status_updates_buffered";
+        if (signature.includes("question_answer_failed")) return "question_answer_failed";
+        if (signature.includes("spawn_guard_rate_limited")) return "spawn_guard_rate_limited";
+        if (signature.includes("spawn_guard_blocked")) return "spawn_guard_blocked";
+        if (signature.includes("mcp_handshake_failure") || signature.includes("mcp_handshake")) {
+          return "mcp_handshake_failure";
+        }
+        if (
+          signature.includes("worker_exit_no_output") ||
+          signature.includes("worker_exit_without_structured_output") ||
+          signature.includes("no_structured_output")
+        ) {
+          return "worker_exit_no_output";
+        }
+        if (signature.includes("workspace_conflict")) return "workspace_conflict";
+        if (signature.includes("budget_exhausted")) return "budget_exhausted";
+        if (signature.includes("stale_blocked_workstream")) return "stale_blocked_workstream";
+        return null;
+      };
+      try {
+        for (const key of keys) {
+          const cached = readSnapshotResponseCache(key);
+          if (!cached || typeof cached !== "object") continue;
+          const activityRaw = (cached as Record<string, unknown>).activity;
+          if (!Array.isArray(activityRaw)) continue;
+          for (const entry of activityRaw) {
+            if (!entry || typeof entry !== "object") continue;
+            const activityRecord = entry as Record<string, unknown>;
+            const metadataRecord =
+              activityRecord.metadata && typeof activityRecord.metadata === "object"
+                ? (activityRecord.metadata as Record<string, unknown>)
+                : {};
+            const failureType = deriveFailureType(
+              pickString(metadataRecord, ["event", "event_name"]),
+              pickString(metadataRecord, ["action_type", "actionType"])
+            );
+            if (!failureType) continue;
+            const runId = pickString(metadataRecord, ["run_id", "source_run_id"]) ?? pickString(activityRecord, ["runId"]);
+            const workstreamId =
+              pickString(metadataRecord, ["workstream_id", "source_stream_id"]) ??
+              pickString(activityRecord, ["workstreamId"]);
+            const taskId = pickString(metadataRecord, ["task_id"]) ?? pickString(activityRecord, ["taskId"]);
+            const initiativeId =
+              pickString(metadataRecord, ["initiative_id"]) ??
+              pickString(activityRecord, ["initiativeId"]);
+            const timestamp =
+              pickString(activityRecord, ["timestamp"]) ??
+              pickString(metadataRecord, ["timestamp", "created_at"]);
+            const dedupeId =
+              pickString(activityRecord, ["id"]) ??
+              `${failureType}:${initiativeId ?? "unknown"}:${workstreamId ?? "unknown"}:${runId ?? "unknown"}:${timestamp ?? "unknown"}`;
+            if (seen.has(dedupeId)) continue;
+            seen.add(dedupeId);
+            mapped.push({
+              id: dedupeId,
+              failureType,
+              reason:
+                pickString(metadataRecord, ["error", "reason", "message"]) ??
+                pickString(activityRecord, ["description", "summary", "title"]),
+              provider: pickString(metadataRecord, ["provider"]),
+              initiativeId,
+              initiativeTitle:
+                pickString(metadataRecord, ["initiative_title"]) ??
+                pickString(activityRecord, ["initiativeTitle"]),
+              workstreamId,
+              workstreamTitle:
+                pickString(metadataRecord, ["workstream_title"]) ??
+                pickString(activityRecord, ["workstreamTitle"]),
+              taskId,
+              taskTitle: pickString(metadataRecord, ["task_title"]) ?? pickString(activityRecord, ["taskTitle"]),
+              agentId:
+                pickString(metadataRecord, ["agent_id", "executor_agent_id"]) ??
+                pickString(activityRecord, ["executorAgentId", "agentId"]),
+              domain: pickString(metadataRecord, ["domain", "executor_domain"]),
+              sourceSystem:
+                pickString(metadataRecord, ["source_system", "source"]) ?? "openclaw",
+              runId,
+              logPath: pickString(metadataRecord, ["log_path"]),
+              outputPath: pickString(metadataRecord, ["output_path"]),
+              metadata: metadataRecord,
+              timestamp: timestamp ?? undefined,
+            });
+          }
+        }
+      } catch {
+        // best effort
+      }
+      mapped.sort((a, b) => {
+        const aTs = Date.parse(String(a.timestamp ?? "")) || 0;
+        const bTs = Date.parse(String(b.timestamp ?? "")) || 0;
+        return bTs - aTs;
+      });
+      return mapped;
     },
     resolveDecisionAction: async (decisionId, action, note, optionId) => {
       try {

@@ -332,6 +332,16 @@ test("verifier accepts required skills provided as a prompt-style label line", (
   assert.match(result.stdout, /\[verify\] ok/i);
 });
 
+test("verifier ignores connector words in prompt-style required skills text", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "Required skills: $orgx-engineering-agent and optional guidance"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
 test("verifier accepts required skills provided as a markdown bullet list", () => {
   const result = runVerifier(
     makeValidOutput(),
@@ -340,6 +350,43 @@ test("verifier accepts required skills provided as a markdown bullet list", () =
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier accepts required skills provided with semicolon and pipe delimiters", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "orgx-engineering-agent; $orgx-engineering-agent | orgx-engineering-agent"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier accepts required skills irrespective of case", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "ORGX-ENGINEERING-AGENT"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier rejects duplicate skill evidence entries with case-only differences", () => {
+  const output = makeValidOutput();
+  output.skill_evidence.push({
+    ...output.skill_evidence[0],
+    skill: "OrgX-Engineering-Agent",
+    skill_file: "__SKILL_FILE__",
+    skill_sha256: "__SKILL_SHA__",
+  });
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(
+    combined,
+    /skill_evidence contains duplicate entries for skill "orgx-engineering-agent"/i
+  );
 });
 
 test("verifier rejects completed status when any decision is blocking", () => {
@@ -474,10 +521,13 @@ test("verifier rejects error status without a blocking decision", () => {
   const result = runVerifier(output, makeSchema());
   assert.notEqual(result.status, 0);
   const combined = `${result.stderr}\n${result.stdout}`;
-  assert.match(combined, /error status is not allowed for autonomous slice outputs/i);
+  assert.match(
+    combined,
+    /error status requires at least one decisions_needed entry with blocking=true/i
+  );
 });
 
-test("verifier rejects error status when any decision is blocking", () => {
+test("verifier accepts error status when at least one decision is blocking", () => {
   const output = makeValidOutput();
   output.status = "error";
   output.artifacts = null;
@@ -492,12 +542,8 @@ test("verifier rejects error status when any decision is blocking", () => {
     },
   ];
   const result = runVerifier(output, makeSchema());
-  assert.notEqual(result.status, 0);
-  const combined = `${result.stderr}\n${result.stdout}`;
-  assert.match(
-    combined,
-    /error status is not allowed for autonomous slice outputs/i
-  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
 });
 
 test("verifier rejects blank optional task update reason values", () => {

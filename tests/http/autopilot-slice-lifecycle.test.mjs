@@ -646,6 +646,10 @@ async function readLiveTriage(handler, input = {}) {
   return JSON.parse(res.body);
 }
 
+async function readLiveReviewQueue(handler, input = {}) {
+  return readLiveTriage(handler, input);
+}
+
 function findSnapshotActivityByEvent(snapshot, eventName) {
   if (!snapshot || !Array.isArray(snapshot.activity)) return null;
   for (const entry of snapshot.activity) {
@@ -1739,23 +1743,23 @@ test("autopilot slice lifecycle: needs_decision translates to decision-first sna
   assert.equal(stopped.metadata?.decision_required, true);
 });
 
-test("autopilot slice lifecycle: needs_decision + non-blocking decisions stays completed", async () => {
+test("autopilot slice lifecycle: needs_decision + non-blocking decisions coerces to blocked", async () => {
   const result = await runPlayTickStatus({ scenario: "needs_decision_optional" });
   assert.equal(result.status.ok, true);
   assert.equal(result.status.run?.status, "stopped");
-  assert.equal(result.status.run?.stopReason, "completed");
+  assert.equal(result.status.run?.stopReason, "blocked");
   const decisionOps = listDecisionCreateOps(result.calls);
   assert.ok(decisionOps.length > 0, "expected decision.create");
   assert.ok(
-    decisionOps.every((op) => op.blocking === false),
-    "expected needs_decision_optional decisions to remain non-blocking"
+    decisionOps.some((op) => op.blocking === true),
+    "expected needs_decision_optional to synthesize a blocking decision"
   );
   const sliceResult = latestSliceResultActivity(result.calls);
   assert.ok(sliceResult, "expected autopilot_slice_result activity");
-  assert.equal(sliceResult.metadata?.parsed_status, "completed");
-  assert.equal(Number(sliceResult.metadata?.blocking_decisions ?? 0), 0);
-  assert.equal(sliceResult.metadata?.decision_required, false);
-  assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+  assert.equal(sliceResult.metadata?.parsed_status, "needs_decision");
+  assert.equal(Number(sliceResult.metadata?.blocking_decisions ?? 0), 1);
+  assert.equal(sliceResult.metadata?.decision_required, true);
+  assert.equal(sliceResult.metadata?.activity_bucket, "decision");
 });
 
 test("autopilot slice lifecycle: completed + non-blocking decision stays completed", async () => {

@@ -51,6 +51,12 @@ test("readOpenClawGatewayPort uses configured port and safe default", async () =
 
   assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: 19123 } }), 19123);
   assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: "19124" } }), 19124);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: 65535 } }), 65535);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: 0 } }), 18789);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: -2 } }), 18789);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: 70000 } }), 18789);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: "0" } }), 18789);
+  assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: "70000" } }), 18789);
   assert.equal(mod.readOpenClawGatewayPort({ gateway: { port: "bad" } }), 18789);
   assert.equal(mod.readOpenClawGatewayPort(null), 18789);
 });

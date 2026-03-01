@@ -108,6 +108,23 @@ test("shouldHideActivityItem hides mock activity only when env toggle is enabled
   assert.equal(mod.shouldHideActivityItem(baseActivity()), false);
 });
 
+test("shouldHideActivityItem respects mock markers when hide toggle is enabled", async () => {
+  process.env.ORGX_HIDE_MOCK_ACTIVITY = "true";
+  try {
+    const mod = await importFreshEventSanitization();
+    assert.equal(
+      mod.shouldHideActivityItem(baseActivity({ metadata: { source: "synthetic-runner" } })),
+      true
+    );
+    assert.equal(
+      mod.shouldHideActivityItem(baseActivity({ metadata: { source: "latest-prod" } })),
+      false
+    );
+  } finally {
+    delete process.env.ORGX_HIDE_MOCK_ACTIVITY;
+  }
+});
+
 test("mock marker detection avoids substring false positives", async () => {
   process.env.ORGX_SKIP_MOCK_OUTBOX_REPLAY = "true";
   try {

@@ -319,6 +319,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       if (fromValue) return fromValue;
       const fromText = parseEmbeddedText(candidateRecord.text);
       if (fromText) return fromText;
+      const fromContent = parseEmbeddedText(candidateRecord.content);
+      if (fromContent) return fromContent;
       const fromOutputText = parseEmbeddedText(candidateRecord.output_text);
       if (fromOutputText) return fromOutputText;
       return null;
@@ -350,10 +352,8 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       const parsedResult = parseSliceJsonText(record.result);
       if (parsedResult) return parsedResult;
     }
-    if (typeof record.output_text === "string") {
-      const parsedOutputText = parseSliceJsonText(record.output_text);
-      if (parsedOutputText) return parsedOutputText;
-    }
+    const parsedTopLevelOutputText = parseEmbeddedText(record.output_text);
+    if (parsedTopLevelOutputText) return parsedTopLevelOutputText;
     // Responses-style envelopes can return text in output/message/content arrays.
     const output = record.output;
     if (Array.isArray(output)) {
