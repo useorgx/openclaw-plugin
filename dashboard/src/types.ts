@@ -675,6 +675,8 @@ export interface Initiative {
   avatars?: string[];
   description?: string;
   workstreams?: { id: string; name: string; status: string }[];
+  sequenceIndex?: number | undefined;
+  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeWorkstream {
@@ -685,6 +687,8 @@ export interface InitiativeWorkstream {
   progress: number | null;
   initiativeId: string;
   createdAt: string | null;
+  sequenceIndex?: number | undefined;
+  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeMilestone {
@@ -696,6 +700,8 @@ export interface InitiativeMilestone {
   initiativeId: string;
   workstreamId: string | null;
   createdAt: string | null;
+  sequenceIndex?: number | undefined;
+  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeTask {
@@ -709,6 +715,8 @@ export interface InitiativeTask {
   milestoneId: string | null;
   workstreamId: string | null;
   createdAt: string | null;
+  sequenceIndex?: number | undefined;
+  hierarchyLabel?: string | undefined;
 }
 
 export interface InitiativeDetails {
@@ -748,6 +756,8 @@ export interface MissionControlNode {
   expectedBudgetUsd: number;
   assignedAgents: AssignedAgent[];
   updatedAt: string | null;
+  sequenceIndex?: number | undefined;
+  hierarchyLabel?: string | undefined;
 }
 
 export interface MissionControlEdge {

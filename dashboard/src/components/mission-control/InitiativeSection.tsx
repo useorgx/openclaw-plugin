@@ -132,6 +132,14 @@ function buildLegacyGraphNodes(
     expectedBudgetUsd: 300,
     assignedAgents: [],
     updatedAt: workstream.createdAt,
+    sequenceIndex:
+      typeof (workstream as { sequenceIndex?: unknown }).sequenceIndex === 'number'
+        ? ((workstream as { sequenceIndex: number }).sequenceIndex ?? undefined)
+        : undefined,
+    hierarchyLabel:
+      typeof (workstream as { hierarchyLabel?: unknown }).hierarchyLabel === 'string'
+        ? ((workstream as { hierarchyLabel: string }).hierarchyLabel ?? undefined)
+        : undefined,
   }));
 
   const workstreamIdSet = new Set(workstreamNodes.map((node) => node.id));
@@ -159,6 +167,8 @@ function buildLegacyGraphNodes(
     expectedBudgetUsd: 120,
     assignedAgents: [],
     updatedAt: milestone.createdAt,
+    sequenceIndex: milestone.sequenceIndex,
+    hierarchyLabel: milestone.hierarchyLabel,
   }));
 
   const milestoneIdSet = new Set(milestoneNodes.map((node) => node.id));
@@ -184,6 +194,8 @@ function buildLegacyGraphNodes(
       expectedBudgetUsd: 40,
       assignedAgents: [],
       updatedAt: task.createdAt,
+      sequenceIndex: task.sequenceIndex,
+      hierarchyLabel: task.hierarchyLabel,
     };
   });
 
@@ -256,6 +268,8 @@ function toWorkstreamEntity(node: MissionControlNode, initiative: Initiative): I
     progress: null,
     initiativeId: initiative.id,
     createdAt: node.updatedAt,
+    sequenceIndex: node.sequenceIndex,
+    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
@@ -269,6 +283,8 @@ function toMilestoneEntity(node: MissionControlNode, initiative: Initiative): In
     initiativeId: initiative.id,
     workstreamId: node.workstreamId,
     createdAt: node.updatedAt,
+    sequenceIndex: node.sequenceIndex,
+    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
@@ -284,6 +300,8 @@ function toTaskEntity(node: MissionControlNode, initiative: Initiative): Initiat
     milestoneId: node.milestoneId,
     workstreamId: node.workstreamId,
     createdAt: node.updatedAt,
+    sequenceIndex: node.sequenceIndex,
+    hierarchyLabel: node.hierarchyLabel,
   };
 }
 
