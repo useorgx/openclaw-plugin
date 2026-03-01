@@ -61,11 +61,6 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const formatNoticeError = (raw: string | undefined, fallback: string) =>
     raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
-  const dueDateObj = milestone.dueDate ? new Date(milestone.dueDate) : null;
-  const daysRemaining = dueDateObj ? Math.ceil((dueDateObj.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-  const riskColor = daysRemaining === null ? 'text-primary' : daysRemaining < 0 ? 'text-red-400' : daysRemaining <= 3 ? 'text-amber-400' : 'text-teal-400';
-  const riskBg = daysRemaining === null ? 'bg-white/[0.03]' : daysRemaining < 0 ? 'bg-red-500/10 border-red-500/20' : daysRemaining <= 3 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-teal-500/10 border-teal-500/20';
-
   const handleSaveEdits = () => {
     const title = draftTitle.trim();
     if (!title) {
@@ -188,70 +183,67 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         {notice && <div className="text-caption text-secondary">{notice}</div>}
       </div>
 
-      {/* Details */}
-      <div className="flex flex-wrap gap-3">
-        {milestone.dueDate && (
-          <div className={`rounded-xl border px-3 py-2.5 min-w-[140px] ${riskBg}`}>
-            <div className="text-micro uppercase tracking-[0.08em] text-muted">Deadline</div>
-            <div className={`text-heading font-medium mt-0.5 ${riskColor}`}>
-              {daysRemaining !== null ? (daysRemaining < 0 ? `${Math.abs(daysRemaining)}d overdue` : daysRemaining === 0 ? 'Today' : `${daysRemaining}d left`) : new Date(milestone.dueDate).toLocaleDateString()}
-            </div>
-            {daysRemaining !== null && (
-              <div className="text-micro text-muted mt-0.5">
-                {dueDateObj?.toLocaleDateString()}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 min-w-[140px]">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Tasks</div>
-          <div className="text-heading font-medium text-primary mt-0.5">
-            {doneTaskCount} / {associatedTasks.length}
-          </div>
-          <div className="text-micro text-muted mt-0.5">
-            Completed
-          </div>
+      {/* Inline metadata + progress */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2 text-caption text-secondary">
+          <span>{associatedTasks.length} {associatedTasks.length === 1 ? 'task' : 'tasks'}</span>
+          <span className="text-faint">·</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{doneTaskCount}/{associatedTasks.length} done</span>
+          {milestone.dueDate && (() => {
+            const due = Date.parse(milestone.dueDate!);
+            if (!Number.isFinite(due)) return null;
+            const daysUntil = Math.ceil((due - Date.now()) / 86_400_000);
+            const tone = daysUntil < 0 ? colors.red : daysUntil <= 3 ? colors.red : daysUntil <= 7 ? colors.amber : 'rgba(255,255,255,0.5)';
+            const label = daysUntil < 0 ? `${Math.abs(daysUntil)}d overdue` : `Due in ${daysUntil}d`;
+            return (
+              <>
+                <span className="text-faint">·</span>
+                <span style={{ color: tone }}>{label}</span>
+              </>
+            );
+          })()}
         </div>
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 min-w-[140px] flex-1">
-          <div className="text-micro uppercase tracking-[0.08em] text-muted">Progress</div>
-          <div className="text-heading font-medium text-primary mt-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {progressValue}%
-          </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
+        {associatedTasks.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
               <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progressValue}%`, backgroundColor: colors.teal }}
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(progressValue, 2)}%`, backgroundColor: colors.teal }}
               />
             </div>
+            <span className="text-micro text-secondary tabular-nums">{progressValue}%</span>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Associated tasks */}
+      {/* Associated tasks — flat rows with status-tinted left border */}
       {associatedTasks.length > 0 && (
-        <div className="space-y-2">
-          <span className="text-caption uppercase tracking-[0.08em] text-muted">
-            Tasks
-          </span>
-          {associatedTasks.map((task) => (
-            <button
-              key={task.id}
-              onClick={() => openModal({ type: 'task', entity: task, initiative })}
-              className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
-            >
-              <div className="flex items-center justify-between gap-2">
+        <div className="space-y-1">
+          {associatedTasks.map((task) => {
+            const ts = task.status.toLowerCase();
+            const borderColor = ['active', 'in_progress'].includes(ts) ? colors.lime
+              : ts === 'blocked' ? colors.red
+              : ['done', 'completed'].includes(ts) ? colors.teal
+              : 'rgba(255,255,255,0.08)';
+            return (
+              <button
+                key={task.id}
+                onClick={() => openModal({ type: 'task', entity: task, initiative })}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
+                style={{ borderLeftColor: borderColor }}
+              >
                 <span className="text-body text-bright">{task.title}</span>
                 <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getTaskStatusClass(task.status)}`}>
                   {formatEntityStatus(task.status)}
                 </span>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* Notes */}
+      <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
       {/* Artifacts */}
       <EntityArtifactsPanel
         entityType="milestone"
@@ -260,16 +252,8 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         embedMode={embedMode}
       />
 
-      <div className="mt-4 space-y-3">
-        <div>
-          <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-            Notes
-          </p>
-          <p className="mt-1 text-caption text-muted">
-            Commentary thread for humans and agents on this milestone.
-          </p>
-        </div>
-        
+      {/* Notes — inline, always visible */}
+      <div className="space-y-2">
         <EntityCommentsPanel
           entityType="milestone"
           entityId={milestone.id}

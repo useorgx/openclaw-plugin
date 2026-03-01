@@ -739,6 +739,26 @@ export function SliceDetailModal({
             Accept
           </button>
         )}
+
+          {hasTerminal && (
+            <button
+              type="button"
+              onClick={() => void handleOpenTerminal(terminalTarget!)}
+              disabled={isOpeningTerminal}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-white/30 transition-colors hover:bg-white/[0.04] hover:text-white/50 disabled:opacity-40"
+              title="Open in terminal"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1" />
+
+        {/* ── Right: primary CTAs ── */}
         {canStart && (
           <button
             type="button"
@@ -747,8 +767,8 @@ export function SliceDetailModal({
               onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
               onClose();
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
-            title="Start (\u2318 Enter)"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+            title="Start (⌘ Enter)"
           >
             <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
               <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
@@ -760,7 +780,6 @@ export function SliceDetailModal({
                 : 'Start'}
           </button>
         )}
-      </div>
     </div>
   );
 
@@ -841,25 +860,25 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="space-y-1"
+                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
                 >
                   <p className="section-kicker">What to do now</p>
                   <p className="mt-1 text-body text-primary">
                     {canonicalProjection.sentence}
                   </p>
                   {sr.artifactCount > 0 ? (
-                    <p className="text-caption text-secondary">
+                    <p className="mt-1 text-caption text-secondary">
                       {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
                     </p>
                   ) : null}
                   {sr.blockingDecisionCount > 0 ? (
-                    <p className="text-caption text-secondary">
+                    <p className="mt-1 text-caption text-secondary">
                       {sr.blockingDecisionCount} blocking decision
                       {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
                     </p>
                   ) : null}
                   {nextActionLabel ? (
-                    <p className="text-caption font-medium text-[#7AEDE5]">Recommended action: {nextActionLabel}</p>
+                    <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
                   ) : null}
                 </motion.div>
 
@@ -899,7 +918,7 @@ export function SliceDetailModal({
               </>
             ) : null}
 
-            {/* ───── 2. Context & Details ───── */}
+            {/* ───── 2. Context & Details card ───── */}
             {(d.blockReason || d.autoContinue || (d.agentSource && d.agentSource !== 'assigned')) && (
               <motion.div
                 variants={sectionVariants}
@@ -910,7 +929,8 @@ export function SliceDetailModal({
                 className="space-y-2"
               >
                 {d.blockReason && (
-                  <div className="border-l-2 border-red-500/50 pl-3 py-1 text-body text-red-100/90">
+                  <div className="rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1.5 text-caption text-red-100/85">
+                    <p className="mb-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-red-200/70">Why blocked</p>
                     {d.blockReason}
                   </div>
                 )}
@@ -966,33 +986,30 @@ export function SliceDetailModal({
                     nodes={scopeNodes}
                     activeId={d.workstreamId}
                   />
-                  {/* Priority / due — only shown for non-review items */}
-                  {!isNeedsReview && (d.nextTaskPriority !== null || d.nextTaskDueAt) && (
-                    <div className="flex items-center gap-2 mt-1">
-                      {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
-                        <span
-                          className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
-                          style={{
-                            color: priorityColor(d.nextTaskPriority),
-                            borderColor: `${priorityColor(d.nextTaskPriority)}33`,
-                            backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
-                          }}
-                        >
-                          {priorityLabel(d.nextTaskPriority)}
-                        </span>
-                      )}
-                      {d.nextTaskDueAt && (
-                        <span className="text-micro text-secondary">
-                          Due {formatRelativeTime(d.nextTaskDueAt)}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                      <span
+                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        style={{
+                          color: priorityColor(d.nextTaskPriority),
+                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                        }}
+                      >
+                        {priorityLabel(d.nextTaskPriority)}
+                      </span>
+                    )}
+                    {d.nextTaskDueAt && (
+                      <span className="text-micro text-secondary">
+                        Due {formatRelativeTime(d.nextTaskDueAt)}
+                      </span>
+                    )}
+                  </div>
                 </motion.div>
               </>
             )}
-            {/* Fallback when no scope tree is available */}
-            {scopeNodes.length === 0 && (d.sliceTaskCount !== null || d.sliceScope) && (
+            {/* Fallback: inline metadata when no scope tree */}
+            {scopeNodes.length === 0 && (d.nextTaskTitle || d.sliceTaskCount !== null || d.sliceScope) && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -1004,19 +1021,46 @@ export function SliceDetailModal({
                   className="space-y-2"
                 >
                   <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
-                  <p className="text-body text-secondary">
-                    {workSnapshotFallback({
-                      queueState: d.queueState,
-                      blockReason: d.blockReason,
-                      sliceScope: d.sliceScope,
-                      sliceTaskCount: d.sliceTaskCount,
-                    })}
-                  </p>
+                  {d.nextTaskTitle && (
+                    <div className="flex items-start gap-2">
+                      <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />
+                      <p className="text-body font-semibold leading-snug text-white">{d.nextTaskTitle}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    {d.sliceScope ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro uppercase tracking-[0.08em] text-secondary">
+                        {d.sliceScope} slice
+                      </span>
+                    ) : null}
+                    {typeof d.sliceTaskCount === 'number' ? (
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro text-secondary">
+                        {d.sliceTaskCount} {d.sliceTaskCount === 1 ? 'task' : 'tasks'} in scope
+                      </span>
+                    ) : null}
+                    {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
+                      <span
+                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        style={{
+                          color: priorityColor(d.nextTaskPriority),
+                          borderColor: `${priorityColor(d.nextTaskPriority)}33`,
+                          backgroundColor: `${priorityColor(d.nextTaskPriority)}14`,
+                        }}
+                      >
+                        {priorityLabel(d.nextTaskPriority)}
+                      </span>
+                    )}
+                    {d.nextTaskDueAt && (
+                      <span className="text-micro text-secondary">
+                        Due {formatRelativeTime(d.nextTaskDueAt)}
+                      </span>
+                    )}
+                  </div>
                 </motion.div>
               </>
             )}
 
-            {/* ───── 4. Execution Rail ───── */}
+            {/* ───── 4. Timeline section ───── */}
             {sr && (sr.startedAt || sr.updatedAt || sr.completedAt || sr.failedAt) && (
               <>
                 <SectionDivider />
@@ -1026,12 +1070,17 @@ export function SliceDetailModal({
                   animate="visible"
                   exit="exit"
                   custom={sectionIndex++}
-                  className="space-y-4 pb-2"
+                  className="space-y-3"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-caption font-medium text-primary">Execution</span>
+                  <div className="flex items-center gap-2">
+                    <p className="section-kicker">Timeline</p>
+                    {sr.scope && sr.scope !== 'task' && (
+                      <Pill tone={sr.scope === 'milestone' ? 'cyan' : 'lime'}>
+                        {sr.scope}
+                      </Pill>
+                    )}
                     {sr.confidence && (
-                      <div className="flex items-center gap-1" title={`Confidence: ${sr.confidence}`}>
+                      <div className="flex items-center gap-1 ml-auto" title={`Confidence: ${sr.confidence}`}>
                         {Array.from({ length: 5 }, (_, i) => {
                           const { filled, color } = confidenceDots(sr.confidence);
                           return (
@@ -1048,48 +1097,30 @@ export function SliceDetailModal({
                     )}
                   </div>
 
-                  <div className="relative pt-1 pb-5">
-                    {/* The Rail */}
-                    <div className="absolute top-2 left-0 w-full h-[2px] bg-white/[0.06] rounded-full" />
-                    
-                    {/* The Fill */}
-                    <motion.div 
-                      className="absolute top-2 left-0 h-[2px] bg-gradient-to-r from-teal-500 to-lime-400 rounded-full"
-                      initial={{ width: '0%' }}
-                      animate={{ width: sr.completedAt || sr.failedAt ? '100%' : '50%' }}
-                      transition={{ duration: 0.8, ease: "easeOut" }}
-                    />
-
-                    {/* Nodes */}
-                    <div className="relative flex justify-between px-1">
-                      {/* Started */}
-                      <div className="flex flex-col items-center">
-                        <div className={`w-3.5 h-3.5 rounded-full border-2 ${sr.startedAt ? 'bg-teal-400 border-teal-900' : 'bg-[#1a1a1a] border-white/20'}`} />
-                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted">
-                          {sr.startedAt ? 'Started' : 'Pending'}
-                        </span>
+                  {/* Timestamp grid — deduplicate Updated/Completed if identical */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {sr.startedAt && (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Started</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.startedAt)}</p>
                       </div>
-
-                      {/* In Progress / Active */}
-                      <div className="flex flex-col items-center">
-                        <motion.div 
-                          className={`w-3.5 h-3.5 rounded-full border-2 ${sr.completedAt || sr.failedAt ? 'bg-lime-400 border-lime-900' : 'bg-lime-400 border-lime-900 shadow-[0_0_8px_rgba(191,255,0,0.6)]'}`}
-                          animate={!(sr.completedAt || sr.failedAt) ? { scale: [1, 1.3, 1] } : { scale: 1 }}
-                          transition={!(sr.completedAt || sr.failedAt) ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : {}}
-                        />
-                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-primary font-medium">
-                          {d.nextTaskTitle ? 'Running task' : 'Running'}
-                        </span>
+                    )}
+                    {sr.completedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Completed</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.completedAt)}</p>
                       </div>
-
-                      {/* Completed / Failed */}
-                      <div className="flex flex-col items-center">
-                        <div className={`w-3.5 h-3.5 rounded-full border-2 ${sr.completedAt ? 'bg-teal-400 border-teal-900' : sr.failedAt ? 'bg-red-400 border-red-900' : 'bg-[#1a1a1a] border-white/20'}`} />
-                        <span className="absolute top-5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted">
-                          {sr.completedAt ? 'Completed' : sr.failedAt ? 'Failed' : 'Finish'}
-                        </span>
+                    ) : sr.failedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Failed</p>
+                        <p className="mt-0.5 text-caption text-red-100">{formatRelativeTime(sr.failedAt)}</p>
                       </div>
-                    </div>
+                    ) : sr.updatedAt && sr.updatedAt !== sr.startedAt ? (
+                      <div>
+                        <p className="text-micro uppercase tracking-[0.08em] text-muted">Updated</p>
+                        <p className="mt-0.5 text-caption text-primary">{formatRelativeTime(sr.updatedAt)}</p>
+                      </div>
+                    ) : null}
                   </div>
                 </motion.div>
               </>
@@ -1109,14 +1140,14 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="text-caption font-medium text-primary">
-                    Artifacts <span className="text-muted tabular-nums ml-1">{sr.artifactCount}</span>
+                  <p className="section-kicker">
+                    Artifacts <span className="text-muted tabular-nums">{sr.artifactCount}</span>
                   </p>
                   <div className="space-y-1">
                     {sr.artifacts.map((artifact, idx) => (
                       <div
                         key={artifact.id ?? idx}
-                        className="flex items-center gap-2 rounded-lg py-1.5 transition-colors hover:bg-white/[0.04] -mx-2 px-2"
+                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.04]"
                       >
                         <EntityIcon
                           type={artifact.type === 'pull_request' ? 'session' : 'workstream'}
@@ -1161,8 +1192,8 @@ export function SliceDetailModal({
                   className="space-y-2"
                 >
                   <div className="flex items-center gap-2">
-                    <p className="text-caption font-medium text-primary">
-                      Decisions <span className="text-muted tabular-nums ml-1">{sr.decisionCount}</span>
+                    <p className="section-kicker">
+                      Decisions <span className="text-muted tabular-nums">{sr.decisionCount}</span>
                     </p>
                     {sr.blockingDecisionCount > 0 && (
                       <span
@@ -1182,11 +1213,11 @@ export function SliceDetailModal({
                       {sr.decisionOptions.slice(0, 4).map((opt) => (
                         <div
                           key={opt.id}
-                          className="py-1"
+                          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"
                         >
-                          <p className="text-caption font-medium text-primary">{opt.label}</p>
+                          <p className="text-caption font-semibold text-primary">{opt.label}</p>
                           {opt.description && (
-                            <p className="mt-0.5 text-caption leading-snug text-secondary">
+                            <p className="mt-0.5 text-micro leading-snug text-secondary">
                               {opt.description}
                             </p>
                           )}

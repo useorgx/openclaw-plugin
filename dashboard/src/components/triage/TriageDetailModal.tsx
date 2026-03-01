@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { LiveDecision, LiveTriageItem, TriageAction } from '@/types';
 import type { TriageQueueActions } from '@/hooks/useTriageQueue';
 
@@ -167,26 +166,25 @@ function ActionButton({
   onPerform: (action: string, note?: string) => void;
   isActing: boolean;
 }) {
+  const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState('');
-  const [isHovered, setIsHovered] = useState(false);
-  const [rippling, setRippling] = useState(false);
 
   const isPrimary =
     triageAction.action === 'approve' || triageAction.action === 'autofix';
   const isDanger = triageAction.action === 'dismiss';
 
   const baseClass = isPrimary
-    ? 'bg-[#0AD4C4]/20 text-[#7AEDE5] hover:bg-[#0AD4C4]/30 border border-[#0AD4C4]/30'
+    ? 'bg-[#0AD4C4]/20 text-[#7AEDE5] hover:bg-[#0AD4C4]/30'
     : isDanger
-      ? 'bg-[#FF6B6B]/14 text-[#FFA8A8] hover:bg-[#FF6B6B]/20 border border-[#FF6B6B]/30'
-      : 'bg-white/[0.08] text-secondary hover:bg-white/[0.12] border border-white/[0.1]';
+      ? 'bg-[#FF6B6B]/14 text-[#FFA8A8] hover:bg-[#FF6B6B]/20'
+      : 'bg-white/[0.08] text-secondary hover:bg-white/[0.12]';
 
   if (!triageAction.available) {
     return (
       <button
         type="button"
         disabled
-        className="rounded-lg px-3 py-2 text-caption font-medium opacity-30 bg-white/[0.06] text-muted cursor-not-allowed w-full text-left"
+        className="rounded-lg px-3 py-1.5 text-caption font-medium opacity-30 bg-white/[0.06] text-muted cursor-not-allowed"
         title="Not available"
       >
         {triageAction.label}
@@ -194,67 +192,54 @@ function ActionButton({
     );
   }
 
-  const handlePress = () => {
-    if (isPrimary || isDanger) {
-      setRippling(true);
-      setTimeout(() => onPerform(triageAction.action, note), 300);
-    } else {
-      onPerform(triageAction.action, note);
-    }
-  };
-
-  return (
-    <div 
-      className="flex flex-col gap-1.5 w-full relative"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {triageAction.requiresNote && (
+  if (triageAction.requiresNote && showNote) {
+    return (
+      <div className="flex flex-col gap-1.5 w-full">
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Add a note..."
-          className="w-full rounded-lg border border-subtle bg-white/[0.04] px-2.5 py-1.5 text-caption text-primary placeholder:text-muted resize-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/50 transition-all outline-none"
+          className="w-full rounded-lg border border-subtle bg-white/[0.04] px-2.5 py-1.5 text-caption text-primary placeholder:text-muted resize-none"
           rows={2}
         />
-      )}
-      <button
-        type="button"
-        onClick={handlePress}
-        disabled={isActing || rippling}
-        className={`relative overflow-hidden rounded-lg px-3 py-2 text-caption font-medium transition-all disabled:opacity-40 w-full text-left ${baseClass}`}
-      >
-        <span className="relative z-10">{triageAction.label}</span>
-        
-        {/* Ripple effect */}
-        {rippling && (
-          <motion.div
-            initial={{ scale: 0, opacity: 0.5 }}
-            animate={{ scale: 4, opacity: 0 }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className={`absolute top-1/2 left-1/2 w-8 h-8 -mt-4 -ml-4 rounded-full ${isPrimary ? 'bg-[#0AD4C4]' : 'bg-[#FF6B6B]'}`}
-          />
-        )}
-      </button>
-
-      {/* Hover Consequence Preview */}
-      <AnimatePresence>
-        {isHovered && !isActing && !rippling && triageAction.consequences && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute left-[calc(100%+12px)] top-1/2 -translate-y-1/2 w-48 pointer-events-none z-10"
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => onPerform(triageAction.action, note)}
+            disabled={isActing}
+            className={`rounded-lg px-3 py-1 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
           >
-            <div className="bg-[#1a1a1a] border border-white/[0.08] rounded-md px-2.5 py-2 shadow-xl">
-              <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Consequence</p>
-              <p className="text-micro text-secondary leading-snug">{triageAction.consequences}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            Confirm
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNote(false)}
+            className="text-caption text-muted hover:text-secondary"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (triageAction.requiresNote) {
+          setShowNote(true);
+        } else {
+          onPerform(triageAction.action);
+        }
+      }}
+      disabled={isActing}
+      className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
+      title={triageAction.consequences}
+    >
+      <span>{triageAction.label}</span>
+      <span className="ml-1 text-micro opacity-60">— {triageAction.consequences}</span>
+    </button>
   );
 }
 
@@ -464,52 +449,47 @@ export function TriageDetailModal({
           </button>
         </div>
 
-        {/* 1. Lineage & Agent */}
-        <div className="flex items-start gap-3 mb-4">
-          <AgentAvatar name={item.agentId ? 'Agent' : 'OrgX'} hint={item.agentId} size="md" />
-          <div className="flex flex-col min-w-0 flex-1">
-            {(item.initiativeTitle || item.workstreamTitle) && (
-              <div className="flex items-center gap-1 text-micro text-muted uppercase tracking-wider mb-1">
-                {item.initiativeTitle && <span className="truncate">{item.initiativeTitle}</span>}
-                {item.initiativeTitle && item.workstreamTitle && <span>›</span>}
-                {item.workstreamTitle && <span className="truncate">{item.workstreamTitle}</span>}
-                {item.workstreamTitle && item.taskTitle && <span>›</span>}
-                {item.taskTitle && <span className="truncate">{item.taskTitle}</span>}
-              </div>
-            )}
-            <h3 className="text-[20px] font-semibold text-white leading-snug">
+        {/* 1. Hero — lineage first, then title + severity */}
+        {(item.initiativeTitle || item.workstreamTitle) && (
+          <p className="text-micro text-muted mb-1">
+            {[item.initiativeTitle, item.workstreamTitle, item.taskTitle]
+              .filter(Boolean)
+              .join(' › ')}
+          </p>
+        )}
+        <div className="mb-4 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-heading font-semibold text-primary">
               {item.title}
             </h3>
-            <div className="mt-1.5 flex items-center gap-2">
-              <span
-                className="rounded-full px-2 py-[1px] text-[10px] font-semibold uppercase tracking-wider"
-                style={{
-                  backgroundColor: `${severityColor(item.severity)}20`,
-                  color: severityColor(item.severity),
-                }}
-              >
-                {kindLabel(item.kind)}
-              </span>
-              {item.occurrenceCount > 1 && (
-                <span className="text-micro text-muted">
-                  ×{item.occurrenceCount} occurrences
-                </span>
-              )}
-            </div>
+            <span
+              className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              style={{
+                backgroundColor: `${severityColor(item.severity)}20`,
+                color: severityColor(item.severity),
+              }}
+            >
+              {kindLabel(item.kind)}
+            </span>
           </div>
-        </div>
-
-        {/* Agent Chat Bubble */}
-        <motion.div 
-          initial={{ opacity: 0, x: -10, scale: 0.95 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-          className="relative bg-white/[0.04] border border-white/[0.08] rounded-2xl rounded-tl-sm p-4 mb-6 ml-2"
-        >
+          <div className="flex items-center gap-2 text-caption text-secondary">
+            {item.agentId && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro font-medium text-secondary">
+                {item.agentId}
+              </span>
+            )}
+            {item.occurrenceCount > 1 && (
+              <span className="text-micro text-muted">
+                x{item.occurrenceCount} occurrences
+              </span>
+            )}
+          </div>
           <p className="text-body text-secondary leading-relaxed">
             {item.summary}
           </p>
-        </motion.div>
+        </div>
+
+        <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
@@ -523,7 +503,6 @@ export function TriageDetailModal({
 
         {/* 4. Actions */}
         <div className="mb-4">
-          <SectionHeading>Actions</SectionHeading>
           <div className="space-y-1.5">
             {item.actionContract.map((action) => (
               <ActionButton

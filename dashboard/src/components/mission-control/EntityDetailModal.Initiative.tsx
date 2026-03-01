@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative } from '@/types';
@@ -220,24 +219,22 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     );
   };
 
-  const initCompletion = details.tasks.length > 0 ? completionPercent(doneTasks, details.tasks.length) : 0;
-
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pt-5 pb-8">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
         {/* Header */}
-        <div className="space-y-3">
+        <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <ProgressArc percent={initCompletion} />
-          <h2 className="text-title font-semibold text-white truncate">
+          <EntityIcon type="initiative" size={16} />
+          <h2 className="text-title font-semibold text-white">
             {initiative.name}
           </h2>
           <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
+            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
           >
             {formatEntityStatus(currentStatus)}
           </span>
-          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68 flex-shrink-0">
+          <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
             {formatPriorityLabel(initiative.priority)}
           </span>
         </div>
@@ -314,42 +311,46 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         )}
         </div>
 
-      {/* Metrics */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 py-2 border-b border-white/[0.06]">
-        <div className="text-micro text-secondary tracking-wide">
-          <span className="text-white font-semibold mr-1.5">{details.workstreams.length}</span>
-          WORKSTREAMS
-        </div>
-        <div className="text-micro text-secondary tracking-wide">
-          <span className="text-white font-semibold mr-1.5">{details.milestones.length}</span>
-          MILESTONES
-        </div>
-        {activeTasks > 0 && (
-          <div className="text-micro text-[#BFFF00] tracking-wide">
-            <span className="font-semibold mr-1.5">{activeTasks}</span>
-            ACTIVE TASKS
+      {/* Inline stats + progress */}
+      {(() => {
+        const totalTasks = details.tasks.length || 0;
+        const overallProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+        const narrativeParts: string[] = [];
+        if (details.workstreams.length > 0) narrativeParts.push(`${details.workstreams.length} workstream${details.workstreams.length === 1 ? '' : 's'}`);
+        if (details.milestones.length > 0) narrativeParts.push(`${details.milestones.length} milestone${details.milestones.length === 1 ? '' : 's'}`);
+        if (activeTasks > 0) narrativeParts.push(`${activeTasks} active`);
+        if (blockedTasks > 0) narrativeParts.push(`${blockedTasks} blocked`);
+        return (
+          <div className="space-y-2">
+            <p className="text-caption text-secondary">
+              {narrativeParts.join(' · ')}{totalTasks > 0 ? ` · ${overallProgress}% complete` : ''}
+            </p>
+            {totalTasks > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="h-1 flex-1 rounded-full bg-white/[0.06] overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.max(overallProgress, 2)}%`, background: `linear-gradient(90deg, ${colors.teal}, ${colors.lime})` }}
+                  />
+                </div>
+                <span className="text-micro text-secondary tabular-nums">{overallProgress}%</span>
+              </div>
+            )}
           </div>
-        )}
-        {blockedTasks > 0 && (
-          <div className="text-micro text-[#FF6B6B] tracking-wide">
-            <span className="font-semibold mr-1.5">{blockedTasks}</span>
-            BLOCKED
-          </div>
-        )}
-      </div>
+        );
+      })()}
 
       {isLoading ? (
-        <div className="space-y-2 pt-2">
+        <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={`init-detail-${i}`} className="h-14 w-full rounded-lg" />
           ))}
         </div>
       ) : (
-        <div className="space-y-6 pt-2">
-          {/* Workstreams */}
+        <>
+          {/* Workstreams — flat rows with status-tinted left border */}
           {details.workstreams.length > 0 && (
-            <div className="space-y-2">
-              <SectionLabel title="Workstreams" count={details.workstreams.length} />
+            <div className="space-y-1">
               {details.workstreams.map((ws) => {
                 const wsTasks = details.tasks.filter((t) => t.workstreamId === ws.id);
                 const doneWsTasks = wsTasks.filter((t) => isDoneStatus(t.status)).length;
@@ -361,13 +362,11 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                       : isDoneStatus(ws.status)
                         ? 100
                         : null;
-                
-                const isRunning = ws.status === 'running' || ws.status === 'in_progress';
-                const isDone = isDoneStatus(ws.status);
-                const isBlocked = ws.status === 'blocked';
-                const borderColor = isRunning ? colors.lime : isDone ? colors.teal : isBlocked ? colors.red : 'transparent';
-                const bgColor = isRunning ? 'bg-[#BFFF00]/[0.04] hover:bg-[#BFFF00]/[0.08]' : isDone ? 'bg-[#0AD4C4]/[0.03] hover:bg-[#0AD4C4]/[0.06]' : 'bg-white/[0.02] hover:bg-white/[0.05]';
-
+                const wsStatus = ws.status.toLowerCase();
+                const borderColor = ['active', 'in_progress', 'running'].includes(wsStatus) ? colors.lime
+                  : wsStatus === 'blocked' ? colors.red
+                  : ['done', 'completed'].includes(wsStatus) ? colors.teal
+                  : 'rgba(255,255,255,0.08)';
                 return (
                   <button
                     key={ws.id}
@@ -378,63 +377,55 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                         initiative,
                       })
                     }
-                    className={`w-full text-left rounded-r-xl border-y border-r border-white/[0.04] border-l-2 ${bgColor} p-3.5 transition-colors flex flex-col gap-1.5`}
-                    style={{ borderLeftColor: borderColor !== 'transparent' ? borderColor : 'rgba(255,255,255,0.1)' }}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
+                    style={{ borderLeftColor: borderColor }}
                   >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-body text-bright font-medium truncate">
-                        {ws.name}
-                      </span>
-                      <span
-                        className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(ws.status)}`}
-                      >
-                        {formatEntityStatus(ws.status)}
-                      </span>
+                    <div className="min-w-0">
+                      <span className="text-body text-bright break-words">{ws.name}</span>
+                      <div className="mt-0.5 flex items-center gap-2 text-micro text-muted">
+                        <span>{wsTasks.length} tasks</span>
+                        {completion !== null && <span>· {completion}%</span>}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-micro text-muted uppercase tracking-[0.08em]">
-                      <span>{wsTasks.length} tasks</span>
-                      {completion !== null && <span className="text-primary">{completion}% done</span>}
-                    </div>
+                    <span
+                      className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(ws.status)}`}
+                    >
+                      {formatEntityStatus(ws.status)}
+                    </span>
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Milestones */}
+          {/* Milestones — flat rows */}
           {details.milestones.length > 0 && (
-            <div className="space-y-2">
-              <SectionLabel title="Milestones" count={details.milestones.length} />
+            <div className="space-y-1">
               {details.milestones.map((ms) => (
                 <button
                   key={ms.id}
                   onClick={() =>
                     openModal({ type: 'milestone', entity: ms, initiative })
                   }
-                  className="w-full text-left rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+                  className="flex w-full items-center justify-between gap-2 rounded-lg py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
                 >
-                  <div className="flex items-center gap-2">
-                      <span className="text-body text-bright break-words">
-                        {ms.title}
+                  <div className="min-w-0">
+                    <span className="text-body text-bright break-words">{ms.title}</span>
+                    {ms.dueDate && (
+                      <span className="text-micro text-muted mt-0.5 block">
+                        Due {new Date(ms.dueDate).toLocaleDateString()}
                       </span>
-                    <span className="text-micro text-muted uppercase tracking-[0.08em]">
-                      {formatEntityStatus(ms.status)}
-                    </span>
+                    )}
                   </div>
-                  {ms.dueDate && (
-                    <span className="text-micro text-muted mt-0.5 block">
-                      Due: {new Date(ms.dueDate).toLocaleDateString()}
-                    </span>
-                  )}
+                  <span className="text-micro text-muted uppercase tracking-[0.08em] flex-shrink-0">
+                    {formatEntityStatus(ms.status)}
+                  </span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* Summary */}
-          <div className="text-micro uppercase tracking-[0.08em] text-muted pt-2 border-t border-subtle">
-            {details.tasks.length} total tasks &middot; {doneTasks} done
-          </div>
+          <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
           {/* Artifacts */}
           <EntityArtifactsPanel
@@ -444,17 +435,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             embedMode={embedMode}
           />
 
-          {/* Notes */}
-          <div className="mt-4 space-y-3">
-            <div>
-              <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted">
-                Notes
-              </p>
-              <p className="mt-1 text-caption text-muted">
-                Lightweight context for humans and agents on this initiative.
-              </p>
-            </div>
-            
+          {/* Notes — inline, always visible */}
+          <div className="space-y-2">
             <EntityCommentsPanel
               entityType="initiative"
               entityId={initiative.id}
@@ -462,7 +444,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               embedMode={embedMode}
             />
           </div>
-        </div>
+        </>
       )}
       </div>
 
@@ -653,46 +635,3 @@ function formatPriorityLabel(value: string | null | undefined): string {
   return 'Priority: Medium';
 }
 
-function SectionLabel({ title, count }: { title: string; count: number }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-caption uppercase tracking-[0.08em] text-muted">
-        {title}
-      </span>
-      <span className="text-micro text-muted">{count}</span>
-    </div>
-  );
-}
-
-function ProgressArc({ percent }: { percent: number }) {
-  const radius = 18;
-  const strokeWidth = 3;
-  const circumference = radius * Math.PI;
-  const strokeDashoffset = circumference - (percent / 100) * circumference;
-
-  return (
-    <div className="relative flex items-end justify-center w-[40px] h-[20px] overflow-hidden flex-shrink-0">
-      <svg className="absolute top-0" width="40" height="40" viewBox="0 0 40 40">
-        <path
-          d="M 2 20 a 18 18 0 0 1 36 0"
-          fill="none"
-          stroke="rgba(255,255,255,0.06)"
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-        />
-        <motion.path
-          d="M 2 20 a 18 18 0 0 1 36 0"
-          fill="none"
-          stroke="#BFFF00"
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset }}
-          transition={{ duration: 1, type: 'spring', bounce: 0.2 }}
-        />
-      </svg>
-      <span className="text-[10px] font-semibold text-white leading-none mb-0.5">{Math.round(percent)}%</span>
-    </div>
-  );
-}
