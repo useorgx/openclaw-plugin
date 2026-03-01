@@ -224,6 +224,27 @@ export const motion = {
   easingBounce: { type: 'spring' as const, stiffness: 320, damping: 28, mass: 0.7 },
 } as const;
 
+/** Mission Control transition presets tuned for fast, subtle state switching. */
+export const missionControlMotion = {
+  surfaceSwitch: {
+    duration: motion.durationStandard / 1000,
+    ease: motion.easingStandard as unknown as number[],
+  },
+  contentCrossFade: {
+    initial: { opacity: 0, y: 3 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -3 },
+    transition: {
+      duration: motion.durationFast / 1000,
+      ease: motion.easingStandard as unknown as number[],
+    },
+  },
+  railMorphSpring: { type: 'spring' as const, stiffness: 340, damping: 38, mass: 0.72 },
+  listStaggerStep: 0.016,
+  listStaggerMaxItems: 6,
+  segmentedTap: { whileTap: { scale: 0.985 }, transition: { duration: 0.09 } },
+} as const;
+
 /** Standard whileTap for all action buttons. */
 export const buttonTap = { whileTap: { scale: 0.97 }, transition: { duration: 0.1 } };
 
