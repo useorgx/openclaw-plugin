@@ -501,7 +501,7 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
       executor,
       mode: 'handoff',
       primaryLabel: executor.label,
-      subtitle: `${requester.label} -> ${executor.label}`,
+      subtitle: `${requester.label} handed off to ${executor.label}`,
     };
   }
 
@@ -511,7 +511,7 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
       executor: null,
       mode: 'requested',
       primaryLabel: requester.label,
-      subtitle: `${requester.label} requested dispatch`,
+      subtitle: `${requester.label} requested a run`,
     };
   }
 
@@ -3302,11 +3302,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [sentinelInView, setSentinelInView] = useState(false);
   const pendingAutoExpandRef = useRef<ActivityTimeFilterId | null>(null);
   const lastKnownFilterRef = useRef<ActivityTimeFilterId>(timeFilterId);
+  const manualFilterChangedAtRef = useRef<number>(Date.now());
+  const userHasScrolledRef = useRef(false);
 
   useEffect(() => {
     if (lastKnownFilterRef.current === timeFilterId) return;
     lastKnownFilterRef.current = timeFilterId;
     pendingAutoExpandRef.current = null;
+    manualFilterChangedAtRef.current = Date.now();
+    userHasScrolledRef.current = false;
   }, [timeFilterId]);
 
   useEffect(() => {
@@ -3326,7 +3330,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     );
 
     observer.observe(target);
-    return () => observer.disconnect();
+    const handleScroll = () => {
+      userHasScrolledRef.current = true;
+    };
+    root.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      root.removeEventListener('scroll', handleScroll);
+    };
     // Intentionally stable deps — hasMore/isLoadingMore/onLoadMore read
     // from refs so the observer doesn't get recreated on every poll cycle.
   }, []);
@@ -3351,6 +3362,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     if (!sentinelInView) return;
     if (hasMore || isLoadingMore) return;
     if (!onTimeFilterChange) return;
+    // Don't auto-expand unless the user has actively scrolled — prevents
+    // the sentinel from firing on mount when the list is short (e.g.
+    // "Last hour" with few items) and silently overriding the chosen filter.
+    if (!userHasScrolledRef.current) return;
+    // Cooldown: don't auto-expand within 3s of a manual filter change to
+    // avoid overriding the user's explicit selection.
+    const msSinceManualChange = Date.now() - manualFilterChangedAtRef.current;
+    if (msSinceManualChange < 3_000) return;
     const nextFilter = nextActivityTimeFilter(timeFilterId);
     if (!nextFilter) return;
     if (pendingAutoExpandRef.current === nextFilter) return;
@@ -4598,10 +4617,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
                                 )}
                               >
-                                {showSyncEvents ? 'Hide sync replay events' : 'Show sync replay events'}
+                                {showSyncEvents ? 'Hide background sync events' : 'Show background sync events'}
                               </button>
                               <p className="mt-1 text-micro leading-relaxed text-muted">
-                                Changeset replay and outbox sync events are low-signal operational noise for most users.
+                                Background sync events are routine system operations that most users can safely ignore.
                               </p>
                             </div>
                           </div>

@@ -1705,7 +1705,7 @@ function MissionControlInner({
                     disabled={
                       autopilotUnavailable ||
                       autopilot.isStarting ||
-                      autopilot.isStopping
+                      autopilot.isGracefullyStopping
                     }
                     title={
                       autopilotUnavailable
@@ -1773,7 +1773,9 @@ function MissionControlInner({
                     <span>
                       {autopilotNeedsUpgrade
                         ? 'Upgrade Autopilot'
-                        : `${autopilot.isRunning ? 'Stop' : 'Start'} Autopilot`}
+                        : autopilot.isGracefullyStopping
+                          ? 'Stopping Autopilot…'
+                          : `${autopilot.isRunning ? 'Stop' : 'Start'} Autopilot`}
                     </span>
                     {autopilot.isRunning && hasActiveRuntime && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
