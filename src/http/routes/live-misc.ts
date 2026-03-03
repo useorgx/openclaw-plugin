@@ -8,6 +8,8 @@ import { summarizeTaskStatuses } from "../../reporting/rollups.js";
 
 type JsonRecord = Record<string, unknown>;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type LiveInitiativesResponse = {
   initiatives: unknown[];
   total?: number;
@@ -654,9 +656,9 @@ export function registerLiveMiscRoutes<TReq, TRes>(
         for (const initiative of initiatives) {
           totalActiveAgents += initiative.activeAgents;
 
-          // Try to get task statuses from graph
+          // Try to get task statuses from graph (skip local placeholder IDs like "agent:orgx")
           let taskStatuses: string[] = [];
-          if (deps.buildMissionControlGraph) {
+          if (deps.buildMissionControlGraph && UUID_RE.test(initiative.id)) {
             try {
               const graphRaw = await deps.buildMissionControlGraph(initiative.id);
               const graph = asRecord(graphRaw);

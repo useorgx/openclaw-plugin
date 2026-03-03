@@ -2,6 +2,8 @@ import type { OrgXClient } from "../../api.js";
 import type { Entity } from "../../types.js";
 import { pickNumber, pickString, toIsoString } from "./value-utils.js";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type MissionControlNodeType = "initiative" | "workstream" | "milestone" | "task";
 
 export interface MissionControlAssignedAgent {
@@ -869,6 +871,9 @@ export async function buildMissionControlGraph(
   degraded: string[];
   cycleDiagnostics?: MissionControlCycleDiagnostics;
 }> {
+  if (!UUID_RE.test(initiativeId)) {
+    throw new Error(`buildMissionControlGraph: initiativeId must be a UUID, got "${initiativeId}"`);
+  }
   const degraded: string[] = [];
   const preloadedInitiative = options?.initiativeEntity ?? null;
   const [initiativeResult, workstreamResult, milestoneResult, taskResult] = await Promise.all([

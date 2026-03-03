@@ -2,6 +2,22 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.9 - 2026-03-03
+
+### Release Management
+- Patch release bump for npm package + lockfile metadata.
+- Published release tag `v0.7.9`.
+
+### OpenClaw Plugin SDK Compatibility
+- Updated plugin HTTP registration to support route-based SDKs (`registerHttpRoute`) with backward compatibility fallback to legacy `registerHttpHandler` when available.
+- Restored plugin load on OpenClaw `2026.3.x`, where `registerHttpHandler` was removed.
+
+### Mission Control Lifecycle UX
+- Refined Next Up -> In Progress separation by excluding unscoped reporting/control sessions from in-progress fallback rows.
+- Updated auto-continue queue intent and cache invalidation flows so queue, run-state, and activity surfaces stay in sync after play/start/stop/tick actions.
+- Added workspace-aware auto-continue status resolution when `initiative_id` is omitted, including scoped run selection and deterministic ordering.
+- Hardened mission-control initiative graph reads to skip non-UUID local placeholder IDs and fail fast for invalid initiative identifiers.
+
 ## 0.7.8 - 2026-03-03
 
 ### Release Management

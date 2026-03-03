@@ -37,7 +37,7 @@ export function useAutoContinue({
   const demoMode = isDemoModeEnabled();
 
   const statusQueryKey = useMemo(
-    () => queryKeys.autoContinueStatus({ initiativeId: initiativeId ?? '__global__', authToken, embedMode }),
+    () => queryKeys.autoContinueStatus({ initiativeId: initiativeId ?? null, authToken, embedMode }),
     [initiativeId, authToken, embedMode]
   );
 
@@ -178,7 +178,8 @@ export function useAutoContinue({
 
       return body as AutoContinueStatusResponse;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      queryClient.setQueryData(statusQueryKey, data);
       void invalidateRelated();
     },
   });
@@ -231,7 +232,8 @@ export function useAutoContinue({
 
       return body as AutoContinueStatusResponse;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      queryClient.setQueryData(statusQueryKey, data);
       void invalidateRelated();
     },
   });

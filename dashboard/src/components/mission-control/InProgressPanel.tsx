@@ -289,7 +289,13 @@ export function selectInProgressRows({
     return dedupedRunningRows;
   }
 
-  const fallbackSessions = sessions.filter(isInProgressSession);
+  const fallbackSessions = sessions.filter((session) => {
+    if (!isInProgressSession(session)) return false;
+    const initiativeId = (session.initiativeId ?? '').trim();
+    const workstreamId = (session.workstreamId ?? '').trim();
+    // In-progress should reflect dispatchable work slices, not unscoped reporting/control runs.
+    return initiativeId.length > 0 && workstreamId.length > 0;
+  });
   fallbackSessions.sort((a, b) => {
     const safeA = toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt);
     const safeB = toEpoch(b.updatedAt ?? b.lastEventAt ?? b.startedAt);

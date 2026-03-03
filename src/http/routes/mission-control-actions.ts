@@ -681,6 +681,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
           scope,
         });
+        deps.clearNextUpQueueCache(initiativeId);
         const dispatchId = randomUUID();
         const playDispatchEnvelope = (dispatchMode: string) =>
           buildDispatchGatewayEnvelope({
@@ -2165,6 +2166,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           ignoreSpawnGuardRateLimit: ignoreSpawnGuardRateLimit === true,
           scope: startScope,
         });
+        deps.clearNextUpQueueCache(initiativeId);
         const dispatchEnvelope = buildDispatchGatewayEnvelope({
           dispatchMode: "server",
           route: "mission-control.auto-continue.start",
@@ -2236,6 +2238,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             // best effort
           }
         }
+        deps.clearNextUpQueueCache(initiativeId);
 
         deps.sendJson(res, 200, { ok: true, run });
       } catch (err: unknown) {
@@ -2270,11 +2273,13 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             return;
           }
           await deps.tickAutoContinueRun(run);
+          deps.clearNextUpQueueCache(initiativeId);
           deps.sendJson(res, 200, { ok: true, initiativeId, run });
           return;
         }
 
         await deps.tickAllAutoContinue();
+        deps.clearNextUpQueueCache(null);
         deps.sendJson(res, 200, { ok: true });
       } catch (err: unknown) {
         sendRouteException(res, "mission-control.auto-continue.tick.handler", err);
