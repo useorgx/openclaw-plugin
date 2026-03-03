@@ -2,6 +2,17 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.7 - 2026-03-03
+
+### Release Management
+- Patch release bump for npm package + plugin manifest versions.
+- Published release tag `v0.7.7`.
+
+### QA Capture Reliability
+- Hardened component capture retries with locator re-acquire and viewport fallback when element screenshots timeout.
+- Added failed-capture retry pass in addition to warning retries to improve full-run stability.
+- Stabilized activity/settings capture selectors and action paths used by QA automation.
+
 ## 0.7.2 - 2026-02-28
 
 ### Release Management
