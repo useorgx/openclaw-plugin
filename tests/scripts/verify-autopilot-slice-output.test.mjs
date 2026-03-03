@@ -142,6 +142,43 @@ test("verifier accepts skill heading derived from first non-empty line after YAM
   assert.match(result.stdout, /\[verify\] ok/i);
 });
 
+test("verifier accepts skill heading when file starts with UTF-8 BOM", () => {
+  const output = makeValidOutput();
+  output.skill_evidence[0].skill_heading = "# OrgX Engineering Agent";
+  const skillContent = [
+    "\uFEFF---",
+    "name: orgx-engineering-agent",
+    "description: Test skill file",
+    "---",
+    "",
+    "# OrgX Engineering Agent",
+    "",
+    "Deliver technically rigorous artifacts.",
+    "",
+  ].join("\n");
+  const result = runVerifier(output, makeSchema(), "", { skillContent });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier accepts skill heading when frontmatter fence is unclosed", () => {
+  const output = makeValidOutput();
+  output.skill_evidence[0].skill_heading = "# OrgX Engineering Agent";
+  const skillContent = [
+    "---",
+    "name: orgx-engineering-agent",
+    "description: malformed frontmatter",
+    "",
+    "# OrgX Engineering Agent",
+    "",
+    "Deliver technically rigorous artifacts.",
+    "",
+  ].join("\n");
+  const result = runVerifier(output, makeSchema(), "", { skillContent });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
 test("verifier accepts a schema-compliant completed output", () => {
   const result = runVerifier(makeValidOutput(), makeSchema());
   assert.equal(result.status, 0, result.stderr);

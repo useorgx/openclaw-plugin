@@ -2,6 +2,16 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.8 - 2026-03-03
+
+### Release Management
+- Patch release bump for npm package + plugin manifest versions.
+- Published release tag `v0.7.8`.
+
+### Inclusion Confirmation
+- Carries forward the QA capture reliability hardening from `#208` in the released tag line.
+- Confirms the automation paths and selectors from that fix set are included in this patch release train.
+
 ## 0.7.7 - 2026-03-03
 
 ### Release Management
