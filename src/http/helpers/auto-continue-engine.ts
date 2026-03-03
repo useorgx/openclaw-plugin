@@ -52,6 +52,8 @@ import {
   buildWorkstreamSlicePrompt,
   createCodexBinResolver,
   ensureAutopilotSliceSchemaPath,
+  extractSessionIdFromLog,
+  extractSessionIdFromOutput,
   fileUpdatedAtEpochMs,
   parseSliceResult,
   readFileTailSafe,
@@ -275,6 +277,50 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       ? "reject"
       : "approve";
   const autoContinueSliceRuns = new Map<string, AutoContinueSliceRun>();
+
+  // ---------------------------------------------------------------------------
+  // Session store – maps workstream IDs to CLI session IDs for resume support
+  // ---------------------------------------------------------------------------
+  type WorkstreamSessionEntry = {
+    sessionId: string;
+    workstreamId: string;
+    initiativeId: string;
+    sourceClient: RuntimeSourceClient;
+    capturedAt: string;
+    fromRunId: string;
+  };
+  const workstreamSessionStore = new Map<string, WorkstreamSessionEntry>();
+
+  function sessionResumeEnabled(): boolean {
+    const raw = (process.env.ORGX_AUTOPILOT_SESSION_RESUME ?? "").trim().toLowerCase();
+    if (!raw) return false;
+    return !(raw === "0" || raw === "false" || raw === "no" || raw === "off");
+  }
+
+  function setWorkstreamSession(workstreamId: string, entry: WorkstreamSessionEntry): void {
+    workstreamSessionStore.set(workstreamId, entry);
+  }
+  function getWorkstreamSession(workstreamId: string): WorkstreamSessionEntry | null {
+    return workstreamSessionStore.get(workstreamId) ?? null;
+  }
+  function clearWorkstreamSession(initiativeId: string): void {
+    for (const [key, entry] of workstreamSessionStore.entries()) {
+      if (entry.initiativeId === initiativeId) {
+        workstreamSessionStore.delete(key);
+      }
+    }
+  }
+
+  function listWorkstreamSessions(initiativeId?: string): WorkstreamSessionEntry[] {
+    const results: WorkstreamSessionEntry[] = [];
+    for (const entry of workstreamSessionStore.values()) {
+      if (!initiativeId || entry.initiativeId === initiativeId) {
+        results.push(entry);
+      }
+    }
+    return results;
+  }
+
   /** Spread into any metadata object to flag mock-worker activity. */
   function mockMeta(slice: { isMockWorker: boolean }): Record<string, unknown> {
     return slice.isMockWorker ? { mock: true } : {};
@@ -1175,6 +1221,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     scopeMilestoneIds: string[];
     lastError: string | null;
     isMockWorker: boolean;
+    cliSessionId: string | null;
+    resumedFromSessionId: string | null;
   };
   type AutoFixSkipReason =
     | "paused_by_user"
@@ -2512,6 +2560,27 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	        const raw = readSliceOutputFile(slice.outputPath);
         const parsed = raw ? parseSliceResult<AutoContinueSliceResult>(raw) : null;
         const parsedStatus = parsed?.status ?? "error";
+
+        // Session capture: extract CLI session ID from output or log for future resume.
+        if (sessionResumeEnabled()) {
+          const outputSessionId = raw ? extractSessionIdFromOutput(raw, slice.sourceClient) : null;
+          const logSessionId = outputSessionId
+            ? null
+            : extractSessionIdFromLog(readFileTailSafe(slice.logPath, 32_000), slice.sourceClient);
+          const capturedSessionId = outputSessionId ?? logSessionId ?? null;
+          if (capturedSessionId) {
+            slice.cliSessionId = capturedSessionId;
+            setWorkstreamSession(slice.workstreamId, {
+              sessionId: capturedSessionId,
+              workstreamId: slice.workstreamId,
+              initiativeId: slice.initiativeId,
+              sourceClient: slice.sourceClient,
+              capturedAt: new Date().toISOString(),
+              fromRunId: slice.runId,
+            });
+          }
+        }
+
         const defaultDecisionBlocking = parsedStatus === "completed" ? false : true;
 
         const allDecisions = Array.isArray(parsed?.decisions_needed)
@@ -4215,6 +4284,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     } catch {
       // best effort
     }
+    // Session resume: check if a previous session exists for this workstream.
+    const priorSession = sessionResumeEnabled() ? getWorkstreamSession(selectedWorkstreamId) : null;
+    const resumedFromSessionId = priorSession?.sessionId ?? null;
+
 	        const spawned = spawnCodexSliceWorker({
 	          runId: sliceRunId,
 	          prompt,
@@ -4222,6 +4295,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	          logPath,
 	          outputPath,
             outputSchemaPath: schemaPath,
+            resumeSessionId: resumedFromSessionId,
 	          env: {
 	            ORGX_SOURCE_CLIENT: executorSourceClient,
 	            ORGX_RUN_ID: sliceRunId,
@@ -4276,6 +4350,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       scopeMilestoneIds: scopeMilestoneIds,
       lastError: null,
       isMockWorker: workerKind === "mock",
+      cliSessionId: null,
+      resumedFromSessionId,
     };
     autoContinueSliceRuns.set(sliceRunId, slice);
 
@@ -4926,6 +5002,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       run.activeTaskId = null;
       run.activeRunId = null;
       run.activeTaskTokenEstimate = null;
+      clearWorkstreamSession(input.initiativeId);
     }
     syncLegacyRunPointers(run);
 
@@ -5028,5 +5105,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
+    // Session store (for resume support)
+    workstreamSessionStore,
+    getWorkstreamSession,
+    setWorkstreamSession,
+    clearWorkstreamSession,
+    listWorkstreamSessions,
+    sessionResumeEnabled,
   };
 }

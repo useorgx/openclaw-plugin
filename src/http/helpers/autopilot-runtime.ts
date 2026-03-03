@@ -239,6 +239,12 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     }
   }
 
+  function sessionResumeEnabled(): boolean {
+    const raw = (process.env.ORGX_AUTOPILOT_SESSION_RESUME ?? "").trim().toLowerCase();
+    if (!raw) return false;
+    return !(raw === "0" || raw === "false" || raw === "no" || raw === "off");
+  }
+
   function spawnCodexSliceWorker(input: {
     runId: string;
     prompt: string;
@@ -247,6 +253,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     outputPath: string;
     outputSchemaPath?: string;
     env: Record<string, string | undefined>;
+    resumeSessionId?: string | null;
   }): { pid: number | null } {
     ensurePrivateDirForFile(input.logPath);
     ensurePrivateDirForFile(input.outputPath);
@@ -402,7 +409,14 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       const claudeExtraArgs: string[] = [];
       if (!hasPrint) claudeExtraArgs.push("--print");
       if (!hasOutputFormat) claudeExtraArgs.push("--output-format", "json");
-      if (!hasNoSessionPersistence) claudeExtraArgs.push("--no-session-persistence");
+      // Session resume: when resumeSessionId is provided, use --resume and skip --no-session-persistence.
+      // When feature is enabled but no resume, omit --no-session-persistence to persist for future resume.
+      const resumeId = typeof input.resumeSessionId === "string" ? input.resumeSessionId.trim() : "";
+      if (resumeId) {
+        claudeExtraArgs.push("--resume", resumeId);
+      } else if (!sessionResumeEnabled() && !hasNoSessionPersistence) {
+        claudeExtraArgs.push("--no-session-persistence");
+      }
       if (!hasPermissionMode) claudeExtraArgs.push("--permission-mode", "bypassPermissions");
       if (!hasDangerousSkipPermissions && !hasAllowDangerousSkipPermissions) {
         claudeExtraArgs.push("--dangerously-skip-permissions");
@@ -540,11 +554,26 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
 
     const codexInfo = deps.resolveCodexBinInfo();
     const codexBin = codexInfo.bin;
-    const rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
+    const codexResumeId = typeof input.resumeSessionId === "string" ? input.resumeSessionId.trim() : "";
+
+    // Session resume: use "resume <id>" subcommand instead of "exec --ephemeral"
+    // When feature enabled but no resume ID: omit --ephemeral to persist for future resume
+    let rawArgs: string;
+    let defaultArgs: string[];
+    if (codexResumeId) {
+      rawArgs = "";
+      defaultArgs = ["resume", codexResumeId, "--full-auto", "--skip-git-repo-check"];
+    } else {
+      rawArgs = (process.env.ORGX_CODEX_ARGS ?? "").trim();
+      const featureEnabled = sessionResumeEnabled();
+      defaultArgs = featureEnabled
+        ? ["exec", "--full-auto", "--skip-git-repo-check"]
+        : ["exec", "--ephemeral", "--full-auto", "--skip-git-repo-check"];
+    }
     const normalizedArgs = normalizeCodexArgs(
       rawArgs.length > 0
         ? rawArgs.split(/\s+/).filter(Boolean)
-        : ["exec", "--ephemeral", "--full-auto", "--skip-git-repo-check"]
+        : defaultArgs
     );
     const args = hasExplicitCodexSubcommand(normalizedArgs)
       ? normalizedArgs
