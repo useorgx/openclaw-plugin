@@ -131,7 +131,14 @@ export interface PluginAPI {
     fn: (ctx: { program: any }) => void,
     options?: { commands?: string[] }
   ) => void;
-  registerHttpHandler: (handler: unknown) => void;
+  registerHttpRoute?: (route: {
+    path: string;
+    auth: "gateway" | "plugin";
+    match?: "exact" | "prefix";
+    handler: unknown;
+    replaceExisting?: boolean;
+  }) => void;
+  registerHttpHandler?: (handler: unknown) => void;
 }
 
 export interface ToolResult {
@@ -1860,7 +1867,25 @@ export default function register(api: PluginAPI): void {
     if (await mcpHttpHandler(req, res)) return true;
     return await httpHandler(req, res);
   };
-  api.registerHttpHandler(compositeHttpHandler);
+  if (typeof api.registerHttpRoute === "function") {
+    api.registerHttpRoute({
+      path: "/orgx",
+      auth: "plugin",
+      match: "prefix",
+      handler: compositeHttpHandler,
+    });
+    api.registerHttpRoute({
+      path: "/workspace-hub",
+      auth: "plugin",
+      match: "prefix",
+      handler: compositeHttpHandler,
+    });
+  } else if (typeof api.registerHttpHandler === "function") {
+    // Backward compatibility for OpenClaw builds before route-based plugin HTTP registration.
+    api.registerHttpHandler(compositeHttpHandler);
+  } else {
+    throw new Error("OpenClaw plugin API does not expose an HTTP registration method.");
+  }
 
   api.log?.info?.("[orgx] Plugin registered", {
     baseUrl: config.baseUrl,

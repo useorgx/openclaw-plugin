@@ -11,6 +11,7 @@ type AutoContinueRunRecord = {
   status?: string;
   startedAt?: string;
   stoppedAt?: string | null;
+  updatedAt?: string | null;
   tokenBudget?: number | null;
   maxParallelSlices?: number;
   parallelMode?: string;
@@ -1140,16 +1141,78 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     sendRouteError(res, 500, location, deps.safeErrorMessage(err));
   };
 
-  async function renderAutoContinueStatus(query: URLSearchParams, res: TRes): Promise<void> {
-    const initiativeId = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
-    const id = initiativeId.trim();
-    if (!id) {
+  async function renderAutoContinueStatus(
+    query: URLSearchParams,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    const workspaceScope = resolveWorkspaceScope(query, headerScope, {
+      allowProjectScope: false,
+    });
+    if (workspaceScope.error) {
       sendRouteError(
         res,
         400,
         "mission-control.read.auto-continue.status.validation",
-        "Query parameter 'initiative_id' is required."
+        workspaceScope.error
       );
+      return;
+    }
+
+    const scopedProjectId = workspaceScope.workspaceId;
+    const initiativeId = query.get("initiative_id") ?? query.get("initiativeId") ?? "";
+    const id = initiativeId.trim();
+
+    let scopedInitiatives: Set<string> | null = null;
+    if (scopedProjectId) {
+      try {
+        const ids = await deps.listInitiativeIdsForProject({ projectId: scopedProjectId });
+        scopedInitiatives = new Set(ids);
+      } catch {
+        // best effort: if scope lookup is unavailable, fall back to unscoped run resolution.
+        scopedInitiatives = null;
+      }
+    }
+
+    const statusRank = (value: string | undefined): number => {
+      const normalized = (value ?? "").trim().toLowerCase();
+      if (normalized === "running") return 0;
+      if (normalized === "stopping") return 1;
+      if (normalized === "blocked") return 2;
+      if (normalized === "stopped") return 3;
+      return 4;
+    };
+    const updatedEpoch = (value: string | null | undefined): number => {
+      const parsed = Date.parse(value ?? "");
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    if (!id) {
+      const scopedRuns = Array.from(deps.autoContinueRuns.values()).filter((run) => {
+        const runInitiativeId = (run.initiativeId ?? "").trim();
+        if (!runInitiativeId) return false;
+        if (scopedInitiatives && !scopedInitiatives.has(runInitiativeId)) return false;
+        return true;
+      });
+      scopedRuns.sort((left, right) => {
+        const statusDelta = statusRank(left.status) - statusRank(right.status);
+        if (statusDelta !== 0) return statusDelta;
+        return updatedEpoch(right.updatedAt) - updatedEpoch(left.updatedAt);
+      });
+      const run = scopedRuns[0] ?? null;
+      deps.sendJson(res, 200, {
+        ok: true,
+        initiativeId: run?.initiativeId ?? null,
+        run,
+        defaults: {
+          tokenBudget: deps.defaultAutoContinueTokenBudget(),
+          maxParallelSlices:
+            typeof deps.defaultAutoContinueMaxParallelSlices === "function"
+              ? deps.defaultAutoContinueMaxParallelSlices()
+              : 1,
+          tickMs: deps.autoContinueTickMs,
+        },
+      });
       return;
     }
 
@@ -2250,13 +2313,23 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
   router.add(
     "GET",
     "mission-control/auto-continue/status",
-    async ({ query, res }) => renderAutoContinueStatus(query, res),
+    async ({ query, res, req }) =>
+      renderAutoContinueStatus(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get auto-continue status for an initiative"
   );
   router.add(
     "HEAD",
     "mission-control/auto-continue/status",
-    async ({ query, res }) => renderAutoContinueStatus(query, res),
+    async ({ query, res, req }) =>
+      renderAutoContinueStatus(
+        query,
+        res,
+        workspaceScopeFromHeaders((req as { headers?: Record<string, unknown> })?.headers)
+      ),
     "Get auto-continue status for an initiative (HEAD)"
   );
 

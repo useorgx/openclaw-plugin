@@ -3164,6 +3164,7 @@ function DashboardShell({
                         queueModel={sharedNextUpQueue}
                         queueActions={sharedNextUpActions}
                         snapshotVersion={data.snapshotVersion}
+                        excludeRunning
                         onOpenInitiative={openInitiativeFromNextUp}
                         onOpenSliceDetail={openSliceDetailFromQueue}
                       />
