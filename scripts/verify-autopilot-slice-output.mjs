@@ -158,17 +158,22 @@ function sha256File(pathname) {
 
 function extractSkillHeading(pathname) {
   try {
-    const content = readFileSync(pathname, "utf8");
+    const content = readFileSync(pathname, "utf8").replace(/^\uFEFF/, "");
     const lines = content.split(/\r?\n/);
     // Ignore YAML frontmatter so heading/non-empty matching stays stable for skill files.
     let startIndex = 0;
     if (lines[0]?.trim() === "---") {
+      startIndex = 1;
+      let foundClosingFence = false;
       for (let index = 1; index < lines.length; index += 1) {
         if (lines[index].trim() === "---") {
           startIndex = index + 1;
+          foundClosingFence = true;
           break;
         }
       }
+      // If frontmatter is malformed/unclosed, treat the opening fence as metadata.
+      if (!foundClosingFence) startIndex = 1;
     }
     for (let index = startIndex; index < lines.length; index += 1) {
       const line = lines[index];
