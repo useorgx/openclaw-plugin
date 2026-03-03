@@ -1,0 +1,3131 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "id": "activity.detail.hero",
+      "name": "Activity detail hero header",
+      "componentPath": "dashboard/src/components/activity/ActivityDetailHero.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "modal",
+        "hero"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=TASK",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.detail.modal-shell",
+      "name": "Activity detail modal shell",
+      "componentPath": "dashboard/src/components/activity/ActivityDetailModal.tsx",
+      "owner": "activity",
+      "tags": [
+        "critical",
+        "activity",
+        "modal"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.detail.summary",
+      "name": "Activity detail summary section",
+      "componentPath": "dashboard/src/components/activity/ActivityDetailSummary.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "modal",
+        "summary"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=SUMMARY || text=RESULTS || [aria-label=\"Close activity detail\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.detail.more-actions-menu",
+      "name": "Activity detail more actions menu",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "modal",
+        "menu"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Copy event ID",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailMoreMenu",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.detail.needs-attention",
+      "name": "Needs attention detail state",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "modal",
+        "needs-attention",
+        "critical"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"] || text=WHAT HAPPENED || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openNeedsAttentionDetail",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.time-range.trigger",
+      "name": "Activity time range trigger",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "filters"
+      ],
+      "route": "/orgx/live",
+      "selector": "button:has-text(\"All\") || button:has-text(\"Today\") || button:has-text(\"Last hour\") || button:has-text(\"This week\")",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.filters-popover",
+      "name": "Activity filters popover trigger",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "filters"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Activity filters\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.search",
+      "name": "Activity search control",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "critical",
+        "activity"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.status-filters",
+      "name": "Activity status filters",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "critical",
+        "activity",
+        "filters"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Activity status filters\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.time-filter",
+      "name": "Activity time range control",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity"
+      ],
+      "route": "/orgx/live",
+      "selector": "button:has-text(\"All\") || button:has-text(\"Today\") || button:has-text(\"Last hour\") || button:has-text(\"This week\")",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.view-controls-menu",
+      "name": "Activity view controls menu",
+      "componentPath": "dashboard/src/components/activity/ActivityTimeline.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "filters",
+        "modal"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Activity view controls\"]",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityFiltersMenu",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.timeline.item-card",
+      "name": "Activity timeline item card",
+      "componentPath": "dashboard/src/components/activity/ActivityTimelineItem.tsx",
+      "owner": "activity",
+      "tags": [
+        "critical",
+        "activity",
+        "timeline"
+      ],
+      "route": "/orgx/live",
+      "selector": "button[aria-label^=\"Open activity details for\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-activityvisuals",
+      "name": "activity Visuals",
+      "componentPath": "dashboard/src/components/activity/activityVisuals.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-artifactpreview",
+      "name": "Artifact Preview",
+      "componentPath": "dashboard/src/components/activity/ArtifactPreview.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity.chat.open-button",
+      "name": "Open chat button",
+      "componentPath": "dashboard/src/components/activity/chat/ActivityChatDock.tsx",
+      "owner": "chat",
+      "tags": [
+        "activity",
+        "chat"
+      ],
+      "route": "/orgx/live",
+      "selector": "[data-testid=\"chat-dock\"] || [aria-label=\"Open chat\"] || body",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityChatDock",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "chat.dock.main",
+      "name": "Activity chat dock",
+      "componentPath": "dashboard/src/components/activity/chat/ActivityChatDock.tsx",
+      "owner": "chat",
+      "tags": [
+        "activity",
+        "chat"
+      ],
+      "route": "/orgx/live",
+      "selector": "[data-testid=\"chat-dock\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityChatDock",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-agentavatarrail",
+      "name": "Agent Avatar Rail",
+      "componentPath": "dashboard/src/components/activity/chat/AgentAvatarRail.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-agentpickerpopover",
+      "name": "Agent Picker Popover",
+      "componentPath": "dashboard/src/components/activity/chat/AgentPickerPopover.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-chatdockcontext",
+      "name": "Chat Dock Context",
+      "componentPath": "dashboard/src/components/activity/chat/ChatDockContext.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "chat.surface.sidebar",
+      "name": "Chat surface sidebar",
+      "componentPath": "dashboard/src/components/activity/chat/ChatSurface.tsx",
+      "owner": "chat",
+      "tags": [
+        "chat"
+      ],
+      "route": "/orgx/live",
+      "selector": "[data-testid=\"thread-sidebar\"] || [data-testid=\"chat-dock\"] || body",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityChatThreads",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-inlineresponse",
+      "name": "Inline Response",
+      "componentPath": "dashboard/src/components/activity/chat/InlineResponse.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-mentiondropdown",
+      "name": "Mention Dropdown",
+      "componentPath": "dashboard/src/components/activity/chat/MentionDropdown.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-scopechip",
+      "name": "Scope Chip",
+      "componentPath": "dashboard/src/components/activity/chat/ScopeChip.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-chat-scopedropdown",
+      "name": "Scope Dropdown",
+      "componentPath": "dashboard/src/components/activity/chat/ScopeDropdown.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "chat.drawer.threads",
+      "name": "Chat thread drawer",
+      "componentPath": "dashboard/src/components/activity/chat/ThreadDrawer.tsx",
+      "owner": "chat",
+      "tags": [
+        "chat"
+      ],
+      "route": "/orgx/live",
+      "selector": "[data-testid=\"thread-drawer\"] || [data-testid=\"chat-dock\"] || body",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityChatThreads",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-realtimeorchestratormodal",
+      "name": "Realtime Orchestrator Modal",
+      "componentPath": "dashboard/src/components/activity/RealtimeOrchestratorModal.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-threadview",
+      "name": "Thread View",
+      "componentPath": "dashboard/src/components/activity/ThreadView.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "activity-whileyouwereaway",
+      "name": "While You Were Away",
+      "componentPath": "dashboard/src/components/activity/WhileYouWereAway.tsx",
+      "owner": "activity",
+      "tags": [
+        "activity",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Search activity\"] || [aria-label=\"Activity status filters\"] || main || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "agents-agentavatar",
+      "name": "Agent Avatar",
+      "componentPath": "dashboard/src/components/agents/AgentAvatar.tsx",
+      "owner": "agents",
+      "tags": [
+        "agents",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "agents-agenthealthring",
+      "name": "Agent Health Ring",
+      "componentPath": "dashboard/src/components/agents/AgentHealthRing.tsx",
+      "owner": "agents",
+      "tags": [
+        "agents",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "agents-agentpanel",
+      "name": "Agent Panel",
+      "componentPath": "dashboard/src/components/agents/AgentPanel.tsx",
+      "owner": "agents",
+      "tags": [
+        "agents",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "agents-agentrow",
+      "name": "Agent Row",
+      "componentPath": "dashboard/src/components/agents/AgentRow.tsx",
+      "owner": "agents",
+      "tags": [
+        "agents",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "agents-statusindicator",
+      "name": "Status Indicator",
+      "componentPath": "dashboard/src/components/agents/StatusIndicator.tsx",
+      "owner": "agents",
+      "tags": [
+        "agents",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "artifacts-artifactviewercontext",
+      "name": "Artifact Viewer Context",
+      "componentPath": "dashboard/src/components/artifacts/ArtifactViewerContext.tsx",
+      "owner": "artifacts",
+      "tags": [
+        "artifacts",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "artifacts-artifactviewermodal",
+      "name": "Artifact Viewer Modal",
+      "componentPath": "dashboard/src/components/artifacts/ArtifactViewerModal.tsx",
+      "owner": "artifacts",
+      "tags": [
+        "artifacts",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "artifacts-entityartifactspanel",
+      "name": "Entity Artifacts Panel",
+      "componentPath": "dashboard/src/components/artifacts/EntityArtifactsPanel.tsx",
+      "owner": "artifacts",
+      "tags": [
+        "artifacts",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "bulk-bulkdecisionsmodal",
+      "name": "Bulk Decisions Modal",
+      "componentPath": "dashboard/src/components/bulk/BulkDecisionsModal.tsx",
+      "owner": "bulk",
+      "tags": [
+        "bulk",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "bulk-bulkhandoffsmodal",
+      "name": "Bulk Handoffs Modal",
+      "componentPath": "dashboard/src/components/bulk/BulkHandoffsModal.tsx",
+      "owner": "bulk",
+      "tags": [
+        "bulk",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "bulk-bulkoutboxmodal",
+      "name": "Bulk Outbox Modal",
+      "componentPath": "dashboard/src/components/bulk/BulkOutboxModal.tsx",
+      "owner": "bulk",
+      "tags": [
+        "bulk",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "bulk-bulksessionsmodal",
+      "name": "Bulk Sessions Modal",
+      "componentPath": "dashboard/src/components/bulk/BulkSessionsModal.tsx",
+      "owner": "bulk",
+      "tags": [
+        "bulk",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "comments-entitycommentspanel",
+      "name": "Entity Comments Panel",
+      "componentPath": "dashboard/src/components/comments/EntityCommentsPanel.tsx",
+      "owner": "comments",
+      "tags": [
+        "comments",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Close activity detail\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDetailModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "decisions-decisionbanner",
+      "name": "Decision Banner",
+      "componentPath": "dashboard/src/components/decisions/DecisionBanner.tsx",
+      "owner": "decisions",
+      "tags": [
+        "decisions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Decisions || [aria-label=\"Activity filters\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "decisions-decisiondetailmodal",
+      "name": "Decision Detail Modal",
+      "componentPath": "dashboard/src/components/decisions/DecisionDetailModal.tsx",
+      "owner": "decisions",
+      "tags": [
+        "decisions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Decisions || [aria-label=\"Activity filters\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "decisions-decisionmodal",
+      "name": "Decision Modal",
+      "componentPath": "dashboard/src/components/decisions/DecisionModal.tsx",
+      "owner": "decisions",
+      "tags": [
+        "decisions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Decisions || [aria-label=\"Activity filters\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "decisions-decisionqueue",
+      "name": "Decision Queue",
+      "componentPath": "dashboard/src/components/decisions/DecisionQueue.tsx",
+      "owner": "decisions",
+      "tags": [
+        "decisions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Decisions || [aria-label=\"Activity filters\"] || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "handoffs-handoffpanel",
+      "name": "Handoff Panel",
+      "componentPath": "dashboard/src/components/handoffs/HandoffPanel.tsx",
+      "owner": "handoffs",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "initiatives-initiativecard",
+      "name": "Initiative Card",
+      "componentPath": "dashboard/src/components/initiatives/InitiativeCard.tsx",
+      "owner": "initiatives",
+      "tags": [
+        "initiatives",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Active || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "initiatives-initiativepanel",
+      "name": "Initiative Panel",
+      "componentPath": "dashboard/src/components/initiatives/InitiativePanel.tsx",
+      "owner": "initiatives",
+      "tags": [
+        "initiatives",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Active || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "initiatives-phaseprogress",
+      "name": "Phase Progress",
+      "componentPath": "dashboard/src/components/initiatives/PhaseProgress.tsx",
+      "owner": "initiatives",
+      "tags": [
+        "initiatives",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Active || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-actionqueuestrip",
+      "name": "Action Queue Strip",
+      "componentPath": "dashboard/src/components/mission-control/ActionQueueStrip.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-agentinference",
+      "name": "Agent Inference",
+      "componentPath": "dashboard/src/components/mission-control/AgentInference.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-artifactgallery",
+      "name": "Artifact Gallery",
+      "componentPath": "dashboard/src/components/mission-control/ArtifactGallery.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-collapsiblesection",
+      "name": "Collapsible Section",
+      "componentPath": "dashboard/src/components/mission-control/CollapsibleSection.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-costrollupcard",
+      "name": "Cost Rollup Card",
+      "componentPath": "dashboard/src/components/mission-control/CostRollupCard.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-dependencyeditorpopover",
+      "name": "Dependency Editor Popover",
+      "componentPath": "dashboard/src/components/mission-control/DependencyEditorPopover.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-dependencymappanel",
+      "name": "Dependency Map Panel",
+      "componentPath": "dashboard/src/components/mission-control/DependencyMapPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-editmodetoolbar",
+      "name": "Edit Mode Toolbar",
+      "componentPath": "dashboard/src/components/mission-control/EditModeToolbar.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entityactionbutton",
+      "name": "Entity Action Button",
+      "componentPath": "dashboard/src/components/mission-control/EntityActionButton.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entitydetailmodal-initiative",
+      "name": "Entity Detail Modal Initiative",
+      "componentPath": "dashboard/src/components/mission-control/EntityDetailModal.Initiative.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entitydetailmodal-milestone",
+      "name": "Entity Detail Modal Milestone",
+      "componentPath": "dashboard/src/components/mission-control/EntityDetailModal.Milestone.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entitydetailmodal-task",
+      "name": "Entity Detail Modal Task",
+      "componentPath": "dashboard/src/components/mission-control/EntityDetailModal.Task.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entitydetailmodal",
+      "name": "Entity Detail Modal",
+      "componentPath": "dashboard/src/components/mission-control/EntityDetailModal.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-entitydetailmodal-workstream",
+      "name": "Entity Detail Modal Workstream",
+      "componentPath": "dashboard/src/components/mission-control/EntityDetailModal.Workstream.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-healthscorecard",
+      "name": "Health Score Card",
+      "componentPath": "dashboard/src/components/mission-control/HealthScoreCard.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control.hierarchy.row-select",
+      "name": "Hierarchy table row selector",
+      "componentPath": "dashboard/src/components/mission-control/HierarchyTreeTable.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "critical",
+        "mission-control",
+        "table"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label^=\"Select initiative\"], [aria-label^=\"Select workstream\"], [aria-label^=\"Select task\"]",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlHierarchy",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-initiativeorbit",
+      "name": "Initiative Orbit",
+      "componentPath": "dashboard/src/components/mission-control/InitiativeOrbit.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-initiativesection",
+      "name": "Initiative Section",
+      "componentPath": "dashboard/src/components/mission-control/InitiativeSection.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-inprogresspanel",
+      "name": "In Progress Panel",
+      "componentPath": "dashboard/src/components/mission-control/InProgressPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-levelicon",
+      "name": "Level Icon",
+      "componentPath": "dashboard/src/components/mission-control/LevelIcon.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-milestonestrip",
+      "name": "Milestone Strip",
+      "componentPath": "dashboard/src/components/mission-control/MilestoneStrip.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-missioncontrolcontext",
+      "name": "Mission Control Context",
+      "componentPath": "dashboard/src/components/mission-control/MissionControlContext.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-missioncontrolempty",
+      "name": "Mission Control Empty",
+      "componentPath": "dashboard/src/components/mission-control/MissionControlEmpty.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-missioncontrolfilters",
+      "name": "Mission Control Filters",
+      "componentPath": "dashboard/src/components/mission-control/MissionControlFilters.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-missioncontrolview",
+      "name": "Mission Control View",
+      "componentPath": "dashboard/src/components/mission-control/MissionControlView.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-needsinputpanel",
+      "name": "Needs Input Panel",
+      "componentPath": "dashboard/src/components/mission-control/NeedsInputPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control.next-up.queue-card-select",
+      "name": "Next Up row selector",
+      "componentPath": "dashboard/src/components/mission-control/NextUpPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "queue",
+        "mission-control"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Select queue row\"] || [aria-label=\"Next Up scope\"] || text=Next Up || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlQueue",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control.next-up.scope-toggle",
+      "name": "Next Up scope segmented control",
+      "componentPath": "dashboard/src/components/mission-control/NextUpPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "critical",
+        "queue",
+        "mission-control"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || text=Next Up || body",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlQueue",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-queueplacementcontrol",
+      "name": "Queue Placement Control",
+      "componentPath": "dashboard/src/components/mission-control/QueuePlacementControl.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-recenttodosrail",
+      "name": "Recent Todos Rail",
+      "componentPath": "dashboard/src/components/mission-control/RecentTodosRail.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-slicedetailhero",
+      "name": "Slice Detail Hero",
+      "componentPath": "dashboard/src/components/mission-control/SliceDetailHero.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-slicedetailmodal",
+      "name": "Slice Detail Modal",
+      "componentPath": "dashboard/src/components/mission-control/SliceDetailModal.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-sliceexplorerpanel",
+      "name": "Slice Explorer Panel",
+      "componentPath": "dashboard/src/components/mission-control/SliceExplorerPanel.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-taskchip",
+      "name": "Task Chip",
+      "componentPath": "dashboard/src/components/mission-control/TaskChip.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-taskswimlanes",
+      "name": "Task Swim Lanes",
+      "componentPath": "dashboard/src/components/mission-control/TaskSwimLanes.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-workstreamcard",
+      "name": "Workstream Card",
+      "componentPath": "dashboard/src/components/mission-control/WorkstreamCard.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "mission-control-workstreamconstellation",
+      "name": "Workstream Constellation",
+      "componentPath": "dashboard/src/components/mission-control/WorkstreamConstellation.tsx",
+      "owner": "mission-control",
+      "tags": [
+        "mission-control",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Next Up scope\"] || [aria-label=\"Select queue row\"] || text=Current context || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openMissionControlDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "onboarding-explainerpanel",
+      "name": "Explainer Panel",
+      "componentPath": "dashboard/src/components/onboarding/ExplainerPanel.tsx",
+      "owner": "onboarding",
+      "tags": [
+        "onboarding",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "onboarding-firstrunguidemodal",
+      "name": "First Run Guide Modal",
+      "componentPath": "dashboard/src/components/onboarding/FirstRunGuideModal.tsx",
+      "owner": "onboarding",
+      "tags": [
+        "onboarding",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "onboarding-manualkeypanel",
+      "name": "Manual Key Panel",
+      "componentPath": "dashboard/src/components/onboarding/ManualKeyPanel.tsx",
+      "owner": "onboarding",
+      "tags": [
+        "onboarding",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "onboarding-onboardinggate",
+      "name": "Onboarding Gate",
+      "componentPath": "dashboard/src/components/onboarding/OnboardingGate.tsx",
+      "owner": "onboarding",
+      "tags": [
+        "onboarding",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "onboarding-welcomenamestep",
+      "name": "Welcome Name Step",
+      "componentPath": "dashboard/src/components/onboarding/WelcomeNameStep.tsx",
+      "owner": "onboarding",
+      "tags": [
+        "onboarding",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-agentdetailmodal",
+      "name": "Agent Detail Modal",
+      "componentPath": "dashboard/src/components/sessions/AgentDetailModal.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-agentlaunchmodal",
+      "name": "Agent Launch Modal",
+      "componentPath": "dashboard/src/components/sessions/AgentLaunchModal.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-agentschatspanel",
+      "name": "Agents Chats Panel",
+      "componentPath": "dashboard/src/components/sessions/AgentsChatsPanel.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-agentsessioncard",
+      "name": "Agent Session Card",
+      "componentPath": "dashboard/src/components/sessions/AgentSessionCard.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-conversationthread",
+      "name": "Conversation Thread",
+      "componentPath": "dashboard/src/components/sessions/ConversationThread.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "sessions-sessioninspector",
+      "name": "Session Inspector",
+      "componentPath": "dashboard/src/components/sessions/SessionInspector.tsx",
+      "owner": "sessions",
+      "tags": [
+        "sessions",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "text=Agents || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-agentbehaviorpanel",
+      "name": "Agent Behavior Panel",
+      "componentPath": "dashboard/src/components/settings/AgentBehaviorPanel.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-agentsuitepanel",
+      "name": "Agent Suite Panel",
+      "componentPath": "dashboard/src/components/settings/AgentSuitePanel.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-byoksettingsmodal",
+      "name": "Byok Settings Modal",
+      "componentPath": "dashboard/src/components/settings/ByokSettingsModal.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-byoksettingspanel",
+      "name": "Byok Settings Panel",
+      "componentPath": "dashboard/src/components/settings/ByokSettingsPanel.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-orgxconnectionpanel",
+      "name": "Orgx Connection Panel",
+      "componentPath": "dashboard/src/components/settings/OrgxConnectionPanel.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings.modal.tabs",
+      "name": "Settings tabs",
+      "componentPath": "dashboard/src/components/settings/SettingsModal.tsx",
+      "owner": "settings",
+      "tags": [
+        "critical",
+        "settings"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"]",
+      "viewports": [
+        "desktop",
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-usagecontrolplanepanel",
+      "name": "Usage Control Plane Panel",
+      "componentPath": "dashboard/src/components/settings/UsageControlPlanePanel.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-userfractalavatar",
+      "name": "User Fractal Avatar",
+      "componentPath": "dashboard/src/components/settings/UserFractalAvatar.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "settings-userprofilesection",
+      "name": "User Profile Section",
+      "componentPath": "dashboard/src/components/settings/UserProfileSection.tsx",
+      "owner": "settings",
+      "tags": [
+        "settings",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Settings tabs\"] || text=OrgX connection || body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openSettingsModal",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-badge",
+      "name": "Badge",
+      "componentPath": "dashboard/src/components/shared/Badge.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-blockersummary",
+      "name": "Blocker Summary",
+      "componentPath": "dashboard/src/components/shared/BlockerSummary.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-breadcrumbnav",
+      "name": "Breadcrumb Nav",
+      "componentPath": "dashboard/src/components/shared/BreadcrumbNav.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-contextualstatus",
+      "name": "Contextual Status",
+      "componentPath": "dashboard/src/components/shared/ContextualStatus.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-emptystate",
+      "name": "Empty State",
+      "componentPath": "dashboard/src/components/shared/EmptyState.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-entityicon",
+      "name": "Entity Icon",
+      "componentPath": "dashboard/src/components/shared/EntityIcon.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-errorstate",
+      "name": "Error State",
+      "componentPath": "dashboard/src/components/shared/ErrorState.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-evidencecard",
+      "name": "Evidence Card",
+      "componentPath": "dashboard/src/components/shared/EvidenceCard.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-inlinetoast",
+      "name": "Inline Toast",
+      "componentPath": "dashboard/src/components/shared/InlineToast.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-legallinks",
+      "name": "Legal Links",
+      "componentPath": "dashboard/src/components/shared/LegalLinks.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-markdowntext",
+      "name": "Markdown Text",
+      "componentPath": "dashboard/src/components/shared/MarkdownText.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-metricrow",
+      "name": "Metric Row",
+      "componentPath": "dashboard/src/components/shared/MetricRow.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared.mobile.tabbar",
+      "name": "Mobile tab bar",
+      "componentPath": "dashboard/src/components/shared/MobileTabBar.tsx",
+      "owner": "shared",
+      "tags": [
+        "critical",
+        "mobile",
+        "navigation"
+      ],
+      "route": "/orgx/live",
+      "selector": "[aria-label=\"Mobile sections\"]",
+      "viewports": [
+        "mobile"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-modal",
+      "name": "Modal",
+      "componentPath": "dashboard/src/components/shared/Modal.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-modalshell",
+      "name": "Modal Shell",
+      "componentPath": "dashboard/src/components/shared/ModalShell.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-pill",
+      "name": "Pill",
+      "componentPath": "dashboard/src/components/shared/Pill.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-premiumcard",
+      "name": "Premium Card",
+      "componentPath": "dashboard/src/components/shared/PremiumCard.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-progressring",
+      "name": "Progress Ring",
+      "componentPath": "dashboard/src/components/shared/ProgressRing.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-providerlogo",
+      "name": "Provider Logo",
+      "componentPath": "dashboard/src/components/shared/ProviderLogo.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-scopeprogresscard",
+      "name": "Scope Progress Card",
+      "componentPath": "dashboard/src/components/shared/ScopeProgressCard.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-searchinput",
+      "name": "Search Input",
+      "componentPath": "dashboard/src/components/shared/SearchInput.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-sectionheading",
+      "name": "Section Heading",
+      "componentPath": "dashboard/src/components/shared/SectionHeading.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-selfhealingnotice",
+      "name": "Self Healing Notice",
+      "componentPath": "dashboard/src/components/shared/SelfHealingNotice.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-skeleton",
+      "name": "Skeleton",
+      "componentPath": "dashboard/src/components/shared/Skeleton.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-skeletoncard",
+      "name": "Skeleton Card",
+      "componentPath": "dashboard/src/components/shared/SkeletonCard.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-undotoast",
+      "name": "Undo Toast",
+      "componentPath": "dashboard/src/components/shared/UndoToast.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "shared-workstreamglyph",
+      "name": "Workstream Glyph",
+      "componentPath": "dashboard/src/components/shared/WorkstreamGlyph.tsx",
+      "owner": "shared",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "triage-triagedetailmodal",
+      "name": "Triage Detail Modal",
+      "componentPath": "dashboard/src/components/triage/TriageDetailModal.tsx",
+      "owner": "triage",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    },
+    {
+      "id": "triage-triagequeue",
+      "name": "Triage Queue",
+      "componentPath": "dashboard/src/components/triage/TriageQueue.tsx",
+      "owner": "triage",
+      "tags": [
+        "shared",
+        "auto-mapped"
+      ],
+      "route": "/orgx/live",
+      "selector": "body",
+      "viewports": [
+        "desktop"
+      ],
+      "scenarios": [
+        {
+          "id": "default",
+          "openAction": "openActivityDefault",
+          "withContext": true
+        }
+      ],
+      "status": "mapped"
+    }
+  ],
+  "unmapped": []
+}
