@@ -670,17 +670,30 @@ export function useNextUpQueue({
     }, LIVE_DATA_INVALIDATE_DEBOUNCE_MS);
   };
 
-  const invalidate = async () => {
-    await Promise.all([
+  const invalidate = async ({
+    includeGraph = true,
+    includeLiveData = true,
+  }: {
+    includeGraph?: boolean;
+    includeLiveData?: boolean;
+  } = {}) => {
+    const operations: Array<Promise<unknown>> = [
       queryClient.invalidateQueries({ queryKey }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.autoContinueStatus({ initiativeId, authToken, embedMode }),
       }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
-      }),
-    ]);
-    scheduleLiveDataInvalidate();
+    ];
+    if (includeGraph) {
+      operations.push(
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
+        })
+      );
+    }
+    await Promise.all(operations);
+    if (includeLiveData) {
+      scheduleLiveDataInvalidate();
+    }
   };
 
   const loadQueuePage = async (
@@ -927,7 +940,7 @@ export function useNextUpQueue({
       }
     },
     onSuccess: () => {
-      void invalidate();
+      void invalidate({ includeGraph: false });
     },
   });
 
@@ -967,7 +980,7 @@ export function useNextUpQueue({
       }
     },
     onSuccess: () => {
-      void invalidate();
+      void invalidate({ includeGraph: false });
     },
   });
 
@@ -987,7 +1000,7 @@ export function useNextUpQueue({
       }
     },
     onSuccess: () => {
-      void invalidate();
+      void invalidate({ includeGraph: false });
     },
   });
 
