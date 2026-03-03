@@ -580,3 +580,110 @@ test("parseSliceResult rejects unknown status values", () => {
   const parsed = parseSliceResult(raw);
   assert.equal(parsed, null);
 });
+
+// ---------------------------------------------------------------------------
+// Session ID extraction tests
+// ---------------------------------------------------------------------------
+
+import {
+  extractSessionIdFromOutput,
+  extractSessionIdFromLog,
+} from "../../dist/http/helpers/autopilot-slice-utils.js";
+
+const SAMPLE_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+
+// --- extractSessionIdFromOutput ---
+
+test("extractSessionIdFromOutput parses top-level session_id", () => {
+  const raw = JSON.stringify({ session_id: SAMPLE_UUID, status: "completed" });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput parses sessionId camelCase", () => {
+  const raw = JSON.stringify({ sessionId: SAMPLE_UUID });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput parses conversation_id", () => {
+  const raw = JSON.stringify({ conversation_id: SAMPLE_UUID });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput parses Claude structured_output envelope", () => {
+  const raw = JSON.stringify({
+    structured_output: { session_id: SAMPLE_UUID, status: "completed" },
+  });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput parses result envelope", () => {
+  const raw = JSON.stringify({
+    result: { session_id: SAMPLE_UUID },
+  });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput parses final_output envelope", () => {
+  const raw = JSON.stringify({
+    final_output: { session_id: SAMPLE_UUID },
+  });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput falls back to inline session_id pattern", () => {
+  const raw = `some text session_id: ${SAMPLE_UUID} more text`;
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromOutput returns null for missing session ID", () => {
+  const raw = JSON.stringify({ status: "completed", summary: "Done" });
+  assert.equal(extractSessionIdFromOutput(raw), null);
+});
+
+test("extractSessionIdFromOutput returns null for empty input", () => {
+  assert.equal(extractSessionIdFromOutput(""), null);
+  assert.equal(extractSessionIdFromOutput(null), null);
+  assert.equal(extractSessionIdFromOutput(undefined), null);
+});
+
+test("extractSessionIdFromOutput rejects non-UUID session_id values", () => {
+  const raw = JSON.stringify({ session_id: "not-a-uuid" });
+  assert.equal(extractSessionIdFromOutput(raw), null);
+});
+
+// --- extractSessionIdFromLog ---
+
+test("extractSessionIdFromLog extracts Claude resume footer", () => {
+  const log = `Some output\nResume this session with: claude --resume ${SAMPLE_UUID}\nDone.`;
+  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromLog extracts Codex resume footer", () => {
+  const log = `Some output\ncodex resume ${SAMPLE_UUID}\nDone.`;
+  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromLog extracts generic Session: pattern", () => {
+  const log = `Starting...\nSession: ${SAMPLE_UUID}\nDone.`;
+  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromLog extracts session_id: pattern", () => {
+  const log = `session_id: ${SAMPLE_UUID}`;
+  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromLog extracts saving session pattern", () => {
+  const log = `saving session ${SAMPLE_UUID}`;
+  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+});
+
+test("extractSessionIdFromLog returns null for missing session ID", () => {
+  assert.equal(extractSessionIdFromLog("just some random log output"), null);
+});
+
+test("extractSessionIdFromLog returns null for empty input", () => {
+  assert.equal(extractSessionIdFromLog(""), null);
+  assert.equal(extractSessionIdFromLog(null), null);
+  assert.equal(extractSessionIdFromLog(undefined), null);
+});

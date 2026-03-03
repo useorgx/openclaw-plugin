@@ -105,6 +105,8 @@ export const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> 
     // Stream reassignment is a targeted operational mutation.
     "orgx_reassign_stream",
     "orgx_reassign_streams",
+    // Session resume (read-only visibility for operations).
+    "orgx_agent_sessions",
   ],
   orchestration: [
     ...ORGX_BASE_TOOLS,
@@ -113,6 +115,10 @@ export const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> 
     "orgx_apply_changeset",
     "orgx_reassign_stream",
     "orgx_reassign_streams",
+    // Session resume tools.
+    "orgx_agent_sessions",
+    "orgx_resume_agent_session",
+    "orgx_clear_agent_session",
   ],
 };
 

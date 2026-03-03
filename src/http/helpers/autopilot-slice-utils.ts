@@ -463,6 +463,75 @@ export function readFileTailSafe(pathname: string, maxChars = 64_000): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Session ID extraction (for session resume support)
+// ---------------------------------------------------------------------------
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * Extract a CLI session ID from structured output JSON (Claude/Codex envelope).
+ * Looks for `session_id`, `sessionId`, or `conversation_id` fields.
+ */
+export function extractSessionIdFromOutput(raw: string, _sourceClient?: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const parsed = parseJsonSafe<Record<string, unknown>>(raw.trim());
+
+  if (parsed && typeof parsed === "object") {
+    // Walk common envelope shapes: top-level, result, structured_output, final_output
+    const candidates: unknown[] = [
+      parsed,
+      parsed.result,
+      parsed.structured_output,
+      parsed.final_output,
+    ];
+    for (const obj of candidates) {
+      if (!obj || typeof obj !== "object") continue;
+      const record = obj as Record<string, unknown>;
+      for (const key of ["session_id", "sessionId", "conversation_id"]) {
+        const value = record[key];
+        if (typeof value === "string" && UUID_RE.test(value)) return value.trim();
+      }
+    }
+  }
+
+  // Fallback: scan raw text for session_id: <uuid> pattern
+  const inline = raw.match(
+    /session_id\s*[:=]\s*"?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"?/i,
+  );
+  if (inline && typeof inline[1] === "string") return inline[1];
+
+  return null;
+}
+
+/**
+ * Extract a CLI session ID from worker log text.
+ * Matches patterns emitted by Claude Code and Codex CLIs.
+ */
+export function extractSessionIdFromLog(logContent: string, _sourceClient?: string): string | null {
+  if (!logContent || typeof logContent !== "string") return null;
+
+  // Claude Code: "Resume this session with: claude --resume <uuid>"
+  const claudeResume = logContent.match(
+    /claude\s+--resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  if (claudeResume && typeof claudeResume[1] === "string") return claudeResume[1];
+
+  // Codex: "codex resume <uuid>"
+  const codexResume = logContent.match(
+    /codex\s+resume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  if (codexResume && typeof codexResume[1] === "string") return codexResume[1];
+
+  // Generic: "Session: <uuid>", "session_id: <uuid>", "saving session <uuid>"
+  const generic = logContent.match(
+    /(?:Session|session_id|saving\s+session)\s*[:=]?\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  if (generic && typeof generic[1] === "string") return generic[1];
+
+  return null;
+}
+
 export function fileUpdatedAtEpochMs(pathname: string, fallbackEpochMs: number): number {
   try {
     const st = statSync(pathname);

@@ -83,6 +83,33 @@ export interface RegisterCoreToolsDeps {
     auditId?: string;
   }) => import("../skill-pack-state.js").SkillPackState;
   randomUUID?: () => string;
+  sessionStore?: {
+    workstreamSessionStore: Map<string, {
+      sessionId: string;
+      workstreamId: string;
+      initiativeId: string;
+      sourceClient: string;
+      capturedAt: string;
+      fromRunId: string;
+    }>;
+    getWorkstreamSession: (workstreamId: string) => {
+      sessionId: string;
+      workstreamId: string;
+      initiativeId: string;
+      sourceClient: string;
+      capturedAt: string;
+      fromRunId: string;
+    } | null;
+    setWorkstreamSession: (workstreamId: string, entry: {
+      sessionId: string;
+      workstreamId: string;
+      initiativeId: string;
+      sourceClient: string;
+      capturedAt: string;
+      fromRunId: string;
+    }) => void;
+    clearWorkstreamSession: (initiativeId: string) => void;
+  };
 }
 
 export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, RegisteredTool> {
@@ -3053,6 +3080,123 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             `Artifact saved locally: ${params.name} [${params.artifact_type}] (will sync when connected)`
           );
         }
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_agent_sessions ---
+  registerMcpTool(
+    {
+      name: "orgx_agent_sessions",
+      description:
+        "List active CLI session IDs stored for workstreams. Used for session resume support.",
+      parameters: {
+        type: "object",
+        properties: {
+          initiativeId: {
+            type: "string",
+            description: "Optional initiative ID filter.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { initiativeId?: string } = {}
+      ) {
+        const store = deps.sessionStore;
+        if (!store) {
+          return text("Session store not available.");
+        }
+        const entries: Array<Record<string, unknown>> = [];
+        for (const [, entry] of store.workstreamSessionStore.entries()) {
+          if (params.initiativeId && entry.initiativeId !== params.initiativeId) continue;
+          entries.push({ ...entry });
+        }
+        return json("Agent sessions:", {
+          count: entries.length,
+          sessions: entries,
+        });
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_resume_agent_session ---
+  registerMcpTool(
+    {
+      name: "orgx_resume_agent_session",
+      description:
+        "Store or update a CLI session ID for a workstream so the next slice resumes it.",
+      parameters: {
+        type: "object",
+        properties: {
+          workstreamId: { type: "string", description: "Workstream UUID" },
+          sessionId: { type: "string", description: "CLI session UUID to resume" },
+          initiativeId: { type: "string", description: "Initiative UUID" },
+          sourceClient: { type: "string", description: "Source client (codex, claude-code)" },
+        },
+        required: ["workstreamId", "sessionId", "initiativeId"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          workstreamId: string;
+          sessionId: string;
+          initiativeId: string;
+          sourceClient?: string;
+        } = { workstreamId: "", sessionId: "", initiativeId: "" }
+      ) {
+        const store = deps.sessionStore;
+        if (!store) {
+          return text("Session store not available.");
+        }
+        if (!params.workstreamId || !params.sessionId || !params.initiativeId) {
+          return text("Missing required parameters: workstreamId, sessionId, initiativeId.");
+        }
+        store.setWorkstreamSession(params.workstreamId, {
+          sessionId: params.sessionId,
+          workstreamId: params.workstreamId,
+          initiativeId: params.initiativeId,
+          sourceClient: params.sourceClient ?? "unknown",
+          capturedAt: new Date().toISOString(),
+          fromRunId: "manual",
+        });
+        return text(`Session ${params.sessionId} stored for workstream ${params.workstreamId}.`);
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_clear_agent_session ---
+  registerMcpTool(
+    {
+      name: "orgx_clear_agent_session",
+      description:
+        "Clear stored CLI session IDs for an initiative (forces fresh sessions on next dispatch).",
+      parameters: {
+        type: "object",
+        properties: {
+          initiativeId: { type: "string", description: "Initiative UUID" },
+        },
+        required: ["initiativeId"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { initiativeId: string } = { initiativeId: "" }
+      ) {
+        const store = deps.sessionStore;
+        if (!store) {
+          return text("Session store not available.");
+        }
+        if (!params.initiativeId) {
+          return text("Missing required parameter: initiativeId.");
+        }
+        store.clearWorkstreamSession(params.initiativeId);
+        return text(`Sessions cleared for initiative ${params.initiativeId}.`);
       },
     },
     { optional: true }
