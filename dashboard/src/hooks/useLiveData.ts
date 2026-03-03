@@ -80,8 +80,12 @@ const DEFAULT_MAX_HANDOFFS = 80;
 const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
-const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 3_500;
-const SNAPSHOT_FALLBACK_STAGGER_MS = 180;
+const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 1_200;
+const SNAPSHOT_FALLBACK_STAGGER_MS = 90;
+const METADATA_FINGERPRINT_MAX_DEPTH = 3;
+const METADATA_FINGERPRINT_MAX_KEYS = 24;
+const METADATA_FINGERPRINT_MAX_ARRAY_ITEMS = 24;
+const metadataFingerprintCache = new WeakMap<object, string>();
 const EMPTY_OUTBOX_STATUS: OutboxStatus = {
   pendingTotal: 0,
   pendingByQueue: {},
@@ -597,6 +601,51 @@ function sameOutboxShape(a: OutboxStatus, b: OutboxStatus): boolean {
   return true;
 }
 
+function metadataFingerprint(value: unknown, depth = 0): string {
+  if (value === null || value === undefined) return 'null';
+  const valueType = typeof value;
+  if (valueType === 'string') return `s:${value}`;
+  if (valueType === 'number') return `n:${Number.isFinite(value as number) ? String(value) : 'nan'}`;
+  if (valueType === 'boolean') return `b:${value ? '1' : '0'}`;
+  if (valueType === 'bigint') return `i:${String(value)}`;
+  if (valueType !== 'object') return `${valueType}:${String(value)}`;
+
+  const objectValue = value as object;
+  const cached = metadataFingerprintCache.get(objectValue);
+  if (cached) return cached;
+
+  if (depth >= METADATA_FINGERPRINT_MAX_DEPTH) {
+    const cutoff = Array.isArray(value) ? '[…]' : '{…}';
+    metadataFingerprintCache.set(objectValue, cutoff);
+    return cutoff;
+  }
+
+  metadataFingerprintCache.set(objectValue, Array.isArray(value) ? '[]' : '{}');
+
+  if (Array.isArray(value)) {
+    const preview = value
+      .slice(0, METADATA_FINGERPRINT_MAX_ARRAY_ITEMS)
+      .map((entry) => metadataFingerprint(entry, depth + 1))
+      .join(',');
+    const suffix =
+      value.length > METADATA_FINGERPRINT_MAX_ARRAY_ITEMS ? ',…' : '';
+    const fingerprint = `[${preview}${suffix}]`;
+    metadataFingerprintCache.set(objectValue, fingerprint);
+    return fingerprint;
+  }
+
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  const limitedKeys = keys.slice(0, METADATA_FINGERPRINT_MAX_KEYS);
+  const body = limitedKeys
+    .map((key) => `${key}:${metadataFingerprint(record[key], depth + 1)}`)
+    .join('|');
+  const suffix = keys.length > limitedKeys.length ? '|…' : '';
+  const fingerprint = `{${body}${suffix}}`;
+  metadataFingerprintCache.set(objectValue, fingerprint);
+  return fingerprint;
+}
+
 function asMetadataRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -707,15 +756,19 @@ function mergeActivity(
   }
 
   const byId = new Map<string, LiveActivityItem>();
+  const metadataSignatures = new Map<string, string>();
   for (const item of current) {
     byId.set(item.id, item);
+    metadataSignatures.set(item.id, metadataFingerprint(item.metadata));
   }
 
   let changed = false;
   for (const item of incoming) {
     const existing = byId.get(item.id);
+    const incomingMetadataSignature = metadataFingerprint(item.metadata);
     if (!existing) {
       byId.set(item.id, item);
+      metadataSignatures.set(item.id, incomingMetadataSignature);
       changed = true;
       continue;
     }
@@ -736,9 +789,10 @@ function mergeActivity(
       existing.runId !== item.runId ||
       existing.initiativeId !== item.initiativeId ||
       existing.decisionRequired !== item.decisionRequired ||
-      JSON.stringify(existing.metadata ?? null) !== JSON.stringify(item.metadata ?? null)
+      metadataSignatures.get(item.id) !== incomingMetadataSignature
     ) {
       byId.set(item.id, item);
+      metadataSignatures.set(item.id, incomingMetadataSignature);
       changed = true;
     }
   }

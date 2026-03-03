@@ -48,7 +48,7 @@ const LIVE_SNAPSHOT_UPSTREAM_TIMEOUT_MS = (() => {
 
 const LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS = (() => {
   const raw = Number(process.env.ORGX_LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS ?? "");
-  if (!Number.isFinite(raw)) return 1_200;
+  if (!Number.isFinite(raw)) return 350;
   return Math.max(250, Math.min(15_000, Math.floor(raw)));
 })();
 

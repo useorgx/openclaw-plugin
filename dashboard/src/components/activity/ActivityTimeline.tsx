@@ -98,6 +98,7 @@ interface DecoratedActivityItem {
   runId: string | null;
   timestampEpoch: number;
   searchText: string;
+  runLabelSearch: string;
   scopeGroupId?: string | null;
   scope?: 'task' | 'milestone' | 'workstream';
 }
@@ -2907,6 +2908,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
         .join(' ')
         .toLowerCase();
+      const runLabelSearch = runId
+        ? (runLabelById.get(runId) ?? runId).toLowerCase()
+        : '';
 
       const metaScope = metadata?.scope as string | undefined;
       const scopeVal =
@@ -2921,11 +2925,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         runId,
         timestampEpoch: toEpoch(item.timestamp),
         searchText,
+        runLabelSearch,
         scopeGroupId: scopeVal ? (runId ?? null) : null,
         scope: scopeVal,
       } satisfies DecoratedActivityItem;
     });
-  }, [activity, sessionSnapshotByRunId, sessionStatusById, sliceSnapshotByRunId]);
+  }, [activity, runLabelById, sessionSnapshotByRunId, sessionStatusById, sliceSnapshotByRunId]);
+
+  const decoratedByNewest = useMemo(() => {
+    const sorted = [...decoratedActivity];
+    sorted.sort((a, b) => {
+      const delta = b.timestampEpoch - a.timestampEpoch;
+      if (delta !== 0) return delta;
+      return b.item.id.localeCompare(a.item.id);
+    });
+    return sorted;
+  }, [decoratedActivity]);
+
+  const decoratedByOldest = useMemo(() => [...decoratedByNewest].reverse(), [decoratedByNewest]);
 
   const isLive = useMemo(() => {
     let newest = 0;
@@ -2977,6 +2994,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
 
   const { filtered, filteredTotal, hiddenCount, hiddenSyncCount } = useMemo(() => {
+    const source = sortOrder === 'newest' ? decoratedByNewest : decoratedByOldest;
     const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
     let filteredSyncEvents = 0;
@@ -2986,7 +3004,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const seenSyncReplayKeys = new Set<string>();
     const normalizedQuery = query.trim().toLowerCase();
 
-    for (const decorated of decoratedActivity) {
+    for (const decorated of source) {
       const runId = decorated.runId;
       if (hasSessionFilter && (!runId || !selectedRunIdSet.has(runId))) {
         skippedBySession++;
@@ -3036,8 +3054,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       if (activeFilter === 'in_progress' && decorated.userState !== 'in_progress') continue;
 
       if (normalizedQuery.length > 0) {
-        const runLabel = runId ? runLabelById.get(runId) ?? runId : '';
-        const haystack = `${decorated.searchText} ${runLabel.toLowerCase()}`;
+        const haystack = `${decorated.searchText} ${decorated.runLabelSearch}`;
         if (!haystack.includes(normalizedQuery)) continue;
       }
 
@@ -3069,18 +3086,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         }
       );
     }
-
-    const sortedAll = [...matched].sort((a, b) => {
-      const delta = b.timestampEpoch - a.timestampEpoch;
-      return sortOrder === 'newest' ? delta : -delta;
-    });
-
     const targetCount = Math.min(
       Math.max(1, Math.min(MAX_RENDER_COUNT, renderCount)),
-      sortedAll.length
+      matched.length
     );
-    const rendered = sortedAll.slice(0, targetCount);
-    const total = sortedAll.length + overflow;
+    const rendered = matched.slice(0, targetCount);
+    const total = matched.length + overflow;
 
     return {
       filtered: rendered,
@@ -3091,10 +3102,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [
     activeFilter,
     agentFilter,
-    decoratedActivity,
+    decoratedByNewest,
+    decoratedByOldest,
     hasSessionFilter,
     query,
-    runLabelById,
     renderCount,
     selectedWorkstreamId,
     selectedRunIdSet,
@@ -3365,7 +3376,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     // Don't auto-expand unless the user has actively scrolled — prevents
     // the sentinel from firing on mount when the list is short (e.g.
     // "Last hour" with few items) and silently overriding the chosen filter.
-    if (!userHasScrolledRef.current) return;
+    const root = scrollRef.current;
+    const listNotScrollable = root ? root.scrollHeight <= root.clientHeight + 4 : false;
+    if (!userHasScrolledRef.current && !listNotScrollable) return;
     // Cooldown: don't auto-expand within 3s of a manual filter change to
     // avoid overriding the user's explicit selection.
     const msSinceManualChange = Date.now() - manualFilterChangedAtRef.current;
@@ -3375,7 +3388,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     if (pendingAutoExpandRef.current === nextFilter) return;
     pendingAutoExpandRef.current = nextFilter;
     onTimeFilterChange(nextFilter);
-  }, [hasMore, isLoadingMore, onTimeFilterChange, sentinelInView, timeFilterId]);
+  }, [filtered.length, hasMore, isLoadingMore, onTimeFilterChange, sentinelInView, timeFilterId]);
 
   const activeIndex = useMemo(() => {
     if (!activeItemId) return -1;
