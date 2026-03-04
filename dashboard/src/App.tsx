@@ -3214,22 +3214,9 @@ function DashboardShell({
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-              className="fixed bottom-0 right-0 top-[64px] z-[250] hidden w-[480px] flex-col lg:flex"
-              style={{ backgroundColor: colors.cardBg }}
+              className="glass-panel soft-shadow fixed bottom-0 right-0 top-[64px] z-[250] hidden w-[480px] flex-col lg:flex"
+              style={{ backgroundColor: colors.cardBg, borderLeft: '1px solid rgba(255,255,255,0.08)' }}
             >
-              <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
-                <h3 className="text-body font-semibold text-primary">Session Detail</h3>
-                <button
-                  type="button"
-                  onClick={() => setSessionDrawerOpen(false)}
-                  aria-label="Close session inspector"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6L6 18" /><path d="M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
               <div className="flex-1 min-h-0">
                 <Suspense
                   fallback={
@@ -3253,6 +3240,7 @@ function DashboardShell({
                     onRollbackSession={rollbackSession}
                     onStartInitiative={startInitiative}
                     onStartWorkstream={startWorkstream}
+                    onClose={() => setSessionDrawerOpen(false)}
                   />
                 </Suspense>
               </div>

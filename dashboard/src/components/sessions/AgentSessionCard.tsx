@@ -71,11 +71,15 @@ export function AgentSessionCard({
       </div>
 
       {/* Progress bar */}
-      <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden rounded-b-xl">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
+      <div className="absolute inset-x-0 bottom-0 h-[3px] overflow-hidden rounded-b-xl">
+        <motion.div
+          className="h-full rounded-full"
+          initial={{ width: 0 }}
+          animate={{
             width: isRunning ? '60%' : status === 'completed' ? '100%' : '0%',
+          }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          style={{
             background: isRunning ? colors.lime : status === 'completed' ? colors.teal : 'transparent',
             opacity: 0.5,
           }}

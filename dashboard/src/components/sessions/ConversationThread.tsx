@@ -44,8 +44,8 @@ export function ConversationThread({
               className={cn(
                 'max-w-[85%] px-3.5 py-2.5',
                 isUser
-                  ? 'surface-tier-2 rounded-2xl rounded-br-sm border-[#BFFF00]/[0.16]'
-                  : 'surface-tier-1 rounded-2xl rounded-bl-sm'
+                  ? 'surface-tier-2 rounded-2xl rounded-br-sm border border-lime/[0.16]'
+                  : 'glass-panel rounded-2xl rounded-bl-sm'
               )}
             >
               {msg.senderName && (
@@ -66,11 +66,11 @@ export function ConversationThread({
 
       {isAgentRunning && (
         <div className="flex justify-start">
-          <div className="surface-tier-1 rounded-2xl rounded-bl-sm px-4 py-3">
+          <div className="glass-panel rounded-2xl rounded-bl-sm px-4 py-3">
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-white/40 pulse-soft" />
-              <span className="h-2 w-2 rounded-full bg-white/40 pulse-soft" style={{ animationDelay: '0.3s' }} />
-              <span className="h-2 w-2 rounded-full bg-white/40 pulse-soft" style={{ animationDelay: '0.6s' }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-lime/60 pulse-soft" />
+              <span className="h-1.5 w-1.5 rounded-full bg-lime/60 pulse-soft" style={{ animationDelay: '0.3s' }} />
+              <span className="h-1.5 w-1.5 rounded-full bg-lime/60 pulse-soft" style={{ animationDelay: '0.6s' }} />
             </div>
           </div>
         </div>

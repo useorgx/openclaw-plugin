@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
+import { ModalShell } from '@/components/shared/ModalShell';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { AgentHealthRing } from '@/components/agents/AgentHealthRing';
 import { cn } from '@/lib/utils';
-import { colors, getAgentRole } from '@/lib/tokens';
+import { colors, getAgentColor, getAgentRole } from '@/lib/tokens';
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
 import { statusColor } from '@/lib/entityStatusColors';
 import type { OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
@@ -39,6 +42,28 @@ function activityTypeColor(type: string | undefined): string {
   return colors.iris;
 }
 
+const heroVariants = {
+  hidden: { opacity: 0, y: -4 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.28, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] },
+  }),
+};
+
+const sectionVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.22, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] },
+  }),
+};
+
+function SectionDivider() {
+  return <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />;
+}
+
 export function AgentDetailModal({
   open,
   onClose,
@@ -55,6 +80,7 @@ export function AgentDetailModal({
 
   const role = getAgentRole(agentName);
   const badge = toStatusBadge(catalogAgent?.status ?? null);
+  const agentColor = getAgentColor(agentName);
 
   const sessionMetrics = useMemo(() => {
     let running = 0;
@@ -138,65 +164,88 @@ export function AgentDetailModal({
 
   if (!open) return null;
 
+  const footerContent = catalogAgent?.run ? (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-caption text-secondary">
+        Run {catalogAgent.run.runId.slice(0, 8)}&hellip;
+        <span className="text-muted ml-1">({catalogAgent.run.status})</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={stopRun}
+          disabled={!canControlRun || actionLoading}
+          className="rounded-md px-2.5 py-1.5 text-caption font-medium text-red-400/70 hover:bg-red-500/[0.08] hover:text-red-300 disabled:opacity-40 transition-colors"
+        >
+          {actionLoading ? 'Stopping\u2026' : 'Stop'}
+        </button>
+        <button
+          type="button"
+          onClick={restartRun}
+          disabled={actionLoading}
+          className="h-8 rounded-lg border border-lime/25 bg-lime/10 px-4 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-40"
+        >
+          {actionLoading ? 'Restarting\u2026' : 'Restart'}
+        </button>
+      </div>
+    </div>
+  ) : undefined;
+
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
-      <div className="flex h-full min-h-0 w-full flex-col">
-          {/* Header with breadcrumb */}
-        <div className="flex items-center justify-between gap-3 px-8 pt-6 pb-2">
-          <div className="flex items-center gap-2 min-w-0 text-[13px] text-secondary">
-            <span>Agents</span>
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              className="flex-shrink-0 opacity-40"
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-            <span className="truncate text-white font-medium">{agentName}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close detail"
-            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18" />
-              <path d="M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+      {/* Accent bar */}
+      <div className="h-[2px] rounded-t-xl" style={{ background: `linear-gradient(90deg, ${agentColor}, transparent)` }} />
 
-        {/* Scrollable content */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-8">
-          {/* Agent Info */}
-          <div className="flex items-start gap-5">
-            <AgentAvatar name={agentName} size="lg" hint={agentName} />
+      <ModalShell
+        breadcrumbs={[{ label: 'Agents' }, { label: agentName }]}
+        onClose={onClose}
+        footer={footerContent}
+      >
+        <div className="px-8 py-6 space-y-8">
+          {/* Hero */}
+          <motion.div
+            className="flex items-start gap-5"
+            variants={heroVariants}
+            initial="hidden"
+            animate="visible"
+            custom={0}
+          >
+            <AgentHealthRing
+              running={sessionMetrics.running}
+              blocked={sessionMetrics.blocked + sessionMetrics.failed}
+              paused={0}
+              size={72}
+            >
+              <AgentAvatar name={agentName} size="lg" hint={agentName} />
+            </AgentHealthRing>
             <div className="min-w-0 flex-1 pt-1">
               <div className="flex items-center gap-3">
                 <h3 className="text-[28px] font-medium leading-none text-white truncate">{agentName}</h3>
                 <span
-                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest"
+                  className="status-pill"
                   style={{
                     color: badge.color,
                     backgroundColor: badge.bg,
+                    borderColor: `${badge.color}30`,
                   }}
                 >
                   {badge.label}
                 </span>
               </div>
               {role && (
-                <p className="text-[15px] text-secondary mt-2">{role}</p>
+                <p className="text-micro uppercase tracking-[0.12em] text-muted mt-2">{role}</p>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Session Metrics */}
-          <div className="flex items-center gap-12 pt-2 pb-6 border-b border-white/[0.04]">
+          <motion.div
+            className="flex items-center gap-12 pt-2 pb-6 border-b border-white/[0.04]"
+            variants={sectionVariants}
+            initial="hidden"
+            animate="visible"
+            custom={1}
+          >
             {([
               { label: 'Running', value: sessionMetrics.running, color: colors.lime },
               { label: 'Blocked', value: sessionMetrics.blocked, color: colors.red },
@@ -204,7 +253,7 @@ export function AgentDetailModal({
               { label: 'Completed', value: sessionMetrics.completed, color: colors.teal },
             ] as const).map((metric) => (
               <div key={metric.label}>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">{metric.label}</p>
+                <p className="section-kicker">{metric.label}</p>
                 <p
                   className="mt-1 text-2xl font-light"
                   style={{
@@ -216,27 +265,29 @@ export function AgentDetailModal({
                 </p>
               </div>
             ))}
-          </div>
+          </motion.div>
 
           {/* Timeline: Sessions & Activity */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-4">
             {/* Sessions Column */}
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-6">
-                Sessions
-              </p>
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={2}
+            >
+              <p className="section-kicker mb-6">Sessions</p>
               {sessions.length === 0 ? (
                 <p className="text-body text-muted italic">No sessions recorded.</p>
               ) : (
                 <div className="relative border-l border-white/[0.06] pl-6 ml-2 space-y-6">
                   {visibleSessions.map((node) => (
                     <div key={node.id} className="relative group">
-                      {/* Timeline node */}
-                      <div 
+                      <div
                         className="absolute -left-[29px] top-1.5 h-2 w-2 rounded-full border border-black ring-4 ring-black"
                         style={{ backgroundColor: statusColor(node.status) }}
                       />
-                      
+
                       <button
                         onClick={() => {
                           onSelectSession(node.id);
@@ -256,7 +307,7 @@ export function AgentDetailModal({
                           <span className="capitalize">{node.status}</span>
                           {node.progress !== null && (
                             <>
-                              <span className="text-white/[0.15]">·</span>
+                              <span className="text-white/[0.15]">&middot;</span>
                               <span>{Math.round(node.progress)}%</span>
                             </>
                           )}
@@ -276,20 +327,23 @@ export function AgentDetailModal({
                   )}
                 </div>
               )}
-            </div>
+            </motion.div>
 
             {/* Activity Column */}
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-6">
-                Live Activity
-              </p>
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={3}
+            >
+              <p className="section-kicker mb-6">Live Activity</p>
               {recentActivity.length === 0 ? (
                 <p className="text-body text-muted italic">No recent activity.</p>
               ) : (
                 <div className="relative border-l border-white/[0.06] pl-6 ml-2 space-y-5">
                   {recentActivity.map((item, idx) => (
                     <div key={item.id ?? idx} className="relative group">
-                      <div 
+                      <div
                         className="absolute -left-[27px] top-1.5 h-1.5 w-1.5 rounded-full ring-4 ring-black"
                         style={{ backgroundColor: activityTypeColor(item.type) }}
                       />
@@ -305,51 +359,23 @@ export function AgentDetailModal({
                   ))}
                 </div>
               )}
-            </div>
+            </motion.div>
           </div>
 
-          {/* Agent Controls */}
-          {catalogAgent?.run && (
-            <div className="pt-4 border-t border-white/[0.04]">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-4">Controls</p>
-              <div className="flex flex-wrap items-center gap-6">
-                <p className="text-[13px] text-secondary">
-                  <span className="text-muted mr-2">Tracked run:</span>
-                  {catalogAgent.run.runId.slice(0, 8)}…
-                  <span className="text-muted ml-2">({catalogAgent.run.status})</span>
-                </p>
-                <div className="flex items-center gap-3 ml-auto">
-                  <button
-                    type="button"
-                    onClick={stopRun}
-                    disabled={!canControlRun || actionLoading}
-                    className="rounded-lg px-4 py-2 text-[13px] font-medium text-rose-400 transition-colors hover:text-rose-300 hover:bg-rose-400/10 disabled:opacity-40 focus:outline-none"
-                  >
-                    {actionLoading ? 'Stopping…' : 'Stop Run'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={restartRun}
-                    disabled={actionLoading}
-                    className="rounded-lg px-4 py-2 text-[13px] font-medium text-white bg-white/[0.06] transition-colors hover:bg-white/[0.12] disabled:opacity-40 focus:outline-none"
-                  >
-                    {actionLoading ? 'Restarting…' : 'Restart'}
-                  </button>
-                </div>
-                {actionError && (
-                  <p className="w-full text-caption text-rose-400">{actionError}</p>
-                )}
-              </div>
-            </div>
-          )}
+          <SectionDivider />
 
           {/* Agent Settings */}
           {catalogAgent && (
-            <div className="pt-4 border-t border-white/[0.04]">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted mb-4">Settings</p>
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={4}
+            >
+              <p className="section-kicker mb-4">Configuration</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8">
                 <div>
-                  <p className="text-[11px] text-muted mb-1">Provider</p>
+                  <p className="text-micro text-muted mb-1">Provider</p>
                   <p className="text-[14px] text-primary">
                     {catalogAgent.model?.includes('openrouter')
                       ? 'OpenRouter'
@@ -361,14 +387,14 @@ export function AgentDetailModal({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] text-muted mb-1">Model</p>
+                  <p className="text-micro text-muted mb-1">Model</p>
                   <p className={cn('text-[14px] truncate', catalogAgent.model ? 'text-primary' : 'text-muted')}>
                     {catalogAgent.model ?? 'Not configured'}
                   </p>
                 </div>
                 {catalogAgent.workspace && (
                   <div>
-                    <p className="text-[11px] text-muted mb-1">Workspace</p>
+                    <p className="text-micro text-muted mb-1">Workspace</p>
                     <p className="text-[14px] text-primary truncate">
                       {catalogAgent.workspace}
                     </p>
@@ -376,17 +402,23 @@ export function AgentDetailModal({
                 )}
                 {catalogAgent.context?.initiativeTitle && (
                   <div>
-                    <p className="text-[11px] text-muted mb-1">Initiative</p>
+                    <p className="text-micro text-muted mb-1">Initiative</p>
                     <p className="text-[14px] text-primary truncate">
                       {catalogAgent.context.initiativeTitle}
                     </p>
                   </div>
                 )}
               </div>
-            </div>
+            </motion.div>
+          )}
+
+          {actionError && (
+            <p className="rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-caption text-red-200">
+              {actionError}
+            </p>
           )}
         </div>
-      </div>
+      </ModalShell>
     </Modal>
   );
 }
