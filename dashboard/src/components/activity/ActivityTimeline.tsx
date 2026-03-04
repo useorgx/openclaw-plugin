@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
-import { colors } from '@/lib/tokens';
+import { colors, getAgentColor, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId } from '@/lib/humanize';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -3281,6 +3281,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     prevSliceSnapshotRef.current = map;
     return map;
   }, [sliceRuns]);
+  const sliceTimingByRunId = useMemo(() => {
+    const map = new Map<string, { startedAt: string | null; completedAt: string | null }>();
+    for (const s of sliceRuns) {
+      const timing = { startedAt: s.startedAt ?? null, completedAt: s.completedAt ?? null };
+      const keys = [s.runId, s.sliceRunId].filter(
+        (v): v is string => typeof v === 'string' && v.trim().length > 0
+      );
+      for (const k of keys) map.set(k, timing);
+    }
+    return map;
+  }, [sliceRuns]);
   const sessionProgressById = useMemo(() => {
     const map = new Map<string, number>();
     for (const session of sessions) {
@@ -4092,6 +4103,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       : null,
     [activeAutopilotContext, activeDecorated, activeExecutionBreakdown]
   );
+  const activeVisibleSections = useMemo(() => {
+    if (!activeDecorated) return new Set<string>();
+    if (devMode) return new Set(['header','artifact','outcome','structured_outcomes','action_needed','session','scope','summary','evidence']);
+    const eventName = metadataString(metadataForItem(activeDecorated.item), ['event', 'event_name', 'eventName']) ?? '';
+    return modalSectionsForEvent(
+      eventName,
+      !!activeArtifact || !!extractArtifactId(activeDecorated.item),
+      !!activeOutcome
+    );
+  }, [activeDecorated, activeArtifact, activeOutcome, devMode]);
   const activeResultItems = useMemo(() => {
     if (!activeExecutionBreakdown) return [];
     const resultItems: Array<{ label: string; value: number | string; tone?: 'neutral' | 'critical' }> = [];
@@ -4622,8 +4643,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         sanitizeActorDisplayValue(primaryActor?.id ?? item.agentId ?? identity.agentId ?? null),
         agentNameById
       ) || 'OrgX';
-    const displayAgentName = actorCategoryLabel(actorCategory) || resolvedAgentName;
-    const railColor = ACTOR_CATEGORY_RAIL_COLORS[actorCategory] || userStateColor(decorated.userState);
+    let displayAgentName = actorCategoryLabel(actorCategory) || resolvedAgentName;
+    if (actorCategory === 'agent' && resolvedAgentName) {
+      const role = getAgentRole(resolvedAgentName);
+      if (role) displayAgentName = `${resolvedAgentName} (${role})`;
+    }
+    const statusColor = userStateColor(decorated.userState);
+    const railColor = actorCategory === 'agent'
+      ? getAgentColor(resolvedAgentName) || statusColor
+      : ACTOR_CATEGORY_RAIL_COLORS[actorCategory] || statusColor;
     const isRecent = sortOrder === 'newest' && index < 2;
     const runId = decorated.runId;
     const syncSummary = syncReplaySummary(item);
@@ -4684,6 +4712,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         detailText={(displaySummary ?? displayDesc) !== headline ? displaySummary ?? displayDesc : null}
         displayAgentName={displayAgentName}
         railColor={railColor}
+        statusColor={statusColor}
         userStateLabel={primaryTag}
         userStateWhy={decorated.userStateWhy}
         relativeTime={relativeTime}
@@ -5723,7 +5752,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </div>
 
                     {/* Registered artifact — promoted to top when no inline hero */}
-                    {activeDecorated && extractArtifactId(activeDecorated.item) && !activeArtifact && (
+                    {activeVisibleSections.has('artifact') && activeDecorated && extractArtifactId(activeDecorated.item) && !activeArtifact && (
                       <button
                         type="button"
                         onClick={() => {
@@ -5746,7 +5775,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     <ActivityDetailSummary item={activeDecorated.item} />
 
                     {/* Artifact hero — promoted from bottom */}
-                    {activeArtifact && (
+                    {activeVisibleSections.has('artifact') && activeArtifact && (
                       <div className="rounded-xl border border-cyan-400/25 bg-gradient-to-b from-cyan-500/[0.10] to-cyan-500/[0.04]">
                         <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2">
                           <div className="flex items-center gap-2">
@@ -5812,7 +5841,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {activeOutcome && (
+                    {activeVisibleSections.has('outcome') && activeOutcome && (
                       <div
                         className={cn(
                           'rounded-xl border px-3.5 py-3',
@@ -5903,6 +5932,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {/* Structured outcomes — typed cards for PR, tests, tasks */}
                     {(() => {
+                      if (!activeVisibleSections.has('structured_outcomes')) return null;
                       const metadata = metadataForItem(activeDecorated.item);
                       const outcomes = metadata?.outcomes as Record<string, unknown> | undefined;
                       const taskUpdates = metadata?.task_updates as Array<{ title?: string; status?: string }> | undefined;
@@ -6105,6 +6135,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               size="xs"
                             />
                             <span className="text-primary">{activeActorFlow.executor.label}</span>
+                            {(() => {
+                              const role = getAgentRole(activeActorFlow.executor.label);
+                              return role ? <span className="text-caption text-muted">({role})</span> : null;
+                            })()}
                           </>
                         )}
                         {activeActorFlow.mode === 'handoff' && activeActorFlow.requester && (
@@ -6118,7 +6152,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {activeAutopilotContext && (
                       <div className="space-y-5">
                         {/* C1: Promoted ACTION NEEDED card — when blocked with a next step */}
-                        {activeExecutionBreakdown?.nextStep && (activeAutopilotProgress?.tone === 'critical' || activeAutopilotProgress?.tone === 'warning') && (
+                        {activeVisibleSections.has('action_needed') && activeExecutionBreakdown?.nextStep && (activeAutopilotProgress?.tone === 'critical' || activeAutopilotProgress?.tone === 'warning') && (
                           <div className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-4 py-3">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
@@ -6144,6 +6178,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                         {/* Lifecycle trail — horizontal stepper */}
                         {(() => {
+                          if (!activeVisibleSections.has('session')) return null;
                           const lcMeta = metadataForItem(activeDecorated.item);
                           const parsedStatus = metadataString(lcMeta, ['parsed_status', 'status']);
                           const steps = ['Queued', 'Dispatched', 'Running', 'Completed'] as const;
@@ -6163,11 +6198,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           if (!currentStep) return null;
                           const currentIndex = steps.indexOf(currentStep);
                           const isTerminal = parsedStatus === 'completed' || parsedStatus === 'success';
-                          const dispatchTs = activeDecorated.item.timestamp;
-                          const elapsed = Date.now() - new Date(dispatchTs).getTime();
-                          const elapsedLabel = elapsed < 60_000
-                            ? `${Math.round(elapsed / 1000)}s`
-                            : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+                          const activeRunId = resolveRunId(activeDecorated.item);
+                          const timing = activeRunId ? sliceTimingByRunId.get(activeRunId) : null;
+                          const startMs = timing?.startedAt ? new Date(timing.startedAt).getTime() : null;
+                          const endMs = timing?.completedAt ? new Date(timing.completedAt).getTime() : (isTerminal ? null : Date.now());
+                          let elapsedLabel: string | null = null;
+                          if (startMs && endMs) {
+                            const elapsed = endMs - startMs;
+                            elapsedLabel = elapsed < 60_000
+                              ? `${Math.round(elapsed / 1000)}s`
+                              : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+                          } else if (startMs && !isTerminal) {
+                            const elapsed = Date.now() - startMs;
+                            elapsedLabel = elapsed < 60_000
+                              ? `${Math.round(elapsed / 1000)}s`
+                              : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+                          }
                           return (
                             <div className="flex items-center gap-1 px-1">
                               {steps.map((step, i) => {
@@ -6200,7 +6246,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   </div>
                                 );
                               })}
-                              <span className="ml-2 text-micro text-muted">{elapsedLabel}</span>
+                              {elapsedLabel && <span className="ml-2 text-micro text-muted">{elapsedLabel}</span>}
                             </div>
                           );
                         })()}
@@ -6302,7 +6348,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         </div>
 
                         {/* Scope — flat inline */}
-                        {activeExecutionBreakdown && (
+                        {activeVisibleSections.has('scope') && activeExecutionBreakdown && (
                           <div>
                             <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                               Scope
@@ -6422,7 +6468,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {/* Summary — flat, no card wrapper */}
-                    {activeSummaryText && (
+                    {activeVisibleSections.has('summary') && activeSummaryText && (
                       <div>
                         <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Summary
@@ -6514,10 +6560,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {/* Structured evidence + file evidence */}
                     {(() => {
+                      if (!activeVisibleSections.has('evidence')) return null;
                       const evMeta = metadataForItem(activeDecorated.item);
                       const blocker = evMeta?.blocker as { description?: string; waiting_on?: string } | undefined;
                       const decisionsNeeded = evMeta?.decisions_needed as Array<{ title?: string; id?: string }> | undefined;
-                      const hasStructured = blocker || (decisionsNeeded && decisionsNeeded.length > 0);
+                      const outcomes = evMeta?.outcomes as Record<string, unknown> | undefined;
+                      const taskUpdates = evMeta?.task_updates as Array<unknown> | undefined;
+                      const hasStructuredOutcomes = !!(
+                        outcomes?.pr_url || outcomes?.commit_sha || outcomes?.tests ||
+                        (taskUpdates && taskUpdates.length > 0)
+                      );
+                      const hasStructuredEvidence = !!(blocker || (decisionsNeeded && decisionsNeeded.length > 0));
+                      const hasAnyStructured = hasStructuredOutcomes || hasStructuredEvidence;
+                      const hasStructured = hasStructuredEvidence;
                       const hasFiles = activeFileEvidenceUnique.length > 0;
                       if (!hasStructured && !hasFiles) return null;
                       return (
@@ -6577,7 +6632,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               </div>
                             )}
                             {hasFiles && (
-                              <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
+                              <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2" open={!hasAnyStructured}>
                                 <summary className="cursor-pointer list-none text-caption font-semibold text-secondary select-none">
                                   {activeFileEvidenceUnique.length} evidence file{activeFileEvidenceUnique.length === 1 ? '' : 's'}
                                 </summary>

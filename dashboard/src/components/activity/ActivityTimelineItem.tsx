@@ -51,6 +51,7 @@ interface ActivityTimelineItemProps {
   detailText: string | null;
   displayAgentName: string;
   railColor: string;
+  statusColor?: string;
   userStateLabel: string;
   userStateWhy: string;
   relativeTime: string;
@@ -81,6 +82,7 @@ export function ActivityTimelineItem({
   detailText,
   displayAgentName,
   railColor,
+  statusColor,
   userStateLabel,
   userStateWhy,
   relativeTime,
@@ -201,13 +203,13 @@ export function ActivityTimelineItem({
           <span
             className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tracking-[0.01em]"
             style={{
-              borderColor: `${railColor}55`,
-              backgroundColor: `${railColor}1A`,
-              color: railColor,
+              borderColor: `${statusColor ?? railColor}55`,
+              backgroundColor: `${statusColor ?? railColor}1A`,
+              color: statusColor ?? railColor,
             }}
             title={userStateWhy}
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: railColor }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor ?? railColor }} />
             {userStateLabel}
           </span>
           <span
