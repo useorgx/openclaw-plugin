@@ -42,6 +42,7 @@ interface NextUpPanelProps {
   queueActions?: UseNextUpQueueActionsResult;
   snapshotVersion?: number | null;
   excludeRunning?: boolean;
+  activeElsewhereCount?: number;
 }
 
 interface ActionGlyphProps {
@@ -515,6 +516,7 @@ export function NextUpPanel({
   queueActions,
   snapshotVersion = null,
   excludeRunning = false,
+  activeElsewhereCount: activeElsewhereCountProp,
 }: NextUpPanelProps) {
   const [localCompact, setLocalCompact] = useState(compact);
   useEffect(() => setLocalCompact(compact), [compact]);
@@ -567,10 +569,15 @@ export function NextUpPanel({
   const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const isWorkstreamView = zoomLevel === 'workstream';
-  const activeElsewhereCount = useMemo(
-    () => items.filter((item) => item.queueState === 'running').length,
-    [items]
-  );
+  const activeElsewhereCount = useMemo(() => {
+    if (
+      typeof activeElsewhereCountProp === 'number' &&
+      Number.isFinite(activeElsewhereCountProp)
+    ) {
+      return Math.max(0, Math.floor(activeElsewhereCountProp));
+    }
+    return items.filter((item) => item.queueState === 'running').length;
+  }, [activeElsewhereCountProp, items]);
   const cardEnterTransition = useMemo(
     () =>
       prefersReducedMotion
@@ -1278,7 +1285,11 @@ export function NextUpPanel({
         </div>
       )}
 
-      <div className={`flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain px-3 pb-3 ${showHeader ? 'pt-1' : 'pt-2.5'}`}>
+      <div
+        className={`flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain scroll-smooth px-3 pb-3 ${
+          showHeader ? 'pt-1' : 'pt-2.5'
+        }`}
+      >
         {!isLoading && displayCount > 0 ? (
           <div className="flex flex-col gap-2.5 px-0.5 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">

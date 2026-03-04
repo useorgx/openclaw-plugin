@@ -2830,7 +2830,8 @@ function DashboardShell({
                 nextUpQueueModel={sharedNextUpQueue}
                 nextUpActionsModel={sharedNextUpActions}
                 snapshotVersion={data.snapshotVersion}
-		            />
+                nextUpActiveElsewhereCount={inProgressCount}
+	            />
 	          </Suspense>
 	        </div>
 	      ) : (
@@ -3165,6 +3166,7 @@ function DashboardShell({
                         queueModel={sharedNextUpQueue}
                         queueActions={sharedNextUpActions}
                         snapshotVersion={data.snapshotVersion}
+                        activeElsewhereCount={inProgressCount}
                         excludeRunning
                         onOpenInitiative={openInitiativeFromNextUp}
                         onOpenSliceDetail={openSliceDetailFromQueue}
