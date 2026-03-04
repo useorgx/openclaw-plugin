@@ -116,8 +116,14 @@ export function registerLiveMiscRoutes<TReq, TRes>(
   ): Promise<Set<string> | null> {
     const projectId = projectIdRaw?.trim() ?? "";
     if (!projectId) return null;
-    const ids = await deps.listInitiativeIdsForProject({ projectId });
-    return new Set(ids);
+    try {
+      const ids = await deps.listInitiativeIdsForProject({ projectId });
+      return new Set(ids);
+    } catch {
+      // Scope discovery is best-effort. Continue with unscoped fallback data
+      // instead of hard-failing live surfaces.
+      return null;
+    }
   }
 
   router.add(
