@@ -10,12 +10,13 @@ import type {
 } from '@/types';
 import { useAgentEntityMap } from '@/hooks/useAgentEntityMap';
 import { useAutoContinue } from '@/hooks/useAutoContinue';
-import { useNextUpQueue, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
+import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useRangeSelection } from '@/hooks/useRangeSelection';
 import { useInitiativeSearch } from '@/hooks/useInitiativeSearch';
 import { openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
+import { isMissionControlApiError } from '@/lib/missionControlApiError';
 import { captureTelemetry } from '@/lib/telemetry';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { SearchInput } from '@/components/shared/SearchInput';
@@ -269,6 +270,13 @@ function formatMissionControlError(raw: string | undefined, fallback: string): s
   return message || fallback;
 }
 
+type PlayConflictState = {
+  target: NextUpQueueItem;
+  message: string;
+  activeWorkstreamTitle: string | null;
+  activeWorkstreamId: string | null;
+};
+
 const PAGE_SIZE_OPTIONS = [12, 24, 36, 48, 72] as const;
 
 export function MissionControlView({
@@ -436,6 +444,9 @@ function MissionControlInner({
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
+  const [playConflict, setPlayConflict] = useState<PlayConflictState | null>(null);
+  const [isSwitchingRun, setIsSwitchingRun] = useState(false);
+  const [autoEnableTarget, setAutoEnableTarget] = useState<NextUpQueueItem | null>(null);
   const [railActionKey, setRailActionKey] = useState<
     'start' | 'pause' | 'defer' | 'auto' | null
   >(null);
@@ -1282,6 +1293,77 @@ function MissionControlInner({
     },
     []
   );
+  const startWorkstreamWithConflictHandling = useCallback(
+    async (
+      item: NextUpQueueItem,
+      options?: { surface?: 'rail' | 'card' }
+    ) => {
+      const reportToRail = options?.surface !== 'card';
+      if (reportToRail) {
+        setRailActionKey('start');
+        setNextActionNotice(null);
+      }
+      setPlayConflict(null);
+      try {
+        const result = await nextActionQueue.playWorkstream({
+          initiativeId: item.initiativeId,
+          workstreamId: item.workstreamId,
+          agentId: item.runnerAgentId,
+        });
+        if (reportToRail) {
+          setNextActionNotice({
+            tone: 'success',
+            message: `Started ${item.workstreamTitle}.`,
+          });
+        }
+        return result;
+      } catch (error) {
+        if (
+          isMissionControlApiError(error) &&
+          error.code === 'auto_continue_already_running'
+        ) {
+          const details = error.details;
+          const activeWorkstreamTitle =
+            details && typeof details.activeWorkstreamTitle === 'string'
+              ? details.activeWorkstreamTitle
+              : null;
+          const activeWorkstreamId =
+            details && typeof details.activeWorkstreamId === 'string'
+              ? details.activeWorkstreamId
+              : null;
+          setPlayConflict({
+            target: item,
+            message:
+              error.message ||
+              'A workstream is already running. Stop it before starting another.',
+            activeWorkstreamTitle,
+            activeWorkstreamId,
+          });
+          if (!reportToRail) {
+            throw error;
+          }
+          return null;
+        }
+
+        if (reportToRail) {
+          setNextActionNotice({
+            tone: 'error',
+            message: formatMissionControlError(
+              error instanceof Error ? error.message : '',
+              'Unable to start workstream.'
+            ),
+          });
+          return null;
+        }
+        throw error;
+      } finally {
+        if (reportToRail) {
+          setRailActionKey(null);
+        }
+      }
+    },
+    [nextActionQueue]
+  );
   const pauseNowWorking = useCallback(() => {
     if (!nowWorkingItem) return Promise.resolve();
     return runRailAction(
@@ -1327,29 +1409,70 @@ function MissionControlInner({
     const autoEnabled =
       target.autoIntentEnabled === true &&
       (target.autoRuntimeState === 'running' || target.autoRuntimeState === 'stopping');
+    if (!autoEnabled) {
+      setAutoEnableTarget(target);
+      return Promise.resolve();
+    }
     return runRailAction(
       'auto',
       () =>
-        autoEnabled
-          ? nextActionQueue.stopInitiativeAutoContinue({ initiativeId: target.initiativeId })
-          : (async () => {
-              await nextUpActions.move({
-                initiativeId: target.initiativeId,
-                workstreamId: target.workstreamId,
-                placement: 'top',
-              });
-              return nextActionQueue.startWorkstreamAutoContinue({
-                initiativeId: target.initiativeId,
-                workstreamId: target.workstreamId,
-                agentId: target.runnerAgentId,
-                scope: 'initiative',
-              });
-            })(),
-      autoEnabled
-        ? `Stopped auto-continue for ${target.initiativeTitle}.`
-        : `Auto-continue enabled for ${target.initiativeTitle}; starting with ${target.workstreamTitle}.`
+        nextActionQueue.stopInitiativeAutoContinue({ initiativeId: target.initiativeId }),
+      `Stopped auto-continue for ${target.initiativeTitle}.`
     );
-  }, [nextActionQueue, nextActionQueueItem, nextQueuedItem, nextUpActions, nowWorkingItem, runRailAction]);
+  }, [nextActionQueue, nextActionQueueItem, nextQueuedItem, nowWorkingItem, runRailAction]);
+  const confirmAutoEnable = useCallback(() => {
+    if (!autoEnableTarget) return;
+    const target = autoEnableTarget;
+    setAutoEnableTarget(null);
+    void runRailAction(
+      'auto',
+      () =>
+        nextActionQueue.startWorkstreamAutoContinue({
+          initiativeId: target.initiativeId,
+          workstreamId: target.workstreamId,
+          agentId: target.runnerAgentId,
+          scope: 'initiative',
+        }),
+      `Auto-continue enabled for ${target.initiativeTitle}; starting with ${target.workstreamTitle}.`
+    );
+  }, [autoEnableTarget, nextActionQueue, runRailAction]);
+  const switchToConflictTarget = useCallback(async () => {
+    if (!playConflict || isSwitchingRun) return;
+    setIsSwitchingRun(true);
+    setNextActionNotice(null);
+    try {
+      try {
+        await nextActionQueue.stopInitiativeAutoContinue({
+          initiativeId: playConflict.target.initiativeId,
+        });
+      } catch (error) {
+        if (!isMissionControlApiError(error) || error.status !== 404) {
+          throw error;
+        }
+      }
+
+      await nextActionQueue.playWorkstream({
+        initiativeId: playConflict.target.initiativeId,
+        workstreamId: playConflict.target.workstreamId,
+        agentId: playConflict.target.runnerAgentId,
+      });
+      setPlayConflict(null);
+      setNextActionNotice({
+        tone: 'success',
+        message: `Switched run to ${playConflict.target.workstreamTitle}.`,
+      });
+    } catch (error) {
+      setNextActionNotice({
+        tone: 'error',
+        message: formatMissionControlError(
+          error instanceof Error ? error.message : '',
+          'Unable to switch run.'
+        ),
+      });
+    } finally {
+      setIsSwitchingRun(false);
+    }
+  }, [isSwitchingRun, nextActionQueue, playConflict]);
   const openNextActionInitiative = useCallback(() => {
     if (!nextActionInitiative) return;
     openInitiativeFromNextUp(nextActionInitiative.id, nextActionInitiative.name);
@@ -1472,6 +1595,7 @@ function MissionControlInner({
     nextActionQueue.isPlaying ||
     nextActionQueue.isStartingAutoContinue ||
     nextActionQueue.isStoppingAutoContinue ||
+    isSwitchingRun ||
     mutations.updateEntity.isPending;
   const nextActionFallbackLabel = useMemo(() => {
     if (nextActionMode === 'blocked') return 'Review blockers';
@@ -1570,16 +1694,29 @@ function MissionControlInner({
   }, [initiatives, modalTarget]);
 
   useEffect(() => {
-    setNextActionNotice(null);
+    if (!playConflict) return;
+    const stillAvailable = nextActionQueue.items.some(
+      (item) =>
+        item.initiativeId === playConflict.target.initiativeId &&
+        item.workstreamId === playConflict.target.workstreamId
+    );
+    if (!stillAvailable) {
+      setPlayConflict(null);
+    }
   }, [
-    nextActionInitiative?.id,
-    nextActionQueueItem?.initiativeId,
-    nextActionQueueItem?.workstreamId,
-    nowWorkingItem?.initiativeId,
-    nowWorkingItem?.workstreamId,
-    nextQueuedItem?.initiativeId,
-    nextQueuedItem?.workstreamId,
+    nextActionQueue.items,
+    playConflict,
   ]);
+
+  useEffect(() => {
+    if (!autoEnableTarget) return;
+    const stillAvailable = nextActionQueue.items.some(
+      (item) =>
+        item.initiativeId === autoEnableTarget.initiativeId &&
+        item.workstreamId === autoEnableTarget.workstreamId
+    );
+    if (!stillAvailable) setAutoEnableTarget(null);
+  }, [autoEnableTarget, nextActionQueue.items]);
 
   useEffect(() => {
     if (!modalTarget) return;
@@ -2097,16 +2234,7 @@ function MissionControlInner({
                               return;
                             }
                             if (startCandidate) {
-                              void runRailAction(
-                                'start',
-                                () =>
-                                  nextActionQueue.playWorkstream({
-                                    initiativeId: startCandidate.initiativeId,
-                                    workstreamId: startCandidate.workstreamId,
-                                    agentId: startCandidate.runnerAgentId,
-                                  }),
-                                `Started ${startCandidate.workstreamTitle}.`
-                              );
+                              void startWorkstreamWithConflictHandling(startCandidate);
                               return;
                             }
                             openNextActionInitiative();
@@ -2569,6 +2697,11 @@ function MissionControlInner({
                                     queueActions={nextUpActions}
                                     snapshotVersion={snapshotVersion}
                                     activeElsewhereCount={nextUpActiveElsewhereCount}
+                                    onPlayWorkstream={(item) =>
+                                      startWorkstreamWithConflictHandling(item, {
+                                        surface: 'card',
+                                      })
+                                    }
                                     onOpenInitiative={openInitiativeFromNextUp}
                                     onOpenSettings={onOpenSettings}
                                     onUpgradeGate={setAutopilotUpgradeGate}
@@ -2715,6 +2848,11 @@ function MissionControlInner({
                                     queueActions={nextUpActions}
                                     snapshotVersion={snapshotVersion}
                                     activeElsewhereCount={nextUpActiveElsewhereCount}
+                                    onPlayWorkstream={(item) =>
+                                      startWorkstreamWithConflictHandling(item, {
+                                        surface: 'card',
+                                      })
+                                    }
                                     onOpenInitiative={(initiativeId, initiativeTitle) => {
                                       openInitiativeFromNextUp(initiativeId, initiativeTitle);
                                       setNextUpDrawerOpen(false);
@@ -2750,6 +2888,132 @@ function MissionControlInner({
                       </motion.div>
                     </div>
                   </motion.aside>
+                </>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {autoEnableTarget && (
+                <>
+                  <motion.button
+                    key="auto-enable-backdrop"
+                    type="button"
+                    aria-label="Close auto-enable dialog"
+                    onClick={() => setAutoEnableTarget(null)}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[320] bg-black/50"
+                  />
+                  <motion.div
+                    key="auto-enable-dialog"
+                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                    transition={missionControlMotion.surfaceSwitch}
+                    className="fixed inset-x-4 top-1/2 z-[330] -translate-y-1/2 rounded-2xl border border-white/[0.12] bg-[#080d14]/96 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:left-1/2 sm:right-auto sm:w-[440px] sm:-translate-x-1/2"
+                  >
+                    <p className="text-caption uppercase tracking-[0.08em] text-secondary">Enable Auto</p>
+                    <h3 className="mt-1 text-heading font-semibold text-bright">
+                      Auto-continue this initiative
+                    </h3>
+                    <p className="mt-2 text-caption text-secondary">
+                      Initiative: <span className="text-primary">{autoEnableTarget.initiativeTitle}</span>
+                    </p>
+                    <p className="mt-1 text-caption text-secondary">
+                      Starting workstream:{' '}
+                      <span className="text-primary">{autoEnableTarget.workstreamTitle}</span>
+                    </p>
+                    <p className="mt-3 text-caption text-secondary">
+                      OrgX will continue dispatching work in this initiative until blocked or stopped.
+                    </p>
+                    <div className="mt-4 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAutoEnableTarget(null)}
+                        className="control-pill h-8 px-3 text-caption font-semibold"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmAutoEnable}
+                        className="control-pill h-8 px-3 text-caption font-semibold"
+                        data-tone="teal"
+                      >
+                        Enable Auto
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {playConflict && (
+                <>
+                  <motion.button
+                    key="play-conflict-backdrop"
+                    type="button"
+                    aria-label="Close switch-run dialog"
+                    onClick={() => setPlayConflict(null)}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[320] bg-black/50"
+                  />
+                  <motion.div
+                    key="play-conflict-dialog"
+                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.98 }}
+                    transition={missionControlMotion.surfaceSwitch}
+                    className="fixed inset-x-4 top-1/2 z-[330] -translate-y-1/2 rounded-2xl border border-white/[0.12] bg-[#080d14]/96 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:left-1/2 sm:right-auto sm:w-[460px] sm:-translate-x-1/2"
+                  >
+                    <p className="text-caption uppercase tracking-[0.08em] text-secondary">Run conflict</p>
+                    <h3 className="mt-1 text-heading font-semibold text-bright">
+                      Another workstream is already running
+                    </h3>
+                    <p className="mt-2 text-caption text-secondary">
+                      {playConflict.activeWorkstreamTitle
+                        ? `Running now: ${playConflict.activeWorkstreamTitle}`
+                        : playConflict.message}
+                    </p>
+                    <p className="mt-1 text-caption text-secondary">
+                      Requested: <span className="text-primary">{playConflict.target.workstreamTitle}</span>
+                    </p>
+                    <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPlayConflict(null)}
+                        className="control-pill h-8 px-3 text-caption font-semibold"
+                      >
+                        Keep current
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          openInitiativeFromNextUp(
+                            playConflict.target.initiativeId,
+                            playConflict.target.initiativeTitle
+                          );
+                          setPlayConflict(null);
+                        }}
+                        className="control-pill h-8 px-3 text-caption font-semibold"
+                      >
+                        Open running
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSwitchingRun}
+                        onClick={() => void switchToConflictTarget()}
+                        className="control-pill h-8 px-3 text-caption font-semibold disabled:opacity-45"
+                        data-tone="teal"
+                      >
+                        {isSwitchingRun ? 'Switching…' : 'Switch run'}
+                      </button>
+                    </div>
+                  </motion.div>
                 </>
               )}
             </AnimatePresence>

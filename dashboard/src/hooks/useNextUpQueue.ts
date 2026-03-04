@@ -18,6 +18,7 @@ import {
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { humanizeWarning } from '@/lib/humanize';
+import { parseMissionControlApiError } from '@/lib/missionControlApiError';
 
 export type ZoomLevel = 'initiative' | 'workstream' | 'milestone';
 
@@ -897,8 +898,10 @@ export function useNextUpQueue({
 
       const body = await readResponseJson<NextUpPlayResponse>(response);
       if (!response.ok) {
-        throw new Error(
-          normalizeErrorMessage(response, body, 'Failed to dispatch queued workstream')
+        throw parseMissionControlApiError(
+          response,
+          body,
+          'Failed to dispatch queued workstream'
         );
       }
       return body;
@@ -962,8 +965,10 @@ export function useNextUpQueue({
       if (!response.ok) {
         const upgradeError = parseUpgradeRequiredError(body);
         if (upgradeError) throw upgradeError;
-        throw new Error(
-          normalizeErrorMessage(response, body, 'Failed to start auto-continue')
+        throw parseMissionControlApiError(
+          response,
+          body,
+          'Failed to start auto-continue'
         );
       }
     },
@@ -982,8 +987,10 @@ export function useNextUpQueue({
       });
       const body = await readResponseJson<{ error?: string; message?: string }>(response);
       if (!response.ok) {
-        throw new Error(
-          normalizeErrorMessage(response, body, 'Failed to stop auto-continue')
+        throw parseMissionControlApiError(
+          response,
+          body,
+          'Failed to stop auto-continue'
         );
       }
     },
