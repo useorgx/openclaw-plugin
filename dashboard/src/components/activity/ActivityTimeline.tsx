@@ -30,7 +30,7 @@ import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
-import { ActivityTimelineItem, type ArtifactSnippet, type EvidenceChip } from './ActivityTimelineItem';
+import { ActivityTimelineItem, type ArtifactSnippet, type EvidenceChip, type ActorCategory } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
 import { ActivityDetailSummary } from './ActivityDetailSummary';
 import { ChatDockProvider } from './chat/ChatDockContext';
@@ -578,6 +578,58 @@ function resolveActivityActorFlow(item: LiveActivityItem): ActivityActorFlow {
 function actorAvatarHint(actor: ActivityActor | null): string {
   if (!actor) return '';
   return [actor.id, actor.name, actor.label].filter(Boolean).join(' ');
+}
+
+const ORCHESTRATOR_EVENTS = new Set([
+  'autopilot_slice_dispatched',
+  'auto_continue_started',
+  'auto_continue_stopped',
+  'autopilot_transition',
+  'orchestrator_selection',
+  'orchestrator_dispatch',
+]);
+
+const SYSTEM_EVENTS = new Set([
+  'heartbeat',
+  'spawn_guard_blocked',
+  'spawn_guard_rate_limited',
+]);
+
+function classifyActorCategory(item: LiveActivityItem, actorFlow: ActivityActorFlow): ActorCategory {
+  // User-initiated
+  if (item.requesterAgentId === 'main' || item.agentId === 'main') return 'user';
+
+  const metadata = metadataForItem(item);
+  const eventName = metadataString(metadata, ['event', 'event_name', 'eventName']) ?? '';
+  const source = metadataString(metadata, ['source']) ?? '';
+  if (source === 'user') return 'user';
+
+  // Orchestrator events
+  if (ORCHESTRATOR_EVENTS.has(eventName)) return 'orchestrator';
+  if (actorFlow.primaryLabel?.toLowerCase().includes('xandy')) return 'orchestrator';
+
+  // System events
+  if (actorFlow.mode === 'system') return 'system';
+  if (SYSTEM_EVENTS.has(eventName)) return 'system';
+
+  // Everything else is a domain agent
+  return 'agent';
+}
+
+const ACTOR_CATEGORY_RAIL_COLORS: Record<ActorCategory, string> = {
+  user: colors.lime,
+  system: 'rgba(255,255,255,0.15)',
+  orchestrator: colors.iris,
+  agent: '', // uses domain color from AgentAvatar — resolved at render time
+};
+
+function actorCategoryLabel(category: ActorCategory): string {
+  switch (category) {
+    case 'user': return 'You';
+    case 'system': return 'OrgX';
+    case 'orchestrator': return 'Xandy';
+    case 'agent': return '';
+  }
 }
 
 function extractWorkstreamId(item: LiveActivityItem): string | null {
@@ -2670,8 +2722,21 @@ function narrativeActivityTitle(item: LiveActivityItem): string | null {
     const typeLabel = artifactType ? humanizeText(artifactType) : 'artifact';
     return artifactTitle ? `Created ${typeLabel}: ${artifactTitle}` : `Created ${typeLabel}`;
   }
+  if (item.type === 'artifact_updated' as LiveActivityType) {
+    return artifactTitle ? `Updated ${artifactTitle}` : 'Updated artifact';
+  }
   if (item.type === 'delegation' && agentName && taskTitle) {
     return `${agentName} is handling ${taskTitle}`;
+  }
+
+  // Decision events
+  if (eventName === 'decision_needed') {
+    const decisionTitle = metadataString(metadata, ['decision_title', 'decisionTitle', 'title']);
+    return decisionTitle ? `Decision needed: ${decisionTitle}` : 'Decision needed';
+  }
+  if (eventName === 'decision_resolved') {
+    const decisionTitle = metadataString(metadata, ['decision_title', 'decisionTitle', 'title']);
+    return decisionTitle ? `Decision resolved: ${decisionTitle}` : 'Decision resolved';
   }
 
   // Spawn guard events
@@ -2680,6 +2745,61 @@ function narrativeActivityTitle(item: LiveActivityItem): string | null {
   }
 
   return null;
+}
+
+/**
+ * Determines which modal sections should be visible for a given event.
+ * Used to conditionally render sections instead of checking every field independently.
+ */
+function modalSectionsForEvent(
+  eventName: string,
+  hasArtifact: boolean,
+  hasOutcome: boolean
+): Set<string> {
+  const sections = new Set(['header']);
+
+  if (hasArtifact) sections.add('artifact');
+  if (hasOutcome) sections.add('outcome');
+
+  // Slice results always get summary + evidence
+  if (
+    eventName.includes('slice_result') ||
+    eventName.includes('slice_finished') ||
+    eventName.includes('run_completed')
+  ) {
+    sections.add('summary');
+    sections.add('evidence');
+    sections.add('structured_outcomes');
+  }
+
+  // Blocked/attention events get action_needed
+  if (
+    eventName.includes('blocked') ||
+    eventName.includes('needs_attention') ||
+    eventName.includes('needs_decision') ||
+    eventName.includes('failed')
+  ) {
+    sections.add('action_needed');
+  }
+
+  // Autopilot events get session context
+  if (eventName.includes('autopilot') || eventName.includes('auto_continue')) {
+    sections.add('session');
+    sections.add('scope');
+  }
+
+  // Decision events
+  if (eventName.includes('decision')) {
+    sections.add('action_needed');
+  }
+
+  // Artifact events
+  if (eventName.includes('artifact')) {
+    sections.add('artifact');
+    sections.add('evidence');
+  }
+
+  return sections;
 }
 
 function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: boolean } {
@@ -2972,11 +3092,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [showSyncEvents, setShowSyncEvents] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [clusterVisibleCounts, setClusterVisibleCounts] = useState<Record<string, number>>({});
-  const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('oldest');
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [timeRangeMenuOpen, setTimeRangeMenuOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT);
@@ -4296,7 +4415,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     if (!exists) return;
 
     handledRequestedItemIdRef.current = requestedId;
-    setCollapsed(false);
     setActiveFilter('all');
     setQuery('');
     setDetailDirection(1);
@@ -4496,14 +4614,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const renderKey = keyOverride ?? item.id;
     const identity = resolveAgentIdentity(item);
     const actorFlow = resolveActivityActorFlow(item);
+    const actorCategory = classifyActorCategory(item, actorFlow);
     const primaryActor = actorFlow.executor ?? actorFlow.requester;
-    const displayAgentName =
+    const resolvedAgentName =
       formatAgentLabel(
         sanitizeActorDisplayValue(primaryActor?.name ?? actorFlow.primaryLabel ?? item.agentName ?? identity.agentName ?? null),
         sanitizeActorDisplayValue(primaryActor?.id ?? item.agentId ?? identity.agentId ?? null),
         agentNameById
       ) || 'OrgX';
-    const railColor = userStateColor(decorated.userState);
+    const displayAgentName = actorCategoryLabel(actorCategory) || resolvedAgentName;
+    const railColor = ACTOR_CATEGORY_RAIL_COLORS[actorCategory] || userStateColor(decorated.userState);
     const isRecent = sortOrder === 'newest' && index < 2;
     const runId = decorated.runId;
     const syncSummary = syncReplaySummary(item);
@@ -4577,6 +4697,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         ariaLabel={`Open activity details for ${displayTitle || labelForType(item.type)}`}
         artifactSnippet={artifactSnippet}
         evidenceChips={evidenceChips.length > 0 ? evidenceChips : undefined}
+        actorCategory={actorCategory}
+        queuePosition={queueInfo ? { rank: queueInfo.rank, state: queueInfo.state } : null}
       />
     );
   };
@@ -4944,24 +5066,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     })}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setCollapsed((prev) => !prev)}
-                    className={cn(
-                      'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border bg-white/[0.03] text-muted transition-colors hover:bg-white/[0.08] hover:text-primary',
-                      collapsed ? 'border-lime/30 text-lime' : 'border-white/[0.1]'
-                    )}
-                    aria-pressed={collapsed}
-                    aria-label={collapsed ? 'Expand activity density' : 'Compact activity density'}
-                    title={collapsed ? 'Expand activity density' : 'Compact activity density'}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                      <path d="M4 7h16" />
-                      <path d={collapsed ? 'M4 12h16' : 'M4 12h10'} />
-                      <path d="M4 17h16" />
-                    </svg>
-                  </button>
-
                   <div className="relative flex-shrink-0" ref={controlsMenuRef}>
                     <button
                       type="button"
@@ -5234,7 +5338,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         {filtered.length > 0 && (
           <div className="space-y-4">
             {deduplicatedGrouped.map((group) => {
-              const visibleClusters = collapsed ? group.clusters.slice(0, 4) : group.clusters;
+              const visibleClusters = group.clusters;
 	              return (
 	                <section key={group.key}>
 		                  <h3 className="mb-2.5 border-b border-subtle pb-1.5 text-caption font-semibold tracking-[0.01em] text-muted">
@@ -5383,11 +5487,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 	                      })}
 	                    </div>
 	                  )}
-	                  {collapsed && group.clusters.length > visibleClusters.length && (
-	                    <p className="mt-1.5 text-caption text-muted">
-	                      +{group.clusters.length - visibleClusters.length} more
-	                    </p>
-	                  )}
 	                </section>
               );
             })}
@@ -5416,10 +5515,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
               !isLoadingMore &&
               filtered.length > 0 &&
               !nextActivityTimeFilter(timeFilterId) && (
-              <p className="pb-4 text-center text-micro tracking-wide text-muted/50">
+              <p className="py-6 text-center text-caption text-muted">
                 {hiddenCount > 0
                   ? `${filtered.length} of ${filteredTotal} events`
-                  : 'You\u2019ve reached the beginning'}
+                  : 'Beginning of activity history'}
               </p>
             )}
           </div>
@@ -5623,6 +5722,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     </div>
                     </div>
 
+                    {/* Registered artifact — promoted to top when no inline hero */}
+                    {activeDecorated && extractArtifactId(activeDecorated.item) && !activeArtifact && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const aid = extractArtifactId(activeDecorated.item);
+                          if (aid) openArtifactViewer(aid);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl border border-cyan-400/25 bg-cyan-500/[0.08] px-3.5 py-2.5 text-left transition-colors hover:bg-cyan-500/[0.14]"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.cyan} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+                          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                        </svg>
+                        <span className="text-body font-medium" style={{ color: colors.cyan }}>
+                          View registered artifact
+                        </span>
+                      </button>
+                    )}
+
                     {/* Activity summary card */}
                     <ActivityDetailSummary item={activeDecorated.item} />
 
@@ -5782,6 +5901,92 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
+                    {/* Structured outcomes — typed cards for PR, tests, tasks */}
+                    {(() => {
+                      const metadata = metadataForItem(activeDecorated.item);
+                      const outcomes = metadata?.outcomes as Record<string, unknown> | undefined;
+                      const taskUpdates = metadata?.task_updates as Array<{ title?: string; status?: string }> | undefined;
+                      if (!outcomes && (!taskUpdates || taskUpdates.length === 0)) return null;
+                      const prUrl = outcomes?.pr_url as string | undefined;
+                      const prNumber = outcomes?.pr_number as string | number | undefined;
+                      const commitSha = outcomes?.commit_sha as string | undefined;
+                      const commitUrl = outcomes?.commit_url as string | undefined;
+                      const tests = outcomes?.tests as { passed?: number; failed?: number; skipped?: number } | undefined;
+                      const hasAny = prUrl || commitSha || tests || (taskUpdates && taskUpdates.length > 0);
+                      if (!hasAny) return null;
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-micro font-semibold uppercase tracking-wider text-muted">
+                            Outcomes
+                          </p>
+                          {prUrl && (
+                            <a
+                              href={prUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 rounded-xl border border-lime/20 bg-lime/[0.06] px-3.5 py-2.5 transition-colors hover:bg-lime/[0.10]"
+                            >
+                              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-lime" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-micro font-semibold uppercase tracking-wider text-lime/70">Pull Request</p>
+                                <p className="mt-0.5 text-body font-semibold text-primary">
+                                  {prNumber ? `#${prNumber}` : 'View on GitHub'}
+                                </p>
+                              </div>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="flex-shrink-0 text-muted">
+                                <path d="M7 17 17 7M17 7H7M17 7v10" />
+                              </svg>
+                            </a>
+                          )}
+                          {commitSha && (
+                            <div className="flex items-center gap-3 rounded-xl border border-lime/15 bg-lime/[0.04] px-3.5 py-2.5">
+                              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-lime/60" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-micro font-semibold uppercase tracking-wider text-lime/60">Commit</p>
+                                <p className="mt-0.5 font-mono text-caption text-primary">{commitSha.slice(0, 7)}</p>
+                              </div>
+                              {commitUrl && (
+                                <a href={commitUrl} target="_blank" rel="noopener noreferrer" className="text-caption text-secondary hover:text-primary transition-colors">View</a>
+                              )}
+                            </div>
+                          )}
+                          {tests && (
+                            <div className="flex items-center gap-3 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] px-3.5 py-2.5">
+                              <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: (tests.failed ?? 0) > 0 ? colors.red : '#67e8f9' }} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-micro font-semibold uppercase tracking-wider" style={{ color: (tests.failed ?? 0) > 0 ? colors.red : 'rgba(103,232,249,0.7)' }}>Tests</p>
+                                <p className="mt-0.5 text-body text-primary">
+                                  {tests.passed ?? 0} passed
+                                  {(tests.failed ?? 0) > 0 && <span className="text-red-300"> · {tests.failed} failed</span>}
+                                  {(tests.skipped ?? 0) > 0 && <span className="text-muted"> · {tests.skipped} skipped</span>}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          {taskUpdates && taskUpdates.length > 0 && (
+                            <div className="rounded-xl border border-[#14B8A6]/15 bg-[#14B8A6]/[0.04] px-3.5 py-2.5">
+                              <div className="flex items-center gap-3">
+                                <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#14B8A6]" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-micro font-semibold uppercase tracking-wider text-[#14B8A6]/70">Task Updates</p>
+                                  <p className="mt-0.5 text-body text-primary">{taskUpdates.length} task{taskUpdates.length !== 1 ? 's' : ''} updated</p>
+                                </div>
+                              </div>
+                              {taskUpdates.length <= 5 && (
+                                <ul className="mt-2 space-y-1 pl-5">
+                                  {taskUpdates.map((tu, i) => (
+                                    <li key={i} className="text-caption text-secondary">
+                                      {tu.title ? `"${tu.title}"` : 'Task'}{tu.status ? ` \u2192 ${humanizeText(tu.status)}` : ''}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {activeSpawnGuard && !devMode && (
                       <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-500/[0.06] px-3.5 py-3">
                         <p className="text-caption text-amber-100/80">
@@ -5889,55 +6094,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {/* --- Execution context (flat layout) --- */}
-                    {activeActorFlow && !activeAutopilotContext && (
-                      <div>
-                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
-                          Delegation
-                        </p>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body text-secondary">
-                          <span className="flex items-center gap-1.5">
-                            {activeActorFlow.requester ? (
-                              <>
-                                <AgentAvatar
-                                  name={activeActorFlow.requester.label}
-                                  hint={actorAvatarHint(activeActorFlow.requester)}
-                                  size="xs"
-                                />
-                                <span className="text-primary">{activeActorFlow.requester.label}</span>
-                              </>
-                            ) : (
-                              <span>{humanizeActorName('System / unknown')}</span>
-                            )}
+                    {/* --- Execution context (simplified actor line) --- */}
+                    {activeActorFlow && !activeAutopilotContext && activeActorFlow.mode !== 'system' && (
+                      <div className="flex items-center gap-2 text-body text-secondary">
+                        {activeActorFlow.executor && (
+                          <>
+                            <AgentAvatar
+                              name={activeActorFlow.executor.label}
+                              hint={actorAvatarHint(activeActorFlow.executor)}
+                              size="xs"
+                            />
+                            <span className="text-primary">{activeActorFlow.executor.label}</span>
+                          </>
+                        )}
+                        {activeActorFlow.mode === 'handoff' && activeActorFlow.requester && (
+                          <span className="text-caption text-muted">
+                            requested by {activeActorFlow.requester.label}
                           </span>
-                          <span className="text-white/[0.15]">→</span>
-                          <span className="text-primary">
-                            {activeActorFlow.mode === 'handoff'
-                              ? 'Delegated handoff'
-                              : activeActorFlow.mode === 'requested'
-                                ? 'Dispatch requested'
-                                : activeActorFlow.mode === 'single'
-                                  ? 'Direct execution'
-                                  : 'System event'}
-                          </span>
-                          <span className="text-white/[0.15]">→</span>
-                          <span className="flex items-center gap-1.5">
-                            {activeActorFlow.executor ? (
-                              <>
-                                <AgentAvatar
-                                  name={activeActorFlow.executor.label}
-                                  hint={actorAvatarHint(activeActorFlow.executor)}
-                                  size="xs"
-                                />
-                                <span className="text-primary">{activeActorFlow.executor.label}</span>
-                              </>
-                            ) : (
-                              <span>{humanizeActorName('Not assigned')}</span>
-                            )}
-                          </span>
-                        </div>
-                        {activeActorFlow.subtitle && (
-                          <p className="mt-1 text-caption text-muted">{activeActorFlow.subtitle}</p>
                         )}
                       </div>
                     )}
@@ -5969,6 +6142,69 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           </div>
                         </div>
 
+                        {/* Lifecycle trail — horizontal stepper */}
+                        {(() => {
+                          const lcMeta = metadataForItem(activeDecorated.item);
+                          const parsedStatus = metadataString(lcMeta, ['parsed_status', 'status']);
+                          const steps = ['Queued', 'Dispatched', 'Running', 'Completed'] as const;
+                          type Step = typeof steps[number];
+                          const statusToStep: Record<string, Step> = {
+                            queued: 'Queued',
+                            dispatched: 'Dispatched',
+                            running: 'Running',
+                            completed: 'Completed',
+                            success: 'Completed',
+                            blocked: 'Running',
+                            needs_decision: 'Running',
+                            needs_attention: 'Running',
+                            failed: 'Running',
+                          };
+                          const currentStep = statusToStep[parsedStatus ?? ''] ?? statusToStep[activeAutopilotContext.event ?? ''] ?? null;
+                          if (!currentStep) return null;
+                          const currentIndex = steps.indexOf(currentStep);
+                          const isTerminal = parsedStatus === 'completed' || parsedStatus === 'success';
+                          const dispatchTs = activeDecorated.item.timestamp;
+                          const elapsed = Date.now() - new Date(dispatchTs).getTime();
+                          const elapsedLabel = elapsed < 60_000
+                            ? `${Math.round(elapsed / 1000)}s`
+                            : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+                          return (
+                            <div className="flex items-center gap-1 px-1">
+                              {steps.map((step, i) => {
+                                const isDone = i < currentIndex || (i === currentIndex && isTerminal);
+                                const isCurrent = i === currentIndex && !isTerminal;
+                                return (
+                                  <div key={step} className="flex items-center gap-1">
+                                    {i > 0 && (
+                                      <div
+                                        className="h-[1.5px] w-4"
+                                        style={{ backgroundColor: isDone || isCurrent ? colors.lime : 'rgba(255,255,255,0.12)' }}
+                                      />
+                                    )}
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span
+                                        className={cn("h-2 w-2 rounded-full", isCurrent && "animate-pulse")}
+                                        style={{
+                                          backgroundColor: isDone
+                                            ? colors.lime
+                                            : isCurrent
+                                              ? colors.lime
+                                              : 'rgba(255,255,255,0.15)',
+                                        }}
+                                      />
+                                      <span className={cn("text-[9px] tracking-wider", isDone || isCurrent ? "text-primary" : "text-muted/50")}>
+                                        {step}
+                                        {isDone && i === steps.length - 1 && ' \u2713'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              <span className="ml-2 text-micro text-muted">{elapsedLabel}</span>
+                            </div>
+                          );
+                        })()}
+
                         {/* Progress bar — inline, no card wrapper */}
                         {activeAutopilotProgress && (
                           <div>
@@ -5997,59 +6233,72 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           </div>
                         )}
 
-                        {/* People — flat inline row */}
+                        {/* People — simplified single-line attribution */}
                         <div>
                           <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                             People
                           </p>
-                          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-                            <div>
-                              <div className="text-micro text-muted">Requester</div>
-                              <div className="mt-0.5 flex items-center gap-1.5 text-body text-primary">
-                                <AgentAvatar
-                                  name={activeAutopilotRequesterDisplay.primary}
-                                  hint={activeAutopilotRequesterDisplay.secondary ?? activeAutopilotRequesterDisplay.primary}
-                                  size="xs"
-                                />
-                                <span>{activeAutopilotRequesterDisplay.primary}</span>
-                              </div>
-                              {activeAutopilotRequesterDisplay.secondary && (
-                                <p className="mt-0.5 text-micro text-muted">
-                                  via {activeAutopilotRequesterDisplay.secondary}
-                                </p>
+                          {activeAutopilotRequesterDisplay.primary !== activeAutopilotExecutorLabel ? (
+                            <div className="flex items-center gap-2 text-body text-primary">
+                              <AgentAvatar
+                                name={activeAutopilotRequesterDisplay.primary}
+                                hint={activeAutopilotRequesterDisplay.secondary ?? activeAutopilotRequesterDisplay.primary}
+                                size="xs"
+                              />
+                              <span>{activeAutopilotRequesterDisplay.primary}</span>
+                              <span className="text-white/[0.2]">{'\u2192'}</span>
+                              <AgentAvatar
+                                name={activeAutopilotExecutorLabel}
+                                hint={activeAutopilotExecutorLabel}
+                                size="xs"
+                              />
+                              <span>{activeAutopilotExecutorLabel}</span>
+                              {activeAutopilotContext.domain && (
+                                <span className="text-caption text-muted">({humanizeText(activeAutopilotContext.domain)})</span>
                               )}
                             </div>
-                            <div>
-                              <div className="text-micro text-muted">Executor</div>
-                              <div className="mt-0.5 flex items-center gap-1.5 text-body text-primary">
-                                <AgentAvatar
-                                  name={activeAutopilotExecutorLabel}
-                                  hint={activeAutopilotExecutorLabel}
-                                  size="xs"
-                                />
-                                <span>{activeAutopilotExecutorLabel}</span>
-                              </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-body text-primary">
+                              <AgentAvatar
+                                name={activeAutopilotExecutorLabel}
+                                hint={activeAutopilotExecutorLabel}
+                                size="xs"
+                              />
+                              <span>{activeAutopilotExecutorLabel}</span>
+                              {activeAutopilotContext.domain && (
+                                <span className="text-caption text-muted">({humanizeText(activeAutopilotContext.domain)})</span>
+                              )}
                             </div>
-                            {activeAutopilotContext.dispatcherClient && activeAutopilotContext.dispatcherClient !== 'unknown' && (
+                          )}
+                          {devMode && (
+                            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
                               <div>
-                                <div className="text-micro text-muted">Dispatcher</div>
-                                <div className="mt-0.5 text-body text-primary">
-                                  {humanizeText(activeAutopilotContext.dispatcherClient)}
-                                </div>
+                                <div className="text-micro text-muted">Requester</div>
+                                <div className="mt-0.5 text-caption text-primary">{activeAutopilotRequesterDisplay.primary}</div>
                               </div>
-                            )}
-                            {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
                               <div>
-                                <div className="text-micro text-muted">Policy</div>
-                                <div className="mt-0.5 text-body text-primary">
-                                  {activeAutopilotContext.domain ?? ''}
-                                  {activeAutopilotContext.requiredSkills.length > 0
-                                    ? `${activeAutopilotContext.domain ? ' · ' : ''}${activeAutopilotContext.requiredSkills.join(', ')}`
-                                    : ''}
-                                </div>
+                                <div className="text-micro text-muted">Executor</div>
+                                <div className="mt-0.5 text-caption text-primary">{activeAutopilotExecutorLabel}</div>
                               </div>
-                            )}
-                          </div>
+                              {activeAutopilotContext.dispatcherClient && activeAutopilotContext.dispatcherClient !== 'unknown' && (
+                                <div>
+                                  <div className="text-micro text-muted">Dispatcher</div>
+                                  <div className="mt-0.5 text-caption text-primary">{humanizeText(activeAutopilotContext.dispatcherClient)}</div>
+                                </div>
+                              )}
+                              {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
+                                <div>
+                                  <div className="text-micro text-muted">Policy</div>
+                                  <div className="mt-0.5 text-caption text-primary">
+                                    {activeAutopilotContext.domain ?? ''}
+                                    {activeAutopilotContext.requiredSkills.length > 0
+                                      ? `${activeAutopilotContext.domain ? ' \u00b7 ' : ''}${activeAutopilotContext.requiredSkills.join(', ')}`
+                                      : ''}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         {/* Scope — flat inline */}
@@ -6191,28 +6440,50 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {/* Details — flat, no card wrapper */}
+                    {/* Details — collapsible when long */}
                     {humanizeActivityBody(activeDecorated.item.description) &&
                       humanizeActivityBody(activeDecorated.item.description) !== activeSummaryText && (
-                      <div>
-                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
-                          Details
-                        </p>
-                        <MarkdownText
-                          mode="block"
-                          text={humanizeActivityBody(activeDecorated.item.description) ?? ''}
-                          className="text-body leading-relaxed text-secondary"
-                        />
-                      </div>
+                      (() => {
+                        const detailBody = humanizeActivityBody(activeDecorated.item.description) ?? '';
+                        const isLong = detailBody.length > 200;
+                        if (isLong) {
+                          return (
+                            <details>
+                              <summary className="cursor-pointer text-micro font-semibold uppercase tracking-wider text-muted select-none">
+                                Details
+                              </summary>
+                              <div className="mt-2">
+                                <MarkdownText
+                                  mode="block"
+                                  text={detailBody}
+                                  className="text-body leading-relaxed text-secondary"
+                                />
+                              </div>
+                            </details>
+                          );
+                        }
+                        return (
+                          <div>
+                            <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
+                              Details
+                            </p>
+                            <MarkdownText
+                              mode="block"
+                              text={detailBody}
+                              className="text-body leading-relaxed text-secondary"
+                            />
+                          </div>
+                        );
+                      })()
                     )}
 
-                    {/* Slice narrative — flat */}
+                    {/* Slice narrative — collapsible by default */}
                     {activeNarrative && (
-                      <div>
-                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
+                      <details>
+                        <summary className="cursor-pointer text-micro font-semibold uppercase tracking-wider text-muted select-none">
                           Narrative
-                        </p>
-                        <div className="space-y-1.5 text-caption">
+                        </summary>
+                        <div className="mt-2 space-y-1.5 text-caption">
                           <p>
                             <span className="text-muted">Intent</span>{' '}
                             <span className="text-primary">{activeNarrative.intent}</span>
@@ -6238,125 +6509,159 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             <span className="text-primary">{activeNarrative.outcome.summary}</span>
                           </p>
                         </div>
-                      </div>
+                      </details>
                     )}
 
-                    {/* Evidence files — flat rows, deduplicated */}
-                    {activeFileEvidenceUnique.length > 0 && (
-                      <div>
-                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
-                          Evidence
-                        </p>
-                        <p className="mb-2 px-1 text-caption text-secondary">
-                          {activeFileEvidenceUnique.length}{' '}
-                          {activeFileEvidenceUnique.length === 1 ? 'file' : 'files'} captured for this run.
-                        </p>
-                        <div className="space-y-2">
-                          {activeFileEvidencePreview.map((entry, index) => {
-                              const evidenceHref = resolveFileEvidenceHref(entry.path);
-                              return (
-                                <div
-                                  key={`${entry.key}:${entry.path}:${index}`}
-                                  className="flex items-center justify-between gap-3 py-1"
-                                >
+                    {/* Structured evidence + file evidence */}
+                    {(() => {
+                      const evMeta = metadataForItem(activeDecorated.item);
+                      const blocker = evMeta?.blocker as { description?: string; waiting_on?: string } | undefined;
+                      const decisionsNeeded = evMeta?.decisions_needed as Array<{ title?: string; id?: string }> | undefined;
+                      const hasStructured = blocker || (decisionsNeeded && decisionsNeeded.length > 0);
+                      const hasFiles = activeFileEvidenceUnique.length > 0;
+                      if (!hasStructured && !hasFiles) return null;
+                      return (
+                        <div>
+                          <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
+                            Evidence
+                          </p>
+                          <div className="space-y-2">
+                            {blocker && (
+                              <div className="rounded-xl border border-red-400/20 bg-red-500/[0.06] px-3.5 py-2.5">
+                                <div className="flex items-center gap-3">
+                                  <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-400" />
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
-                                    <p className="mt-0.5 truncate font-mono text-caption text-primary">
-                                      {humanizePath(entry.path)}
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-shrink-0 items-center gap-1.5">
-                                    {evidenceHref && (
-                                      <a
-                                        href={evidenceHref}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                      >
-                                        Open
-                                      </a>
+                                    <p className="text-micro font-semibold uppercase tracking-wider text-red-300/70">Blocker</p>
+                                    <p className="mt-0.5 text-body text-primary">{blocker.description ?? 'Blocked'}</p>
+                                    {blocker.waiting_on && (
+                                      <p className="mt-0.5 text-caption text-secondary">Waiting on: {blocker.waiting_on}</p>
                                     )}
-                                    <button
-                                      type="button"
-                                      onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
-                                      className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                    >
-                                      Copy
-                                    </button>
                                   </div>
                                 </div>
-                              );
-                            })}
-                          {activeFileEvidenceOverflow.length > 0 && (
-                            <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
-                              <summary className="cursor-pointer list-none text-caption font-semibold text-secondary">
-                                View {activeFileEvidenceOverflow.length} additional evidence file
-                                {activeFileEvidenceOverflow.length === 1 ? '' : 's'}
-                              </summary>
-                              <div className="mt-2 space-y-2">
-                                {activeFileEvidenceOverflow.map((entry, index) => {
-                                  const evidenceHref = resolveFileEvidenceHref(entry.path);
-                                  return (
-                                    <div
-                                      key={`${entry.key}:${entry.path}:overflow:${index}`}
-                                      className="flex items-center justify-between gap-3 py-1"
+                                {canOpenDecisionFromDetail && (
+                                  <div className="mt-2 flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onOpenDecision?.(activeDecisionIds[0] ?? null);
+                                        closeDetail();
+                                      }}
+                                      className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-3 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
                                     >
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
-                                        <p className="mt-0.5 truncate font-mono text-caption text-primary">
-                                          {humanizePath(entry.path)}
-                                        </p>
-                                      </div>
-                                      <div className="flex flex-shrink-0 items-center gap-1.5">
-                                        {evidenceHref && (
-                                          <a
-                                            href={evidenceHref}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                      Resolve decision
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {decisionsNeeded && decisionsNeeded.length > 0 && (
+                              <div className="space-y-1.5">
+                                {decisionsNeeded.map((d, i) => (
+                                  <div key={d.id ?? i} className="flex items-center gap-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3.5 py-2.5">
+                                    <span className="h-2 w-2 flex-shrink-0 rounded-full bg-amber-400" />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-micro font-semibold uppercase tracking-wider text-amber-200/70">Decision needed</p>
+                                      <p className="mt-0.5 text-body text-primary">{d.title ?? 'Pending decision'}</p>
+                                    </div>
+                                    {d.id && onOpenDecision && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { onOpenDecision(d.id!); closeDetail(); }}
+                                        className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-2.5 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
+                                      >
+                                        Resolve
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {hasFiles && (
+                              <details className="group rounded-lg border border-white/[0.08] bg-black/15 px-2.5 py-2">
+                                <summary className="cursor-pointer list-none text-caption font-semibold text-secondary select-none">
+                                  {activeFileEvidenceUnique.length} evidence file{activeFileEvidenceUnique.length === 1 ? '' : 's'}
+                                </summary>
+                                <div className="mt-2 space-y-2">
+                                  {activeFileEvidencePreview.map((entry, index) => {
+                                    const evidenceHref = resolveFileEvidenceHref(entry.path);
+                                    return (
+                                      <div
+                                        key={`${entry.key}:${entry.path}:${index}`}
+                                        className="flex items-center justify-between gap-3 py-1"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
+                                          <p className="mt-0.5 truncate font-mono text-caption text-primary">
+                                            {humanizePath(entry.path)}
+                                          </p>
+                                        </div>
+                                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                                          {evidenceHref && (
+                                            <a
+                                              href={evidenceHref}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                            >
+                                              Open
+                                            </a>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
                                             className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
                                           >
-                                            Open
-                                          </a>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void copyText(`${humanizeText(entry.key)} path`, entry.path)
-                                          }
-                                          className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                        >
-                                          Copy
-                                        </button>
+                                            Copy
+                                          </button>
+                                        </div>
                                       </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </details>
-                          )}
+                                    );
+                                  })}
+                                  {activeFileEvidenceOverflow.length > 0 &&
+                                    activeFileEvidenceOverflow.map((entry, index) => {
+                                      const evidenceHref = resolveFileEvidenceHref(entry.path);
+                                      return (
+                                        <div
+                                          key={`${entry.key}:${entry.path}:overflow:${index}`}
+                                          className="flex items-center justify-between gap-3 py-1"
+                                        >
+                                          <div className="min-w-0 flex-1">
+                                            <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
+                                            <p className="mt-0.5 truncate font-mono text-caption text-primary">
+                                              {humanizePath(entry.path)}
+                                            </p>
+                                          </div>
+                                          <div className="flex flex-shrink-0 items-center gap-1.5">
+                                            {evidenceHref && (
+                                              <a
+                                                href={evidenceHref}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                              >
+                                                Open
+                                              </a>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                void copyText(`${humanizeText(entry.key)} path`, entry.path)
+                                              }
+                                              className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
+                                            >
+                                              Copy
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </details>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* View registered artifact — only when there's no inline artifact already shown in hero */}
-                    {activeDecorated && extractArtifactId(activeDecorated.item) && !activeArtifact && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const aid = extractArtifactId(activeDecorated.item);
-                          if (aid) openArtifactViewer(aid);
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-xl border border-cyan-400/25 bg-cyan-500/[0.08] px-3.5 py-2.5 text-left transition-colors hover:bg-cyan-500/[0.14]"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.cyan} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-                          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-                          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-                        </svg>
-                        <span className="text-body font-medium" style={{ color: colors.cyan }}>
-                          View registered artifact
-                        </span>
-                      </button>
-                    )}
+                      );
+                    })()}
 
                     {/* Separator before debug sections */}
                     {devMode && (activeProvenance ||
