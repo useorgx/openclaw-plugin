@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
@@ -42,6 +42,8 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
   const [wsTitle, setWsTitle] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState(initiative.name);
   const [draftSummary, setDraftSummary] = useState(initiative.description ?? '');
@@ -108,6 +110,25 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
     setOptimisticStatus(null);
     setConfirmDelete(false);
   }, [initiative.id, initiative.status, initiative.rawStatus]);
+
+  // Close overflow menu on outside click or Escape
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOverflowOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [overflowOpen]);
 
   const runInitiativeAction = (
     action: 'pause' | 'resume',
@@ -532,45 +553,69 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
             />
           )}
           <div className="flex-1" />
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-caption text-secondary">Delete initiative?</span>
-              <EntityActionButton
-                label="Delete"
-                color={colors.red}
-                variant="destructive"
-                onClick={() =>
-                  mutations.deleteEntity.mutate(
-                    { type: 'initiative', id: initiative.id },
-                    {
-                      onSuccess: () => closeModal(),
-                      onError: (error) =>
-                        setNotice(
-                          error instanceof Error
-                            ? error.message
-                            : 'Failed to delete initiative.'
-                        ),
-                    }
-                  )
-                }
-                disabled={isMutating}
-              />
-              <EntityActionButton
-                label="Keep"
-                variant="ghost"
-                onClick={() => setConfirmDelete(false)}
-                disabled={isMutating}
-              />
-            </div>
-          ) : (
-            <EntityActionButton
-              label="Delete"
-              color={colors.red}
-              variant="destructive"
-              onClick={() => setConfirmDelete(true)}
+          {/* Overflow menu */}
+          <div className="relative" ref={overflowRef}>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-secondary hover:bg-white/10 hover:text-primary transition-colors text-sm leading-none"
+              onClick={() => { setOverflowOpen((v) => !v); setConfirmDelete(false); }}
+              aria-label="More actions"
               disabled={isMutating}
-            />
-          )}
+            >
+              &#x22EF;
+            </button>
+            {overflowOpen && (
+              <div className="absolute bottom-full right-0 mb-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0c1322] shadow-xl z-50">
+                {confirmDelete ? (
+                  <div className="flex flex-col gap-1 p-2">
+                    <span className="text-caption text-secondary px-2">Delete initiative?</span>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() =>
+                        mutations.deleteEntity.mutate(
+                          { type: 'initiative', id: initiative.id },
+                          {
+                            onSuccess: () => closeModal(),
+                            onError: (error) =>
+                              setNotice(
+                                error instanceof Error
+                                  ? error.message
+                                  : 'Failed to delete initiative.'
+                              ),
+                          }
+                        )
+                      }
+                      disabled={isMutating}
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm text-secondary hover:bg-white/5 transition-colors"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={isMutating}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-1">
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={isMutating}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {addingWorkstream ? (
             <form
               className="flex flex-wrap items-center gap-2"

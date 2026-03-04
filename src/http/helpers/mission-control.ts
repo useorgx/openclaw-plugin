@@ -837,6 +837,22 @@ export function isTodoStatus(status: string): boolean {
   );
 }
 
+export function isPausedStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return (
+    normalized === "paused" ||
+    normalized === "idle" ||
+    normalized === "hold" ||
+    normalized === "on_hold" ||
+    normalized === "waiting"
+  );
+}
+
+export function isBlockedStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return normalized === "blocked" || normalized === "at_risk" || normalized === "needs_input";
+}
+
 export function isInProgressStatus(status: string): boolean {
   const normalized = status.toLowerCase();
   return (
@@ -845,6 +861,38 @@ export function isInProgressStatus(status: string): boolean {
     normalized === "running" ||
     normalized === "queued"
   );
+}
+
+export function deriveInitiativeLifecycleStatus(
+  currentStatus: string,
+  childStatuses: string[]
+): string {
+  const normalizedCurrent = currentStatus.toLowerCase();
+  if (!childStatuses.length) return currentStatus;
+
+  const hasInProgressChildren = childStatuses.some((status) => isInProgressStatus(status));
+  const hasRemainingChildren = childStatuses.some((status) => !isDoneStatus(status));
+  const hasBlockedChildren = childStatuses.some((status) => isBlockedStatus(status));
+  const hasPausedChildren = childStatuses.some((status) => isPausedStatus(status));
+  const hasTodoChildren = childStatuses.some((status) => isTodoStatus(status));
+  const isActiveLikeCurrent =
+    normalizedCurrent === "active" ||
+    normalizedCurrent === "running" ||
+    normalizedCurrent === "in_progress" ||
+    normalizedCurrent === "queued";
+
+  if (!hasInProgressChildren && isActiveLikeCurrent && hasRemainingChildren) {
+    if (hasBlockedChildren && !hasPausedChildren && !hasTodoChildren) {
+      return "blocked";
+    }
+    return "paused";
+  }
+
+  if (hasInProgressChildren && (normalizedCurrent === "paused" || normalizedCurrent === "idle")) {
+    return "active";
+  }
+
+  return currentStatus;
 }
 
 export function isDispatchableWorkstreamStatus(status: string): boolean {
@@ -1166,15 +1214,12 @@ export async function buildMissionControlGraph(
   }
 
   const taskNodesOnly = nodes.filter((node) => node.type === "task");
-  const hasActiveTasks = taskNodesOnly.some((node) => isInProgressStatus(node.status));
-  const hasTodoTasks = taskNodesOnly.some((node) => isTodoStatus(node.status));
-  if (
-    initiativeNode.status.toLowerCase() === "active" &&
-    !hasActiveTasks &&
-    hasTodoTasks
-  ) {
-    initiativeNode.status = "paused";
-  }
+  const lifecycleChildren =
+    taskNodesOnly.length > 0 ? taskNodesOnly : workstreamNodes;
+  initiativeNode.status = deriveInitiativeLifecycleStatus(
+    initiativeNode.status,
+    lifecycleChildren.map((node) => node.status)
+  );
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const taskIsReady = (task: MissionControlNode): boolean =>

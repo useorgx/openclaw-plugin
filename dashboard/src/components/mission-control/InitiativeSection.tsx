@@ -590,6 +590,25 @@ export function InitiativeSection({
     'queued',
   ]).has(startableStatus);
   const startActionLabel = startableStatus === 'paused' ? 'Resume' : 'Start';
+  const startDisabledReason = useMemo(() => {
+    if (canStartInitiative) return null;
+    if (warnings.length > 0) {
+      return 'Live sync is degraded and this initiative cannot be started from here yet. Refresh sync or reconnect OrgX, then retry.';
+    }
+    if (['active', 'in_progress', 'running'].includes(startableStatus)) {
+      return 'Initiative is already active. Queue or play the next workstream instead of starting again.';
+    }
+    if (['blocked'].includes(startableStatus)) {
+      return 'Initiative is blocked. Resolve blockers, then resume.';
+    }
+    if (['completed', 'done', 'archived', 'cancelled', 'deleted'].includes(startableStatus)) {
+      return 'Initiative is completed or archived. Reopen it before starting new execution.';
+    }
+    if (startableStatus.length > 0) {
+      return `Start is unavailable while status is ${formatEntityStatus(startableStatus)}.`;
+    }
+    return 'Start is unavailable until initiative status is loaded.';
+  }, [canStartInitiative, startableStatus, warnings.length]);
   const showQueueControl = !isSquished;
   const showStartControl = true;
   const showQueueStartRail = showQueueControl || showStartControl;
@@ -625,6 +644,37 @@ export function InitiativeSection({
     computedProgress === null ? initiative.health : computedProgress
   );
   const progressFillPercent = progress === 0 ? 2 : progress;
+
+  // Health-based left border color for visual differentiation
+  const hasBlockedWorkstreams =
+    (initiative.workstreams ?? []).some(
+      (ws) => ws.status.toLowerCase() === 'blocked'
+    ) ||
+    workstreamNodes.some((node) => node.status.toLowerCase() === 'blocked');
+  const isBlocked =
+    initiative.status === 'blocked' || hasBlockedWorkstreams;
+  const isCompleted = isDoneStatus(initiative.status);
+  const isActiveWithProgress =
+    progress > 0 && progress < 100 && !isBlocked && !isCompleted;
+  const isStalled =
+    progress === 0 && !isBlocked && !isCompleted && !isExecutionActive;
+
+  const healthBorderClass = isBlocked
+    ? 'border-l-2 border-l-red-400/60'
+    : isCompleted
+      ? 'border-l-2 border-l-teal-400/60'
+      : isActiveWithProgress
+        ? 'border-l-2 border-l-lime-400/60'
+        : isStalled
+          ? 'border-l-2 border-l-white/10'
+          : '';
+
+  // Dim initiatives at 0% with no active workstreams
+  const isDimmed =
+    progress === 0 &&
+    initiative.status === 'active' &&
+    !isExecutionActive;
+
   const stickyMorphEased = Math.pow(stickyMorph, 0.82);
   const headerCornerRadius = Math.max(0, Number((16 * (1 - stickyMorphEased)).toFixed(2)));
   const stickyShadow =
@@ -745,9 +795,9 @@ export function InitiativeSection({
   return (
     <div
       id={`initiative-${initiative.id}`}
-      className={`surface-tier-1 overflow-visible rounded-2xl transition-[background-color,border-color,box-shadow] duration-200 ${
+      className={`surface-tier-1 overflow-visible rounded-2xl transition-[background-color,border-color,box-shadow,opacity] duration-200 ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
-      } ${selected ? 'ring-1 ring-[#BFFF00]/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''}`}
+      } ${selected ? 'ring-1 ring-[#BFFF00]/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''} ${healthBorderClass} ${isDimmed ? 'opacity-60' : ''}`}
       style={{ ['--mc-initiative-header-offset' as string]: `${initiativeHeaderOffset}px` }}
     >
       <div
@@ -818,7 +868,7 @@ export function InitiativeSection({
           style={{ backgroundColor: statusColor(effectiveInitiativeStatus) }}
         />
 
-        <div className="min-w-0 flex-[1_1_auto] overflow-hidden pr-1.5 sm:pr-2">
+        <div className="min-w-[80px] flex-[1_1_auto] overflow-hidden pr-1.5 sm:min-w-0 sm:pr-2">
           <button
             type="button"
             onClick={(event) => {
@@ -836,7 +886,7 @@ export function InitiativeSection({
           className={`ml-1 flex flex-shrink-0 justify-start ${
             isSquished
               ? 'w-[80px] min-w-[80px]'
-              : 'w-[90px] min-w-[90px] sm:w-[102px] sm:min-w-[102px]'
+              : 'w-[80px] min-w-[80px] sm:w-[90px] sm:min-w-[90px] md:w-[102px] md:min-w-[102px]'
           }`}
         >
           <span
@@ -959,7 +1009,7 @@ export function InitiativeSection({
         {/* Live/agents section */}
         <div
           className={`ml-2 w-[114px] min-w-[114px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 lg:w-[132px] lg:min-w-[132px] lg:pl-2.5 xl:w-[150px] xl:min-w-[150px] ${
-            isSquished ? 'hidden' : 'flex'
+            isSquished ? 'hidden' : 'hidden sm:flex'
           }`}
         >
           <AgentPresenceBar
@@ -1017,6 +1067,14 @@ export function InitiativeSection({
           }`}
         >
           {queueNotice.message}
+        </div>
+      )}
+      {!canStartInitiative && startDisabledReason && (
+        <div
+          role="note"
+          className="mx-3 mb-2 rounded-lg border border-amber-300/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-micro text-amber-100/90"
+        >
+          {startDisabledReason}
         </div>
       )}
 

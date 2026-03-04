@@ -2022,7 +2022,10 @@ function MissionControlInner({
               </div>
             </div>
 
-            {nextActionQueue.items.length > 0 && (
+            {/* Initiative chip carousel hidden — chips are truncated and
+               redundant with the initiative list below. Set to `true &&` to
+               re-enable if the design changes. */}
+            {false && nextActionQueue.items.length > 0 && (
               <ActionQueueStrip
                 items={nextActionQueue.items}
                 className="mt-2"

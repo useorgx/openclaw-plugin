@@ -716,7 +716,7 @@ function DashboardShell({
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
-    useState<ActivityTimeFilterId>('live');
+    useState<ActivityTimeFilterId>('24h');
   const [activityCustomTimeRange, setActivityCustomTimeRange] = useState<{
     startIso: string | null;
     endIso: string | null;
@@ -753,7 +753,7 @@ function DashboardShell({
   const [bulkModal, setBulkModal] = useState<
     BulkSessionsMode | 'decisions' | 'outbox' | 'handoffs' | null
   >(null);
-  const [mobileTab, setMobileTab] = useState<MobileTab>('agents');
+  const [mobileTab, setMobileTab] = useState<MobileTab>('activity');
   const [expandedRightPanel, setExpandedRightPanel] = useState<string>('initiatives');
   const [initiativesSidebarTab, setInitiativesSidebarTab] = useState<'in_progress' | 'next_up'>(
     'next_up'
@@ -1541,6 +1541,28 @@ function DashboardShell({
         (entry.statusCounts.running ?? 0) === 0 &&
         (entry.statusCounts.queued ?? 0) === 0 &&
         (entry.statusCounts.pending ?? 0) === 0;
+      const activeWorkstreams =
+        (entry.statusCounts.running ?? 0) +
+        (entry.statusCounts.active ?? 0) +
+        (entry.statusCounts.in_progress ?? 0);
+      const queuedWorkstreams =
+        (entry.statusCounts.queued ?? 0) + (entry.statusCounts.pending ?? 0);
+      const linkedWorkstreamCount = entry.workstreams.size;
+      const linkedWorkstreamLabel = `${linkedWorkstreamCount} workstream${linkedWorkstreamCount === 1 ? '' : 's'}`;
+      const description =
+        linkedWorkstreamCount === 0
+          ? 'No workstreams linked yet.'
+          : completed
+            ? `${linkedWorkstreamLabel} completed.`
+            : blocked
+              ? `${linkedWorkstreamLabel} linked · resolve blockers to continue.`
+              : paused
+                ? `${linkedWorkstreamLabel} linked · initiative is paused.`
+                : activeWorkstreams > 0
+                  ? `${activeWorkstreams} workstream${activeWorkstreams === 1 ? '' : 's'} active right now.`
+                  : queuedWorkstreams > 0
+                    ? `${queuedWorkstreams} workstream${queuedWorkstreams === 1 ? '' : 's'} queued to start.`
+                    : `${linkedWorkstreamLabel} linked · ready to run.`;
 
       const phases = phaseNames.map((name, index) => {
         let status: 'completed' | 'current' | 'upcoming' | 'warning' = 'upcoming';
@@ -1565,7 +1587,7 @@ function DashboardShell({
         activeAgents: entry.activeAgents.size,
         totalAgents: entry.allAgents.size,
         avatars: Array.from(entry.activeAgents).slice(0, 3),
-        description: `${entry.workstreams.size} workstreams are active right now.`,
+        description,
         workstreams: Array.from(entry.workstreams.entries()).map(([id, name]) => ({
           id,
           name,
@@ -1584,20 +1606,30 @@ function DashboardShell({
 
   // Merge session-derived + entity-based initiatives for Mission Control
   const mcInitiatives = useMemo(() => {
-    const mergeInitiative = (base: Initiative, incoming: Initiative): Initiative => ({
-      ...base,
-      ...incoming,
-      health: incoming.health > 0 ? incoming.health : base.health,
-      activeAgents: Math.max(base.activeAgents, incoming.activeAgents),
-      totalAgents: Math.max(base.totalAgents, incoming.totalAgents),
-      avatars: base.avatars?.length ? base.avatars : incoming.avatars,
-      workstreams: base.workstreams?.length ? base.workstreams : incoming.workstreams,
-      description: base.description ?? incoming.description,
-      rawStatus: incoming.rawStatus ?? base.rawStatus ?? null,
-      targetDate: incoming.targetDate ?? base.targetDate ?? null,
-      createdAt: incoming.createdAt ?? base.createdAt ?? null,
-      updatedAt: incoming.updatedAt ?? base.updatedAt ?? null,
-    });
+    const mergeInitiative = (base: Initiative, incoming: Initiative): Initiative => {
+      const incomingDescription =
+        typeof incoming.description === 'string' && incoming.description.trim().length > 0
+          ? incoming.description
+          : null;
+      const baseDescription =
+        typeof base.description === 'string' && base.description.trim().length > 0
+          ? base.description
+          : null;
+      return {
+        ...base,
+        ...incoming,
+        health: incoming.health > 0 ? incoming.health : base.health,
+        activeAgents: Math.max(base.activeAgents, incoming.activeAgents),
+        totalAgents: Math.max(base.totalAgents, incoming.totalAgents),
+        avatars: base.avatars?.length ? base.avatars : incoming.avatars,
+        workstreams: base.workstreams?.length ? base.workstreams : incoming.workstreams,
+        description: incomingDescription ?? baseDescription ?? undefined,
+        rawStatus: incoming.rawStatus ?? base.rawStatus ?? null,
+        targetDate: incoming.targetDate ?? base.targetDate ?? null,
+        createdAt: incoming.createdAt ?? base.createdAt ?? null,
+        updatedAt: incoming.updatedAt ?? base.updatedAt ?? null,
+      };
+    };
 
     const merged = new Map<string, Initiative>();
     for (const init of initiatives) merged.set(init.id, init);

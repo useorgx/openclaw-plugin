@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeWorkstream } from '@/types';
@@ -90,6 +90,27 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   const queueActionBusy = nextUpActions.isPinning || nextUpActions.isMoving;
   const formatNoticeError = (raw: string | undefined, fallback: string) =>
     raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
+  const runWorkstreamAction = (
+    action: 'start' | 'complete' | 'pause' | 'block' | 'resume',
+    successMessage: string,
+    fallbackErrorMessage: string
+  ) => {
+    setNotice(null);
+    mutations.entityAction.mutate(
+      { type: 'workstream', id: workstream.id, action },
+      {
+        onSuccess: () => setNotice(successMessage),
+        onError: (error) => {
+          setNotice(
+            formatNoticeError(
+              error instanceof Error ? error.message : '',
+              fallbackErrorMessage
+            )
+          );
+        },
+      }
+    );
+  };
 
   const handleSaveEdits = () => {
     const name = draftName.trim();
@@ -333,17 +354,60 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
       <div className="border-t border-subtle bg-[#070b12]/85 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
           {['not_started', 'planned', 'todo'].includes(normalizedStatus) && (
-            <EntityActionButton label="Start" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'start' })} disabled={isMutating} />
+            <EntityActionButton
+              label="Start"
+              color={colors.lime}
+              variant="primary"
+              onClick={() =>
+                runWorkstreamAction('start', 'Workstream started.', 'Failed to start workstream.')
+              }
+              disabled={isMutating}
+            />
           )}
           {['active', 'in_progress'].includes(normalizedStatus) && (
             <>
-              <EntityActionButton label="Complete" color={colors.teal} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'complete' })} disabled={isMutating} />
-              <EntityActionButton label="Pause" color={colors.amber} onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'pause' })} disabled={isMutating} />
-              <EntityActionButton label="Block" color={colors.red} variant="destructive" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'block' })} disabled={isMutating} />
+              <EntityActionButton
+                label="Complete"
+                color={colors.teal}
+                variant="primary"
+                onClick={() =>
+                  runWorkstreamAction(
+                    'complete',
+                    'Workstream marked complete.',
+                    'Failed to complete workstream.'
+                  )
+                }
+                disabled={isMutating}
+              />
+              <EntityActionButton
+                label="Pause"
+                color={colors.amber}
+                onClick={() =>
+                  runWorkstreamAction('pause', 'Workstream paused.', 'Failed to pause workstream.')
+                }
+                disabled={isMutating}
+              />
+              <EntityActionButton
+                label="Block"
+                color={colors.red}
+                variant="destructive"
+                onClick={() =>
+                  runWorkstreamAction('block', 'Workstream blocked.', 'Failed to block workstream.')
+                }
+                disabled={isMutating}
+              />
             </>
           )}
           {['paused', 'blocked'].includes(normalizedStatus) && (
-            <EntityActionButton label="Resume" color={colors.lime} variant="primary" onClick={() => mutations.entityAction.mutate({ type: 'workstream', id: workstream.id, action: 'resume' })} disabled={isMutating} />
+            <EntityActionButton
+              label="Resume"
+              color={colors.lime}
+              variant="primary"
+              onClick={() =>
+                runWorkstreamAction('resume', 'Workstream resumed.', 'Failed to resume workstream.')
+              }
+              disabled={isMutating}
+            />
           )}
           <QueuePlacementControl
             label="Queue"

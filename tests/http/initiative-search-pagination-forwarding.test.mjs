@@ -320,3 +320,119 @@ test("GET /orgx/api/live/initiatives forwards offset and returns pagination enve
     else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
   }
 });
+
+test("GET /orgx/api/entities reconciles initiative active status to paused when scoped workstreams are idle", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-entities-status-reconcile-"));
+  const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const calls = [];
+    const client = {
+      getBaseUrl: () => "https://www.useorgx.com",
+      listEntities: async (type, filters = {}) => {
+        calls.push({ type, filters });
+        if (type === "initiative") {
+          return {
+            data: [
+              {
+                id: "init-1",
+                title: "Initiative One",
+                status: "active",
+                workspace_id: "workspace-a",
+              },
+            ],
+            pagination: { total: 1, has_more: false },
+          };
+        }
+        if (type === "workstream") {
+          return {
+            data: [
+              { id: "ws-1", initiative_id: "init-1", status: "paused" },
+              { id: "ws-2", initiative_id: "init-1", status: "idle" },
+            ],
+            pagination: { total: 2, has_more: false },
+          };
+        }
+        return { data: [], pagination: { total: 0, has_more: false } };
+      },
+      rawRequest: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(baseConfig(), client, () => null, createNoopOnboarding());
+    const res = await call(handler, {
+      method: "GET",
+      url: "/orgx/api/entities?type=initiative&workspace_id=workspace-a&limit=10",
+      headers: {},
+    });
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.equal(Array.isArray(payload.data), true);
+    assert.equal(payload.data.length, 1);
+    assert.equal(payload.data[0].status, "paused");
+
+    const workstreamCall = calls.find((entry) => entry.type === "workstream");
+    assert.ok(workstreamCall, "expected workstream reconciliation lookup");
+    assert.equal(workstreamCall.filters.workspace_id, "workspace-a");
+    assert.equal(workstreamCall.filters.command_center_id, "workspace-a");
+  } finally {
+    if (previousDir == null) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
+  }
+});
+
+test("GET /orgx/api/entities keeps initiative active when scoped workstreams are in progress", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-entities-status-active-"));
+  const previousDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+
+  try {
+    const client = {
+      getBaseUrl: () => "https://www.useorgx.com",
+      listEntities: async (type) => {
+        if (type === "initiative") {
+          return {
+            data: [
+              {
+                id: "init-2",
+                title: "Initiative Two",
+                status: "active",
+                workspace_id: "workspace-a",
+              },
+            ],
+            pagination: { total: 1, has_more: false },
+          };
+        }
+        if (type === "workstream") {
+          return {
+            data: [{ id: "ws-3", initiative_id: "init-2", status: "in_progress" }],
+            pagination: { total: 1, has_more: false },
+          };
+        }
+        return { data: [], pagination: { total: 0, has_more: false } };
+      },
+      rawRequest: async () => {
+        throw new Error("not implemented");
+      },
+    };
+
+    const handler = createHttpHandler(baseConfig(), client, () => null, createNoopOnboarding());
+    const res = await call(handler, {
+      method: "GET",
+      url: "/orgx/api/entities?type=initiative&workspace_id=workspace-a&limit=10",
+      headers: {},
+    });
+
+    assert.equal(res.status, 200);
+    const payload = JSON.parse(res.body);
+    assert.equal(Array.isArray(payload.data), true);
+    assert.equal(payload.data.length, 1);
+    assert.equal(payload.data[0].status, "active");
+  } finally {
+    if (previousDir == null) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousDir;
+  }
+});
