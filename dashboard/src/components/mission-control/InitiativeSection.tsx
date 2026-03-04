@@ -26,7 +26,6 @@ import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { humanizeWarning } from '@/lib/humanize';
 import { CollapsibleSection } from './CollapsibleSection';
 import { QueuePlacementControl } from './QueuePlacementControl';
-import { AgentPresenceBar } from './AgentPresenceBar';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
@@ -1016,19 +1015,6 @@ export function InitiativeSection({
           </div>
         )}
 
-        {/* Live/agents section */}
-        <div
-          className={`ml-2 w-[114px] min-w-[114px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 lg:w-[132px] lg:min-w-[132px] lg:pl-2.5 xl:w-[150px] xl:min-w-[150px] ${
-            isSquished ? 'hidden' : 'hidden sm:flex'
-          }`}
-        >
-          <AgentPresenceBar
-            agents={agents}
-            activeCount={runtimeActiveCount}
-            totalCount={runtimeTotalCount}
-            isSquished={isSquished}
-          />
-        </div>
 
         {/* Quick actions */}
         <div className="hidden w-[46px] flex-shrink-0 translate-x-1 items-center justify-end gap-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100 2xl:flex">

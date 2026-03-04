@@ -140,26 +140,29 @@ export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
     if (eventName === 'auto_continue_stopped') {
       const stopReason = readMetaString(meta, ['stop_reason']);
       if (stopReason === 'error' || stopReason === 'blocked') {
-        return { icon: 'infinity', label: 'Autopilot blocked', color: colors.red };
+        return { icon: 'infinity', label: 'Needs attention', color: colors.red };
       }
       if (stopReason === 'budget_exhausted') {
-        return { icon: 'infinity', label: 'Budget exhausted', color: colors.amber };
+        return { icon: 'infinity', label: 'Paused', color: colors.amber };
       }
-      return { icon: 'infinity', label: 'Autopilot stopped', color: colors.amber };
+      return { icon: 'infinity', label: 'Paused', color: colors.amber };
     }
     if (eventName === 'autopilot_transition') {
       const newState = readMetaString(meta, ['new_state']);
       if (newState === 'blocked' || newState === 'error') {
-        return { icon: 'infinity', label: 'Autopilot blocked', color: colors.red };
+        return { icon: 'infinity', label: 'Needs attention', color: colors.red };
       }
-      return { icon: 'infinity', label: 'Autopilot transition', color: colors.teal };
+      return { icon: 'infinity', label: 'In progress', color: colors.teal };
     }
     // slice result/finished
     const sliceStatus = readMetaString(meta, ['parsed_status', 'status']);
     if (sliceStatus === 'completed' || sliceStatus === 'success') {
-      return { icon: 'check_circle', label: 'Slice completed', color: colors.lime };
+      return { icon: 'check_circle', label: 'Completed', color: colors.lime };
     }
-    return { icon: 'infinity', label: 'Autopilot slice', color: colors.teal };
+    if (sliceStatus === 'blocked' || sliceStatus === 'needs_decision') {
+      return { icon: 'infinity', label: 'Needs attention', color: colors.amber };
+    }
+    return { icon: 'infinity', label: 'In progress', color: colors.teal };
   }
 
   if (/heartbeat|heart beat|alive signal/.test(haystack)) {
@@ -203,7 +206,7 @@ export function resolveActivityVisual(item: LiveActivityItem): ActivityVisual {
 
   if (item.type === 'delegation') {
     if (/dispatch|spawn|launched|kickoff|started/.test(haystack)) {
-      return { icon: 'workflow', label: 'Dispatch', color: colors.iris };
+      return { icon: 'workflow', label: 'Started', color: colors.iris };
     }
     if (/message|chat|reply|summary/.test(haystack)) {
       return { icon: 'message', label: 'Message', color: colors.teal };

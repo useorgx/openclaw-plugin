@@ -432,13 +432,17 @@ export function humanizeActivitySummary(item: {
     ? sanitizeDisplayText(String(nextStepRaw))
     : null;
 
-  // Deduplicate: if outcome or nextStep repeats task/outcome, suppress it
+  // Deduplicate: if outcome or nextStep repeats task/outcome (exact or substring), suppress it
+  const containsMatch = (a: string, b: string): boolean =>
+    a === b || a.includes(b) || b.includes(a);
   const dedupedOutcome =
-    outcomeDescription && outcomeDescription === taskDescription
+    outcomeDescription && taskDescription && containsMatch(outcomeDescription, taskDescription)
       ? null
       : outcomeDescription;
   const dedupedNextStep =
-    nextStep && (nextStep === taskDescription || nextStep === outcomeDescription)
+    nextStep &&
+    ((taskDescription && containsMatch(nextStep, taskDescription)) ||
+     (outcomeDescription && containsMatch(nextStep, outcomeDescription)))
       ? null
       : nextStep;
 
@@ -453,6 +457,60 @@ function readMeta(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Artifact Type Humanization
+// ---------------------------------------------------------------------------
+
+const ARTIFACT_TYPE_MAP: Record<string, string> = {
+  // Canonical atomic unit types (from artifact-domain-schemas.ts)
+  'engineering.commit': 'Commit',
+  'engineering.pr': 'Pull Request',
+  'product.spec': 'Specification',
+  'product.decision': 'Decision',
+  'design.component': 'Design',
+  'design.a11y': 'Accessibility Audit',
+  'marketing.asset': 'Marketing Asset',
+  'marketing.experiment': 'Experiment',
+  'sales.qualification': 'Qualification',
+  'sales.proposal': 'Proposal',
+  'operations.runbook': 'Runbook',
+  'operations.incident': 'Incident Report',
+  'orchestration.routing': 'Routing',
+  'orchestration.decomp': 'Decomposition',
+  // Legacy / shorthand aliases
+  pull_request: 'Pull Request',
+  pr: 'Pull Request',
+  document: 'Document',
+  doc: 'Document',
+  spec: 'Specification',
+  code: 'Code',
+  implementation: 'Code',
+  test: 'Tests',
+  design: 'Design',
+  config: 'Config',
+  decision: 'Decision',
+  report: 'Report',
+  discovery: 'Discovery',
+  commit: 'Commit',
+  runbook: 'Runbook',
+  incident: 'Incident Report',
+  proposal: 'Proposal',
+  experiment: 'Experiment',
+};
+
+/** Map raw artifact type strings to human-readable labels. */
+export function humanizeArtifactType(type: string | null | undefined): string {
+  if (!type) return 'Artifact';
+  const lower = type.toLowerCase().trim();
+  const exact = ARTIFACT_TYPE_MAP[lower];
+  if (exact) return exact;
+  // Check partial matches
+  for (const [key, label] of Object.entries(ARTIFACT_TYPE_MAP)) {
+    if (lower.includes(key)) return label;
+  }
+  return humanizeText(type);
 }
 
 // ---------------------------------------------------------------------------

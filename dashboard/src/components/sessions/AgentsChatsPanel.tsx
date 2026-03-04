@@ -24,6 +24,13 @@ import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { cutoffEpochForActivityFilter, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { EmptyState } from '@/components/shared/EmptyState';
 
+interface AutopilotStateProp {
+  state: 'idle' | 'running' | 'blocked' | 'stopping';
+  reason: string | null;
+  activeRunId: string | null;
+  activeWorkstreamTitle: string | null;
+}
+
 interface AgentsChatsPanelProps {
   sessions: SessionTreeResponse;
   activity: LiveActivityItem[];
@@ -37,6 +44,7 @@ interface AgentsChatsPanelProps {
   connectionStatus?: ConnectionStatus;
   runtimeInstances?: RuntimeInstance[];
   showSyntheticEntities?: boolean;
+  autopilotState?: AutopilotStateProp | null;
 }
 
 const MAX_VISIBLE_GROUPS = 120;
@@ -476,6 +484,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   connectionStatus,
   runtimeInstances = [],
   showSyntheticEntities = false,
+  autopilotState = null,
 }: AgentsChatsPanelProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
@@ -1276,7 +1285,19 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           const agentKey = group.groupKey;
           const isCollapsed = collapsed.has(agentKey);
           const lead = group.latest;
-          const leadStatus = lead ? effectiveSessionStatus(lead) : null;
+          const heuristicStatus = lead ? effectiveSessionStatus(lead) : null;
+          // Use canonical autopilot state when available and matching this agent's run
+          const autopilotMatchesLead =
+            autopilotState?.activeRunId != null &&
+            lead?.runId != null &&
+            autopilotState.activeRunId === lead.runId;
+          const leadStatus = autopilotMatchesLead && autopilotState?.state === 'running'
+            ? 'running'
+            : heuristicStatus;
+          const autopilotAssignment =
+            autopilotMatchesLead && autopilotState?.state === 'running' && autopilotState.activeWorkstreamTitle
+              ? `Working on ${autopilotState.activeWorkstreamTitle}`
+              : null;
           const hasSessions = group.nodes.length > 0;
           const hasSingleSession = group.nodes.length === 1;
           const catalogIsLive = isCatalogAgentLive(group.catalogAgent);
@@ -1413,6 +1434,11 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           )}
                         </span>
                       </div>
+                      {autopilotAssignment && (
+                        <p className="truncate text-micro text-teal-400" title={autopilotAssignment}>
+                          {autopilotAssignment}
+                        </p>
+                      )}
                       <div className="flex items-center gap-1.5">
                         {hasSessions ? (
                           <>

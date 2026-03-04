@@ -889,6 +889,23 @@ function DashboardShell({
   );
   const activityAutopilotActive = Boolean(activityAutopilotRun);
 
+  const agentPanelAutopilotState = useMemo(() => {
+    if (!activityAutopilotRun) return null;
+    const runtimeState = activityAutopilotRun.autoRuntimeState;
+    const state: 'idle' | 'running' | 'blocked' | 'stopping' =
+      runtimeState === 'running'
+        ? 'running'
+        : runtimeState === 'stopping'
+          ? 'stopping'
+          : 'idle';
+    return {
+      state,
+      reason: activityAutopilotRun.blockReason ?? null,
+      activeRunId: activityAutopilotRun.autoContinue?.activeRunId ?? null,
+      activeWorkstreamTitle: activityAutopilotRun.workstreamTitle ?? null,
+    };
+  }, [activityAutopilotRun]);
+
   // Allow "In Progress" tab even when count is 0 — show empty state instead of force-redirect
 
   useEffect(() => {
@@ -1852,8 +1869,10 @@ function DashboardShell({
     });
 
     setActivityFilterSessionId(null);
-    setActivityFilterWorkstreamId(candidate.workstreamId);
-    setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
+    // Don't preemptively set workstream filter — wait for matching events to arrive
+    // so the feed doesn't appear empty while autopilot initializes
+    setActivityFilterWorkstreamId(null);
+    setActivityFilterWorkstreamLabel(null);
     setAgentFilter(null);
     showOpsNotice(
       `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
@@ -2900,6 +2919,7 @@ function DashboardShell({
               onReconnect={handleReconnect}
               onLaunched={refetch}
               connectionStatus={data.connection}
+              autopilotState={agentPanelAutopilotState}
             />
           </section>
 
