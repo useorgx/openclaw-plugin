@@ -1474,6 +1474,29 @@ function metadataString(
   return null;
 }
 
+function readableContextLabel(
+  value: string | null | undefined,
+  idHint?: string | null
+): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalizedId = typeof idHint === 'string' ? idHint.trim().toLowerCase() : '';
+  if (normalizedId && trimmed.toLowerCase() === normalizedId) return null;
+  if (isOpaqueId(trimmed)) return null;
+  return trimmed;
+}
+
+function firstReadableContextLabel(
+  candidates: Array<{ value: string | null | undefined; idHint?: string | null }>
+): string | null {
+  for (const candidate of candidates) {
+    const label = readableContextLabel(candidate.value, candidate.idHint);
+    if (label) return label;
+  }
+  return null;
+}
+
 type SpawnGuardSnapshot = {
   event: string | null;
   blockedReason: string | null;
@@ -2826,10 +2849,28 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return map;
   }, [sessions]);
 
+  const sliceWorkstreamTitleByRunId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const slice of sliceRuns) {
+      const workstreamId = slice.workstreamId ?? null;
+      const label = readableContextLabel(slice.workstreamTitle, workstreamId);
+      if (!label) continue;
+      const keys = [slice.runId, slice.sliceRunId]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+      for (const key of keys) {
+        map.set(key, label);
+      }
+    }
+    return map;
+  }, [sliceRuns]);
+
   const initiativeNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const init of initiatives) {
-      map.set(init.id, init.name);
+      const label = readableContextLabel(init.name, init.id);
+      if (!label) continue;
+      map.set(init.id, label);
     }
     return map;
   }, [initiatives]);
@@ -2838,11 +2879,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const map = new Map<string, string>();
     for (const init of initiatives) {
       for (const workstream of init.workstreams ?? []) {
-        map.set(workstream.id, workstream.name);
+        const label = readableContextLabel(workstream.name, workstream.id);
+        if (!label) continue;
+        map.set(workstream.id, label);
       }
     }
+    for (const slice of sliceRuns) {
+      const workstreamId = slice.workstreamId ?? null;
+      if (!workstreamId || map.has(workstreamId)) continue;
+      const label = readableContextLabel(slice.workstreamTitle, workstreamId);
+      if (!label) continue;
+      map.set(workstreamId, label);
+    }
     return map;
-  }, [initiatives]);
+  }, [initiatives, sliceRuns]);
   const sessionsByRecency = useMemo(() => {
     const copy = [...sessions];
     copy.sort((left, right) => {
@@ -4073,14 +4123,33 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const headline = summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null);
-    const initiativeName = item.initiativeId
-      ? initiativeNameById.get(item.initiativeId) ?? humanizeText(item.initiativeId)
-      : null;
+    const metadata = metadataForItem(item);
+    const initiativeName = firstReadableContextLabel([
+      {
+        value: metadataString(metadata, ['initiative_title', 'initiativeTitle']),
+        idHint: item.initiativeId,
+      },
+      {
+        value: item.initiativeId ? initiativeNameById.get(item.initiativeId) ?? null : null,
+        idHint: item.initiativeId,
+      },
+    ]);
     const workstreamId =
       extractWorkstreamId(item) ?? (runId ? sessionWorkstreamByRunId.get(runId) ?? null : null);
-    const workstreamName = workstreamId
-      ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
-      : null;
+    const workstreamName = firstReadableContextLabel([
+      {
+        value: metadataString(metadata, ['workstream_title', 'workstreamTitle']),
+        idHint: workstreamId,
+      },
+      {
+        value: workstreamId ? workstreamNameById.get(workstreamId) ?? null : null,
+        idHint: workstreamId,
+      },
+      {
+        value: runId ? sliceWorkstreamTitleByRunId.get(runId) ?? null : null,
+        idHint: workstreamId,
+      },
+    ]);
     const breadcrumb = [initiativeName, workstreamName].filter(Boolean).join(' > ');
     const contextLabel = breadcrumb || initiativeName || workstreamName || humanizeText(item.type);
     const primaryTag = userStateLabel(decorated.userState);
@@ -5043,18 +5112,42 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-caption">
                       {(() => {
+                        const metadata = metadataForItem(activeDecorated.item);
                         const workstreamId =
                           activeAutopilotContext?.workstreamId ??
                           extractWorkstreamId(activeDecorated.item) ??
                           (activeDecorated.runId ? sessionWorkstreamByRunId.get(activeDecorated.runId) ?? null : null);
-                        const workstreamName = workstreamId
-                          ? workstreamNameById.get(workstreamId) ?? humanizeText(workstreamId)
-                          : null;
-                        const initiativeTitle =
-                          activeAutopilotContext?.initiativeTitle ??
-                          (activeDecorated.item.initiativeId
-                            ? initiativeNameById.get(activeDecorated.item.initiativeId) ?? null
-                            : null);
+                        const workstreamName = firstReadableContextLabel([
+                          { value: activeAutopilotContext?.workstreamTitle ?? null, idHint: workstreamId },
+                          {
+                            value: metadataString(metadata, ['workstream_title', 'workstreamTitle']),
+                            idHint: workstreamId,
+                          },
+                          {
+                            value: workstreamId ? workstreamNameById.get(workstreamId) ?? null : null,
+                            idHint: workstreamId,
+                          },
+                          {
+                            value: activeDecorated.runId ? sliceWorkstreamTitleByRunId.get(activeDecorated.runId) ?? null : null,
+                            idHint: workstreamId,
+                          },
+                        ]);
+                        const initiativeTitle = firstReadableContextLabel([
+                          {
+                            value: activeAutopilotContext?.initiativeTitle ?? null,
+                            idHint: activeDecorated.item.initiativeId,
+                          },
+                          {
+                            value: metadataString(metadata, ['initiative_title', 'initiativeTitle']),
+                            idHint: activeDecorated.item.initiativeId,
+                          },
+                          {
+                            value: activeDecorated.item.initiativeId
+                              ? initiativeNameById.get(activeDecorated.item.initiativeId) ?? null
+                              : null,
+                            idHint: activeDecorated.item.initiativeId,
+                          },
+                        ]);
                         const breadcrumb = [initiativeTitle, workstreamName].filter(Boolean).join(' > ');
                         if (!breadcrumb) return null;
                         return (
