@@ -959,6 +959,11 @@ export function NextUpPanel({
   }, [visibleInitiativeGroups.length, visibleItems.length, visibleMilestoneGroups.length, zoomLevel]);
   const showInlineBulkActions =
     selectionEnabled && isWorkstreamView && !isCompact && selectedCount > 0;
+  // Count items filtered out as running to distinguish "all running" from "truly empty"
+  const runningItemCount = useMemo(
+    () => (excludeRunning ? items.filter((item) => item.queueState === 'running').length : 0),
+    [excludeRunning, items]
+  );
   const emptyStateMessage =
     zoomLevel === 'initiative'
       ? 'No initiatives in the queue right now.'
@@ -966,9 +971,11 @@ export function NextUpPanel({
         ? 'No milestone slices in the queue right now.'
         : activeElsewhereCount > 0
           ? `No queued workstreams yet. ${activeElsewhereCount} running item${activeElsewhereCount === 1 ? '' : 's'} still in-flight.`
-          : degraded.length > 0
-            ? 'Queue signal is delayed right now.'
-            : 'No queued workstreams right now.';
+          : runningItemCount > 0
+            ? `No queued workstreams yet. ${runningItemCount} running item${runningItemCount === 1 ? '' : 's'} still in-flight.`
+            : degraded.length > 0
+              ? 'Queue signal is delayed right now.'
+              : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
