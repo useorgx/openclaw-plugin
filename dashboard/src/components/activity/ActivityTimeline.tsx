@@ -3227,6 +3227,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       filteredTotal: total,
       hiddenCount: Math.max(0, total - rendered.length),
       hiddenSyncCount: filteredSyncEvents,
+      skippedByAgent,
     };
   }, [
     activeFilter,
@@ -3242,6 +3243,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     showSyncEvents,
     sortOrder,
   ]);
+
+  // Compute the agent's last activity timestamp from the full unfiltered data
+  // so we can show "Last active: X ago" when the filtered result is empty.
+  const agentLastActiveLabel = useMemo(() => {
+    if (!agentFilter) return null;
+    let latestEpoch = 0;
+    for (const item of activity) {
+      const identity = resolveAgentIdentity(item);
+      if (identity.agentName === agentFilter) {
+        const epoch = toEpoch(item.timestamp);
+        if (epoch > latestEpoch) latestEpoch = epoch;
+      }
+    }
+    if (latestEpoch === 0) return null;
+    return formatRelativeTime(latestEpoch);
+  }, [agentFilter, activity]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, DecoratedActivityItem[]>();
@@ -4808,12 +4825,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           ? 'No activity yet for this session'
                           : selectedWorkstreamId
                             ? 'No activity yet for this workstream'
-                            : 'No matching activity right now.'
+                            : agentFilter
+                              ? `No recent activity from ${agentFilter}`
+                              : 'No matching activity right now.'
                     }
                     description={
                       isLoading
                         ? 'Live updates usually appear within a few seconds after dispatch.'
-                        : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`
+                        : agentFilter
+                          ? `Try widening the time window or select a different agent.${agentLastActiveLabel ? ` Last active: ${agentLastActiveLabel}.` : ''}`
+                          : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`
                     }
                     className="py-6"
                   />
@@ -4840,7 +4861,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {(hasSessionFilter || selectedWorkstreamId || agentFilter) && (
+                    {agentFilter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClearAgentFilter?.();
+                          onTimeFilterChange?.('all');
+                        }}
+                        className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
+                      >
+                        Show all activity
+                      </button>
+                    )}
+                    {(hasSessionFilter || selectedWorkstreamId) && (
                       <button
                         type="button"
                         onClick={() => {

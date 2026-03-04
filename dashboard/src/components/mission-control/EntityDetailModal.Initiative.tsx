@@ -9,10 +9,10 @@ import {
   initiativeStatusClass,
   formatEntityStatus,
   getWorkstreamStatusClass,
+  getMilestoneStatusClass,
 } from '@/lib/entityStatusColors';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
-import { EntityIcon } from '@/components/shared/EntityIcon';
 import { ProgressRing } from '@/components/shared/ProgressRing';
 import { MetricRow } from '@/components/shared/MetricRow';
 import { InferredAgentAvatars } from './AgentInference';
@@ -21,6 +21,7 @@ import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 import { QueuePlacementControl } from './QueuePlacementControl';
+import { IwmtLevelIcon, iwmtLevelCode } from './IwmtLevelIcon';
 
 interface InitiativeDetailProps {
   initiative: Initiative;
@@ -95,6 +96,53 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
       name: workstream.name,
     }));
   }, [details.workstreams, initiative.workstreams]);
+  const milestonesByWorkstream = useMemo(() => {
+    const grouped = new Map<string, typeof details.milestones>();
+    const unscoped: typeof details.milestones = [];
+    for (const milestone of details.milestones) {
+      if (!milestone.workstreamId) {
+        unscoped.push(milestone);
+        continue;
+      }
+      const current = grouped.get(milestone.workstreamId);
+      if (current) {
+        current.push(milestone);
+      } else {
+        grouped.set(milestone.workstreamId, [milestone]);
+      }
+    }
+    return { grouped, unscoped };
+  }, [details.milestones]);
+  const tasksByWorkstream = useMemo(() => {
+    const grouped = new Map<string, typeof details.tasks>();
+    for (const task of details.tasks) {
+      if (!task.workstreamId) continue;
+      const current = grouped.get(task.workstreamId);
+      if (current) {
+        current.push(task);
+      } else {
+        grouped.set(task.workstreamId, [task]);
+      }
+    }
+    return grouped;
+  }, [details.tasks]);
+  const tasksByMilestone = useMemo(() => {
+    const grouped = new Map<string, typeof details.tasks>();
+    for (const task of details.tasks) {
+      if (!task.milestoneId) continue;
+      const current = grouped.get(task.milestoneId);
+      if (current) {
+        current.push(task);
+      } else {
+        grouped.set(task.milestoneId, [task]);
+      }
+    }
+    return grouped;
+  }, [details.tasks]);
+  const orphanTasks = useMemo(
+    () => details.tasks.filter((task) => !task.workstreamId && !task.milestoneId),
+    [details.tasks]
+  );
   const formatNoticeError = (raw: string | undefined, fallback: string) =>
     raw && raw.trim().length > 0 ? humanizeWarning(raw.trim()) : fallback;
 
@@ -251,7 +299,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <EntityIcon type="initiative" size={16} />
+              <IwmtLevelIcon level="initiative" size={16} />
               <h2 className="text-[28px] font-medium leading-none text-white truncate">
                 {initiative.name}
               </h2>
@@ -384,81 +432,227 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
         </div>
       ) : (
         <>
-          {/* Workstreams — flat rows with status-tinted left border */}
-          {details.workstreams.length > 0 && (
-            <div className="space-y-1">
-              {details.workstreams.map((ws) => {
-                const wsTasks = details.tasks.filter((t) => t.workstreamId === ws.id);
-                const doneWsTasks = wsTasks.filter((t) => isDoneStatus(t.status)).length;
-                const completion =
-                  wsTasks.length > 0
-                    ? completionPercent(doneWsTasks, wsTasks.length)
-                    : typeof ws.progress === 'number'
-                      ? clampPercent(ws.progress <= 1 ? ws.progress * 100 : ws.progress)
-                      : isDoneStatus(ws.status)
-                        ? 100
-                        : null;
-                const wsStatus = ws.status.toLowerCase();
-                const borderColor = ['active', 'in_progress', 'running'].includes(wsStatus) ? colors.lime
-                  : wsStatus === 'blocked' ? colors.red
-                  : ['done', 'completed'].includes(wsStatus) ? colors.teal
-                  : 'rgba(255,255,255,0.08)';
-                return (
-                  <button
-                    key={ws.id}
-                    onClick={() =>
-                      openModal({
-                        type: 'workstream',
-                        entity: ws,
-                        initiative,
-                      })
-                    }
-                    className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2.5 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
-                    style={{ borderLeftColor: borderColor }}
-                  >
-                    <div className="min-w-0">
-                      <span className="text-body text-bright break-words">{ws.name}</span>
-                      <div className="mt-0.5 flex items-center gap-2 text-micro text-muted">
-                        <span>{wsTasks.length} tasks</span>
-                        {completion !== null && <span>· {completion}%</span>}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(ws.status)}`}
-                    >
-                      {formatEntityStatus(ws.status)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {(details.workstreams.length > 0 ||
+            details.milestones.length > 0 ||
+            orphanTasks.length > 0) && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                  IWMT Composition
+                </h3>
+                <p className="text-micro text-muted">
+                  {details.workstreams.length} workstreams · {details.milestones.length} milestones ·{' '}
+                  {details.tasks.length} tasks
+                </p>
+              </div>
 
-          {/* Milestones — flat rows */}
-          {details.milestones.length > 0 && (
-            <div className="space-y-1">
-              {details.milestones.map((ms) => (
-                <button
-                  key={ms.id}
-                  onClick={() =>
-                    openModal({ type: 'milestone', entity: ms, initiative })
-                  }
-                  className="flex w-full items-center justify-between gap-2 rounded-lg py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
-                >
-                  <div className="min-w-0">
-                    <span className="text-body text-bright break-words">{ms.title}</span>
-                    {ms.dueDate && (
-                      <span className="text-micro text-muted mt-0.5 block">
-                        Due {new Date(ms.dueDate).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-micro text-muted uppercase tracking-[0.08em] flex-shrink-0">
-                    {formatEntityStatus(ms.status)}
-                  </span>
-                </button>
-              ))}
-            </div>
+              <div className="space-y-2.5">
+                {details.workstreams.map((ws) => {
+                  const wsMilestones = milestonesByWorkstream.grouped.get(ws.id) ?? [];
+                  const wsTasks = tasksByWorkstream.get(ws.id) ?? [];
+                  const doneWsTasks = wsTasks.filter((task) => isDoneStatus(task.status)).length;
+                  const completion =
+                    wsTasks.length > 0
+                      ? completionPercent(doneWsTasks, wsTasks.length)
+                      : typeof ws.progress === 'number'
+                        ? clampPercent(
+                            ws.progress <= 1 ? ws.progress * 100 : ws.progress
+                          )
+                        : isDoneStatus(ws.status)
+                          ? 100
+                          : 0;
+                  const wsStatus = ws.status.toLowerCase();
+                  const wsCanQueue = !['done', 'completed', 'archived'].includes(wsStatus);
+                  const wsLabel = ws.hierarchyLabel ?? iwmtLevelCode('workstream');
+
+                  return (
+                    <article
+                      key={ws.id}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          onClick={() =>
+                            openModal({
+                              type: 'workstream',
+                              entity: ws,
+                              initiative,
+                            })
+                          }
+                          className="group min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <span className="mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.04]">
+                              <IwmtLevelIcon level="workstream" size={12} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/58">
+                                  {wsLabel}
+                                </span>
+                                <span className="truncate text-body text-bright">
+                                  {ws.name}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-caption text-muted">
+                                {wsMilestones.length} milestone{wsMilestones.length === 1 ? '' : 's'} ·{' '}
+                                {wsTasks.length} task{wsTasks.length === 1 ? '' : 's'} · {completion}% done
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {wsCanQueue && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 rounded-md border border-white/[0.12] bg-white/[0.05] px-1.5 py-0.5 text-micro text-white/70 transition-colors hover:bg-white/[0.1] hover:text-white"
+                              onClick={async (event) => {
+                                event.stopPropagation();
+                                setNotice(null);
+                                try {
+                                  await nextUpActions.pin({
+                                    initiativeId: initiative.id,
+                                    workstreamId: ws.id,
+                                  });
+                                  await nextUpActions.move({
+                                    initiativeId: initiative.id,
+                                    workstreamId: ws.id,
+                                    placement: 'bottom',
+                                  });
+                                  setNotice(`Queued "${ws.name}" to end.`);
+                                } catch (error) {
+                                  setNotice(
+                                    formatNoticeError(
+                                      error instanceof Error ? error.message : '',
+                                      'Failed to queue workstream.'
+                                    )
+                                  );
+                                }
+                              }}
+                            >
+                              Queue
+                            </button>
+                          )}
+                          <span
+                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(
+                              ws.status
+                            )}`}
+                          >
+                            {formatEntityStatus(ws.status)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {wsMilestones.length > 0 ? (
+                        <div className="ml-7 mt-2.5 space-y-1.5 border-l border-white/[0.08] pl-3">
+                          {wsMilestones.map((milestone) => {
+                            const milestoneTasks = tasksByMilestone.get(milestone.id) ?? [];
+                            const doneMilestoneTasks = milestoneTasks.filter((task) =>
+                              isDoneStatus(task.status)
+                            ).length;
+                            const milestoneLabel =
+                              milestone.hierarchyLabel ?? iwmtLevelCode('milestone');
+
+                            return (
+                              <button
+                                key={milestone.id}
+                                onClick={() =>
+                                  openModal({
+                                    type: 'milestone',
+                                    entity: milestone,
+                                    initiative,
+                                  })
+                                }
+                                className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/[0.015] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <IwmtLevelIcon level="milestone" size={11} className="flex-shrink-0" />
+                                    <span className="text-micro uppercase tracking-[0.08em] text-white/52">
+                                      {milestoneLabel}
+                                    </span>
+                                    <span className="truncate text-caption text-bright">
+                                      {milestone.title}
+                                    </span>
+                                  </div>
+                                  <p className="mt-0.5 text-micro text-muted">
+                                    {doneMilestoneTasks}/{milestoneTasks.length} tasks done
+                                  </p>
+                                </div>
+                                <span
+                                  className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
+                                    milestone.status
+                                  )}`}
+                                >
+                                  {formatEntityStatus(milestone.status)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="ml-7 mt-2 rounded-lg border border-dashed border-white/[0.1] bg-white/[0.01] px-3 py-2 text-micro text-muted">
+                          No milestones yet.
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+
+                {milestonesByWorkstream.unscoped.length > 0 && (
+                  <article className="rounded-xl border border-white/[0.08] bg-white/[0.015] px-3 py-2.5">
+                    <p className="text-micro uppercase tracking-[0.1em] text-white/50">
+                      Unscoped milestones
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {milestonesByWorkstream.unscoped.map((milestone) => (
+                        <button
+                          key={milestone.id}
+                          onClick={() =>
+                            openModal({
+                              type: 'milestone',
+                              entity: milestone,
+                              initiative,
+                            })
+                          }
+                          className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/[0.015] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <IwmtLevelIcon level="milestone" size={11} className="flex-shrink-0" />
+                              <span className="text-micro uppercase tracking-[0.08em] text-white/52">
+                                {milestone.hierarchyLabel ?? iwmtLevelCode('milestone')}
+                              </span>
+                              <span className="truncate text-caption text-bright">
+                                {milestone.title}
+                              </span>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
+                              milestone.status
+                            )}`}
+                          >
+                            {formatEntityStatus(milestone.status)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                )}
+
+                {orphanTasks.length > 0 && (
+                  <article className="rounded-xl border border-white/[0.08] bg-white/[0.015] px-3 py-2.5">
+                    <p className="text-micro uppercase tracking-[0.1em] text-white/50">
+                      Unscoped tasks
+                    </p>
+                    <p className="mt-1 text-caption text-muted">
+                      {orphanTasks.length} task{orphanTasks.length === 1 ? '' : 's'} without a workstream or milestone.
+                    </p>
+                  </article>
+                )}
+              </div>
+            </section>
           )}
 
           <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
@@ -699,4 +893,3 @@ function formatRelativeEta(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   return formatRelativeTime(dateStr);
 }
-

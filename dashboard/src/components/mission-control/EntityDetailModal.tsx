@@ -4,28 +4,83 @@ import { InitiativeDetail } from './EntityDetailModal.Initiative';
 import { WorkstreamDetail } from './EntityDetailModal.Workstream';
 import { MilestoneDetail } from './EntityDetailModal.Milestone';
 import { TaskDetail } from './EntityDetailModal.Task';
-import { EntityIcon } from '@/components/shared/EntityIcon';
+import { IwmtLevelIcon, iwmtLevelCode } from './IwmtLevelIcon';
+import type { MissionControlNodeType } from '@/types';
 
 interface EntityDetailModalProps {
   target: EntityModalTarget | null;
   onClose: () => void;
 }
 
-function breadcrumbLabel(target: EntityModalTarget): string[] {
-  const crumbs: string[] = [];
-  if (target.type !== 'initiative' && target.initiative) {
-    crumbs.push(target.initiative.name);
-  }
+interface HeaderBreadcrumbItem {
+  id: string;
+  label: string;
+  level: MissionControlNodeType;
+}
+
+function resolveWorkstreamName(target: EntityModalTarget): string | null {
+  if (target.type === 'initiative') return null;
+  if (target.type === 'workstream') return target.entity.name;
+  const workstreamId = target.entity.workstreamId;
+  if (!workstreamId) return null;
+  return (
+    target.initiative.workstreams?.find((workstream) => workstream.id === workstreamId)?.name ??
+    null
+  );
+}
+
+function buildHeaderBreadcrumbs(target: EntityModalTarget): HeaderBreadcrumbItem[] {
   if (target.type === 'initiative') {
-    crumbs.push(target.entity.name);
-  } else if (target.type === 'workstream') {
-    crumbs.push(target.entity.name);
-  } else if (target.type === 'milestone') {
-    crumbs.push(target.entity.title);
-  } else if (target.type === 'task') {
-    crumbs.push(target.entity.title);
+    return [
+      {
+        id: target.entity.id,
+        label: target.entity.name,
+        level: 'initiative',
+      },
+    ];
   }
-  return crumbs;
+
+  const items: HeaderBreadcrumbItem[] = [
+    {
+      id: target.initiative.id,
+      label: target.initiative.name,
+      level: 'initiative',
+    },
+  ];
+
+  const workstreamName = resolveWorkstreamName(target);
+  const workstreamId =
+    target.type === 'workstream' ? target.entity.id : target.entity.workstreamId;
+  if (workstreamName && workstreamId) {
+    items.push({
+      id: workstreamId,
+      label: workstreamName,
+      level: 'workstream',
+    });
+  }
+
+  if (target.type === 'milestone') {
+    items.push({
+      id: target.entity.id,
+      label: target.entity.title,
+      level: 'milestone',
+    });
+  } else if (target.type === 'task') {
+    items.push({
+      id: target.entity.id,
+      label: target.entity.title,
+      level: 'task',
+    });
+  }
+
+  return items;
+}
+
+function hierarchyTag(target: EntityModalTarget): string {
+  if (target.type === 'initiative') return target.entity.hierarchyLabel ?? iwmtLevelCode('initiative');
+  if (target.type === 'workstream') return target.entity.hierarchyLabel ?? iwmtLevelCode('workstream');
+  if (target.type === 'milestone') return target.entity.hierarchyLabel ?? iwmtLevelCode('milestone');
+  return target.entity.hierarchyLabel ?? iwmtLevelCode('task');
 }
 
 export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
@@ -34,45 +89,73 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
       {target && (
         <div className="flex h-full w-full min-h-0 flex-col">
           {/* Header with breadcrumb + close button */}
-          <div className="flex items-center justify-between gap-3 border-b border-subtle px-5 py-3 sm:px-6">
-            <div className="flex items-center gap-1.5 min-w-0 text-body text-secondary">
-              {breadcrumbLabel(target).map((crumb, i, arr) => (
-                <span key={i} className="flex items-center gap-1.5 min-w-0">
-                  {i > 0 && (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-faint">
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  )}
-                  <span className={`truncate ${i === arr.length - 1 ? 'text-primary font-medium' : ''}`}>
-                    {crumb}
-                  </span>
-                </span>
-              ))}
-              <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.06em] text-secondary">
-                <EntityIcon type={target.type} size={11} className="opacity-90" />
-                {target.type}
+          <div className="border-b border-subtle bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0))] px-5 py-3 sm:px-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="-mx-0.5 overflow-x-auto pb-0.5">
+                  <ol className="flex min-w-max items-center gap-1 px-0.5 text-body text-secondary">
+                    {buildHeaderBreadcrumbs(target).map((item, index, list) => {
+                      const isCurrent = index === list.length - 1;
+                      return (
+                        <li key={item.id} className="flex min-w-0 items-center gap-1">
+                          {index > 0 && (
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              className="flex-shrink-0 text-faint"
+                              aria-hidden
+                            >
+                              <path d="m9 18 6-6-6-6" />
+                            </svg>
+                          )}
+                          <IwmtLevelIcon
+                            level={item.level}
+                            size={11}
+                            className={`flex-shrink-0 ${isCurrent ? 'opacity-95' : 'opacity-75'}`}
+                          />
+                          <span
+                            className={`max-w-[320px] truncate sm:max-w-[420px] ${
+                              isCurrent ? 'font-medium text-primary' : 'text-secondary'
+                            }`}
+                          >
+                            {item.label}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              </div>
+              <span className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-white/[0.12] bg-white/[0.04] px-2.5 py-1 text-micro uppercase tracking-[0.08em] text-white/72">
+                <IwmtLevelIcon level={target.type} size={11} className="opacity-90" />
+                <span className="font-semibold text-white/82">{hierarchyTag(target)}</span>
+                <span>{target.type}</span>
               </span>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close detail"
-              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close detail"
+                className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
               >
-                <path d="M18 6L6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
-            </button>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 6L6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Content */}

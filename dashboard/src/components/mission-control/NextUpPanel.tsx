@@ -488,9 +488,12 @@ export function NextUpPanel({
   const [signalToastHidden, setSignalToastHidden] = useState(false);
   const prefersReducedMotion = useReducedMotion();
   const queueSettingsRef = useRef<HTMLDivElement | null>(null);
+  const queueScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const internalQueue = useNextUpQueue({
     initiativeId,
     projectId,
+    limit: 40,
     authToken,
     embedMode,
     enabled: queueModel ? false : true,
@@ -503,8 +506,11 @@ export function NextUpPanel({
     degraded,
     isLoading,
     isFetching,
+    isFetchingNextPage,
+    hasNextPage,
     error,
     refetch,
+    fetchNextPage,
     playWorkstream,
     startWorkstreamAutoContinue,
     initiativeGroups,
@@ -711,6 +717,29 @@ export function NextUpPanel({
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [queueSettingsOpen]);
+
+  useEffect(() => {
+    if (!hasNextPage) return;
+    const root = queueScrollContainerRef.current;
+    const target = loadMoreSentinelRef.current;
+    if (!root || !target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (isLoading || isFetchingNextPage) return;
+        void fetchNextPage().catch(() => null);
+      },
+      {
+        root,
+        rootMargin: '220px 0px 220px 0px',
+        threshold: 0,
+      }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, isLoading]);
 
   const removeQueueItem = async (item: NextUpQueueItem) => {
     const key = itemKey(item);
@@ -1189,6 +1218,7 @@ export function NextUpPanel({
       )}
 
       <div
+        ref={queueScrollContainerRef}
         className={`flex-1 space-y-2.5 overflow-y-auto overscroll-y-contain scroll-smooth px-3 pb-3 ${
           showHeader ? 'pt-1' : 'pt-2.5'
         }`}
@@ -1820,6 +1850,14 @@ export function NextUpPanel({
               ))}
           </Reorder.Group>
         ) : null}
+
+        {(hasNextPage || isFetchingNextPage) && (
+          <div ref={loadMoreSentinelRef} className="flex h-10 items-center justify-center">
+            <span className="text-micro text-muted">
+              {isFetchingNextPage ? 'Loading more queue items…' : 'Scroll for more'}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="pointer-events-none absolute bottom-3 right-3 z-[250]">

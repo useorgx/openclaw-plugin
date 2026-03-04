@@ -482,6 +482,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
   const [showArchived, setShowArchived] = useState(false);
   const [archivedPage, setArchivedPage] = useState(0);
   const [detailAgentKey, setDetailAgentKey] = useState<string | null>(null);
+  const [idleOrgxExpanded, setIdleOrgxExpanded] = useState(false);
 
   const catalogQuery = useAgentCatalog({ enabled: true });
   const catalogAgents = catalogQuery.data?.agents ?? [];
@@ -778,12 +779,26 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
       ).length;
     }
 
-    // Sort: groups with sessions first (by latest update), then 0-session groups
+    // Sort: active agents first, then idle; within each tier use canonical order or latest update.
     const sortedGroups = Array.from(map.values()).sort((a, b) => {
       const aOrgx = isOrgxGroup(a);
       const bOrgx = isOrgxGroup(b);
       if (aOrgx !== bOrgx) return aOrgx ? -1 : 1;
+
+      // Within OrgX group: agents with sessions/active runtime come before idle ones.
       if (aOrgx && bOrgx) {
+        const aHasActivity = a.nodes.length > 0 || (a.runtimeActiveCount ?? 0) > 0;
+        const bHasActivity = b.nodes.length > 0 || (b.runtimeActiveCount ?? 0) > 0;
+        if (aHasActivity !== bHasActivity) return aHasActivity ? -1 : 1;
+
+        // If both active, sort by latest update first, then canonical order.
+        if (aHasActivity && bHasActivity) {
+          if (a.latest && b.latest) return sortByUpdated(a.latest, b.latest);
+          if (a.latest && !b.latest) return -1;
+          if (!a.latest && b.latest) return 1;
+        }
+
+        // If neither has activity (both idle), keep canonical order.
         const aCanonical = canonicalizeOrgxIdentity(a.agentId, a.agentName);
         const bCanonical = canonicalizeOrgxIdentity(b.agentId, b.agentName);
         const aIdx =
@@ -792,6 +807,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
           canonicalOrder.get(normalizeIdentity(bCanonical?.agentId ?? b.agentId)) ?? 999;
         if (aIdx !== bIdx) return aIdx - bIdx;
       }
+
       if (a.latest && b.latest) return sortByUpdated(a.latest, b.latest);
       if (a.latest && !b.latest) return -1;
       if (!a.latest && b.latest) return 1;
@@ -945,6 +961,33 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     [agents]
   );
 
+  // Split agents into active (with sessions/runtime) and idle OrgX persona agents.
+  const { activeAgents, idleOrgxAgents, activeAgentCount } = useMemo(() => {
+    const active: AgentGroup[] = [];
+    const idle: AgentGroup[] = [];
+    for (const group of agents) {
+      const hasActivity =
+        group.nodes.length > 0 ||
+        (group.runtimeActiveCount ?? 0) > 0 ||
+        isCatalogAgentLive(group.catalogAgent);
+      if (hasActivity) {
+        active.push(group);
+      } else if (isOrgxGroup(group)) {
+        idle.push(group);
+      } else {
+        // Non-OrgX agents without sessions still go into active list
+        active.push(group);
+      }
+    }
+    return {
+      activeAgents: active,
+      idleOrgxAgents: idle,
+      activeAgentCount: active.filter(
+        (g) => g.nodes.length > 0 || (g.runtimeActiveCount ?? 0) > 0 || isCatalogAgentLive(g.catalogAgent)
+      ).length,
+    };
+  }, [agents]);
+
   const collapseAllState = useMemo(() => {
     if (groupKeysWithSessions.length === 0) {
       return { allCollapsed: false, allExpanded: true };
@@ -1058,7 +1101,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     window.addEventListener('resize', syncMetrics);
     return () => window.removeEventListener('resize', syncMetrics);
-  }, [agents.length]);
+  }, [activeAgents.length]);
 
   const {
     visibleAgentGroups,
@@ -1067,17 +1110,17 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
     virtualizationEnabled,
   } = useMemo(() => {
     const canVirtualize =
-      agents.length > AGENT_VIRTUALIZATION_THRESHOLD && listViewportHeight > 0;
+      activeAgents.length > AGENT_VIRTUALIZATION_THRESHOLD && listViewportHeight > 0;
     if (!canVirtualize) {
       return {
-        visibleAgentGroups: agents,
+        visibleAgentGroups: activeAgents,
         topVirtualSpacerPx: 0,
         bottomVirtualSpacerPx: 0,
         virtualizationEnabled: false,
       };
     }
 
-    const estimatedHeights = agents.map((group) => {
+    const estimatedHeights = activeAgents.map((group) => {
       const collapsedGroup = collapsed.has(group.groupKey);
       const visibleChildCount = collapsedGroup
         ? 0
@@ -1101,25 +1144,25 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
 
     let startIndex = 0;
     while (
-      startIndex < agents.length &&
+      startIndex < activeAgents.length &&
       prefixHeights[startIndex + 1] < startBoundary
     ) {
       startIndex += 1;
     }
 
     let endIndex = startIndex;
-    while (endIndex < agents.length && prefixHeights[endIndex] < endBoundary) {
+    while (endIndex < activeAgents.length && prefixHeights[endIndex] < endBoundary) {
       endIndex += 1;
     }
-    if (endIndex <= startIndex) endIndex = Math.min(agents.length, startIndex + 1);
+    if (endIndex <= startIndex) endIndex = Math.min(activeAgents.length, startIndex + 1);
 
     return {
-      visibleAgentGroups: agents.slice(startIndex, endIndex),
+      visibleAgentGroups: activeAgents.slice(startIndex, endIndex),
       topVirtualSpacerPx: prefixHeights[startIndex],
       bottomVirtualSpacerPx: Math.max(0, totalHeight - prefixHeights[endIndex]),
       virtualizationEnabled: true,
     };
-  }, [agents, collapsed, listScrollTop, listViewportHeight]);
+  }, [activeAgents, collapsed, listScrollTop, listViewportHeight]);
 
   return (
     <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
@@ -1148,7 +1191,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               Agents
             </h2>
             <span className="chip flex-shrink-0 text-caption tabular-nums">
-              {visibleSessionCount} of {sessionCountInScope}
+              {activeAgentCount} active
             </span>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -1632,6 +1675,84 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
             />
           )}
         </div>
+
+        {/* Idle OrgX persona agents — collapsed by default */}
+        {idleOrgxAgents.length > 0 && (
+          <div className="rounded-xl border border-subtle bg-white/[0.02]">
+            <button
+              onClick={() => setIdleOrgxExpanded((prev) => !prev)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-caption text-secondary transition-colors hover:bg-white/[0.03]"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className={cn('transition-transform', idleOrgxExpanded ? 'rotate-0' : '-rotate-90')}
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+              <span>
+                {idleOrgxAgents.length} idle agent{idleOrgxAgents.length === 1 ? '' : 's'}
+              </span>
+            </button>
+            <AnimatePresence initial={false}>
+              {idleOrgxExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="overflow-hidden border-t border-subtle"
+                >
+                  <div className="space-y-1 p-2">
+                    {idleOrgxAgents.map((group) => {
+                      const canonicalOrgx = canonicalizeOrgxIdentity(group.agentId, group.agentName);
+                      const displayName = canonicalOrgx?.agentName ?? group.agentName;
+                      const roleLabel = canonicalOrgx?.role ?? getAgentRole(displayName);
+                      return (
+                        <button
+                          key={group.groupKey}
+                          type="button"
+                          onClick={() => setDetailAgentKey(group.groupKey)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left opacity-55 transition-colors hover:bg-white/[0.05] hover:opacity-75"
+                        >
+                          <div className="relative flex-shrink-0">
+                            <AgentAvatar name={displayName} size="sm" hint={`${group.agentId ?? ''} ${displayName}`} />
+                            {canonicalOrgx && (
+                              <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
+                                <img
+                                  src="/orgx/live/brand/orgx-logo.png"
+                                  alt=""
+                                  aria-hidden="true"
+                                  className="h-3 w-3 rounded-full object-contain"
+                                  loading="lazy"
+                                />
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-caption font-medium text-secondary">
+                              {displayName}
+                              {roleLabel && (
+                                <span className="ml-1.5 font-normal text-muted">
+                                  — {roleLabel}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <span className="text-micro text-muted">Idle</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
 
         {hiddenGroupCount > 0 && (
           <div className="rounded-xl border border-subtle bg-white/[0.02] px-3 py-2 text-caption text-secondary">

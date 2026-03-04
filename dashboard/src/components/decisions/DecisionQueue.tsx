@@ -70,6 +70,58 @@ interface DecisionQueueProps {
   showHeader?: boolean;
   panelStyle?: 'card' | 'flat';
   className?: string;
+  /** Map of initiativeId -> display name for group headers. Falls back to shortened ID. */
+  initiativeNames?: Record<string, string>;
+}
+
+interface InitiativeGroup {
+  initiativeId: string;
+  label: string;
+  decisions: LiveDecision[];
+  worstWaitingMinutes: number;
+}
+
+function getGroupUrgency(minutes: number): 'overdue' | 'urgent' | 'normal' {
+  if (minutes >= 1440) return 'overdue';
+  if (minutes >= 60) return 'urgent';
+  return 'normal';
+}
+
+function shortenId(id: string): string {
+  // UUID-like -> first 8 chars
+  if (id.length >= 32) return id.slice(0, 8);
+  return id;
+}
+
+function InitiativeGroupHeader({
+  group,
+}: {
+  group: InitiativeGroup;
+}) {
+  const urgency = getGroupUrgency(group.worstWaitingMinutes);
+  const count = group.decisions.length;
+  return (
+    <div className="flex items-center gap-2 px-1 pb-1 pt-2.5 first:pt-0">
+      <span className="text-caption font-semibold text-white/70 truncate">
+        {group.label}
+      </span>
+      <span className="text-micro text-muted whitespace-nowrap">
+        ({count} decision{count === 1 ? '' : 's'})
+      </span>
+      {urgency === 'overdue' && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/[0.12] px-1.5 py-0.5 text-micro font-medium text-red-400">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-red-400" />
+          overdue
+        </span>
+      )}
+      {urgency === 'urgent' && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/[0.12] px-1.5 py-0.5 text-micro font-medium text-amber-400">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          urgent
+        </span>
+      )}
+    </div>
+  );
 }
 
 function composeBulkActionId(
@@ -91,6 +143,7 @@ export const DecisionQueue = memo(function DecisionQueue({
   showHeader = true,
   panelStyle = 'card',
   className,
+  initiativeNames,
 }: DecisionQueueProps) {
   const prefersReducedMotion = useReducedMotion();
   const [isApprovingAll, setIsApprovingAll] = useState(false);
@@ -144,6 +197,33 @@ export const DecisionQueue = memo(function DecisionQueue({
     () => sorted.filter((d) => !swipedIds.has(d.id)).slice(0, visibleCount),
     [sorted, visibleCount, swipedIds]
   );
+  const initiativeGroups = useMemo((): InitiativeGroup[] => {
+    const groupMap = new Map<string, LiveDecision[]>();
+    const order: string[] = [];
+    for (const decision of visible) {
+      const key = decision.initiativeId ?? '_unscoped';
+      let list = groupMap.get(key);
+      if (!list) {
+        list = [];
+        groupMap.set(key, list);
+        order.push(key);
+      }
+      list.push(decision);
+    }
+    // Sort groups by their worst (longest) waiting time descending
+    const groups: InitiativeGroup[] = order.map((key) => {
+      const items = groupMap.get(key)!;
+      const worstWaitingMinutes = Math.max(0, ...items.map((d) => d.waitingMinutes));
+      const label =
+        key === '_unscoped'
+          ? 'General'
+          : initiativeNames?.[key] ?? shortenId(key);
+      return { initiativeId: key, label, decisions: items, worstWaitingMinutes };
+    });
+    groups.sort((a, b) => b.worstWaitingMinutes - a.worstWaitingMinutes);
+    return groups;
+  }, [visible, initiativeNames]);
+
   const allVisibleSelected = useMemo(() => {
     if (visible.length === 0) return false;
     for (const decision of visible) {
@@ -632,174 +712,212 @@ export const DecisionQueue = memo(function DecisionQueue({
 
         {enableMotion ? (
           <AnimatePresence mode="popLayout">
-            {visible.map((decision, idx) => {
-              const isApproving = approving.has(decision.id);
-              const isSelected = selected.has(decision.id);
-              return (
-                <motion.article
-                  key={decision.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setDetailDecisionId(decision.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      setDetailDecisionId(decision.id);
-                    }
-                  }}
-                  drag={!hasInFlightMutations && !isApproving ? 'x' : false}
-                  dragConstraints={{ left: 0, right: 0 }}
-                  dragElastic={0.3}
-                  onDragEnd={(_e, info) => {
-                    if (info.offset.x > 120) {
-                      handleSwipeApprove(decision);
-                    }
-                  }}
-                  initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 300, scale: 0.95 }}
-                  transition={{
-                    duration: 0.25,
-                    ease: [0.22, 1, 0.36, 1],
-                    ...(isApprovingAll ? { delay: idx * 0.04 } : {}),
-                  }}
-                  layout
-                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-                  style={{
-                    borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
-                    boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
-                  }}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(decision.id)}
-                      disabled={isApproving || hasInFlightMutations}
-                      onClick={(event) => event.stopPropagation()}
-                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="min-w-0">
-                        <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
-                          <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
-                          <span className="line-clamp-2">{decision.title}</span>
-                        </p>
-                        {decision.context && (
-                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
-                            {decision.context}
-                          </p>
-                        )}
-                        <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
-                            {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
-                          </p>
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleApproveOne(decision.id);
-                            }}
-                            disabled={isApproving || hasInFlightMutations}
-                            className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
-                          >
-                            {isApproving ? 'Approving…' : 'Approve'}
-                          </button>
-                          {onRejectDecision && (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDetailDecisionId(decision.id);
-                              }}
-                              disabled={isApproving || hasInFlightMutations}
-                              className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              Reject
-                            </button>
-                          )}
+            {initiativeGroups.map((group) => (
+              <div key={group.initiativeId}>
+                {initiativeGroups.length > 1 && (
+                  <InitiativeGroupHeader group={group} />
+                )}
+                {group.decisions.map((decision, idx) => {
+                  const isApproving = approving.has(decision.id);
+                  const isSelected = selected.has(decision.id);
+                  const urgency = getGroupUrgency(decision.waitingMinutes);
+                  return (
+                    <motion.article
+                      key={decision.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDetailDecisionId(decision.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setDetailDecisionId(decision.id);
+                        }
+                      }}
+                      drag={!hasInFlightMutations && !isApproving ? 'x' : false}
+                      dragConstraints={{ left: 0, right: 0 }}
+                      dragElastic={0.3}
+                      onDragEnd={(_e, info) => {
+                        if (info.offset.x > 120) {
+                          handleSwipeApprove(decision);
+                        }
+                      }}
+                      initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+                      exit={{ opacity: 0, x: 300, scale: 0.95 }}
+                      transition={{
+                        duration: 0.25,
+                        ease: [0.22, 1, 0.36, 1],
+                        ...(isApprovingAll ? { delay: idx * 0.04 } : {}),
+                      }}
+                      layout
+                      className="mt-1.5 rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+                      style={{
+                        borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
+                        boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
+                      }}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(decision.id)}
+                          disabled={isApproving || hasInFlightMutations}
+                          onClick={(event) => event.stopPropagation()}
+                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-start gap-1.5">
+                              {urgency !== 'normal' && (
+                                <span
+                                  aria-label={urgency === 'overdue' ? 'Overdue' : 'Urgent'}
+                                  className={cn(
+                                    'mt-[5px] h-2 w-2 flex-shrink-0 rounded-full',
+                                    urgency === 'overdue' ? 'bg-red-400' : 'bg-amber-400'
+                                  )}
+                                />
+                              )}
+                              <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
+                                <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
+                                <span className="line-clamp-2">{decision.title}</span>
+                              </p>
+                            </div>
+                            {decision.context && (
+                              <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
+                                {decision.context}
+                              </p>
+                            )}
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
+                                {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
+                              </p>
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleApproveOne(decision.id);
+                                }}
+                                disabled={isApproving || hasInFlightMutations}
+                                className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
+                              >
+                                {isApproving ? 'Approving…' : 'Approve'}
+                              </button>
+                              {onRejectDecision && (
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setDetailDecisionId(decision.id);
+                                  }}
+                                  disabled={isApproving || hasInFlightMutations}
+                                  className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Reject
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </motion.article>
-              );
-            })}
+                    </motion.article>
+                  );
+                })}
+              </div>
+            ))}
           </AnimatePresence>
         ) : (
           <>
-            {visible.map((decision) => {
-              const isApproving = approving.has(decision.id);
-              const isSelected = selected.has(decision.id);
-              return (
-                <article
-                  key={decision.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setDetailDecisionId(decision.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      setDetailDecisionId(decision.id);
-                    }
-                  }}
-                  className="rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-                  style={{
-                    borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
-                    boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
-                  }}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(decision.id)}
-                      disabled={isApproving || hasInFlightMutations}
-                      onClick={(event) => event.stopPropagation()}
-                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="min-w-0">
-                        <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
-                          <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
-                          <span className="line-clamp-2">{decision.title}</span>
-                        </p>
-                        {decision.context && (
-                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
-                            {decision.context}
-                          </p>
-                        )}
-                        <div className="mt-1.5 flex items-center justify-between gap-2">
-                          <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
-                            {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
-                          </p>
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleApproveOne(decision.id);
-                            }}
-                            disabled={isApproving || hasInFlightMutations}
-                            className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
-                          >
-                            {isApproving ? 'Approving…' : 'Approve'}
-                          </button>
-                          {onRejectDecision && (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDetailDecisionId(decision.id);
-                              }}
-                              disabled={isApproving || hasInFlightMutations}
-                              className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              Reject
-                            </button>
-                          )}
+            {initiativeGroups.map((group) => (
+              <div key={group.initiativeId}>
+                {initiativeGroups.length > 1 && (
+                  <InitiativeGroupHeader group={group} />
+                )}
+                {group.decisions.map((decision) => {
+                  const isApproving = approving.has(decision.id);
+                  const isSelected = selected.has(decision.id);
+                  const urgency = getGroupUrgency(decision.waitingMinutes);
+                  return (
+                    <article
+                      key={decision.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDetailDecisionId(decision.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setDetailDecisionId(decision.id);
+                        }
+                      }}
+                      className="mt-1.5 rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
+                      style={{
+                        borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
+                        boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
+                      }}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(decision.id)}
+                          disabled={isApproving || hasInFlightMutations}
+                          onClick={(event) => event.stopPropagation()}
+                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-start gap-1.5">
+                              {urgency !== 'normal' && (
+                                <span
+                                  aria-label={urgency === 'overdue' ? 'Overdue' : 'Urgent'}
+                                  className={cn(
+                                    'mt-[5px] h-2 w-2 flex-shrink-0 rounded-full',
+                                    urgency === 'overdue' ? 'bg-red-400' : 'bg-amber-400'
+                                  )}
+                                />
+                              )}
+                              <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={decision.title}>
+                                <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
+                                <span className="line-clamp-2">{decision.title}</span>
+                              </p>
+                            </div>
+                            {decision.context && (
+                              <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
+                                {decision.context}
+                              </p>
+                            )}
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <p className={`min-w-0 truncate text-micro ${(() => { const u = formatDurationWithUrgency(decision.waitingMinutes); return u.tone === 'urgent' ? 'text-red-400' : u.tone === 'attention' ? 'text-amber-400' : 'text-muted'; })()}`} title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}>
+                                {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
+                              </p>
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleApproveOne(decision.id);
+                                }}
+                                disabled={isApproving || hasInFlightMutations}
+                                className="flex-shrink-0 rounded-md border border-lime/25 bg-lime/10 px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/20 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.08] disabled:text-secondary"
+                              >
+                                {isApproving ? 'Approving…' : 'Approve'}
+                              </button>
+                              {onRejectDecision && (
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setDetailDecisionId(decision.id);
+                                  }}
+                                  disabled={isApproving || hasInFlightMutations}
+                                  className="flex-shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-micro font-semibold text-secondary transition-colors hover:border-red-400/30 hover:bg-red-400/[0.08] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Reject
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                    </article>
+                  );
+                })}
+              </div>
+            ))}
           </>
         )}
 

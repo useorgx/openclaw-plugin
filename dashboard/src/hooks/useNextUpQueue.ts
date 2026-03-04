@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import type {
   MissionControlSliceItem,
   MissionControlSlicesResponse,
@@ -822,49 +827,35 @@ export function useNextUpQueue({
       return responsePayload;
   };
 
-  const query = useQuery<NextUpQueueResponse, Error>({
+  const query = useInfiniteQuery<NextUpQueueResponse, Error>({
     queryKey,
     enabled,
-    queryFn: async () => loadQueuePage(normalizedOffset, normalizedLimit),
+    initialPageParam: normalizedOffset,
+    queryFn: async ({ pageParam }) => {
+      const targetOffset =
+        typeof pageParam === 'number' && Number.isFinite(pageParam)
+          ? Math.max(0, Math.floor(pageParam))
+          : normalizedOffset;
+      return await loadQueuePage(targetOffset, normalizedLimit);
+    },
+    getNextPageParam: (lastPage) => {
+      const pagination = lastPage.pagination;
+      if (!pagination?.hasMore || !pagination.nextCursor) return undefined;
+      const nextOffset = Number.parseInt(pagination.nextCursor, 10);
+      if (!Number.isFinite(nextOffset)) return undefined;
+      return Math.max(0, Math.floor(nextOffset));
+    },
     refetchInterval: (state) => {
-      const payload = state.state.data;
-      if (!payload || !Array.isArray(payload.items) || payload.items.length === 0) return 10_000;
-      const hasRunning = payload.items.some((item) => item.queueState === 'running');
+      const pages = state.state.data?.pages;
+      if (!pages || pages.length === 0) return 10_000;
+      const hasRunning = pages.some(
+        (page) =>
+          Array.isArray(page.items) &&
+          page.items.some((item) => item.queueState === 'running')
+      );
       return hasRunning ? 2_500 : 8_000;
     },
   });
-
-  const warmedNextCursorRef = useRef<string | null>(null);
-  useEffect(() => {
-    const pagination = query.data?.pagination;
-    if (!enabled || !pagination?.hasMore || !pagination.nextCursor) return;
-    if (warmedNextCursorRef.current === pagination.nextCursor) return;
-    const nextOffset = Number.parseInt(pagination.nextCursor, 10);
-    if (!Number.isFinite(nextOffset)) return;
-    warmedNextCursorRef.current = pagination.nextCursor;
-    void queryClient.prefetchQuery({
-      queryKey: queryKeys.nextUpQueue({
-        initiativeId,
-        projectId,
-        offset: nextOffset,
-        limit: normalizedLimit,
-        authToken,
-        embedMode,
-      }),
-      queryFn: () => loadQueuePage(nextOffset, normalizedLimit),
-      staleTime: 15_000,
-    });
-  }, [
-    enabled,
-    query.data?.pagination?.hasMore,
-    query.data?.pagination?.nextCursor,
-    initiativeId,
-    projectId,
-    normalizedLimit,
-    authToken,
-    embedMode,
-    queryClient,
-  ]);
 
   const playMutation = useMutation({
     mutationFn: async (input: NextUpActionInput) => {
@@ -908,19 +899,27 @@ export function useNextUpQueue({
     },
     onMutate: async (input: NextUpActionInput) => {
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<NextUpQueueResponse>(queryKey);
+      const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
       if (!previous) return { previous };
 
-      queryClient.setQueryData<NextUpQueueResponse>(queryKey, {
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(queryKey, {
         ...previous,
-        items: previous.items.map((item) => {
-          if (item.initiativeId === input.initiativeId && item.workstreamId === input.workstreamId) {
-            return { ...item, queueState: 'running', playbackState: 'running' };
-          }
-          // Only one workstream can be "running" in the queue UI.
-          if (item.queueState === 'running') return { ...item, queueState: 'idle', playbackState: 'idle' };
-          return item;
-        }),
+        pages: previous.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => {
+            if (
+              item.initiativeId === input.initiativeId &&
+              item.workstreamId === input.workstreamId
+            ) {
+              return { ...item, queueState: 'running', playbackState: 'running' };
+            }
+            // Only one workstream can be "running" in the queue UI.
+            if (item.queueState === 'running') {
+              return { ...item, queueState: 'idle', playbackState: 'idle' };
+            }
+            return item;
+          }),
+        })),
       });
 
       return { previous };
@@ -999,7 +998,81 @@ export function useNextUpQueue({
     },
   });
 
-  const allItems = query.data?.items ?? [];
+  const allItems = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    if (pages.length === 0) return [];
+    const seen = new Set<string>();
+    const merged: NextUpQueueItem[] = [];
+    for (const page of pages) {
+      for (const item of page.items) {
+        const key = `${item.initiativeId}:${item.workstreamId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+      }
+    }
+    return merged;
+  }, [query.data?.pages]);
+
+  const combinedTotal = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    let maxTotal = 0;
+    for (const page of pages) {
+      if (typeof page.total === 'number' && Number.isFinite(page.total)) {
+        maxTotal = Math.max(maxTotal, page.total);
+      }
+    }
+    return Math.max(maxTotal, allItems.length);
+  }, [allItems.length, query.data?.pages]);
+
+  const combinedPagination = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    if (pages.length === 0) return null;
+    const first = pages[0];
+    const last = pages[pages.length - 1];
+    const firstPagination = first.pagination;
+    const lastPagination = last.pagination;
+    const hasMore = Boolean(query.hasNextPage);
+    return {
+      offset:
+        firstPagination && Number.isFinite(firstPagination.offset)
+          ? Math.max(0, Math.floor(firstPagination.offset))
+          : normalizedOffset,
+      limit:
+        firstPagination && Number.isFinite(firstPagination.limit)
+          ? Math.max(1, Math.floor(firstPagination.limit))
+          : normalizedLimit,
+      total: combinedTotal,
+      nextCursor: hasMore
+        ? lastPagination?.nextCursor ??
+          String(
+            (lastPagination?.offset ?? normalizedOffset) +
+              (lastPagination?.limit ?? normalizedLimit)
+          )
+        : null,
+      hasMore,
+    } satisfies NonNullable<NextUpQueueResponse['pagination']>;
+  }, [
+    combinedTotal,
+    normalizedLimit,
+    normalizedOffset,
+    query.data?.pages,
+    query.hasNextPage,
+  ]);
+
+  const combinedGeneratedAt = query.data?.pages[0]?.generatedAt ?? null;
+  const combinedDegraded = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    const deduped = new Set<string>();
+    for (const page of pages) {
+      for (const reason of page.degraded ?? []) {
+        if (typeof reason === 'string' && reason.trim().length > 0) {
+          deduped.add(reason);
+        }
+      }
+    }
+    return Array.from(deduped);
+  }, [query.data?.pages]);
 
   const initiativeGroups = useMemo(
     () => (zoomLevel === 'initiative' ? groupByInitiative(allItems) : []),
@@ -1013,14 +1086,17 @@ export function useNextUpQueue({
 
   return {
     items: allItems,
-    total: query.data?.total ?? 0,
-    pagination: query.data?.pagination ?? null,
-    generatedAt: query.data?.generatedAt ?? null,
-    degraded: query.data?.degraded ?? [],
+    total: combinedTotal,
+    pagination: combinedPagination,
+    generatedAt: combinedGeneratedAt,
+    degraded: combinedDegraded,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
+    isFetchingNextPage: query.isFetchingNextPage,
+    hasNextPage: Boolean(query.hasNextPage),
     error: query.error?.message ?? null,
     refetch: query.refetch,
+    fetchNextPage: query.fetchNextPage,
     playWorkstream: playMutation.mutateAsync,
     startWorkstreamAutoContinue: startAutoContinueMutation.mutateAsync,
     stopInitiativeAutoContinue: stopAutoContinueMutation.mutateAsync,
@@ -1043,8 +1119,11 @@ export interface UseNextUpQueueResult {
   degraded: string[];
   isLoading: boolean;
   isFetching: boolean;
+  isFetchingNextPage: boolean;
+  hasNextPage: boolean;
   error: string | null;
   refetch: () => Promise<unknown>;
+  fetchNextPage: () => Promise<unknown>;
   playWorkstream: (input: NextUpActionInput) => Promise<unknown>;
   startWorkstreamAutoContinue: (input: StartAutoContinueInput) => Promise<unknown>;
   stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;

@@ -833,6 +833,7 @@ function DashboardShell({
 
   const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
+    limit: 40,
     authToken: null,
     embedMode: false,
     enabled: true,
@@ -1680,6 +1681,16 @@ function DashboardShell({
     liveInitiatives,
     initiativeTombstones,
   ]);
+
+  const initiativeNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const init of mcInitiatives) {
+      if (init.id && init.name) {
+        map[init.id] = init.name;
+      }
+    }
+    return map;
+  }, [mcInitiatives]);
 
   const selectedActivitySessionLabel = useMemo(() => {
     if (!selectedActivitySession) return null;
@@ -3124,6 +3135,7 @@ function DashboardShell({
                                   onApproveAll={approveAllDecisions}
                                   onBulkDecisionAction={bulkDecisionAction}
                                   mutationState={decisionMutation}
+                                  initiativeNames={initiativeNameMap}
                                 />
                               </Suspense>
                             </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeMilestone } from '@/types';
@@ -9,11 +9,11 @@ import {
   formatEntityStatus,
 } from '@/lib/entityStatusColors';
 import { completionPercent, isDoneStatus } from '@/lib/progress';
-import { EntityIcon } from '@/components/shared/EntityIcon';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
+import { IwmtLevelIcon, iwmtLevelCode } from './IwmtLevelIcon';
 
 interface MilestoneDetailProps {
   milestone: InitiativeMilestone;
@@ -24,6 +24,8 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const { openModal, closeModal, authToken, embedMode, mutations } = useMissionControl();
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
   const [addingTask, setAddingTask] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -31,6 +33,25 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   const [draftDescription, setDraftDescription] = useState(milestone.description ?? '');
   const [draftDueDate, setDraftDueDate] = useState(toDateInputValue(milestone.dueDate));
   const [draftStatus, setDraftStatus] = useState(milestone.status);
+
+  // Close overflow menu on outside click or Escape
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOverflowOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [overflowOpen]);
 
   const { details } = useInitiativeDetails({
     initiativeId: initiative.id,
@@ -40,6 +61,9 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
 
   const associatedTasks = details.tasks.filter(
     (t) => t.milestoneId === milestone.id
+  );
+  const parentWorkstream = details.workstreams.find(
+    (workstream) => workstream.id === milestone.workstreamId
   );
 
   const isDone =
@@ -98,29 +122,16 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-caption">
-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
-          <button
-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
-            className="break-words text-secondary transition-colors hover:text-white"
-          >
-            {initiative.name}
-          </button>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-          <EntityIcon type="milestone" size={12} className="flex-shrink-0 opacity-95" />
-          <span className="break-words font-medium text-primary">{milestone.title}</span>
-        </div>
-
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <EntityIcon type="milestone" size={16} />
+          <IwmtLevelIcon level="milestone" size={16} />
           <h2 className="text-title font-semibold text-white">
             {milestone.title}
           </h2>
+          <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-white/65">
+            {milestone.hierarchyLabel ?? iwmtLevelCode('milestone')}
+          </span>
           <span
             className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(milestone.status)}`}
           >
@@ -216,31 +227,50 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
         )}
       </div>
 
-      {/* Associated tasks — flat rows with status-tinted left border */}
-      {associatedTasks.length > 0 && (
-        <div className="space-y-1">
-          {associatedTasks.map((task) => {
-            const ts = task.status.toLowerCase();
-            const borderColor = ['active', 'in_progress'].includes(ts) ? colors.lime
-              : ts === 'blocked' ? colors.red
-              : ['done', 'completed'].includes(ts) ? colors.teal
-              : 'rgba(255,255,255,0.08)';
-            return (
-              <button
-                key={task.id}
-                onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
-                style={{ borderLeftColor: borderColor }}
-              >
-                <span className="text-body text-bright">{task.title}</span>
-                <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getTaskStatusClass(task.status)}`}>
-                  {formatEntityStatus(task.status)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <section className="space-y-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+          IWMT Composition
+        </h3>
+        {associatedTasks.length > 0 ? (
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+            <div className="space-y-1.5">
+              {associatedTasks.map((task) => (
+                <button
+                  key={task.id}
+                  onClick={() => openModal({ type: 'task', entity: task, initiative })}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/[0.015] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <IwmtLevelIcon level="task" size={11} className="flex-shrink-0" />
+                      <span className="text-micro uppercase tracking-[0.08em] text-white/50">
+                        {task.hierarchyLabel ?? iwmtLevelCode('task')}
+                      </span>
+                      <span className="truncate text-caption text-bright">{task.title}</span>
+                    </div>
+                    {task.priority && (
+                      <p className="mt-0.5 text-micro uppercase tracking-[0.08em] text-muted">
+                        {task.priority}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
+                      task.status
+                    )}`}
+                  >
+                    {formatEntityStatus(task.status)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-white/[0.1] bg-white/[0.01] px-3 py-2 text-micro text-muted">
+            No tasks linked to this milestone yet.
+          </div>
+        )}
+      </section>
 
       <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
 
@@ -332,46 +362,70 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
             />
           )}
           <div className="flex-1" />
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-caption text-secondary">Delete milestone?</span>
-              <EntityActionButton
-                label="Delete"
-                color={colors.red}
-                variant="destructive"
-                onClick={() =>
-                  mutations.deleteEntity.mutate(
-                    { type: 'milestone', id: milestone.id },
-                    {
-                      onSuccess: () => closeModal(),
-                      onError: (error) =>
-                        setNotice(
-                          formatNoticeError(
-                            error instanceof Error ? error.message : '',
-                            'Failed to delete milestone.'
-                          )
-                        ),
-                    }
-                  )
-                }
-                disabled={isMutating}
-              />
-              <EntityActionButton
-                label="Keep"
-                variant="ghost"
-                onClick={() => setConfirmDelete(false)}
-                disabled={isMutating}
-              />
-            </div>
-          ) : (
-            <EntityActionButton
-              label="Delete"
-              color={colors.red}
-              variant="destructive"
-              onClick={() => setConfirmDelete(true)}
+          {/* Overflow menu */}
+          <div className="relative" ref={overflowRef}>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-secondary hover:bg-white/10 hover:text-primary transition-colors text-sm leading-none"
+              onClick={() => { setOverflowOpen((v) => !v); setConfirmDelete(false); }}
+              aria-label="More actions"
               disabled={isMutating}
-            />
-          )}
+            >
+              &#x22EF;
+            </button>
+            {overflowOpen && (
+              <div className="absolute bottom-full right-0 mb-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0c1322] shadow-xl z-50">
+                {confirmDelete ? (
+                  <div className="flex flex-col gap-1 p-2">
+                    <span className="text-caption text-secondary px-2">Delete milestone?</span>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() =>
+                        mutations.deleteEntity.mutate(
+                          { type: 'milestone', id: milestone.id },
+                          {
+                            onSuccess: () => closeModal(),
+                            onError: (error) =>
+                              setNotice(
+                                formatNoticeError(
+                                  error instanceof Error ? error.message : '',
+                                  'Failed to delete milestone.'
+                                )
+                              ),
+                          }
+                        )
+                      }
+                      disabled={isMutating}
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm text-secondary hover:bg-white/5 transition-colors"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={isMutating}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-1">
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={isMutating}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {addingTask ? (
             <form
               className="flex flex-wrap items-center gap-2"

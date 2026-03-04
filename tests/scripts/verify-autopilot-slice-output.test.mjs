@@ -369,6 +369,23 @@ test("verifier accepts required skills provided as a prompt-style label line", (
   assert.match(result.stdout, /\[verify\] ok/i);
 });
 
+test("verifier accepts mixed tokenized and plain required skills in one prompt line", () => {
+  const output = makeValidOutput();
+  output.skill_evidence.push({
+    ...output.skill_evidence[0],
+    skill: "qa-agent",
+    skill_file: "__SKILL_FILE__",
+    skill_sha256: "__SKILL_SHA__",
+  });
+  const result = runVerifier(
+    output,
+    makeSchema(),
+    "Required skills: orgx-engineering-agent and $qa-agent"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
 test("verifier ignores connector words in prompt-style required skills text", () => {
   const result = runVerifier(
     makeValidOutput(),

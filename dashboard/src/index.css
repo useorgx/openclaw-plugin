@@ -757,6 +757,17 @@
   pointer-events: none;
 }
 
+/* Touch device fallback: always show actions at reduced opacity */
+@media (hover: none) {
+  .touch-device\:opacity-60 {
+    opacity: 0.6;
+  }
+  .touch-device\:translate-x-0 {
+    --tw-translate-x: 0px;
+    transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
