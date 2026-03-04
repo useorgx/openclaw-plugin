@@ -2512,10 +2512,14 @@ function MissionControlInner({
                             {isGroupExpanded && (
                               <motion.div
                                 id={panelId}
-                                initial={{ opacity: 0, y: -4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -4 }}
-                                transition={nextUpSurfaceTransition}
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{
+                                  height: { type: 'spring', stiffness: 320, damping: 32 },
+                                  opacity: { duration: 0.14 },
+                                }}
+                                className="overflow-hidden"
                               >
                                 <div className="pt-0.5">
                                   <InitiativeOrbit
