@@ -89,20 +89,21 @@ export function workspaceScopeFromHeaders(
     "x-orgx-command-center-id",
     "x_orgx_command_center_id",
   ]);
+  const centerId = readScopeValue(headers, ["center"]);
   if (workspaceId && commandCenterId && workspaceId !== commandCenterId) {
     return {
       workspace_id: workspaceId,
       command_center_id: commandCenterId,
-      center: workspaceId,
+      center: centerId ?? workspaceId,
     };
   }
 
-  const canonical = workspaceId ?? commandCenterId;
+  const canonical = workspaceId ?? commandCenterId ?? centerId;
   if (!canonical) return null;
   return {
     workspace_id: canonical,
     command_center_id: canonical,
-    center: canonical,
+    center: centerId ?? canonical,
   };
 }
 

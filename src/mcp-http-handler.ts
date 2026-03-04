@@ -204,6 +204,12 @@ async function readRequestBodyBuffer(req: PluginRequest): Promise<Buffer> {
 
   return await new Promise((resolve) => {
     const chunks: Buffer[] = [];
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    };
     const onData = (chunk: unknown) => {
       if (typeof chunk === "string") {
         chunks.push(Buffer.from(chunk, "utf8"));
@@ -213,10 +219,15 @@ async function readRequestBodyBuffer(req: PluginRequest): Promise<Buffer> {
         chunks.push(Buffer.from(chunk));
       }
     };
-    const onEnd = () => resolve(Buffer.concat(chunks));
-    const onError = () => resolve(Buffer.concat(chunks));
+    const onEnd = () => settle();
+    const onError = () => settle();
 
     req.on?.("data", onData);
+    if (typeof req.once === "function") {
+      req.once("end", onEnd);
+      req.once("error", onError);
+      return;
+    }
     req.on?.("end", onEnd);
     req.on?.("error", onError);
   });

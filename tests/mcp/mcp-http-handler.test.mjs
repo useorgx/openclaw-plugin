@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 
 async function importFreshModule() {
   const url = new URL("../../dist/mcp-http-handler.js", import.meta.url);
@@ -138,6 +139,99 @@ test("tools/call executes tool and returns content", async () => {
   assert.equal(payload.result.isError, false);
   assert.equal(payload.result.content[0].type, "text");
   assert.equal(payload.result.content[0].text, "echo:hi");
+});
+
+test("reads streamed POST body via request events", async () => {
+  const mod = await importFreshModule();
+  const tools = new Map();
+  const handler = mod.createMcpHttpHandler({
+    tools,
+    serverName: "orgx-local",
+    serverVersion: "0.0.0",
+  });
+
+  const stream = new EventEmitter();
+  const req = {
+    method: "POST",
+    url: "/orgx/mcp",
+    headers: {},
+    on: stream.on.bind(stream),
+    once: stream.once.bind(stream),
+  };
+  const mock = createMockResponse();
+
+  const pending = handler(req, mock.res);
+  process.nextTick(() => {
+    stream.emit("data", '{"jsonrpc":"2.0","id":"stream-1","method":"tools/list","params":{}}');
+    stream.emit("end");
+  });
+  await pending;
+
+  assert.equal(mock.state.status, 200);
+  const payload = JSON.parse(mock.state.body);
+  assert.equal(payload.id, "stream-1");
+  assert.ok(Array.isArray(payload.result.tools));
+});
+
+test("reads streamed POST body when request.once is unavailable", async () => {
+  const mod = await importFreshModule();
+  const handler = mod.createMcpHttpHandler({
+    tools: new Map(),
+    serverName: "orgx-local",
+    serverVersion: "0.0.0",
+  });
+
+  const stream = new EventEmitter();
+  const req = {
+    method: "POST",
+    url: "/orgx/mcp",
+    headers: {},
+    on: stream.on.bind(stream),
+  };
+  const mock = createMockResponse();
+
+  const pending = handler(req, mock.res);
+  process.nextTick(() => {
+    stream.emit("data", '{"jsonrpc":"2.0","id":"stream-2","method":"tools/list","params":{}}');
+    stream.emit("end");
+  });
+  await pending;
+
+  assert.equal(mock.state.status, 200);
+  const payload = JSON.parse(mock.state.body);
+  assert.equal(payload.id, "stream-2");
+  assert.ok(Array.isArray(payload.result.tools));
+});
+
+test("parses partial streamed body when request errors before end", async () => {
+  const mod = await importFreshModule();
+  const handler = mod.createMcpHttpHandler({
+    tools: new Map(),
+    serverName: "orgx-local",
+    serverVersion: "0.0.0",
+  });
+
+  const stream = new EventEmitter();
+  const req = {
+    method: "POST",
+    url: "/orgx/mcp",
+    headers: {},
+    on: stream.on.bind(stream),
+    once: stream.once.bind(stream),
+  };
+  const mock = createMockResponse();
+
+  const pending = handler(req, mock.res);
+  process.nextTick(() => {
+    stream.emit("data", '{"jsonrpc":"2.0","id":"stream-err-1","method":"tools/list","params":{}}');
+    stream.emit("error", new Error("connection reset"));
+  });
+  await pending;
+
+  assert.equal(mock.state.status, 200);
+  const payload = JSON.parse(mock.state.body);
+  assert.equal(payload.id, "stream-err-1");
+  assert.ok(Array.isArray(payload.result.tools));
 });
 
 test("scoped tools/list filters tools by domain allowlist", async () => {
