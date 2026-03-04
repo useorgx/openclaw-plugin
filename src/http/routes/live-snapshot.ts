@@ -565,10 +565,18 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     const agentContexts = contextStore.agents;
     const runContexts = contextStore.runs ?? {};
     const scopedAgentIds = deps.getScopedAgentIds(agentContexts);
-    const scopedProjectInitiativeIds =
-      projectId && projectId.trim().length > 0
-        ? new Set(await deps.listInitiativeIdsForProject({ projectId: projectId.trim() }))
-        : null;
+    let scopedProjectInitiativeIds: Set<string> | null = null;
+    if (projectId && projectId.trim().length > 0) {
+      try {
+        scopedProjectInitiativeIds = new Set(
+          await deps.listInitiativeIdsForProject({ projectId: projectId.trim() })
+        );
+      } catch (err: unknown) {
+        degraded.push(
+          `workspace initiative scope unavailable (${deps.safeErrorMessage(err)})`
+        );
+      }
+    }
 
     let outboxStatus: Record<string, unknown>;
     try {

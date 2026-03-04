@@ -14,7 +14,6 @@ import {
   statusColor,
 } from '@/lib/entityStatusColors';
 import { Skeleton } from '@/components/shared/Skeleton';
-import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { useMissionControlGraph } from '@/hooks/useMissionControlGraph';
 import { useInitiativeDetails } from '@/hooks/useInitiativeDetails';
@@ -27,6 +26,7 @@ import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { humanizeWarning } from '@/lib/humanize';
 import { CollapsibleSection } from './CollapsibleSection';
 import { QueuePlacementControl } from './QueuePlacementControl';
+import { AgentPresenceBar } from './AgentPresenceBar';
 
 interface InitiativeSectionProps {
   initiative: Initiative;
@@ -959,26 +959,18 @@ export function InitiativeSection({
           </div>
         )}
 
-        {/* Live/agents section — hidden below md */}
+        {/* Live/agents section */}
         <div
-          className={`ml-2 w-[104px] min-w-[104px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 lg:w-[116px] lg:min-w-[116px] lg:pl-2.5 xl:w-[132px] xl:min-w-[132px] ${
-            isSquished ? 'hidden' : 'hidden md:flex'
+          className={`ml-2 w-[114px] min-w-[114px] flex-shrink-0 items-center justify-end border-l border-subtle pl-2 lg:w-[132px] lg:min-w-[132px] lg:pl-2.5 xl:w-[150px] xl:min-w-[150px] ${
+            isSquished ? 'hidden' : 'flex'
           }`}
         >
-          {runtimeActiveCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
-              {runtimeActiveCount} live
-            </span>
-          ) : agents.length > 0 ? (
-            <InferredAgentAvatars agents={agents} max={3} />
-          ) : runtimeTotalCount > 0 ? (
-            <span className="w-full text-right text-micro text-muted">
-              {runtimeTotalCount} idle
-            </span>
-          ) : (
-            <span className="w-full text-right text-micro text-white/28">—</span>
-          )}
+          <AgentPresenceBar
+            agents={agents}
+            activeCount={runtimeActiveCount}
+            totalCount={runtimeTotalCount}
+            isSquished={isSquished}
+          />
         </div>
 
         {/* Quick actions */}
