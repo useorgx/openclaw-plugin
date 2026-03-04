@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 import { useByokSettings } from '@/hooks/useByokSettings';
 
 type ProviderId = 'openai' | 'anthropic' | 'openrouter';
@@ -126,6 +127,8 @@ export function ByokSettingsModal({
     setLocalError(null);
     await byok.probe();
   };
+  const rawError = localError ?? byok.error ?? null;
+  const friendlyError = rawError ? humanizeWarning(rawError) : null;
 
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-3xl">
@@ -172,7 +175,7 @@ export function ByokSettingsModal({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
           {(localError || byok.error) && (
             <div className="mb-4 rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
-              {localError ?? byok.error}
+              {friendlyError}
             </div>
           )}
 
@@ -315,7 +318,7 @@ export function ByokSettingsModal({
 
                   {providerHealth && !providerHealth.ok && providerHealth.error && (
                     <p className="mt-2 text-caption text-rose-100/80">
-                      Probe error: {providerHealth.error}
+                      Probe error: {humanizeWarning(providerHealth.error)}
                     </p>
                   )}
                 </div>

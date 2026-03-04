@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { OnboardingState } from '@/types';
+import { humanizeWarning } from '@/lib/humanize';
 import orgxLogo from '@/assets/orgx-logo.png';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 
@@ -169,6 +170,7 @@ export function ExplainerPanel({
   onContinueWithoutOrgX,
 }: ExplainerPanelProps) {
   const hasError = Boolean(state.lastError);
+  const friendlyLastError = state.lastError ? humanizeWarning(state.lastError) : null;
   const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
   const [debugCopyState, setDebugCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
@@ -450,7 +452,7 @@ export function ExplainerPanel({
               </svg>
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-body text-red-300/80">{state.lastError}</p>
+              <p className="text-body text-red-300/80">{friendlyLastError}</p>
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
               <button

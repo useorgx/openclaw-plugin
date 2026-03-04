@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 import { useByokSettings } from '@/hooks/useByokSettings';
 
 type ProviderId = 'openai' | 'anthropic' | 'openrouter';
@@ -202,6 +203,8 @@ export function ByokSettingsPanel({
     setLocalError(null);
     await byok.probe();
   };
+  const rawError = localError ?? byok.error ?? null;
+  const friendlyError = rawError ? humanizeWarning(rawError) : null;
 
   return (
     <div className="flex min-h-0 flex-col gap-7">
@@ -229,7 +232,7 @@ export function ByokSettingsPanel({
 
       {(localError || byok.error) && (
         <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 p-4 text-body text-rose-100">
-          {localError ?? byok.error}
+          {friendlyError}
         </div>
       )}
 

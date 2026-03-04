@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { UsageControlPlaneSummary } from '@/types';
 import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 
 interface UseUsageControlPlaneOptions {
   authToken?: string | null;
@@ -39,10 +40,10 @@ export function useUsageControlPlane({
             ? body.message
             : null) ??
           `Failed to load usage summary (${response.status})`;
-        throw new Error(error);
+        throw new Error(humanizeWarning(error));
       }
       if (!body || typeof body !== 'object' || !('generatedAt' in body)) {
-        throw new Error('Usage summary response is missing required fields.');
+        throw new Error(humanizeWarning('Usage summary response is missing required fields.'));
       }
       return body as UsageControlPlaneSummary;
     },
@@ -57,4 +58,3 @@ export function useUsageControlPlane({
     refetch: summaryQuery.refetch,
   };
 }
-

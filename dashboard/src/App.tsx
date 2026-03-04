@@ -248,9 +248,10 @@ function formatLiveErrorCopy(raw: string): {
       action: 'settings',
     };
   }
+  const friendly = humanizeWarning(raw);
   return {
     title: 'Live stream degraded',
-    message: compactErrorMessage(raw),
+    message: compactErrorMessage(friendly),
     action: 'settings',
   };
 }

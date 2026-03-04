@@ -105,9 +105,76 @@ export const ORGX_SKILL_BY_DOMAIN: Record<string, string> = {
   orchestration: "orgx-orchestrator-agent",
 };
 
-function safeErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
+export function safeErrorMessage(err: unknown): string {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : err && typeof err === "object" && "message" in err && typeof (err as { message?: unknown }).message === "string"
+          ? ((err as { message: string }).message ?? "")
+          : "";
+
+  const parseStructuredMessage = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parseObjectMessage = (parsed: unknown): string | null => {
+      if (!parsed || typeof parsed !== "object") return null;
+      const root = parsed as Record<string, unknown>;
+      const nested = root.error && typeof root.error === "object" ? (root.error as Record<string, unknown>) : null;
+      const envelope = nested ?? root;
+      return (
+        (typeof envelope.message === "string" && envelope.message.trim()) ||
+        (typeof envelope.detail === "string" && envelope.detail.trim()) ||
+        (!nested && typeof root.error === "string" && root.error.trim()) ||
+        null
+      );
+    };
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const direct = parseObjectMessage(parsed);
+      if (direct) return direct;
+    } catch {
+      // fall through and attempt extraction of embedded JSON blocks
+    }
+    const firstBrace = trimmed.indexOf("{");
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const candidate = trimmed.slice(firstBrace, lastBrace + 1);
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        return parseObjectMessage(parsed);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const stripStructuredNoise = (value: string): string =>
+    value
+      .replace(/"requestId"\s*:\s*"[^"]*"/gi, "")
+      .replace(/"timestamp"\s*:\s*"[^"]*"/gi, "")
+      .replace(/"docsUrl"\s*:\s*"[^"]*"/gi, "")
+      .replace(/\brequest[_\s-]?id[:=]\s*[\w-]+/gi, "")
+      .replace(/\btimestamp[:=]\s*\S+/gi, "")
+      .replace(/\bdocsUrl[:=]\s*\S+/gi, "")
+      .replace(/[{}]/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  const normalizedMessage = parseStructuredMessage(raw) ?? raw;
+  const sanitized = stripStructuredNoise(normalizedMessage);
+  const normalized = sanitized.toLowerCase();
+  if (normalized.length > 0) {
+    if (normalized.includes("internal_error") || normalized.includes("internal server error")) {
+      return "temporary server issue";
+    }
+    if (normalized.includes("failed to list decision") || normalized.includes("failed to load decision")) {
+      return "decision data temporarily unavailable";
+    }
+    return sanitized;
+  }
   return "Unexpected error";
 }
 

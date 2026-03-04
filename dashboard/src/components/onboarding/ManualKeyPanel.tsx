@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { humanizeWarning } from '@/lib/humanize';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 interface ManualKeyPanelProps {
@@ -44,7 +45,8 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
       await onSubmit(normalizedApiKey);
       setApiKey('');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to validate API key.');
+      const raw = err instanceof Error ? err.message : 'Failed to validate API key.';
+      setError(humanizeWarning(raw));
     }
   };
 

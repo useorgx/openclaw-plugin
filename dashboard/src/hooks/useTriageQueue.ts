@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import { queryKeys } from '@/lib/queryKeys';
+import { humanizeWarning } from '@/lib/humanize';
 import type {
   LiveTriageItem,
   TriageActionRequest,
@@ -50,7 +51,16 @@ async function fetchTriageQueue(
   });
 
   if (!res.ok) {
-    throw new Error(`Triage fetch failed: ${res.status}`);
+    const body = await res.json().catch(() => null);
+    const raw =
+      (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : null) ??
+      (body && typeof body === 'object' && 'message' in body && typeof body.message === 'string'
+        ? body.message
+        : null) ??
+      `Triage fetch failed (${res.status})`;
+    throw new Error(humanizeWarning(String(raw)));
   }
 
   return res.json();
@@ -72,7 +82,11 @@ async function postTriageAction(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? `Action failed: ${res.status}`);
+    const raw =
+      (body as { error?: string; message?: string }).error ??
+      (body as { error?: string; message?: string }).message ??
+      `Action failed (${res.status})`;
+    throw new Error(humanizeWarning(String(raw)));
   }
 
   return res.json();
