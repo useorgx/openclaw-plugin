@@ -119,7 +119,7 @@ import {
   createAutopilotOperations,
 } from "./helpers/autopilot-operations.js";
 import { mapDecisionEntity } from "./helpers/decision-mapper.js";
-import { idempotencyKey, stableHash } from "./helpers/hash-utils.js";
+import { deterministicActivityId, idempotencyKey, stableHash } from "./helpers/hash-utils.js";
 import {
   createCodexBinResolver,
   type CodexBinInfo,
@@ -955,27 +955,11 @@ function activityMetadataStr(
   return null;
 }
 
-const SEMANTIC_ACTIVITY_EVENTS = new Set([
-  "autopilot_slice_result",
-  "auto_continue_started",
-  "auto_continue_stopped",
-  "next_up_manual_dispatch_started",
-  "autopilot_slice_mcp_handshake_failed",
-  "autopilot_slice_timeout",
-  "autopilot_slice_log_stall",
-  "auto_continue_spawn_guard_blocked",
-  "auto_continue_spawn_guard_rate_limited",
-  "autopilot_autofix_scheduled",
-  "autopilot_autofix_executed",
-  "autopilot_autofix_skipped",
-]);
-
 function semanticActivityKey(item: LiveActivityItem): string | null {
   const metadata = asActivityMetadataRecord(item.metadata);
   const eventRaw = metadata?.event;
   const event =
     typeof eventRaw === "string" ? eventRaw.trim().toLowerCase() : "";
-  if (!event || !SEMANTIC_ACTIVITY_EVENTS.has(event)) return null;
 
   const runLike =
     (typeof item.runId === "string" && item.runId.trim().length > 0
@@ -1003,6 +987,7 @@ function semanticActivityKey(item: LiveActivityItem): string | null {
   const parsedStatus = activityMetadataStr(metadata, ["parsed_status", "parsedStatus"]);
   const title = (item.title ?? "").trim().toLowerCase();
 
+  if (!event && !runLike && !correlationId) return null;
   if (!runLike && !correlationId && !workstreamId && !taskId) return null;
 
   return [
@@ -1018,6 +1003,20 @@ function semanticActivityKey(item: LiveActivityItem): string | null {
   ].join("|");
 }
 
+function activityRichness(item: LiveActivityItem): number {
+  let score = 0;
+  const meta = item.metadata as Record<string, unknown> | undefined;
+  if (meta) score += Object.keys(meta).length;
+  if (item.summary) score += 2;
+  if (item.description) score += 2;
+  if (item.agentName) score += 1;
+  if (item.runtimeLabel) score += 1;
+  if (item.runtimeProvider) score += 1;
+  if (item.phase) score += 1;
+  if (item.state) score += 1;
+  return score;
+}
+
 function mergeActivities(
   base: LiveActivityItem[],
   extra: LiveActivityItem[],
@@ -1031,12 +1030,28 @@ function mergeActivities(
   const deduped: LiveActivityItem[] = [];
   const seenIds = new Set<string>();
   const seenSemantic = new Set<string>();
+  const semanticIdx = new Map<string, number>();
   for (const item of merged) {
-    if (seenIds.has(item.id)) continue;
+    if (seenIds.has(item.id)) {
+      const existingIdx = deduped.findIndex(d => d.id === item.id);
+      if (existingIdx >= 0 && activityRichness(item) > activityRichness(deduped[existingIdx])) {
+        deduped[existingIdx] = item;
+      }
+      continue;
+    }
     seenIds.add(item.id);
     const sk = semanticActivityKey(item);
-    if (sk && seenSemantic.has(sk)) continue;
-    if (sk) seenSemantic.add(sk);
+    if (sk && seenSemantic.has(sk)) {
+      const existingIdx = semanticIdx.get(sk)!;
+      if (activityRichness(item) > activityRichness(deduped[existingIdx])) {
+        deduped[existingIdx] = item;
+      }
+      continue;
+    }
+    if (sk) {
+      seenSemantic.add(sk);
+      semanticIdx.set(sk, deduped.length);
+    }
     deduped.push(item);
     if (deduped.length >= limit) break;
   }
@@ -4019,10 +4034,18 @@ export function createHttpHandler(
       }
       clearSnapshotResponseCache();
 
+      const activityId = deterministicActivityId(
+        "run_completed",
+        normalizedRunId,
+        nowIso,
+        runtimeRecord?.agentId ?? existingRun?.agentId ?? null,
+        "dashboard_run_mark_completed"
+      );
+
       try {
         appendActivityItems([
           {
-            id: randomUUID(),
+            id: activityId,
             type: "run_completed",
             title: message,
             description: reason,
@@ -4055,7 +4078,7 @@ export function createHttpHandler(
         const outboxSessionId =
           runtimeRecord?.initiativeId ?? existingRun?.initiativeId ?? normalizedRunId;
         const outboxActivityItem: LiveActivityItem = {
-          id: randomUUID(),
+          id: activityId,
           type: "run_completed",
           title: message,
           description: reason,

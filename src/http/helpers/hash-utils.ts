@@ -1,1 +1,1 @@
-export { idempotencyKey, stableHash } from "../../hash-utils.js";
+export { deterministicActivityId, idempotencyKey, stableHash } from "../../hash-utils.js";
