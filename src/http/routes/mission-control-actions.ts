@@ -1,6 +1,7 @@
 import type { Router } from "../router.js";
 import { randomUUID } from "node:crypto";
 import { resolveWorkspaceScope as resolveCanonicalWorkspaceScope } from "../helpers/workspace-scope.js";
+import { asRecord, asString, asStringArray } from "../../lib/type-coercion.js";
 import { buildDispatchGatewayEnvelope } from "./dispatch-gateway-envelope.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -335,23 +336,7 @@ type GraphCycleNode = {
   dependencyIds: string[];
 };
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => asString(entry))
-    .filter((entry): entry is string => Boolean(entry));
-}
+// asRecord, asString, asStringArray imported from ../../lib/type-coercion.js
 
 function parseCycleGraphNodes(graph: unknown): GraphCycleNode[] {
   const root = asRecord(graph);

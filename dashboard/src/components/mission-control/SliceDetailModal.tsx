@@ -13,8 +13,9 @@ import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
 import { dedupeSliceSections, synthesizeOutcome } from '@/lib/suppress-unknown-fields';
 import { colors, motion as motionTokens } from '@/lib/tokens';
+import { queueAccentStyle, queueStateDotColor, workSnapshotHeading } from '@/lib/queueStateMap';
 import { projectRunStatus } from '@/lib/runStatusModel';
-import type { NextUpQueueItem, SliceRunProjection } from '@/types';
+import type { Initiative, NextUpQueueItem, SliceRunProjection } from '@/types';
 import type { InProgressRow } from './InProgressPanel';
 
 // ---------------------------------------------------------------------------
@@ -40,62 +41,14 @@ interface SliceDetailModalProps {
   onOpenDecisions?: () => void;
   onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void;
   onRejectSlice?: (sliceRun: SliceRunProjection, note: string) => void;
+  initiatives?: Initiative[];
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function queueAccentStyle(state: string): React.CSSProperties {
-  switch (state) {
-    case 'running':
-      return { background: `linear-gradient(to right, ${colors.lime}, ${colors.teal})` };
-    case 'blocked':
-      return { background: `linear-gradient(to right, ${colors.red}, ${colors.amber})` };
-    case 'idle':
-      return { background: `linear-gradient(to right, ${colors.iris}99, transparent)` };
-    default:
-      return { background: `linear-gradient(to right, ${colors.lime}B3, ${colors.teal}66)` };
-  }
-}
-
-function queueStateLabel(state: string): string {
-  switch (state) {
-    case 'running':
-      return 'Running';
-    case 'blocked':
-      return 'Blocked';
-    case 'idle':
-      return 'Idle';
-    case 'queued':
-      return 'Queued';
-    default:
-      return state.replace(/_/g, ' ');
-  }
-}
-
-function queueStateDotColor(state: string): string {
-  switch (state) {
-    case 'running':
-      return colors.lime;
-    case 'blocked':
-      return colors.red;
-    case 'idle':
-      return colors.iris;
-    case 'queued':
-      return colors.teal;
-    default:
-      return colors.amber;
-  }
-}
-
-function workSnapshotHeading(queueState: string, isReview?: boolean): string {
-  if (isReview) return 'Scope Under Review';
-  if (queueState === 'completed') return 'Completed Scope';
-  if (queueState === 'running') return 'Current Work';
-  if (queueState === 'blocked') return 'Blocked Work';
-  return 'Next Work';
-}
+// Queue state UI mappings imported from @/lib/queueStateMap
 
 function workSnapshotFallback(input: {
   queueState: string;
@@ -349,6 +302,7 @@ export function SliceDetailModal({
   onOpenDecisions,
   onAcceptSlice,
   onRejectSlice,
+  initiatives = [],
 }: SliceDetailModalProps) {
   const open = target !== null;
   const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
@@ -399,9 +353,21 @@ export function SliceDetailModal({
   }, [actionMode]);
 
 
+  const initiativeTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const init of initiatives) {
+      if (init.id) map.set(init.id, init.name ?? init.id);
+    }
+    return map;
+  }, [initiatives]);
+
   if (!target) return null;
 
   const d = extractData(target);
+  // Resolve initiative title from initiatives prop when extractData couldn't find one
+  if (!d.initiativeTitle && d.initiativeId) {
+    d.initiativeTitle = initiativeTitleById.get(d.initiativeId) ?? null;
+  }
   const sr = d.sliceRun;
   const canonicalProjection = projectRunStatus({
     sessionStatus: d.queueState,
@@ -459,6 +425,16 @@ export function SliceDetailModal({
           ? 'Open result'
           : 'Review activity'
       : null);
+
+  const highlightedButton: 'resolve_decision' | 'review' | 'start' | null = (() => {
+    const action = sr?.primaryAction ?? null;
+    if (!action || action === 'none') return null;
+    if (action === 'resolve_decision') return 'resolve_decision';
+    if (action === 'open_artifact' || action === 'review_output') return 'review';
+    if (action === 'retry_slice') return 'start';
+    return null;
+  })();
+  const highlightRing = 'ring-1 ring-[#BFFF00]/40 shadow-[0_0_8px_rgba(191,255,0,0.15)]';
 
   const handleOpenTerminal = useCallback(
     async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
@@ -668,7 +644,7 @@ export function SliceDetailModal({
             <button
               type="button"
               onClick={() => { onOpenDecisions?.(); onClose(); }}
-              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#0AD4C4]/70 transition-colors hover:bg-[#0AD4C4]/[0.08] hover:text-[#0AD4C4]"
+              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#0AD4C4]/70 transition-colors hover:bg-[#0AD4C4]/[0.08] hover:text-[#0AD4C4] ${highlightedButton === 'resolve_decision' ? highlightRing : ''}`}
             >
               Resolve decision
             </button>
@@ -678,7 +654,7 @@ export function SliceDetailModal({
             <button
               type="button"
               onClick={() => { onReviewActivity?.(sr); onClose(); }}
-              className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
+              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60 ${highlightedButton === 'review' ? highlightRing : ''}`}
             >
               Review
             </button>
@@ -739,7 +715,7 @@ export function SliceDetailModal({
                 onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
                 onClose();
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20"
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20 ${highlightedButton === 'start' ? 'ring-1 ring-[#BFFF00]/50 shadow-[0_0_10px_rgba(191,255,0,0.2)]' : ''}`}
               title="Start (⌘ Enter)"
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
@@ -920,7 +896,10 @@ export function SliceDetailModal({
                       </p>
                     ) : null}
                     {nextActionLabel ? (
-                      <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
+                      <p className="mt-1 text-caption text-[#BFFF00]/70 flex items-center gap-1">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><polyline points="9 18 15 12 9 6" /></svg>
+                        Recommended action: {nextActionLabel}
+                      </p>
                     ) : null}
                   </motion.div>
 

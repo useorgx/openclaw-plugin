@@ -1,5 +1,6 @@
 import type { LiveActivityItem, LiveActivityType, SessionTreeNode } from "../../types.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
+import { asRecord } from "../../lib/type-coercion.js";
 
 export type SliceRunLifecycleState =
   | "queued"
@@ -101,10 +102,7 @@ const TERMINAL_STATES = new Set<SliceRunLifecycleState>([
 
 const RUN_LIKE_STATUS = new Set<SliceRunLifecycleState>(["dispatching", "running"]);
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
+// asRecord imported from ../../lib/type-coercion.js
 
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") return null;

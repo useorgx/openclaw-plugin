@@ -3,6 +3,13 @@ import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
+import {
+  asRecord,
+  asString,
+  asNumber,
+  asArray,
+  asStringArray,
+} from "../../lib/type-coercion.js";
 import type { Router } from "../router.js";
 
 type AutoContinueRunRecord = {
@@ -135,30 +142,7 @@ type RegisterMissionControlReadRoutesDeps<TRes> = {
   safeErrorMessage: (err: unknown) => string;
 };
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function asArray(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== "string") return [];
-  const trimmed = value.trim();
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed === "object") return [parsed];
-    return [];
-  } catch {
-    return [];
-  }
-}
+// asRecord, asString, asArray, asNumber, asStringArray imported from ../../lib/type-coercion.js
 
 function normalizeRunnerValue(value: unknown): string | null {
   const raw = asString(value);
@@ -227,26 +211,7 @@ function mergeRunnerAgents(...groups: SliceRunnerAgent[][]): SliceRunnerAgent[] 
   return output;
 }
 
-function asNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function asStringArray(value: unknown): string[] {
-  const entries = asArray(value);
-  if (entries.length === 0) return [];
-  const values: string[] = [];
-  for (const entry of entries) {
-    const normalized = asString(entry);
-    if (!normalized) continue;
-    values.push(normalized);
-  }
-  return dedupeStrings(values);
-}
+// asNumber, asStringArray imported from ../../lib/type-coercion.js
 
 function isCanonicalAllScopeMismatch(
   canonicalRecord: Record<string, unknown>,
